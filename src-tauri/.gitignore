@@ -4,3 +4,5 @@
 # Sidecar binary — a ~17MB build artifact rebuilt from backend/ (see
 # backend/build_sidecar.py); don't bloat the repo with it.
 /binaries/
+# Updater signing key — PRIVATE, never commit.
+.updater-key

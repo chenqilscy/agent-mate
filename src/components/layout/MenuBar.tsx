@@ -9,6 +9,20 @@ export function MenuBar() {
   const setNavOpen = useUIStore((s) => s.setNavOpen)
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
+
+  // 帮助 → 检查更新 (A4). Desktop-only; on web it's a friendly no-op.
+  const checkUpdate = async () => {
+    if (!platform.isDesktop) { toast('自动更新仅桌面版可用'); return }
+    toast('正在检查更新…')
+    try {
+      const r = await platform.checkForUpdates()
+      if (r === 'latest') toast('已是最新版本')
+      // 'updating' → the app downloads, installs and relaunches itself.
+    } catch {
+      toast('检查更新失败（发布端点尚未配置）')
+    }
+  }
+
   return (
     // data-tauri-drag-region makes the borderless window draggable by the bar;
     // interactive children (buttons) still receive clicks normally.
@@ -33,7 +47,7 @@ export function MenuBar() {
         <b>WorkBuddy</b>
         <span className="mb-menu">编辑(E)</span>
         <span className="mb-menu">窗口(W)</span>
-        <span className="mb-menu">帮助(H)</span>
+        <span className="mb-menu" style={{ cursor: 'pointer' }} title="检查更新" onClick={checkUpdate}>帮助(H)</span>
       </div>
       <div className="mb-win">
         <button aria-label="最小化" onClick={() => platform.windowControls.minimize()}>

@@ -5,6 +5,8 @@
 // single bundle works both as the web app and inside the shell.
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
+export type UpdateResult = 'latest' | 'updating' | 'unsupported'
+
 export interface Platform {
   windowControls: {
     minimize(): void
@@ -22,6 +24,9 @@ export interface Platform {
   fileDialog: {
     openDirectory(): Promise<string | null>
   }
+  // Auto-update (A4): check the release endpoint; if newer, download+install and
+  // relaunch (never returns in that case). Throws on network/endpoint failure.
+  checkForUpdates(): Promise<UpdateResult>
   isDesktop: boolean
 }
 
@@ -41,6 +46,7 @@ const webPlatform: Platform = {
   notify: webNotify,
   globalShortcut: { register() {}, unregister() {} },
   fileDialog: { async openDirectory() { return null } },
+  async checkForUpdates() { return 'unsupported' },
   isDesktop: false,
 }
 
@@ -57,6 +63,16 @@ const tauriPlatform: Platform = {
   notify: webNotify,
   globalShortcut: { register() {}, unregister() {} },
   fileDialog: { async openDirectory() { return null } },
+  async checkForUpdates() {
+    // Dynamic import so the web bundle never pulls the desktop-only plugin.
+    const { check } = await import('@tauri-apps/plugin-updater')
+    const update = await check()
+    if (!update) return 'latest'
+    await update.downloadAndInstall()
+    const { relaunch } = await import('@tauri-apps/plugin-process')
+    await relaunch()
+    return 'updating'
+  },
   isDesktop: true,
 }
 
