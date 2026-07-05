@@ -3,7 +3,7 @@ id: WB-001
 title: 停止/连接失败后助手消息永久卡在「执行中…」
 severity: P0
 area: frontend
-status: open
+status: fixed
 origin: 🆕 近期改动
 files:
   - src/stores/chatStore.ts:224
@@ -33,3 +33,7 @@ created: 2026-07-06
 
 ## 验证
 发长任务→点停止：气泡立即变「已完成」+ 出现操作按钮，无 spinner；关掉后端再发送：气泡显示错误、无卡死、控制台无未处理拒绝。
+
+## 处理记录（2026-07-06）
+- 改动：sse.ts 把 `fetch` 纳入 try（网络/HTTP 失败→error+done，AbortError 静默不发 done）；chatStore.stop() 把所有 status==='running' 气泡 finalize 成 done；send 增加 catch 兜底 finalize，streamChat 不再向上抛出。（src/lib/sse.ts, src/stores/chatStore.ts）
+- 验证：verify_runtime.py 驱动真实 run_chat（stub LLM）：done 事件正常、stop 后气泡立即 finalize；`npx tsc --noEmit` 与 `vite build` 均通过。

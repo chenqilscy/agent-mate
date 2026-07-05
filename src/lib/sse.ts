@@ -27,38 +27,42 @@ export interface ChatStreamOptions {
 }
 
 export async function streamChat(opts: ChatStreamOptions): Promise<void> {
-  const resp = await fetch(`${API_BASE}/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text: opts.text,
-      session_id: opts.sessionId,
-      title: opts.title,
-      space: opts.space,
-      model: opts.model,
-      plan: opts.plan,
-      ask: opts.ask,
-      project_id: opts.projectId,
-      experts: opts.experts,
-      skills: opts.skills,
-      connectors: opts.connectors,
-      refs: opts.refs,
-    }),
-    signal: opts.signal,
-  })
-
-  if (!resp.ok || !resp.body) {
-    const detail = await resp.text().catch(() => '')
-    opts.onEvent({ type: 'error', data: { message: `HTTP ${resp.status} ${detail}` } })
-    opts.onEvent({ type: 'done', data: {} })
-    return
-  }
-
-  const reader = resp.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
 
+  // The whole request lives in the try: a failed fetch (backend down / network
+  // error) must surface as error+done to the caller, not reject out of streamChat
+  // and become an unhandled rejection with the bot bubble stuck 'running' (WB-001).
   try {
+    const resp = await fetch(`${API_BASE}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: opts.text,
+        session_id: opts.sessionId,
+        title: opts.title,
+        space: opts.space,
+        model: opts.model,
+        plan: opts.plan,
+        ask: opts.ask,
+        project_id: opts.projectId,
+        experts: opts.experts,
+        skills: opts.skills,
+        connectors: opts.connectors,
+        refs: opts.refs,
+      }),
+      signal: opts.signal,
+    })
+
+    if (!resp.ok || !resp.body) {
+      const detail = await resp.text().catch(() => '')
+      opts.onEvent({ type: 'error', data: { message: `HTTP ${resp.status} ${detail}` } })
+      opts.onEvent({ type: 'done', data: {} })
+      return
+    }
+
+    reader = resp.body.getReader()
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
@@ -72,13 +76,21 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
         dispatchFrame(frame, opts.onEvent)
       }
     }
+
+    // Stream closed cleanly. Flush any trailing multibyte bytes, then dispatch a
+    // final frame the server didn't terminate with a blank line (WB-020) — else a
+    // last `done` frame is dropped and the bubble stays 'running'.
+    buffer += decoder.decode()
+    if (buffer.trim()) dispatchFrame(buffer, opts.onEvent)
   } catch (e) {
-    // AbortError is an expected outcome of the stop button — swallow it.
+    // AbortError is an expected outcome of the stop button — the caller's stop()
+    // already finalised the bubble, so stay silent (and keep one-shot refs).
     if ((e as Error).name !== 'AbortError') {
       opts.onEvent({ type: 'error', data: { message: String(e) } })
+      opts.onEvent({ type: 'done', data: {} })
     }
   } finally {
-    reader.releaseLock?.()
+    reader?.releaseLock?.()
   }
 }
 

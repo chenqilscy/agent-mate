@@ -3,7 +3,7 @@ id: WB-019
 title: 迟到 SSE 事件污染新会话（onEvent 不校验当前流）
 severity: P2
 area: frontend
-status: open
+status: fixed
 origin: 🏚 既有实现
 files:
   - src/stores/chatStore.ts:128
@@ -25,3 +25,7 @@ created: 2026-07-06
 
 ## 验证
 A 流式中快速切 B → B 不出现 A 的标题/提问卡。
+
+## 处理记录（2026-07-06）
+- 改动：onEvent 顶部 `if (get().abort !== controller) return`，丢弃被取代流（stop/openSession 后）的迟到 session/usage/ask_user 帧。（src/stores/chatStore.ts）
+- 验证：`tsc` 通过；切会话后旧流的迟到帧不再覆盖新会话标题或弹出无关提问卡。

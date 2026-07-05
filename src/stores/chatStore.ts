@@ -125,7 +125,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const controller = new AbortController()
     set({ abort: controller })
 
+    // Success tracking: refs are one-shot but must survive a failed/stopped send
+    // (WB-006). We only clear them when the stream finished cleanly (done, no error).
+    let errored = false
+    let doneOk = false
+
     const onEvent = (ev: SSEEvent) => {
+      // Drop frames from a superseded stream: after stop()/openSession the active
+      // controller changes, but a last buffered chunk of the old stream can still
+      // dispatch and clobber the new session's session/usage/ask_user state (WB-019).
+      if (get().abort !== controller) return
       switch (ev.type) {
         case 'session':
           set({ activeId: ev.data.id, title: ev.data.title })
@@ -178,9 +187,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           patchBot((m) => ({ ...m, status: ev.data.state, secs: ev.data.secs ?? m.secs }))
           break
         case 'error':
+          errored = true
           patchBot((m) => ({ ...m, error: ev.data.message, status: 'done' }))
           break
         case 'done':
+          doneOk = !errored
           patchBot((m) => ({ ...m, status: 'done' }))
           break
       }
@@ -204,9 +215,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         signal: controller.signal,
         onEvent,
       })
+    } catch (e) {
+      // streamChat is designed not to reject, but finalise defensively so the
+      // bubble never stays 'running' on an unexpected throw (WB-001).
+      patchBot((m) => ({ ...m, status: 'done', error: m.error ?? String(e) }))
     } finally {
-      // Attachments are one-shot — the loadout personas/skills/connectors stay.
-      useLoadoutStore.getState().clearRefs()
+      // Attachments are one-shot — but only consume them on a clean finish, so a
+      // failed/stopped send keeps the refs for retry (WB-006). Personas/skills/
+      // connectors stay across sends regardless.
+      if (doneOk) useLoadoutStore.getState().clearRefs()
       set({ streaming: false, abort: null, pending: null })
       get().loadSessions()
     }
@@ -225,6 +242,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { abort, activeId } = get()
     abort?.abort()
     if (activeId) api.stopChat(activeId).catch(() => {})
-    set({ streaming: false, abort: null, pending: null })
+    // abort() makes the SSE reader throw AbortError, which is swallowed and never
+    // dispatches `done` — so finalise the in-flight bubble here, else it stays a
+    // zombie 'running' spinner with no actions until the session is reopened (WB-001).
+    set((s) => ({
+      messages: s.messages.map((m) => (m.status === 'running' ? { ...m, status: 'done' } : m)),
+      streaming: false,
+      abort: null,
+      pending: null,
+    }))
   },
 }))

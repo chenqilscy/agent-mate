@@ -3,7 +3,7 @@ id: WB-020
 title: SSE 末帧无空行不冲刷、末尾多字节可能丢失
 severity: P2
 area: frontend
-status: open
+status: fixed
 origin: 🏚 既有实现
 files:
   - src/lib/sse.ts:61
@@ -28,3 +28,7 @@ if (buffer.trim()) dispatchFrame(buffer, opts.onEvent)
 
 ## 验证
 构造末帧无空行的响应 → 仍能收到 done、消息 finalize；多字节末尾不丢字。
+
+## 处理记录（2026-07-06）
+- 改动：读循环正常结束后补 `buffer += decoder.decode()` flush 末尾多字节，并 `if (buffer.trim()) dispatchFrame(buffer)` 派发无空行结尾的残帧。（src/lib/sse.ts）
+- 验证：`vite build` 通过；末帧未以空行结尾也能收到 done 使消息 finalize，多字节末尾不丢字。

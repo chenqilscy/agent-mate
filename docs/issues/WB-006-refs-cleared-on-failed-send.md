@@ -3,7 +3,7 @@ id: WB-006
 title: 发送失败/被停止时，一次性 refs 仍被清空
 severity: P1
 area: frontend
-status: open
+status: fixed
 origin: 🆕 近期改动
 files:
   - src/stores/chatStore.ts:209
@@ -24,3 +24,7 @@ created: 2026-07-06
 
 ## 验证
 引用文件 → 断开后端发送失败 → chip 仍在，可直接重试；成功发送 → chip 清空。
+
+## 处理记录（2026-07-06）
+- 改动：send 内跟踪 `errored`/`doneOk`（收到 done 且无 error 才为 true）；finally 里 `if (doneOk) clearRefs()`，失败/停止（abort、error、HTTP 错误）保留 refs。（src/stores/chatStore.ts）
+- 验证：`tsc` 通过；error/abort 路径 doneOk=false → chip 保留可重试；成功路径清空。与 WB-001 同源一并处理。
