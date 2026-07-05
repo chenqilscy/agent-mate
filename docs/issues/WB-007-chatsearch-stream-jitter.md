@@ -3,7 +3,7 @@ id: WB-007
 title: ChatSearch 流式抖动 + 当前高亮陈旧
 severity: P1
 area: frontend
-status: open
+status: fixed
 origin: 🆕 近期改动
 files:
   - src/components/chat/ChatSearch.tsx:61
@@ -30,3 +30,7 @@ created: 2026-07-06
 
 ## 验证
 边流式边开搜索：不抖、不卡；搜「ab」→改「cd」：当前高亮跳到新匹配并滚动到位。
+
+## 处理记录（2026-07-06）
+- 改动：重算加 150ms 防抖（流式每 token 不再重建全部 Range）；paint 与 scroll 拆分：`rangesVersion` 触发当前高亮重绘（修「ab→cd」同数切词陈旧），`scrollToken` 仅在显式导航（改词/▲▼/Enter）滚动，流式重算不滚动、不再与钉底部抢滚动。（src/components/chat/ChatSearch.tsx）
+- 验证：`tsc` 与 `vite build` 通过；逻辑核对四条路径（流式重算不滚动、改词跳首个匹配并滚动、同数切词高亮更新、导航滚动）。
