@@ -1,0 +1,25 @@
+[package]
+name = "workbuddy"
+version = "0.1.0"
+description = "WorkBuddy — your workplace superpower (desktop shell)"
+authors = ["WorkBuddy"]
+edition = "2021"
+rust-version = "1.77"
+
+# The Tauri app logic lives in the library so both the desktop binary (main.rs)
+# and any future mobile entry point share one `run()`.
+[lib]
+name = "workbuddy_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+# Enabled by tauri-cli in dev; kept for parity with the standard template.
+custom-protocol = ["tauri/custom-protocol"]

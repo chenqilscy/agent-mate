@@ -10,8 +10,10 @@ export function MenuBar() {
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
   return (
-    <div className="menubar">
-      <div className="mb-left">
+    // data-tauri-drag-region makes the borderless window draggable by the bar;
+    // interactive children (buttons) still receive clicks normally.
+    <div className="menubar" data-tauri-drag-region>
+      <div className="mb-left" data-tauri-drag-region>
         {/* Hamburger — shown ≤900px (CSS) to reveal the off-canvas sidebar, and
             forced visible (.show) on wide screens once the docked sidebar is
             collapsed (WB-024), so it doubles as the re-expand control. */}
