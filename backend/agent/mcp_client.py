@@ -35,6 +35,22 @@ def is_connector(name: str) -> bool:
     return name in CONNECTORS
 
 
+# Only these (harmless, needed-to-launch) host env vars are forwarded to a
+# connector subprocess. A whitelist — never `os.environ` wholesale — so the
+# backend's LLM_API_KEY / LLM_API_BASE and any other secret can't leak into a
+# third-party MCP server's process (WB-011, hard-line #4).
+_SAFE_ENV = {
+    "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "SYSTEMDRIVE",
+    "TEMP", "TMP", "TMPDIR", "HOME", "HOMEPATH", "HOMEDRIVE", "USERPROFILE",
+    "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMDATA",
+    "LANG", "LC_ALL", "LC_CTYPE", "TZ", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE",
+}
+
+
+def _safe_base_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k.upper() in _SAFE_ENV}
+
+
 @dataclass
 class McpTool:
     connector: str
@@ -72,8 +88,9 @@ async def open_connectors(
             args=spec.get("args", []),
             # Force UTF-8 stdio — MCP frames JSON as UTF-8, but a Python server on
             # Windows defaults to the system codepage (GBK), which corrupts CJK.
+            # Base env is a secret-free whitelist (WB-011), not the whole os.environ.
             env={
-                **os.environ,
+                **_safe_base_env(),
                 **(env or {}),
                 **spec.get("env", {}),
                 "PYTHONUTF8": "1",

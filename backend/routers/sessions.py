@@ -63,7 +63,8 @@ def create_session(body: CreateSessionBody) -> dict:
 
 @router.get("/sessions/{session_id}/messages")
 def get_messages(session_id: str) -> dict:
-    s = db.get_session(session_id)
+    # owner-scoped so one user can't replay another's history (WB-013).
+    s = db.get_session(session_id, owner_id=current_user().id)
     if not s:
         raise HTTPException(404, "session not found")
     return {
@@ -74,7 +75,7 @@ def get_messages(session_id: str) -> dict:
 
 @router.patch("/sessions/{session_id}")
 def rename_session(session_id: str, body: RenameBody) -> dict:
-    if not db.get_session(session_id):
+    if not db.get_session(session_id, owner_id=current_user().id):
         raise HTTPException(404, "session not found")
     db.rename_session(session_id, body.title)
     return {"ok": True}
@@ -82,5 +83,7 @@ def rename_session(session_id: str, body: RenameBody) -> dict:
 
 @router.delete("/sessions/{session_id}")
 def delete_session(session_id: str) -> dict:
+    if not db.get_session(session_id, owner_id=current_user().id):
+        raise HTTPException(404, "session not found")
     db.delete_session(session_id)
     return {"ok": True}

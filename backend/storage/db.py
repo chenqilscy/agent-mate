@@ -3,11 +3,18 @@
 Thin DAO over stdlib sqlite3 — no ORM. Chat streaming is the async hot path
 (LLM over httpx); DB writes happen at the boundaries of a stream (session create,
 message persist) and are quick, so synchronous sqlite calls are fine here.
+
+Connections are thread-local (WB-009): a single shared sqlite3.Connection is not
+safe for concurrent use, and this backend touches the DB from both the event-loop
+thread (async run_chat) and anyio worker threads (sync routes). Each thread gets
+its own connection; WAL mode plus a busy_timeout let those connections write
+concurrently without "database is locked" storms.
 """
 from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 import uuid
 from typing import Any, Optional
@@ -24,7 +31,7 @@ from storage.models import (
     WorkItem,
 )
 
-_conn: Optional[sqlite3.Connection] = None
+_local = threading.local()
 
 
 def _connect() -> sqlite3.Connection:
@@ -32,14 +39,17 @@ def _connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    # Wait (up to 5s) for a competing writer instead of failing immediately.
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
 def get_conn() -> sqlite3.Connection:
-    global _conn
-    if _conn is None:
-        _conn = _connect()
-    return _conn
+    conn = getattr(_local, "conn", None)
+    if conn is None:
+        conn = _connect()
+        _local.conn = conn
+    return conn
 
 
 def new_uuid() -> str:
@@ -170,8 +180,15 @@ def create_session(
     return s
 
 
-def get_session(session_id: str) -> Optional[Session]:
-    row = get_conn().execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
+def get_session(session_id: str, owner_id: Optional[str] = None) -> Optional[Session]:
+    # owner_id, when given, scopes the lookup so a caller can't read another
+    # user's session by guessing its id (WB-013).
+    if owner_id is not None:
+        row = get_conn().execute(
+            "SELECT * FROM sessions WHERE id=? AND owner_id=?", (session_id, owner_id)
+        ).fetchone()
+    else:
+        row = get_conn().execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
     if not row:
         return None
     return _row_to_session(row)
@@ -322,8 +339,13 @@ def _row_to_project(row: sqlite3.Row) -> Project:
     )
 
 
-def get_project(project_id: str) -> Optional[Project]:
-    row = get_conn().execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+def get_project(project_id: str, owner_id: Optional[str] = None) -> Optional[Project]:
+    if owner_id is not None:
+        row = get_conn().execute(
+            "SELECT * FROM projects WHERE id=? AND owner_id=?", (project_id, owner_id)
+        ).fetchone()
+    else:
+        row = get_conn().execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
     return _row_to_project(row) if row else None
 
 
@@ -407,8 +429,13 @@ def list_work_items(project_id: str) -> list[WorkItem]:
     return [_row_to_work_item(r) for r in rows]
 
 
-def get_work_item(item_id: str) -> Optional[WorkItem]:
-    r = get_conn().execute("SELECT * FROM work_items WHERE id=?", (item_id,)).fetchone()
+def get_work_item(item_id: str, owner_id: Optional[str] = None) -> Optional[WorkItem]:
+    if owner_id is not None:
+        r = get_conn().execute(
+            "SELECT * FROM work_items WHERE id=? AND owner_id=?", (item_id, owner_id)
+        ).fetchone()
+    else:
+        r = get_conn().execute("SELECT * FROM work_items WHERE id=?", (item_id,)).fetchone()
     return _row_to_work_item(r) if r else None
 
 

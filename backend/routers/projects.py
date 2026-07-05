@@ -70,7 +70,8 @@ def create_project(body: CreateProjectBody) -> dict:
 
 @router.get("/projects/{project_id}")
 def get_project(project_id: str) -> dict:
-    p = db.get_project(project_id)
+    # owner-scoped (WB-013): another user's project id must 404, not leak config.
+    p = db.get_project(project_id, owner_id=current_user().id)
     if not p:
         raise HTTPException(404, "project not found")
     return _view(p)
@@ -78,7 +79,7 @@ def get_project(project_id: str) -> dict:
 
 @router.patch("/projects/{project_id}")
 def update_project(project_id: str, body: UpdateProjectBody) -> dict:
-    p = db.get_project(project_id)
+    p = db.get_project(project_id, owner_id=current_user().id)
     if not p:
         raise HTTPException(404, "project not found")
     updated = db.update_project(
@@ -94,5 +95,7 @@ def update_project(project_id: str, body: UpdateProjectBody) -> dict:
 
 @router.get("/projects/{project_id}/sessions")
 def project_sessions(project_id: str) -> dict:
+    if not db.get_project(project_id, owner_id=current_user().id):
+        raise HTTPException(404, "project not found")
     rows = db.list_project_sessions(project_id)
     return {"sessions": [{**s.to_dict(), "ago": _ago(s.updated_at)} for s in rows]}

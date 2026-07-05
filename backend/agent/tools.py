@@ -6,8 +6,12 @@ plus trace items. The runtime turns those into typed SSE events
 (step / file_read / diff / todo) — so the koda-style trace is driven by REAL
 tool calls, not a script.
 
-`run_command` is powerful; for M1/M2 it runs with cwd pinned to the workspace and
-a hard timeout. M4 will gate out-of-sandbox escapes behind ask_user authorization.
+`run_command` is powerful and NOT a real sandbox (WB-014): cwd is pinned to the
+workspace and there's a hard timeout, but the command itself runs with the
+backend's own privileges — it can read/write outside the workspace, reach the
+network, and install packages. It is safe only because the server binds
+127.0.0.1 (see config HOST); do not expose the backend. M4 will gate risky
+commands behind ask_user authorization.
 """
 from __future__ import annotations
 
@@ -170,7 +174,11 @@ def _run_command_run(args: dict[str, Any]) -> ToolOutcome:
 
 run_command = Tool(
     name="run_command",
-    description="在工作区目录内运行一条 shell 命令并返回输出（沙箱内、有超时）。",
+    description=(
+        "在工作区目录内运行一条 shell 命令并返回输出（工作目录固定在工作区、有超时）。"
+        "注意：这不是真正的沙箱——命令以后端自身权限执行，可访问本机任意路径与网络，"
+        "请仅执行必要且可信的命令。"
+    ),
     parameters={
         "type": "object",
         "properties": {"command": {"type": "string", "description": "要执行的命令"}},

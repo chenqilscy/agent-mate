@@ -21,6 +21,7 @@ from agent.sandbox import (
     resolve_in_sandbox,
     use_root,
 )
+from auth.deps import current_user
 from storage import db
 
 router = APIRouter(prefix="/api/files", tags=["files"])
@@ -38,13 +39,23 @@ _MAX_DEPTH = 4
 
 
 def _select_root(session: str | None, project: str | None) -> None:
-    """Set the active workspace root from ?project= / ?session=."""
+    """Set the active workspace root from ?project= / ?session=.
+
+    Ownership is enforced (WB-013): a project/session that isn't the caller's is
+    rejected with 404, so file content/download can't be read across owners by
+    guessing an id. Same-owner cross-project access is by design.
+    """
+    owner_id = current_user().id
     if project:
+        if not db.get_project(project, owner_id=owner_id):
+            raise HTTPException(404, "project not found")
         use_root(project_root(project))
         return
     if session:
-        s = db.get_session(session)
-        use_root(project_root(s.project_id if s else None))
+        s = db.get_session(session, owner_id=owner_id)
+        if not s:
+            raise HTTPException(404, "session not found")
+        use_root(project_root(s.project_id))
         return
     use_root(project_root(None))
 
@@ -74,7 +85,9 @@ def _children(base: Path, depth: int) -> list[dict]:
 
 
 @router.get("/tree")
-def tree(root: str = "workspace", session: str | None = None, project: str | None = None) -> dict:
+def tree(session: str | None = None, project: str | None = None) -> dict:
+    # (the old `root` query param was dead — the root is chosen by session/project
+    # via _select_root; extra query params are ignored — WB-023 cleanup.)
     _select_root(session, project)
     base = current_root()
     if not base.exists():
@@ -141,9 +154,18 @@ def usage(project: str | None = None, session: str | None = None) -> dict:
 @router.post("/upload")
 async def upload(request: Request, path: str, project: str | None = None, session: str | None = None) -> dict:
     _select_root(session, project)
-    data = await request.body()
-    if len(data) > MAX_UPLOAD:
+    # Reject by declared size first (cheap), then keep enforcing while streaming —
+    # a missing/lying Content-Length must not let a huge body fill memory before
+    # the check (WB-017).
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_UPLOAD:
         raise HTTPException(413, f"文件过大（>{MAX_UPLOAD // (1024 * 1024)}MB）")
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf.extend(chunk)
+        if len(buf) > MAX_UPLOAD:
+            raise HTTPException(413, f"文件过大（>{MAX_UPLOAD // (1024 * 1024)}MB）")
+    data = bytes(buf)
     try:
         target = resolve_in_sandbox(path)
     except SandboxError as e:

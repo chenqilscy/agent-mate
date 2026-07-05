@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agent import events, runtime
 from auth.deps import current_user
@@ -13,9 +13,12 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 
 class ChatBody(BaseModel):
-    text: str
+    # Field caps bound the payload at validation time (WB-010); the runtime further
+    # truncates ref bodies. Over-limit requests get a 422 rather than bloating the
+    # context or memory.
+    text: str = Field(max_length=200_000)
     session_id: str | None = None
-    title: str | None = None
+    title: str | None = Field(default=None, max_length=200)
     space: str | None = None
     model: str | None = None
     plan: bool = False
@@ -23,11 +26,11 @@ class ChatBody(BaseModel):
     project_id: str | None = None
     # Per-message loadout picked from the composer ＋ menu (merged with the
     # project's own experts/skills/connectors when the session belongs to one).
-    experts: list[str] = []
-    skills: list[str] = []
-    connectors: list[str] = []
+    experts: list[str] = Field(default=[], max_length=50)
+    skills: list[str] = Field(default=[], max_length=50)
+    connectors: list[str] = Field(default=[], max_length=50)
     # Attached / referenced files: injected into this turn's context only.
-    refs: list[dict] = []
+    refs: list[dict] = Field(default=[], max_length=50)
 
 
 SSE_HEADERS = {
@@ -47,7 +50,8 @@ async def chat(body: ChatBody):
     user = current_user()
 
     if body.session_id:
-        session = db.get_session(body.session_id)
+        # owner-scoped so a guessed session id can't be driven by another user (WB-013).
+        session = db.get_session(body.session_id, owner_id=user.id)
         if not session:
             raise HTTPException(404, "session not found")
     else:

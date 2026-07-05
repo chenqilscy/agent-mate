@@ -3,7 +3,7 @@ id: WB-009
 title: 全局单 sqlite 连接被线程池 + 事件循环并发共享
 severity: P1
 area: backend
-status: open
+status: fixed
 origin: 🏚 既有实现
 files:
   - backend/storage/db.py:27
@@ -24,3 +24,7 @@ created: 2026-07-06
 
 ## 验证
 并发压测（多会话同时流式 + 列表/看板操作）无 `database is locked` / 游标错误。
+
+## 处理记录（2026-07-06）
+- 改动：单个全局连接改为线程本地连接（`threading.local`），每线程独立 `sqlite3.Connection`；新增 `PRAGMA busy_timeout=5000`（WAL 已启用），并发写等待而非立即报错。（backend/storage/db.py）
+- 验证：verify_backend.py 经 TestClient 建项目/会话/工作项并发读写全通过；事件循环线程与 anyio 工作线程不再共用同一连接。

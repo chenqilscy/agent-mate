@@ -3,7 +3,7 @@ id: WB-014
 title: run_command 非真沙箱（shell=True，仅钉 cwd）
 severity: P2
 area: backend
-status: open
+status: fixed
 origin: 🏚 既有实现
 files:
   - backend/agent/tools.py:151
@@ -26,3 +26,7 @@ created: 2026-07-06
 
 ## 验证
 描述已如实标注；`HOST` 默认 127.0.0.1；（若实现白名单）越权命令被拦并要求确认。
+
+## 处理记录（2026-07-06）
+- 改动：run_command 工具描述与 tools.py 模块文档如实标注「非真沙箱，命令以后端权限执行、可访问任意路径与网络」；坚持 HOST 默认 127.0.0.1（config 未改）。（backend/agent/tools.py）
+- 验证：描述已更新如实标注；`settings.HOST` 默认 127.0.0.1。中期白名单/授权留待 M4。

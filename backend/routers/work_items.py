@@ -47,6 +47,9 @@ def _view(wi, user) -> dict:
 @router.get("/work-items")
 def list_items(project: str) -> dict:
     user = current_user()
+    # Only list a project's items if the caller owns the project (WB-013).
+    if not db.get_project(project, owner_id=user.id):
+        raise HTTPException(404, "project not found")
     return {"items": [_view(wi, user) for wi in db.list_work_items(project)]}
 
 
@@ -67,13 +70,18 @@ def create_item(body: CreateWorkItemBody) -> dict:
 def update_item(item_id: str, body: UpdateWorkItemBody) -> dict:
     if body.status is not None and body.status not in STATUSES:
         raise HTTPException(400, "bad status")
+    user = current_user()
+    if not db.get_work_item(item_id, owner_id=user.id):
+        raise HTTPException(404, "work item not found")
     wi = db.update_work_item(item_id, title=body.title, status=body.status)
     if not wi:
         raise HTTPException(404, "work item not found")
-    return _view(wi, current_user())
+    return _view(wi, user)
 
 
 @router.delete("/work-items/{item_id}")
 def delete_item(item_id: str) -> dict:
+    if not db.get_work_item(item_id, owner_id=current_user().id):
+        raise HTTPException(404, "work item not found")
     db.delete_work_item(item_id)
     return {"ok": True}
