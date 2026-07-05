@@ -17,6 +17,7 @@ from storage.models import (
     LOCAL_USER_ID,
     LOCAL_USER_NAME,
     Message,
+    Project,
     Role,
     Session,
     User,
@@ -83,6 +84,20 @@ def init_db() -> None:
             ON messages(session_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_sessions_owner
             ON sessions(owner_id, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS projects (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            instruction TEXT NOT NULL DEFAULT '',
+            connectors TEXT NOT NULL DEFAULT '[]',
+            experts TEXT NOT NULL DEFAULT '[]',
+            skills TEXT NOT NULL DEFAULT '[]',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_projects_owner
+            ON projects(owner_id, updated_at DESC);
         """
     )
     conn.commit()
@@ -238,6 +253,70 @@ def add_message(
     )
     get_conn().commit()
     return m
+
+
+# ---- projects -----------------------------------------------------------
+
+def create_project(
+    *,
+    owner_id: str,
+    name: str,
+    instruction: str = "",
+    connectors: Optional[list[str]] = None,
+    experts: Optional[list[str]] = None,
+    skills: Optional[list[str]] = None,
+) -> Project:
+    now = time.time()
+    p = Project(
+        id=new_uuid(),
+        name=name[:120],
+        owner_id=owner_id,
+        instruction=instruction,
+        connectors=connectors or [],
+        experts=experts or [],
+        skills=skills or [],
+        created_at=now,
+        updated_at=now,
+    )
+    get_conn().execute(
+        """INSERT INTO projects (id,name,owner_id,instruction,connectors,experts,skills,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (
+            p.id, p.name, p.owner_id, p.instruction,
+            json.dumps(p.connectors, ensure_ascii=False),
+            json.dumps(p.experts, ensure_ascii=False),
+            json.dumps(p.skills, ensure_ascii=False),
+            p.created_at, p.updated_at,
+        ),
+    )
+    get_conn().commit()
+    return p
+
+
+def _row_to_project(row: sqlite3.Row) -> Project:
+    return Project(
+        id=row["id"],
+        name=row["name"],
+        owner_id=row["owner_id"],
+        instruction=row["instruction"],
+        connectors=json.loads(row["connectors"]),
+        experts=json.loads(row["experts"]),
+        skills=json.loads(row["skills"]),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def get_project(project_id: str) -> Optional[Project]:
+    row = get_conn().execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+    return _row_to_project(row) if row else None
+
+
+def list_projects(owner_id: str) -> list[Project]:
+    rows = get_conn().execute(
+        "SELECT * FROM projects WHERE owner_id=? ORDER BY updated_at DESC", (owner_id,)
+    ).fetchall()
+    return [_row_to_project(r) for r in rows]
 
 
 def list_messages(session_id: str) -> list[Message]:

@@ -152,6 +152,15 @@ async def run_chat(
     session_id = session.id
     system_prompt = PLAN_SYSTEM_PROMPT if plan else SYSTEM_PROMPT
 
+    # Project-scoped chat: prepend the project's instruction as background/spec so
+    # the agent follows the team's context (project page → 执行).
+    if session.project_id:
+        project = db.get_project(session.project_id)
+        if project and project.instruction.strip():
+            system_prompt += (
+                f"\n\n# 项目背景与规范（项目：{project.name}）\n{project.instruction.strip()}"
+            )
+
     llm_messages = _build_llm_messages(session_id, user_text, system_prompt)
     db.add_message(session_id=session_id, role="user", content=user_text, actor=user.id)
     db.touch_session(session_id, status="running")

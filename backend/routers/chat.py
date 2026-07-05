@@ -19,6 +19,7 @@ class ChatBody(BaseModel):
     space: str | None = None
     model: str | None = None
     plan: bool = False
+    project_id: str | None = None
 
 
 SSE_HEADERS = {
@@ -44,7 +45,11 @@ async def chat(body: ChatBody):
     else:
         title = (body.title or text)[:26]
         session = db.create_session(
-            owner_id=user.id, title=title, kind="chat", space=body.space
+            owner_id=user.id,
+            title=title,
+            kind="projexec" if body.project_id else "chat",
+            space=body.space,
+            project_id=body.project_id,
         )
 
     async def event_stream():

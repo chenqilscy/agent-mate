@@ -25,10 +25,13 @@ interface ChatState {
   abort: AbortController | null
   // ask_user: questions awaiting the user's answer (null = none pending).
   pending: { questions: AskQuestion[] } | null
+  // project scope: when set, a new session is created under this project.
+  activeProjectId: string | null
 
   loadSessions: () => Promise<void>
   openSession: (id: string) => Promise<void>
   startDraft: (title: string) => void
+  startProject: (projectId: string, name: string) => void
   send: (text: string) => Promise<void>
   answer: (answers: string[]) => void
   stop: () => void
@@ -42,6 +45,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   streaming: false,
   abort: null,
   pending: null,
+  activeProjectId: null,
 
   loadSessions: async () => {
     try {
@@ -59,6 +63,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const { session, messages } = await api.getMessages(id)
       set({
         activeId: id,
+        activeProjectId: session.project_id ?? null,
         title: session.title,
         messages: messages.map((m) => ({
           id: m.id,
@@ -79,7 +84,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   startDraft: (title) => {
     if (get().streaming) get().stop()
     useUIStore.getState().closeFile()
-    set({ activeId: null, title, messages: [] })
+    set({ activeId: null, activeProjectId: null, title, messages: [] })
+  },
+
+  // Open a project's execution: a fresh chat scoped to the project. The first
+  // send creates a project-scoped session (kind=projexec) on the backend.
+  startProject: (projectId, name) => {
+    if (get().streaming) get().stop()
+    useUIStore.getState().closeFile()
+    set({ activeId: null, activeProjectId: projectId, title: name, messages: [] })
   },
 
   send: async (text) => {
@@ -174,6 +187,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         title: get().title,
         model: useSettingsStore.getState().model,
         plan: useSettingsStore.getState().planMode,
+        projectId: get().activeProjectId ?? undefined,
         signal: controller.signal,
         onEvent,
       })

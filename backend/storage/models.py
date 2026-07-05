@@ -54,6 +54,22 @@ class Session:
 
 
 @dataclass
+class Project:
+    id: str
+    name: str
+    owner_id: str
+    instruction: str
+    connectors: list[str]
+    experts: list[str]
+    skills: list[str]
+    created_at: float
+    updated_at: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class Message:
     id: str
     session_id: str

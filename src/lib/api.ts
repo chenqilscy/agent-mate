@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { Me, ModelOption, SessionInfo } from './types'
+import type { Me, ModelOption, ProjectInfo, SessionInfo } from './types'
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
@@ -41,6 +41,16 @@ export const api = {
 
   answer: (id: string, answers: string[]) =>
     send<{ ok: boolean }>('POST', `/chat/${id}/answer`, { answers }),
+
+  listProjects: () => get<{ projects: ProjectInfo[] }>('/projects'),
+
+  createProject: (body: {
+    name: string
+    instruction: string
+    connectors: string[]
+    experts: string[]
+    skills: string[]
+  }) => send<ProjectInfo>('POST', '/projects', body),
 
   filesTree: (root = 'workspace') =>
     get<{ root: string; entries: FileEntry[] }>(`/files/tree?root=${root}`),

@@ -38,6 +38,7 @@ const NAV: { id: ViewId; label: string; icon: ReactNode; sub?: string; cls?: str
 function activeNav(view: ViewId): ViewId | 'more' {
   if (view === 'inspire' || view === 'myfiles') return 'more'
   if (view === 'chat') return 'home'
+  if (view === 'projexec') return 'projects'
   return view
 }
 

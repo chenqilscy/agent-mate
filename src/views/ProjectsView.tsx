@@ -1,7 +1,28 @@
+import { useEffect, useState } from 'react'
 import { toast } from '../stores/toastStore'
+import { useProjectStore } from '../stores/projectStore'
+import { useUIStore } from '../stores/uiStore'
+import { useChatStore } from '../stores/chatStore'
+import { NewProjectModal } from '../components/project/NewProjectModal'
 import { PROJ_TPL } from '../data/catalog'
+import type { ProjectInfo } from '../lib/types'
 
 export function ProjectsView() {
+  const projects = useProjectStore((s) => s.projects)
+  const load = useProjectStore((s) => s.load)
+  const setActive = useProjectStore((s) => s.setActive)
+  const setView = useUIStore((s) => s.setView)
+  const startProject = useChatStore((s) => s.startProject)
+  const [modalOpen, setModalOpen] = useState(false)
+
+  useEffect(() => { load() }, [load])
+
+  const openProject = (p: ProjectInfo) => {
+    setActive(p)
+    startProject(p.id, p.name)
+    setView('projexec')
+  }
+
   return (
     <section className="view active" data-view="projects">
       <div className="page-scroll">
@@ -9,7 +30,7 @@ export function ProjectsView() {
           <div className="ph-l">
             <h1>项目</h1>
             <div className="sub">多人协同，打造超级团队</div>
-            <button className="btn-line" onClick={() => toast('新建项目（M4 落地完整流程）')}>
+            <button className="btn-line" onClick={() => setModalOpen(true)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>新建项目
             </button>
           </div>
@@ -31,20 +52,28 @@ export function ProjectsView() {
           </div>
         </div>
         <div id="myProjList">
-          <div className="my-proj" onClick={() => toast('打开项目 · 项目新手指引')}>
-            <span className="t-ic" style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--brand-soft)', display: 'grid', placeItems: 'center', color: 'var(--brand-600)' }}>🧭</span>
-            <div>
-              <div style={{ fontSize: 13.5, fontWeight: 700 }}>项目新手指引</div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>添加于 2 天前</div>
+          {projects.length === 0 && (
+            <div className="my-proj" style={{ cursor: 'default', color: 'var(--text-3)' }}>
+              <span className="t-ic" style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--brand-soft)', display: 'grid', placeItems: 'center', color: 'var(--brand-600)' }}>🧭</span>
+              <div><div style={{ fontSize: 13.5, fontWeight: 700 }}>还没有项目</div><div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>点击「新建项目」开始</div></div>
             </div>
-            <span className="mp-more">⋮</span>
-          </div>
+          )}
+          {projects.map((p) => (
+            <div className="my-proj" key={p.id} onClick={() => openProject(p)}>
+              <span className="t-ic" style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--brand-soft)', display: 'grid', placeItems: 'center', color: 'var(--brand-600)' }}>🤖</span>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 700 }}>{p.name}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>添加于 {p.ago}</div>
+              </div>
+              <span className="mp-more" onClick={(e) => { e.stopPropagation(); toast('项目菜单') }}>⋮</span>
+            </div>
+          ))}
         </div>
 
         <div className="sec-title">从模版创建</div>
         <div className="card-grid g4">
           {PROJ_TPL.map(([ic, n, d]) => (
-            <div className="tpl" key={n} onClick={() => toast('从模板创建 · ' + n)}>
+            <div className="tpl" key={n} onClick={() => setModalOpen(true)}>
               <span className="t-ic">{ic}</span>
               <div>
                 <div className="t-n">{n}</div>
@@ -54,6 +83,8 @@ export function ProjectsView() {
           ))}
         </div>
       </div>
+
+      <NewProjectModal open={modalOpen} onClose={() => setModalOpen(false)} onCreated={(p) => { setModalOpen(false); openProject(p) }} />
     </section>
   )
 }

@@ -79,6 +79,7 @@ export interface SessionInfo {
   kind: string
   status: string
   space?: string | null
+  project_id?: string | null
   ago?: string
   updated_at?: number
 }
@@ -100,4 +101,14 @@ export interface Me {
   plan: string
   llm_configured: boolean
   model: string
+}
+
+export interface ProjectInfo {
+  id: string
+  name: string
+  instruction: string
+  connectors: string[]
+  experts: string[]
+  skills: string[]
+  ago?: string
 }

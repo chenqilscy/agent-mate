@@ -16,6 +16,7 @@ export interface ChatStreamOptions {
   space?: string
   model?: string
   plan?: boolean
+  projectId?: string
   signal?: AbortSignal
   onEvent: (ev: SSEEvent) => void
 }
@@ -31,6 +32,7 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
       space: opts.space,
       model: opts.model,
       plan: opts.plan,
+      project_id: opts.projectId,
     }),
     signal: opts.signal,
   })
