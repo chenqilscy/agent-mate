@@ -3,7 +3,7 @@ id: WB-003
 title: ad-hoc loadout（专家/技能/连接器）泄漏进项目执行
 severity: P0
 area: frontend
-status: open
+status: fixed
 origin: 🆕 近期改动
 files:
   - src/stores/chatStore.ts:63
@@ -28,3 +28,7 @@ created: 2026-07-06
 
 ## 验证
 聊天里选专家 X → 进项目发起执行 → 该执行的「已加载」轨迹不应含 X（除非项目自身配置了 X）。同时回归：首页选 X 直接发送仍带 X。
+
+## 处理记录（2026-07-06）
+- 改动：进入项目（pid 变化的 effect）时 `useLoadoutStore.getState().reset()`，清掉从聊天带入的 ad-hoc loadout。刻意不在 startProject 重置（那会抹掉用户在项目 composer 里刚选的，见 issue 警告）。（src/views/ProjectHomeView.tsx）
+- 验证：`tsc` 通过；进入项目即清空，聊天里选的专家不再泄漏进项目执行；项目页「选完再 send」路径不受影响。

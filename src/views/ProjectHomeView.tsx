@@ -3,6 +3,7 @@ import { api } from '../lib/api'
 import type { ProjectInfo, SessionInfo } from '../lib/types'
 import { useProjectStore } from '../stores/projectStore'
 import { useChatStore } from '../stores/chatStore'
+import { useLoadoutStore } from '../stores/loadoutStore'
 import { useUIStore } from '../stores/uiStore'
 import { toast } from '../stores/toastStore'
 import { Composer } from '../components/composer/Composer'
@@ -49,6 +50,11 @@ export function ProjectHomeView() {
 
   useEffect(() => {
     if (!pid) return
+    // Entering a project is a fresh execution context — drop any ad-hoc loadout the
+    // previous chat picked from the ＋ menu, so it can't leak into this project's run
+    // (WB-003). Reset happens on entry, before the user picks in the project composer,
+    // so the "pick-then-launch" path here is preserved.
+    useLoadoutStore.getState().reset()
     api.getProject(pid).then((p) => { setProject(p); setActive(p) }).catch(() => {})
     api.projectSessions(pid).then((r) => setSessions(r.sessions)).catch(() => {})
     loadWork(pid)
