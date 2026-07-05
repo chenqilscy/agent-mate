@@ -23,7 +23,7 @@ from agent.llm import LLMError, stream_chat
 from agent.mcp_client import call_mcp, mcp_schema, open_connectors
 from agent.sandbox import current_root, project_root, use_root
 from agent.skills import skill_def
-from agent.tools import ASK_USER_SCHEMA, base_tools, run_tool
+from agent.tools import ASK_USER_SCHEMA, base_tools, run_tool, set_work_context, work_item_tools
 from config import settings
 from storage import db
 from storage.models import Session, User
@@ -196,6 +196,8 @@ async def run_chat(
     # Per-project workspace (§11.2): this run's tools operate in the project's own
     # checkout (or the shared default for ad-hoc chats).
     use_root(project_root(session.project_id))
+    # Work-item tools (WB-030) act on THIS project's plan items as this owner.
+    set_work_context(session.project_id, user.id)
 
     def _dedup(seq: list[str]) -> list[str]:
         return list(dict.fromkeys(seq))
@@ -212,6 +214,20 @@ async def run_chat(
     active_experts = _dedup(proj_experts + (experts or []))
     active_skills = _dedup(proj_skills + (skills or []))
     active_connectors = _dedup(proj_connectors + (connectors or []))
+
+    # Tell the model about the plan-item tools when this run is inside a project
+    # (WB-030). Plan mode is read-only, so it only gets the viewing tool.
+    if session.project_id and not ask:
+        if plan:
+            system_prompt += (
+                "\n\n# 项目计划项（待办）\n可用 list_work_items 查看本项目的待办及其状态与 id（计划模式下只读，不修改）。"
+            )
+        else:
+            system_prompt += (
+                "\n\n# 项目计划项（待办）\n本项目的待办可用工具管理：list_work_items 查看、"
+                "set_work_item_status 更新状态。若用户把某个待办「添加到输入框」交给你处理，"
+                "完成或推进后请调用 set_work_item_status 回写它的状态（如置为「完成」）。"
+            )
 
     skill_tools = []
     if active_experts:
@@ -240,7 +256,15 @@ async def run_chat(
                 break
             body = str(r.get("content", ""))[:min(MAX_REF_BODY, budget)]  # cap per-ref + running total
             total += len(body)
-            blocks.append(f"【参考文件 {name}】\n{body}")
+            # A 计划「添加到输入框」ref carries the work_item id (WB-030): render it as a
+            # task the agent can act on, not a plain file, and point at the status tool.
+            if r.get("kind") == "todo" and r.get("itemId"):
+                blocks.append(
+                    f"【关联待办任务 {name}（计划项 id={r['itemId']}）】\n{body}\n"
+                    "（处理完成或推进后，调用 set_work_item_status(item_id, status) 回写它的状态）"
+                )
+            else:
+                blocks.append(f"【参考文件 {name}】\n{body}")
         llm_user_text = "\n\n".join(blocks) + "\n\n---\n\n" + user_text
 
     llm_messages = _build_llm_messages(session_id, llm_user_text, system_prompt)
@@ -275,11 +299,15 @@ async def run_chat(
         # Active toolset. Ask mode = no tools (pure Q&A). Otherwise base
         # (plan-filtered) tools + skill tools + connector (MCP) tools; connectors
         # spawn their stdio MCP servers now and are closed in `finally`.
-        tools_list = [] if ask else base_tools(plan) + skill_tools
+        # Work-item tools only for project runs (WB-030) — ad-hoc chats have no
+        # plan board to act on. Plan mode gets the read-only one (no status writes).
+        wi_tools = work_item_tools(plan) if (session.project_id and not ask) else []
+        tools_list = [] if ask else base_tools(plan) + skill_tools + wi_tools
         active_tools = {t.name: t for t in tools_list}
         mcp_tools = []
+        mcp_skipped: list[dict[str, str]] = []
         if active_connectors and not plan and not ask:
-            mcp_tools, mcp_stack = await open_connectors(
+            mcp_tools, mcp_stack, mcp_skipped = await open_connectors(
                 active_connectors, env={"WORKBUDDY_NOTES_DIR": str(current_root())}
             )
         mcp_by_name = {t.qualified: t for t in mcp_tools}
@@ -290,9 +318,10 @@ async def run_chat(
         )
 
         # Show the loadout so the persona / skills / connectors that shaped this
-        # run are visible.
+        # run are visible — including connectors that were selected but couldn't
+        # load (e.g. GitHub without a token), so it isn't a silent no-op.
         connector_names = sorted({t.connector for t in mcp_tools})
-        if active_experts or active_skills or connector_names:
+        if active_experts or active_skills or connector_names or mcp_skipped:
             parts = []
             if active_experts:
                 parts.append("专家 " + "、".join(active_experts))
@@ -300,6 +329,8 @@ async def run_chat(
                 parts.append("技能 " + "、".join(active_skills))
             if connector_names:
                 parts.append("连接器 " + "、".join(connector_names))
+            if mcp_skipped:
+                parts.append("连接器未就绪 " + "、".join(f"{s['name']}（{s['reason']}）" for s in mcp_skipped))
             yield record({"kind": "step", "tool": "loadout", "label": "已加载 · " + " · ".join(parts)})
 
         for _round in range(MAX_ROUNDS):

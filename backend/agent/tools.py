@@ -15,11 +15,13 @@ commands behind ask_user authorization.
 """
 from __future__ import annotations
 
+import contextvars
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from agent.sandbox import SandboxError, current_root, relpath, resolve_in_sandbox
+from storage import db
 
 MAX_OUTPUT = 6000
 CMD_TIMEOUT = 30
@@ -210,6 +212,95 @@ update_plan = Tool(
     pre=lambda a: None,
     run=_update_plan_run,
 )
+
+
+# ---- work items (计划项) — §11 阶段 B+ / WB-030 -------------------------
+#
+# Let the agent see and transition the current project's plan items (待办). Like
+# the sandbox root, the active project/owner is a contextvar set per run by
+# run_chat; the tools read it (so their signatures stay pure and concurrent runs
+# stay isolated). Only added to the toolset when the run belongs to a project.
+
+_work_ctx: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar("work_ctx", default=None)
+
+# Accept both the en status keys and the Chinese labels the model is likely to emit.
+_WI_STATUS = {
+    "todo": "todo", "待开始": "todo", "待办": "todo",
+    "doing": "doing", "进行中": "doing",
+    "paused": "paused", "暂停": "paused", "已暂停": "paused",
+    "done": "done", "完成": "done", "已完成": "done",
+}
+_WI_LABEL = {"todo": "待开始", "doing": "进行中", "paused": "暂停", "done": "完成"}
+
+
+def set_work_context(project_id: str | None, owner_id: str | None) -> None:
+    """Set the active project/owner for work-item tools (run_chat calls this)."""
+    _work_ctx.set({"project_id": project_id, "owner_id": owner_id} if project_id and owner_id else None)
+
+
+def _list_work_items_run(args: dict[str, Any]) -> ToolOutcome:
+    ctx = _work_ctx.get()
+    if not ctx:
+        return ToolOutcome(text="当前不在项目中，没有计划项可列。")
+    items = db.list_work_items(ctx["project_id"])
+    if not items:
+        return ToolOutcome(text="本项目暂无计划项（待办）。")
+    lines = [f"- [{_WI_LABEL.get(i.status, i.status)}] {i.title}（id={i.id}）" for i in items]
+    return ToolOutcome(text="本项目计划项：\n" + "\n".join(lines))
+
+
+list_work_items = Tool(
+    name="list_work_items",
+    description="列出当前项目的计划项（待办）及其状态与 id。改状态前可用它拿到 item_id。",
+    parameters={"type": "object", "properties": {}},
+    pre=lambda a: {"kind": "step", "tool": "list_work_items", "label": "查看项目计划项"},
+    run=_list_work_items_run,
+)
+
+
+def _set_work_item_status_run(args: dict[str, Any]) -> ToolOutcome:
+    ctx = _work_ctx.get()
+    if not ctx:
+        return ToolOutcome(text="当前不在项目中，无法修改计划项。")
+    item_id = str(args.get("item_id", "")).strip()
+    raw = str(args.get("status", "")).strip()
+    status = _WI_STATUS.get(raw) or _WI_STATUS.get(raw.lower())
+    if not status:
+        return ToolOutcome(text=f"未知状态「{raw}」。可用：待开始 / 进行中 / 暂停 / 完成。")
+    # Owner + project scoping: only touch items the caller owns in THIS project.
+    wi = db.get_work_item(item_id, owner_id=ctx["owner_id"])
+    if not wi or wi.project_id != ctx["project_id"]:
+        return ToolOutcome(text=f"未找到计划项 id={item_id}（或不属于当前项目）。可先用 list_work_items 核对 id。")
+    db.update_work_item(item_id, status=status)
+    label = _WI_LABEL.get(status, status)
+    return ToolOutcome(
+        text=f"已将计划项「{wi.title}」状态改为「{label}」。",
+        trace=[{"kind": "step", "tool": "set_work_item_status", "label": f"计划项「{wi.title}」→ {label}"}],
+    )
+
+
+set_work_item_status = Tool(
+    name="set_work_item_status",
+    description=(
+        "修改当前项目某个计划项（待办）的状态。item_id 来自任务引用或 list_work_items；"
+        "status 取 待开始 / 进行中 / 暂停 / 完成 之一。完成或推进了关联待办后应调用它回写状态。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "item_id": {"type": "string", "description": "计划项 id"},
+            "status": {"type": "string", "description": "目标状态：待开始 / 进行中 / 暂停 / 完成"},
+        },
+        "required": ["item_id", "status"],
+    },
+    pre=lambda a: None,
+    run=_set_work_item_status_run,
+)
+
+
+def work_item_tools(plan: bool = False) -> list[Tool]:
+    """Work-item tools for a run. Plan mode is read-only, so no status writes."""
+    return [list_work_items] if plan else [list_work_items, set_work_item_status]
 
 
 TOOLS: list[Tool] = [list_dir, read_file, write_file, run_command, update_plan]

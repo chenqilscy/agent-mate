@@ -21,7 +21,7 @@ export interface ChatStreamOptions {
   experts?: string[]
   skills?: string[]
   connectors?: string[]
-  refs?: { name: string; content: string }[]
+  refs?: { name: string; content: string; kind?: 'file' | 'todo'; itemId?: string }[]
   signal?: AbortSignal
   onEvent: (ev: SSEEvent) => void
 }

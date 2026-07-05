@@ -47,6 +47,7 @@
 | [WB-027](WB-027-plan-toolbar-filter-batch-search.md) | ✅ | P2 | frontend | 计划 · 顶部工具条（归属/来源筛选 + 批量操作 + 搜索） |
 | [WB-028](WB-028-plan-add-datasource-picker-placeholder.md) | ✅ | P2 | frontend | 计划 · 「添加数据源」选择器（占位，明确「敬请期待」，不伪造授权） |
 | [WB-029](WB-029-plan-add-to-input-as-ref-chip.md) | ✅ | P2 | ui | 计划 · 「添加到输入框」应作为独立引用 chip 显示，而非混入正文 |
+| [WB-030](WB-030-agent-work-item-status-tools.md) | ✅ | P2 | backend | 计划 · 计划项作为可执行任务，agent 能查看并回写其状态 |
 
 ## 来源
 

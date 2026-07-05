@@ -236,8 +236,9 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
   const saveDesc = () => { setEditDesc(false); if (descDraft !== item.description) void update(item.id, { description: descDraft }) }
   const addToInput = () => {
     // 作为独立引用 chip 加入 Composer（🔖），与正文/文件引用区分；随下条消息真实注入并在发送后清空。
+    // 带上 work_item id，让 agent 能在处理完成后回写它的状态（WB-030）。
     const content = item.description.trim() ? `${item.title}\n\n${item.description}` : item.title
-    addRef({ name: item.title, content, kind: 'todo' })
+    addRef({ name: item.title, content, kind: 'todo', itemId: item.id })
     toast('已添加到输入框')
     onClose()
   }

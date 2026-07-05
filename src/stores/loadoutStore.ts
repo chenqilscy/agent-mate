@@ -12,6 +12,8 @@ export interface AttachedRef {
   content: string
   // 'file' = @引用/添加文件（📎）；'todo' = 计划「添加到输入框」的待办（🔖）。默认 file。
   kind?: 'file' | 'todo'
+  // 当 kind==='todo'：关联的 work_item id，让 agent 能回写其状态（WB-030）。
+  itemId?: string
 }
 
 type Kind = 'exp' | 'skill' | 'conn'
