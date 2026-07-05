@@ -3,7 +3,7 @@ id: WB-010
 title: refs 无数量/总量上限、name 不截断、/chat 无请求体上限
 severity: P1
 area: backend
-status: open
+status: fixed
 origin: 🆕 近期改动
 files:
   - backend/agent/runtime.py:204
@@ -30,3 +30,7 @@ N×8000 + 任意大的 name/自由字段可撑爆上下文/内存。
 
 ## 验证
 提交 50 个大 ref → 被拒或被安全截断，不影响其它会话。
+
+## 处理记录（2026-07-06）
+- 改动：runtime 限 refs 数量(≤10)、名字(≤120 字符)、正文总量(≤32000 字符)；ChatBody 用 pydantic `Field` 限 text(≤200k)/title/experts/skills/connectors/refs(≤50)；main.py 加 8MB JSON 请求体中间件（files/upload 除外，其有独立 50MB 流式上限）。（backend/agent/runtime.py, backend/routers/chat.py, backend/main.py）
+- 验证：verify_backend.py「too many refs 422 / overlong text 422 / oversized body 413」全 PASS。

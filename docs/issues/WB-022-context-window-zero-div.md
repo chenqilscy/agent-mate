@@ -3,7 +3,7 @@ id: WB-022
 title: CONTEXT_WINDOW=0 触发 usage 除零
 severity: P2
 area: backend
-status: open
+status: fixed
 origin: 🏚 既有实现
 files:
   - backend/agent/runtime.py:129
@@ -25,3 +25,7 @@ usage 计算 `pct = used / settings.CONTEXT_WINDOW * 100`（`runtime.py:129`）�
 
 ## 验证
 配 `CONTEXT_WINDOW=0` 启动并发消息 → 不崩，pct 合理降级。
+
+## 处理记录（2026-07-06）
+- 改动：`CONTEXT_WINDOW = max(1, int(os.getenv(...)))` 下限保护。（backend/config.py）
+- 验证：verify_backend.py「CONTEXT_WINDOW clamped 0->1」PASS；usage 计算不再除零。

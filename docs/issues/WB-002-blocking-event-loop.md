@@ -3,7 +3,7 @@ id: WB-002
 title: 工具同步执行阻塞事件循环，期间 /stop 失效、全部会话 SSE 卡死
 severity: P0
 area: backend
-status: open
+status: fixed
 origin: 🏚 既有实现
 files:
   - backend/agent/runtime.py:368
@@ -33,3 +33,7 @@ created: 2026-07-06
 
 ## 验证
 起一个 `run_command sleep 10`（或长抓取）的会话，同时在另一会话发消息 → 后者应正常流式、不被前者卡住；长命令期间点「停止」应能中断。
+
+## 处理记录（2026-07-06）
+- 改动：工具执行点改为 `outcome = await asyncio.to_thread(run_tool, tool, args)`；asyncio.to_thread 复制 contextvars，沙箱根不受影响。subprocess/httpx/文件 IO 均移出事件循环。（backend/agent/runtime.py）
+- 验证：verify_runtime.py「tool executed off-loop」PASS；长工具不再冻结其它 SSE 流，stop 期间事件循环空闲。

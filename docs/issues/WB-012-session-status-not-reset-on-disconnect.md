@@ -3,7 +3,7 @@ id: WB-012
 title: 客户端断开后会话状态永久停在 running/waiting
 severity: P1
 area: backend
-status: open
+status: fixed
 origin: 🆕 近期改动
 files:
   - backend/agent/runtime.py:391
@@ -25,3 +25,7 @@ SSE 传输中或 ask_user 等待中关闭浏览器标签。侧栏该会话永远
 
 ## 验证
 发消息生成中直接关标签 → 重开应用，该会话状态不再是「运行中」。
+
+## 处理记录（2026-07-06）
+- 改动：run_chat 把「注册 run 之后」的全部逻辑（含 status running、连接器 spawn await、主循环）纳入同一 try；finally 用 `finished_ok` 兜底：未正常完成（客户端断开→CancelledError/GeneratorExit）则 `touch_session(idle)`。连接器 open 进 try 连带修 WB-023「mcp_stack 在 try 外」泄漏。（backend/agent/runtime.py）
+- 验证：verify_runtime.py「cancelled run reset to idle」「run unregistered on cancel」PASS。

@@ -49,33 +49,62 @@ PLAN_SYSTEM_PROMPT = (
 
 MAX_ROUNDS = 12
 
-# Active runs → their stop signal, keyed by session id.
-_stop_events: dict[str, asyncio.Event] = {}
+# Attached-refs limits (WB-010): a single turn can't blow up context/memory.
+MAX_REFS = 10           # at most this many referenced files per turn
+MAX_REF_BODY = 8000     # chars kept from each ref's body
+MAX_REFS_TOTAL = 32_000  # chars across all ref bodies combined
+MAX_REF_NAME = 120      # chars kept from a ref's display name
 
-# Suspended ask_user calls → their answer channel, keyed by session id.
-_answers: dict[str, dict[str, Any]] = {}
+# Active runs are keyed by a per-run id, not session id (WB-015): two runs on the
+# same session (e.g. a second message while one is suspended on ask_user) must not
+# clobber each other's stop/answer channels. `_session_runs` maps a session to its
+# live run ids so the /stop and /answer endpoints (which only know the session id)
+# can still route to the right run.
+_stop_events: dict[str, asyncio.Event] = {}          # run_id → stop event
+_answers: dict[str, dict[str, Any]] = {}             # run_id → answer channel
+_session_runs: dict[str, set[str]] = {}              # session_id → {run_id}
+
+
+def _register_run(session_id: str, run_id: str, stop: asyncio.Event) -> None:
+    _stop_events[run_id] = stop
+    _session_runs.setdefault(session_id, set()).add(run_id)
+
+
+def _unregister_run(session_id: str, run_id: str) -> None:
+    _stop_events.pop(run_id, None)
+    _answers.pop(run_id, None)
+    runs = _session_runs.get(session_id)
+    if runs is not None:
+        runs.discard(run_id)
+        if not runs:
+            _session_runs.pop(session_id, None)
 
 
 def request_stop(session_id: str) -> bool:
-    """Signal a running stream to stop. Returns True if a run was active."""
-    ev = _stop_events.get(session_id)
-    if ev is not None:
-        ev.set()
-    # Also wake a suspended ask_user so the stream can unwind.
-    pending = _answers.get(session_id)
-    if pending is not None:
-        pending["ev"].set()
-    return ev is not None or pending is not None
+    """Signal a session's running stream(s) to stop. Returns True if any was active."""
+    hit = False
+    for run_id in list(_session_runs.get(session_id, set())):
+        ev = _stop_events.get(run_id)
+        if ev is not None:
+            ev.set()
+            hit = True
+        # Also wake a suspended ask_user so the stream can unwind.
+        pending = _answers.get(run_id)
+        if pending is not None:
+            pending["ev"].set()
+            hit = True
+    return hit
 
 
 def submit_answers(session_id: str, answers: list[str]) -> bool:
-    """Deliver the user's ask_user answers and wake the suspended agent."""
-    pending = _answers.get(session_id)
-    if pending is None:
-        return False
-    pending["answers"] = answers
-    pending["ev"].set()
-    return True
+    """Deliver ask_user answers to whichever of the session's runs is waiting."""
+    for run_id in list(_session_runs.get(session_id, set())):
+        pending = _answers.get(run_id)
+        if pending is not None:
+            pending["answers"] = answers
+            pending["ev"].set()
+            return True
+    return False
 
 
 def resolve_model(client_model: str | None) -> str:
@@ -203,9 +232,14 @@ async def run_chat(
     llm_user_text = user_text
     if refs:
         blocks = []
-        for r in refs:
-            name = str(r.get("name", "file"))
-            body = str(r.get("content", ""))[:8000]
+        total = 0
+        for r in refs[:MAX_REFS]:  # cap count
+            name = str(r.get("name", "file"))[:MAX_REF_NAME]  # cap name
+            budget = MAX_REFS_TOTAL - total
+            if budget <= 0:
+                break
+            body = str(r.get("content", ""))[:min(MAX_REF_BODY, budget)]  # cap per-ref + running total
+            total += len(body)
             blocks.append(f"【参考文件 {name}】\n{body}")
         llm_user_text = "\n\n".join(blocks) + "\n\n---\n\n" + user_text
 
@@ -213,51 +247,61 @@ async def run_chat(
     db.add_message(session_id=session_id, role="user", content=user_text, actor=user.id)
     db.touch_session(session_id, status="running")
 
+    run_id = db.new_uuid()
     stop = asyncio.Event()
-    _stop_events[session_id] = stop
-    yield events.status("running")
-
-    # Active toolset. Ask mode = no tools (pure Q&A). Otherwise base (plan-filtered)
-    # tools + skill tools + connector (MCP) tools; connectors spawn their stdio MCP
-    # servers now and are closed in `finally`.
-    tools_list = [] if ask else base_tools(plan) + skill_tools
-    active_tools = {t.name: t for t in tools_list}
-    mcp_tools, mcp_stack = [], None
-    if active_connectors and not plan and not ask:
-        mcp_tools, mcp_stack = await open_connectors(
-            active_connectors, env={"WORKBUDDY_NOTES_DIR": str(current_root())}
-        )
-    mcp_by_name = {t.qualified: t for t in mcp_tools}
-    schemas = (
-        [t.schema() for t in tools_list]
-        + [mcp_schema(t) for t in mcp_tools]
-        + ([] if ask else [ASK_USER_SCHEMA])
-    )
+    _register_run(session_id, run_id, stop)
+    finished_ok = False  # set once the run reaches its normal 'done' (WB-012)
+    mcp_stack = None       # defined before the try so `finally` can always close it
     trace_items: list[dict[str, Any]] = []
     assistant_text = ""
     last_prompt = 0
     total_completion = 0
     stopped = False
+    schemas: list[dict[str, Any]] = []
     t0 = time.time()
 
     def record(item: dict[str, Any]) -> str:
         trace_items.append(item)
         return _trace_to_sse(item)
 
-    # Show the loadout so the persona / skills / connectors that shaped this run
-    # are visible.
-    connector_names = sorted({t.connector for t in mcp_tools})
-    if active_experts or active_skills or connector_names:
-        parts = []
-        if active_experts:
-            parts.append("专家 " + "、".join(active_experts))
-        if active_skills:
-            parts.append("技能 " + "、".join(active_skills))
-        if connector_names:
-            parts.append("连接器 " + "、".join(connector_names))
-        yield record({"kind": "step", "tool": "loadout", "label": "已加载 · " + " · ".join(parts)})
-
+    # Once the run is registered, everything runs inside the try so a client
+    # disconnect (CancelledError / GeneratorExit) anywhere — including the connector
+    # spawn `await` — still hits `finally`: the session status is reset and connector
+    # MCP servers are closed, never leaked (WB-012, plus the mcp_stack-outside-try
+    # leak noted in WB-023).
     try:
+        yield events.status("running")
+
+        # Active toolset. Ask mode = no tools (pure Q&A). Otherwise base
+        # (plan-filtered) tools + skill tools + connector (MCP) tools; connectors
+        # spawn their stdio MCP servers now and are closed in `finally`.
+        tools_list = [] if ask else base_tools(plan) + skill_tools
+        active_tools = {t.name: t for t in tools_list}
+        mcp_tools = []
+        if active_connectors and not plan and not ask:
+            mcp_tools, mcp_stack = await open_connectors(
+                active_connectors, env={"WORKBUDDY_NOTES_DIR": str(current_root())}
+            )
+        mcp_by_name = {t.qualified: t for t in mcp_tools}
+        schemas = (
+            [t.schema() for t in tools_list]
+            + [mcp_schema(t) for t in mcp_tools]
+            + ([] if ask else [ASK_USER_SCHEMA])
+        )
+
+        # Show the loadout so the persona / skills / connectors that shaped this
+        # run are visible.
+        connector_names = sorted({t.connector for t in mcp_tools})
+        if active_experts or active_skills or connector_names:
+            parts = []
+            if active_experts:
+                parts.append("专家 " + "、".join(active_experts))
+            if active_skills:
+                parts.append("技能 " + "、".join(active_skills))
+            if connector_names:
+                parts.append("连接器 " + "、".join(connector_names))
+            yield record({"kind": "step", "tool": "loadout", "label": "已加载 · " + " · ".join(parts)})
+
         for _round in range(MAX_ROUNDS):
             content_buf = ""
             reasoning_buf = ""
@@ -329,12 +373,19 @@ async def run_chat(
                     # /answer endpoint sets our event and wakes us on the SAME
                     # open SSE stream. stop also wakes us (via request_stop).
                     questions = args.get("questions") or []
+                    # Be robust to a model that returns malformed questions (bare
+                    # strings instead of {q, options}) — coerce so a bad shape
+                    # doesn't AttributeError the whole turn (WB-023).
+                    questions = [
+                        q if isinstance(q, dict) else {"q": str(q), "options": []}
+                        for q in (questions if isinstance(questions, list) else [])
+                    ]
                     ev = asyncio.Event()
-                    _answers[session_id] = {"ev": ev, "answers": None}
+                    _answers[run_id] = {"ev": ev, "answers": None}
                     yield events.ask_user(questions)
                     db.touch_session(session_id, status="waiting")
                     await ev.wait()
-                    pending = _answers.pop(session_id, None)
+                    pending = _answers.pop(run_id, None)
                     answers = (pending or {}).get("answers")
                     db.touch_session(session_id, status="running")
                     if stop.is_set() or answers is None:
@@ -365,7 +416,11 @@ async def run_chat(
                     pre = tool.pre(args)
                     if pre:
                         yield record(pre)
-                outcome = run_tool(tool, args)
+                # Run the (synchronous) tool off the event loop so a long
+                # subprocess / web_fetch / file IO can't freeze every other SSE
+                # stream or block /stop for its whole timeout (WB-002). to_thread
+                # copies the contextvars, so the sandbox root stays correct.
+                outcome = await asyncio.to_thread(run_tool, tool, args)
                 for it in outcome.trace:
                     yield record(it)
                 llm_messages.append(
@@ -374,23 +429,26 @@ async def run_chat(
             if stopped:
                 break
             # loop again so the model can use the results
+        finished_ok = True  # loop completed normally (incl. user-stop)
     except LLMError as e:
         yield events.error(str(e))
         db.touch_session(session_id, status="idle")
-        _stop_events.pop(session_id, None)
-        _answers.pop(session_id, None)
+        finished_ok = True  # status settled; don't let finally override it
         yield events.done()
         return
     except Exception as e:  # noqa: BLE001 — surface any hiccup to the UI
         yield events.error(f"执行出错：{e}")
         db.touch_session(session_id, status="idle")
-        _stop_events.pop(session_id, None)
-        _answers.pop(session_id, None)
+        finished_ok = True
         yield events.done()
         return
     finally:
-        _stop_events.pop(session_id, None)
-        _answers.pop(session_id, None)
+        _unregister_run(session_id, run_id)
+        # If the run never reached a normal finish (client disconnect →
+        # CancelledError, a BaseException that skips `except Exception`), leave the
+        # session 'idle' instead of a phantom 'running'/'waiting' (WB-012).
+        if not finished_ok:
+            db.touch_session(session_id, status="idle")
         if mcp_stack is not None:
             try:
                 await mcp_stack.aclose()  # terminate connector MCP servers

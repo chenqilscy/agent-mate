@@ -31,7 +31,9 @@ class Settings:
     ).resolve()
 
     # Context window used to compute the context-usage ring (approximate).
-    CONTEXT_WINDOW: int = int(os.getenv("CONTEXT_WINDOW", "1000000"))
+    # Clamped to >=1 so a misconfigured CONTEXT_WINDOW=0 can't divide-by-zero
+    # at the end of a stream (WB-022).
+    CONTEXT_WINDOW: int = max(1, int(os.getenv("CONTEXT_WINDOW", "1000000")))
 
     @property
     def llm_configured(self) -> bool:

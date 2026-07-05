@@ -3,7 +3,7 @@ id: WB-015
 title: 同一 session 并发 run 串道（_stop_events/_answers 按 session 共享）
 severity: P2
 area: backend
-status: open
+status: fixed
 origin: 🏚 既有实现
 files:
   - backend/agent/runtime.py:217
@@ -26,3 +26,7 @@ created: 2026-07-06
 
 ## 验证
 ask_user 挂起时对同一 session 再发消息 → 不出现永久挂起；stop/answer 命中正确的 run。
+
+## 处理记录（2026-07-06）
+- 改动：`_stop_events`/`_answers` 改按每次 run 的唯一 `run_id` 存，新增 `_session_runs` 索引 session→{run_id}；request_stop/submit_answers 经索引路由到正确的 run；finally 按 run_id 清理，互不覆盖。（backend/agent/runtime.py）
+- 验证：verify_backend.py「run-id keyed stop/answer routing」PASS（两 run 同 session 独立跟踪、stop 广播、answer 路由到等待方、unregister 不误删对方）。
