@@ -7,7 +7,7 @@ following the plan in [`docs/workbuddy-实现方案.md`](docs/workbuddy-实现�
 **Principle: nothing faked.** All streaming output comes from a real LLM, all
 state is persisted, all sidebar tasks are real sessions.
 
-## Status: M0 + M1 complete
+## Status: M0 + M1 + M2 complete
 
 - **M0 — scaffold**: all 8 views switchable; styling migrated verbatim from the
   prototype (design tokens + component CSS); Windows menubar, sidebar, view routing.
@@ -16,8 +16,15 @@ state is persisted, all sidebar tasks are real sessions.
   persistence (SQLite); real sidebar task add; composer with model picker /
   permission / context-usage ring; multi-user data model pre-embedded
   (UUID / owner_id / project_id / Role enum) behind an auth-stub middleware.
+- **M2 — trace system**: the agent runtime is a real tool-use loop. The LLM calls
+  sandbox tools (list_dir / read_file / write_file / run_command / update_plan);
+  each call emits a typed trace event (think / step / file_read / diff / todo) that
+  the UI renders as a koda-style execution log — collapsible, with the outline
+  (概览) listing chapters from the answer's headings. Reasoning (when the model
+  exposes it) streams as `think`. Trace + token usage are persisted and replay from
+  history. Context-usage breakdown is real (system prompt / tool schemas / messages).
 
-Later milestones (trace events, files & artifacts, project flow, MCP connectors,
+Later milestones (files & artifacts panel, project flow + ask_user, MCP connectors,
 Tauri shell, collaboration) are scoped in the plan doc.
 
 ## Architecture (Local-first)
@@ -78,7 +85,7 @@ src/                 # React frontend
   platform/          # window/tray/notify abstraction (web no-op; Tauri in M5)
   styles/            # tokens.css + app.css (migrated from prototype)
 backend/             # FastAPI + SSE
-  agent/             # runtime (thin loop) · events (SSE protocol) · llm · sandbox
+  agent/             # runtime (tool loop) · events (SSE protocol) · llm · tools · sandbox
   routers/           # me · models · sessions · chat · files
   storage/           # SQLite models + DAO (multi-user pre-embedded)
   auth/              # M1 local-user stub → M7 real accounts
@@ -89,5 +96,6 @@ docs/                # implementation plan + prototype (visual spec)
 
 One event type ⇄ one UI shape. Defined in `backend/agent/events.py` and consumed
 in `src/stores/chatStore.ts`: `session · status · text · think · step · file_read ·
-diff · todo · usage · artifact · ask_user · error · done`. M1 emits the text /
-status / usage / error / done path; the trace events are wired for M2.
+diff · todo · usage · artifact · ask_user · error · done`. M2 emits the full trace
+path (think/step/file_read/diff/todo) from real tool calls; `artifact` (panel) and
+`ask_user` (project flow) land in M3/M4.

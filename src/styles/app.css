@@ -418,7 +418,7 @@
 .think.cur { animation: pul 1s infinite; }
 .trace { transition: opacity .2s; }
 .trace.clps { display: none; }
-.bot-st .sc { transition: transform .2s; }
+.bot-st .sc { width: 11px; height: 11px; flex-shrink: 0; color: var(--text-3); transition: transform .2s; }
 .bot-st.clpsd .sc { transform: rotate(-90deg); }
 
 /* ---- artifact card in panel ---- */

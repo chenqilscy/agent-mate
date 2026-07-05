@@ -16,7 +16,7 @@ function BotMessage({ msg, streaming }: { msg: ChatMessage; streaming: boolean }
   const hasTrace = msg.trace.length > 0
 
   return (
-    <div className="msg bot">
+    <div className="msg bot" id={`msg-${msg.id}`}>
       <CatLogo className="bot-ic" />
       <div className="bot-body">
         <div className="bot-nm">WorkBuddy</div>

@@ -3,12 +3,40 @@ import type { ChatMessage } from '../../lib/types'
 import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
 
-// Overview panel (概览 / 工作空间文件 / 浏览器). M1 wires the 目录 (outline) to real
-// user questions; artifacts/files populate in M2–M3.
+// Overview panel (概览 / 工作空间文件 / 浏览器). The 目录 (outline) lists real user
+// questions plus the chapter headings from the assistant's Markdown answers.
+interface OutlineItem {
+  text: string
+  msgId: string
+  sub: boolean
+}
+
+// Extract h2–h4 headings from Markdown source (chapters).
+function headings(md: string): string[] {
+  const out: string[] = []
+  for (const line of md.split('\n')) {
+    const m = /^#{2,4}\s+(.+?)\s*#*$/.exec(line)
+    if (m) out.push(m[1].trim())
+  }
+  return out
+}
+
+function buildOutline(messages: ChatMessage[]): OutlineItem[] {
+  const items: OutlineItem[] = []
+  for (const m of messages) {
+    if (m.role === 'user') {
+      items.push({ text: m.content, msgId: m.id, sub: false })
+    } else {
+      for (const h of headings(m.content)) items.push({ text: h, msgId: m.id, sub: true })
+    }
+  }
+  return items
+}
+
 export function OvPanel({ messages }: { messages: ChatMessage[] }) {
   const setOv = useUIStore((s) => s.setOv)
   const [tab, setTab] = useState<'概览' | '工作空间文件' | '浏览器'>('概览')
-  const outline = messages.filter((m) => m.role === 'user')
+  const outline = buildOutline(messages)
 
   const jump = (id: string) => {
     document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -39,9 +67,14 @@ export function OvPanel({ messages }: { messages: ChatMessage[] }) {
             <div className="ov-h">目录 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg></div>
             <div className="ov-outline">
               {outline.length ? (
-                outline.map((m) => (
-                  <div className="ov-oi" key={m.id} title={m.content} onClick={() => jump(m.id)}>
-                    {m.content.length > 16 ? m.content.slice(0, 16) + '…' : m.content}
+                outline.map((it, i) => (
+                  <div
+                    className={`ov-oi ${it.sub ? 'oh' : ''}`.trim()}
+                    key={`${it.msgId}-${i}`}
+                    title={it.text}
+                    onClick={() => jump(it.msgId)}
+                  >
+                    {it.text.length > 16 ? it.text.slice(0, 16) + '…' : it.text}
                   </div>
                 ))
               ) : (

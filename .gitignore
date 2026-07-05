@@ -14,6 +14,8 @@ backend/.env
 
 # local data
 backend/workbuddy.db
+backend/workbuddy.db-shm
+backend/workbuddy.db-wal
 backend/workspace/
 !backend/workspace/.gitkeep
 
