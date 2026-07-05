@@ -70,6 +70,22 @@ class Project:
 
 
 @dataclass
+class WorkItem:
+    id: str
+    project_id: str
+    owner_id: str
+    title: str
+    status: str  # todo | doing | paused | done
+    source: str  # "手动" | "执行" …
+    assignee: str  # actor / user id
+    created_at: float
+    updated_at: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class Message:
     id: str
     session_id: str

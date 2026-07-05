@@ -8,6 +8,8 @@ import { toast } from '../stores/toastStore'
 import { Composer } from '../components/composer/Composer'
 import { FileTree } from '../components/panel/FileTree'
 import { PickerOverlay } from '../components/project/NewProjectModal'
+import { KanbanBoard, TaskList } from '../components/project/ProjectWork'
+import { useWorkItemStore } from '../stores/workItemStore'
 import { NP_CONNS, NP_EXPERTS, SK_GRID } from '../data/catalog'
 
 type Tab = '动态' | '计划' | '任务' | '资产'
@@ -41,6 +43,7 @@ export function ProjectHomeView() {
   const [instrDraft, setInstrDraft] = useState('')
   const [picker, setPicker] = useState<Kind | null>(null)
   const [pickerSet, setPickerSet] = useState<Set<string>>(new Set())
+  const loadWork = useWorkItemStore((s) => s.load)
 
   const pid = active?.id
 
@@ -48,7 +51,8 @@ export function ProjectHomeView() {
     if (!pid) return
     api.getProject(pid).then((p) => { setProject(p); setActive(p) }).catch(() => {})
     api.projectSessions(pid).then((r) => setSessions(r.sessions)).catch(() => {})
-  }, [pid, setActive])
+    loadWork(pid)
+  }, [pid, setActive, loadWork])
 
   if (!project) return <section className="view active" data-view="project" />
 
@@ -132,20 +136,9 @@ export function ProjectHomeView() {
               )
             )}
 
-            {tab === '计划' && (
-              <div className="pj-kanban">
-                {['待开始', '进行中', '暂停', '完成'].map((col) => (
-                  <div className="pj-kcol" key={col}>
-                    <div className="pj-kcol-h">{col}<span className="cnt">0</span></div>
-                    <div className="pjcfg-sub" style={{ textAlign: 'center', marginTop: 30 }}>阶段 B 上线</div>
-                  </div>
-                ))}
-              </div>
-            )}
+            {tab === '计划' && <KanbanBoard />}
 
-            {tab === '任务' && (
-              <div className="pj-empty">工作项（看板/任务）将在阶段 B 落地。</div>
-            )}
+            {tab === '任务' && <TaskList />}
 
             {tab === '资产' && <FileTree scope={{ project: project.id }} />}
           </div>
@@ -165,7 +158,7 @@ export function ProjectHomeView() {
             </div>
             {editInstr ? (
               <>
-                <textarea className="pjcfg-ta" value={instrDraft} onChange={(e) => setInstrDraft(e.target.value)} autoFocus />
+                <textarea className="pjcfg-ta" aria-label="项目指令" placeholder="项目指令" value={instrDraft} onChange={(e) => setInstrDraft(e.target.value)} autoFocus />
                 <div className="pjcfg-edit-f">
                   <button className="btn-ghost" style={{ height: 28, padding: '0 12px' }} onClick={() => setEditInstr(false)}>取消</button>
                   <button className="btn-dark" style={{ height: 28, padding: '0 14px' }} onClick={saveInstruction}>保存</button>

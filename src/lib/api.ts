@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { Me, ModelOption, ProjectInfo, SessionInfo } from './types'
+import type { Me, ModelOption, ProjectInfo, SessionInfo, WorkItem, WorkStatus } from './types'
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
@@ -59,6 +59,16 @@ export const api = {
 
   projectSessions: (id: string) =>
     get<{ sessions: SessionInfo[] }>(`/projects/${id}/sessions`),
+
+  listWorkItems: (project: string) => get<{ items: WorkItem[] }>(`/work-items?project=${project}`),
+
+  createWorkItem: (body: { project_id: string; title: string; status?: WorkStatus }) =>
+    send<WorkItem>('POST', '/work-items', body),
+
+  updateWorkItem: (id: string, patch: { status?: WorkStatus; title?: string }) =>
+    send<WorkItem>('PATCH', `/work-items/${id}`, patch),
+
+  deleteWorkItem: (id: string) => send<{ ok: boolean }>('DELETE', `/work-items/${id}`),
 
   filesTree: (opts?: { project?: string; session?: string }) => {
     const q = opts?.project ? `?project=${opts.project}` : opts?.session ? `?session=${opts.session}` : ''

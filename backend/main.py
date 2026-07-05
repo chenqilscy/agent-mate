@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from routers import chat, files, me, models, projects, sessions
+from routers import chat, files, me, models, projects, sessions, work_items
 from storage import db
 
 app = FastAPI(title="WorkBuddy API", version="0.1.0")
@@ -45,6 +45,7 @@ app.include_router(sessions.router)
 app.include_router(chat.router)
 app.include_router(files.router)
 app.include_router(projects.router)
+app.include_router(work_items.router)
 
 
 if __name__ == "__main__":

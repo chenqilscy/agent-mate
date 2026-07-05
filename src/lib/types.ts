@@ -113,3 +113,16 @@ export interface ProjectInfo {
   skills: string[]
   ago?: string
 }
+
+export type WorkStatus = 'todo' | 'doing' | 'paused' | 'done'
+
+export interface WorkItem {
+  id: string
+  project_id: string
+  title: string
+  status: WorkStatus
+  source: string
+  assignee: string
+  assignee_name: string
+  ago?: string
+}

@@ -21,6 +21,7 @@ from storage.models import (
     Role,
     Session,
     User,
+    WorkItem,
 )
 
 _conn: Optional[sqlite3.Connection] = None
@@ -98,6 +99,20 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_projects_owner
             ON projects(owner_id, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS work_items (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'todo',
+            source TEXT NOT NULL DEFAULT '手动',
+            assignee TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_work_items_project
+            ON work_items(project_id, created_at);
         """
     )
     conn.commit()
@@ -354,6 +369,67 @@ def list_project_sessions(project_id: str) -> list[Session]:
         "SELECT * FROM sessions WHERE project_id=? ORDER BY updated_at DESC", (project_id,)
     ).fetchall()
     return [_row_to_session(r) for r in rows]
+
+
+# ---- work items (kanban / tasks, §11 阶段 B) ----------------------------
+
+def _row_to_work_item(r: sqlite3.Row) -> WorkItem:
+    return WorkItem(
+        id=r["id"], project_id=r["project_id"], owner_id=r["owner_id"], title=r["title"],
+        status=r["status"], source=r["source"], assignee=r["assignee"],
+        created_at=r["created_at"], updated_at=r["updated_at"],
+    )
+
+
+def create_work_item(
+    *, project_id: str, owner_id: str, title: str, status: str = "todo",
+    source: str = "手动", assignee: str = "",
+) -> WorkItem:
+    now = time.time()
+    wi = WorkItem(
+        id=new_uuid(), project_id=project_id, owner_id=owner_id, title=title[:200],
+        status=status, source=source, assignee=assignee or owner_id,
+        created_at=now, updated_at=now,
+    )
+    get_conn().execute(
+        """INSERT INTO work_items (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (wi.id, wi.project_id, wi.owner_id, wi.title, wi.status, wi.source, wi.assignee, wi.created_at, wi.updated_at),
+    )
+    get_conn().commit()
+    return wi
+
+
+def list_work_items(project_id: str) -> list[WorkItem]:
+    rows = get_conn().execute(
+        "SELECT * FROM work_items WHERE project_id=? ORDER BY created_at ASC", (project_id,)
+    ).fetchall()
+    return [_row_to_work_item(r) for r in rows]
+
+
+def get_work_item(item_id: str) -> Optional[WorkItem]:
+    r = get_conn().execute("SELECT * FROM work_items WHERE id=?", (item_id,)).fetchone()
+    return _row_to_work_item(r) if r else None
+
+
+def update_work_item(item_id: str, *, title: Optional[str] = None, status: Optional[str] = None) -> Optional[WorkItem]:
+    sets, vals = [], []
+    if title is not None:
+        sets.append("title=?"); vals.append(title[:200])
+    if status is not None:
+        sets.append("status=?"); vals.append(status)
+    if not sets:
+        return get_work_item(item_id)
+    sets.append("updated_at=?"); vals.append(time.time())
+    vals.append(item_id)
+    get_conn().execute(f"UPDATE work_items SET {', '.join(sets)} WHERE id=?", vals)
+    get_conn().commit()
+    return get_work_item(item_id)
+
+
+def delete_work_item(item_id: str) -> None:
+    get_conn().execute("DELETE FROM work_items WHERE id=?", (item_id,))
+    get_conn().commit()
 
 
 def list_messages(session_id: str) -> list[Message]:
