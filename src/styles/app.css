@@ -258,6 +258,12 @@
 body.dark .auto-card, body.dark .auto-trig-in input { background: #22272D; }
 body.dark .auto-chip.err { background: #3A2326; color: #F98A8E; }
 
+/* 连接器就绪标签（内置 / 需配置 token） */
+.conn-tag { margin-left: 7px; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 20px; vertical-align: middle; }
+.conn-tag.rdy { background: var(--brand-soft); color: var(--brand-600); }
+.conn-tag.tok { background: #FFF4E5; color: #C77700; }
+body.dark .conn-tag.tok { background: #3A2E17; color: #E7A33E; }
+
 /* ---- Hub (experts/skills/connectors) ---- */
 .hub-top { display: flex; align-items: center; gap: 6px; padding: 12px 24px; border-bottom: 1px solid var(--border-2); flex-shrink: 0; }
 .hub-tab { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 9px; cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--text-2); }
@@ -345,6 +351,9 @@ body.dark .auto-chip.err { background: #3A2326; color: #F98A8E; }
 .pop-item:hover .link { color: var(--brand-600); }
 .pop-div { height: 1px; background: var(--border-2); margin: 5px 4px; }
 .pop-h { font-size: 11px; color: var(--text-3); padding: 8px 10px 4px; font-weight: 600; }
+.pop-item.pop-empty { color: var(--text-3); cursor: default; }
+.pop-item.pop-empty:hover { background: transparent; }
+.pop-item.hist-item { display: block; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pop-search { display: flex; align-items: center; gap: 8px; margin: 4px 4px 6px; padding: 0 10px; height: 32px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-3); }
 .pop-search input { border: none; outline: none; flex: 1; font: inherit; font-size: 12.5px; background: transparent; color: var(--text); }
 .pop-search svg { width: 14px; height: 14px; flex-shrink: 0; }
