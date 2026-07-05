@@ -34,6 +34,16 @@ export function AutomationView() {
 
   useEffect(() => { load() }, [load])
 
+  // Keep the board live: a run (manual or a scheduler fire while this page is open)
+  // flips a card to "running" on the backend, then to ok/error on completion. Poll
+  // so the UI reflects it without a manual refresh — faster while a run is in flight,
+  // slower when idle (also keeps the "下次 …/上次 …" relative labels fresh).
+  const anyRunning = items.some((a) => a.last_status === 'running')
+  useEffect(() => {
+    const t = setInterval(() => { load() }, anyRunning ? 3000 : 15000)
+    return () => clearInterval(t)
+  }, [anyRunning, load])
+
   const openRun = async (a: Automation) => {
     if (!a.last_session_id) { toast('尚未运行'); return }
     await openSession(a.last_session_id)

@@ -59,16 +59,10 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
 
   runNow: async (id) => {
     const { session_id } = await api.runAutomation(id)
-    // The run proceeds in the background (backend marks it "running" then flips to
-    // ok/error on completion). A single refresh here would only ever catch "running",
-    // so poll until the status leaves "running" — bounded so a hung run can't poll
-    // forever (backend caps a run at RUN_TIMEOUT=300s; it then flips to "error").
+    // The run proceeds in the background (backend marks it "running", then ok/error
+    // on completion). One load() gives instant "running" feedback; the automation
+    // view's adaptive poll (WB-034) then reflects the final status on its own.
     get().load()
-    for (let i = 0; i < 45; i++) {
-      await new Promise((r) => setTimeout(r, 2000))
-      await get().load()
-      if (get().items.find((a) => a.id === id)?.last_status !== 'running') break
-    }
     return session_id
   },
 }))
