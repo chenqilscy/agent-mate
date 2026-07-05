@@ -59,8 +59,10 @@ export function Sidebar() {
   const me = useAuthStore((s) => s.me)
 
   useEffect(() => { loadProjects() }, [loadProjects])
-  // Ad-hoc chats (no project) live under 任务; project executions nest under their project in 空间.
-  const adhoc = sessions.filter((s) => !s.project_id)
+  // Ad-hoc chats (no project) live under 任务; project executions nest under their
+  // project in 空间. Automation runs are surfaced in the 自动化 view, not here, so
+  // a frequent schedule doesn't flood the task list.
+  const adhoc = sessions.filter((s) => !s.project_id && s.kind !== 'automation')
   const sessionsOf = (pid: string) => sessions.filter((s) => s.project_id === pid)
 
   const [moreOpen, setMoreOpen] = useState(false)

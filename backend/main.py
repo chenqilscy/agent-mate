@@ -10,8 +10,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from agent import scheduler
 from config import settings
-from routers import chat, files, me, models, projects, sessions, work_items
+from routers import automations, chat, files, me, models, projects, sessions, work_items
 from storage import db
 
 app = FastAPI(title="WorkBuddy API", version="0.1.0")
@@ -50,6 +51,17 @@ def _startup() -> None:
     db.init_db()
 
 
+@app.on_event("startup")
+async def _start_scheduler() -> None:
+    # Automation scheduler runs on the app's event loop (agent/scheduler.py).
+    scheduler.start()
+
+
+@app.on_event("shutdown")
+async def _stop_scheduler() -> None:
+    await scheduler.stop()
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "llm_configured": settings.llm_configured}
@@ -62,6 +74,7 @@ app.include_router(chat.router)
 app.include_router(files.router)
 app.include_router(projects.router)
 app.include_router(work_items.router)
+app.include_router(automations.router)
 
 
 if __name__ == "__main__":

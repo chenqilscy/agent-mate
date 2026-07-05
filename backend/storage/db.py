@@ -12,6 +12,7 @@ concurrently without "database is locked" storms.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import sqlite3
 import threading
@@ -23,6 +24,7 @@ from config import settings
 from storage.models import (
     LOCAL_USER_ID,
     LOCAL_USER_NAME,
+    Automation,
     Message,
     Project,
     Role,
@@ -123,6 +125,27 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_work_items_project
             ON work_items(project_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS automations (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            trigger_kind TEXT NOT NULL DEFAULT 'interval',
+            interval_min INTEGER NOT NULL DEFAULT 60,
+            at_time TEXT NOT NULL DEFAULT '09:00',
+            project_id TEXT,
+            model TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            next_run_at REAL NOT NULL,
+            last_run_at REAL,
+            last_session_id TEXT,
+            last_status TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_automations_owner
+            ON automations(owner_id, created_at DESC);
         """
     )
     conn.commit()
@@ -479,3 +502,137 @@ def list_messages(session_id: str) -> list[Message]:
             )
         )
     return out
+
+
+# ---- automations --------------------------------------------------------
+
+def compute_next_run(kind: str, interval_min: int, at_time: str, now: float) -> float:
+    """Next fire time (epoch seconds) for a trigger, relative to `now`.
+
+    interval → now + N minutes. daily → the next local HH:MM strictly after now.
+    """
+    if kind == "daily":
+        try:
+            hh, mm = (int(x) for x in at_time.split(":", 1))
+        except (ValueError, AttributeError):
+            hh, mm = 9, 0
+        base = _dt.datetime.fromtimestamp(now)
+        target = base.replace(hour=hh % 24, minute=mm % 60, second=0, microsecond=0)
+        if target.timestamp() <= now:
+            target += _dt.timedelta(days=1)
+        return target.timestamp()
+    # interval (default)
+    return now + max(1, int(interval_min)) * 60
+
+
+def _row_to_automation(r) -> Automation:
+    return Automation(
+        id=r["id"], owner_id=r["owner_id"], name=r["name"], prompt=r["prompt"],
+        trigger_kind=r["trigger_kind"], interval_min=r["interval_min"], at_time=r["at_time"],
+        project_id=r["project_id"], model=r["model"], enabled=bool(r["enabled"]),
+        created_at=r["created_at"], updated_at=r["updated_at"], next_run_at=r["next_run_at"],
+        last_run_at=r["last_run_at"], last_session_id=r["last_session_id"], last_status=r["last_status"],
+    )
+
+
+def create_automation(
+    *, owner_id: str, name: str, prompt: str, trigger_kind: str = "interval",
+    interval_min: int = 60, at_time: str = "09:00",
+    project_id: Optional[str] = None, model: Optional[str] = None, enabled: bool = True,
+) -> Automation:
+    now = time.time()
+    a = Automation(
+        id=new_uuid(), owner_id=owner_id, name=name[:120], prompt=prompt,
+        trigger_kind=trigger_kind, interval_min=interval_min, at_time=at_time,
+        project_id=project_id, model=model, enabled=enabled,
+        created_at=now, updated_at=now,
+        next_run_at=compute_next_run(trigger_kind, interval_min, at_time, now),
+    )
+    get_conn().execute(
+        """INSERT INTO automations
+           (id,owner_id,name,prompt,trigger_kind,interval_min,at_time,project_id,model,
+            enabled,created_at,updated_at,next_run_at,last_run_at,last_session_id,last_status)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (a.id, a.owner_id, a.name, a.prompt, a.trigger_kind, a.interval_min, a.at_time,
+         a.project_id, a.model, int(a.enabled), a.created_at, a.updated_at, a.next_run_at,
+         a.last_run_at, a.last_session_id, a.last_status),
+    )
+    get_conn().commit()
+    return a
+
+
+def list_automations(owner_id: str) -> list[Automation]:
+    rows = get_conn().execute(
+        "SELECT * FROM automations WHERE owner_id=? ORDER BY created_at DESC", (owner_id,)
+    ).fetchall()
+    return [_row_to_automation(r) for r in rows]
+
+
+def get_automation(auto_id: str, owner_id: Optional[str] = None) -> Optional[Automation]:
+    if owner_id is not None:
+        r = get_conn().execute(
+            "SELECT * FROM automations WHERE id=? AND owner_id=?", (auto_id, owner_id)
+        ).fetchone()
+    else:
+        r = get_conn().execute("SELECT * FROM automations WHERE id=?", (auto_id,)).fetchone()
+    return _row_to_automation(r) if r else None
+
+
+def list_due_automations(now: float) -> list[Automation]:
+    rows = get_conn().execute(
+        "SELECT * FROM automations WHERE enabled=1 AND next_run_at<=? ORDER BY next_run_at ASC",
+        (now,),
+    ).fetchall()
+    return [_row_to_automation(r) for r in rows]
+
+
+_AUTOMATION_FIELDS = {"name", "prompt", "trigger_kind", "interval_min", "at_time", "model", "enabled"}
+
+
+def update_automation(auto_id: str, **fields: Any) -> Optional[Automation]:
+    cur = get_automation(auto_id)
+    if cur is None:
+        return None
+    sets, vals = [], []
+    for k, v in fields.items():
+        if k not in _AUTOMATION_FIELDS or v is None:
+            continue
+        sets.append(f"{k}=?")
+        vals.append(int(v) if k == "enabled" else v)
+    if not sets:
+        return cur
+    # Recompute next_run_at when the schedule changed or the task was re-enabled.
+    merged = {**cur.to_dict(), **{k: v for k, v in fields.items() if v is not None}}
+    trigger_touched = any(k in fields for k in ("trigger_kind", "interval_min", "at_time"))
+    reenabled = fields.get("enabled") and not cur.enabled
+    if trigger_touched or reenabled:
+        nxt = compute_next_run(merged["trigger_kind"], merged["interval_min"], merged["at_time"], time.time())
+        sets.append("next_run_at=?"); vals.append(nxt)
+    sets.append("updated_at=?"); vals.append(time.time())
+    vals.append(auto_id)
+    get_conn().execute(f"UPDATE automations SET {', '.join(sets)} WHERE id=?", vals)
+    get_conn().commit()
+    return get_automation(auto_id)
+
+
+def mark_automation_run(
+    auto_id: str, *, next_run_at: Optional[float] = None, last_run_at: Optional[float] = None,
+    last_session_id: Optional[str] = None, last_status: Optional[str] = None,
+) -> None:
+    sets, vals = [], []
+    for col, val in (
+        ("next_run_at", next_run_at), ("last_run_at", last_run_at),
+        ("last_session_id", last_session_id), ("last_status", last_status),
+    ):
+        if val is not None:
+            sets.append(f"{col}=?"); vals.append(val)
+    if not sets:
+        return
+    vals.append(auto_id)
+    get_conn().execute(f"UPDATE automations SET {', '.join(sets)} WHERE id=?", vals)
+    get_conn().commit()
+
+
+def delete_automation(auto_id: str) -> None:
+    get_conn().execute("DELETE FROM automations WHERE id=?", (auto_id,))
+    get_conn().commit()

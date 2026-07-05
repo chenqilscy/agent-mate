@@ -126,3 +126,36 @@ export interface WorkItem {
   assignee_name: string
   ago?: string
 }
+
+export type TriggerKind = 'interval' | 'daily'
+
+export interface Automation {
+  id: string
+  name: string
+  prompt: string
+  trigger_kind: TriggerKind
+  interval_min: number
+  at_time: string // "HH:MM"
+  project_id: string | null
+  model: string | null
+  enabled: boolean
+  created_at: number
+  updated_at: number
+  next_run_at: number
+  last_run_at: number | null
+  last_session_id: string | null
+  last_status: 'ok' | 'error' | 'running' | null
+  next_run_label: string
+  last_run_label: string
+}
+
+export interface CreateAutomationInput {
+  name: string
+  prompt: string
+  trigger_kind: TriggerKind
+  interval_min?: number
+  at_time?: string
+  project_id?: string | null
+  model?: string | null
+  enabled?: boolean
+}

@@ -231,6 +231,33 @@
 .my-proj:hover { border-color: var(--brand); }
 .my-proj .mp-more { margin-left: auto; color: var(--text-3); cursor: pointer; }
 
+/* ---- 自动化 (automations) ---- */
+.auto-card { border: 1px solid var(--border); border-radius: 13px; padding: 15px 16px; background: #fff; position: relative; display: flex; flex-direction: column; gap: 11px; }
+.auto-h { display: flex; align-items: center; gap: 11px; }
+.auto-h .t-ic { width: 32px; height: 32px; border-radius: 9px; background: var(--brand-soft); display: grid; place-items: center; flex-shrink: 0; font-size: 17px; }
+.auto-tt { flex: 1; min-width: 0; }
+.auto-n { font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auto-meta { font-size: 12px; color: var(--text-3); margin-top: 3px; }
+.auto-meta .dot { margin: 0 6px; }
+.auto-prompt { font-size: 12.5px; color: var(--text-2); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.auto-f { display: flex; align-items: center; gap: 8px; }
+.auto-chip { font-size: 11px; color: var(--text-3); background: var(--chip); border-radius: 20px; padding: 3px 10px; display: inline-flex; align-items: center; gap: 5px; }
+.auto-chip.ok { color: var(--brand-600); background: var(--brand-soft); }
+.auto-chip.err { color: #E5484D; background: #FDECEC; }
+.auto-chip.run .run-ic { width: 10px; height: 10px; }
+.auto-more { margin-left: auto; width: 28px; height: 28px; border: none; background: transparent; border-radius: 7px; color: var(--text-3); cursor: pointer; display: grid; place-items: center; }
+.auto-more:hover { background: var(--chip); color: var(--text); }
+.auto-more svg { width: 16px; height: 16px; }
+.pop-item.danger { color: #E5484D; }
+.auto-trig { border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.auto-trig .seg2 { margin-left: 0; width: fit-content; }
+.auto-trig-in { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); margin-top: 12px; }
+.auto-trig-in input { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-family: inherit; font-size: 13px; color: var(--text); background: var(--card); outline: none; }
+.auto-trig-in input[type="number"] { width: 72px; }
+.auto-trig-in input:focus { border-color: var(--brand); }
+body.dark .auto-card, body.dark .auto-trig-in input { background: #22272D; }
+body.dark .auto-chip.err { background: #3A2326; color: #F98A8E; }
+
 /* ---- Hub (experts/skills/connectors) ---- */
 .hub-top { display: flex; align-items: center; gap: 6px; padding: 12px 24px; border-bottom: 1px solid var(--border-2); flex-shrink: 0; }
 .hub-tab { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 9px; cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--text-2); }

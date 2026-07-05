@@ -86,6 +86,29 @@ class WorkItem:
 
 
 @dataclass
+class Automation:
+    id: str
+    owner_id: str
+    name: str
+    prompt: str
+    trigger_kind: str  # "interval" | "daily"
+    interval_min: int  # for trigger_kind == "interval"
+    at_time: str  # "HH:MM" (local) for trigger_kind == "daily"
+    project_id: Optional[str]
+    model: Optional[str]
+    enabled: bool
+    created_at: float
+    updated_at: float
+    next_run_at: float
+    last_run_at: Optional[float] = None
+    last_session_id: Optional[str] = None
+    last_status: Optional[str] = None  # "ok" | "error" | "running"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class Message:
     id: str
     session_id: str
