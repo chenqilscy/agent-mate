@@ -13,7 +13,9 @@ concurrently without "database is locked" storms.
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
 import json
+import secrets
 import sqlite3
 import threading
 import time
@@ -66,8 +68,18 @@ def init_db() -> None:
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             role TEXT NOT NULL,
-            plan TEXT NOT NULL
+            plan TEXT NOT NULL,
+            password_hash TEXT
         );
+
+        -- Bearer tokens for real accounts (M7 C1). No token on a request → the
+        -- fixed local owner, so single-machine use keeps working without login.
+        CREATE TABLE IF NOT EXISTS auth_tokens (
+            token TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id);
 
         CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
@@ -170,6 +182,11 @@ def _migrate_columns() -> None:
         if col not in have:
             conn.execute(f"ALTER TABLE work_items ADD COLUMN {ddl}")
 
+    # M7 C1: users 增 password_hash（真账户密码）。
+    have_u = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "password_hash" not in have_u:
+        conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+
     # WB-035: sessions 增 automation_id —— 把自动化产出的会话反向关联回其自动化，供「运行历史」。
     have_s = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()}
     if "automation_id" not in have_s:
@@ -207,6 +224,70 @@ def get_user(user_id: str) -> Optional[User]:
     if not row:
         return None
     return User(id=row["id"], name=row["name"], role=Role(row["role"]), plan=row["plan"])
+
+
+def _row_to_user(row) -> User:
+    return User(id=row["id"], name=row["name"], role=Role(row["role"]), plan=row["plan"])
+
+
+# ---- accounts / auth (M7 C1) --------------------------------------------
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), 100_000)
+    return f"pbkdf2$100000${salt}${dk.hex()}"
+
+
+def verify_password(password: str, stored: Optional[str]) -> bool:
+    if not stored:
+        return False
+    try:
+        _algo, iters, salt, hexdk = stored.split("$")
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), int(iters))
+        return secrets.compare_digest(dk.hex(), hexdk)
+    except Exception:
+        return False
+
+
+def get_user_by_name(name: str) -> Optional[tuple[User, Optional[str]]]:
+    """Returns (user, password_hash) for login, or None."""
+    row = get_conn().execute("SELECT * FROM users WHERE name=?", (name,)).fetchone()
+    return (_row_to_user(row), row["password_hash"]) if row else None
+
+
+def create_user(*, name: str, password: str, role: Role = Role.OWNER, plan: str = "体验版") -> User:
+    uid = new_uuid()
+    get_conn().execute(
+        "INSERT INTO users (id,name,role,plan,password_hash) VALUES (?,?,?,?,?)",
+        (uid, name[:60], role.value, plan, hash_password(password)),
+    )
+    get_conn().commit()
+    return User(id=uid, name=name[:60], role=role, plan=plan)
+
+
+def list_users() -> list[User]:
+    rows = get_conn().execute("SELECT * FROM users ORDER BY name").fetchall()
+    return [_row_to_user(r) for r in rows]
+
+
+def create_token(user_id: str) -> str:
+    token = secrets.token_hex(32)
+    get_conn().execute(
+        "INSERT INTO auth_tokens (token,user_id,created_at) VALUES (?,?,?)",
+        (token, user_id, time.time()),
+    )
+    get_conn().commit()
+    return token
+
+
+def user_id_for_token(token: str) -> Optional[str]:
+    row = get_conn().execute("SELECT user_id FROM auth_tokens WHERE token=?", (token,)).fetchone()
+    return row["user_id"] if row else None
+
+
+def delete_token(token: str) -> None:
+    get_conn().execute("DELETE FROM auth_tokens WHERE token=?", (token,))
+    get_conn().commit()
 
 
 # ---- sessions -----------------------------------------------------------

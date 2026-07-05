@@ -10,8 +10,17 @@ const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 export const API_BASE =
   import.meta.env.VITE_API_BASE ?? (isTauri ? 'http://127.0.0.1:8000/api' : '/api')
 
+// Bearer token for real accounts (M7 C1). Stored in localStorage so it survives
+// reloads and is readable by both api.ts and the SSE reader. No token → the
+// backend treats the request as the local owner.
+export const TOKEN_KEY = 'wb.token'
+export function authHeaders(): Record<string, string> {
+  const t = localStorage.getItem(TOKEN_KEY)
+  return t ? { Authorization: `Bearer ${t}` } : {}
+}
+
 async function get<T>(path: string): Promise<T> {
-  const r = await fetch(`${API_BASE}${path}`)
+  const r = await fetch(`${API_BASE}${path}`, { headers: authHeaders() })
   if (!r.ok) throw new Error(`GET ${path} → ${r.status}`)
   return r.json() as Promise<T>
 }
@@ -19,15 +28,23 @@ async function get<T>(path: string): Promise<T> {
 async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
   const r = await fetch(`${API_BASE}${path}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!r.ok) throw new Error(`${method} ${path} → ${r.status}`)
   return r.json() as Promise<T>
 }
 
+export interface AuthResult { token: string; user: { id: string; name: string; role: string; plan: string } }
+
 export const api = {
   me: () => get<Me>('/me'),
+
+  register: (name: string, password: string) =>
+    send<AuthResult>('POST', '/auth/register', { name, password }),
+  login: (name: string, password: string) =>
+    send<AuthResult>('POST', '/auth/login', { name, password }),
+  logout: () => send<{ ok: boolean }>('POST', '/auth/logout'),
 
   models: () => get<{ default: string; effective: string; models: ModelOption[] }>('/models'),
 

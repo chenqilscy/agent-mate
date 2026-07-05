@@ -6,7 +6,7 @@
 // AbortController lets the Composer's stop button cancel the request client-side
 // (the /stop endpoint stops it server-side too).
 
-import { API_BASE } from './api'
+import { API_BASE, authHeaders } from './api'
 import type { SSEEvent } from './types'
 
 export interface ChatStreamOptions {
@@ -37,7 +37,7 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
   try {
     const resp = await fetch(`${API_BASE}/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({
         text: opts.text,
         session_id: opts.sessionId,

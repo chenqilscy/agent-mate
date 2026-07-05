@@ -31,8 +31,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from agent import scheduler
+from auth.middleware import AuthMiddleware
 from config import FROZEN, settings
-from routers import automations, chat, files, me, models, projects, sessions, work_items
+from routers import auth, automations, chat, files, me, models, projects, sessions, work_items
 from storage import db
 
 app = FastAPI(title="WorkBuddy API", version="0.1.0")
@@ -67,6 +68,8 @@ class BodySizeLimitMiddleware:
 
 
 app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_JSON_BODY)
+# Resolve the Bearer token → current user (M7 C1). Pure ASGI, so SSE stays intact.
+app.add_middleware(AuthMiddleware)
 
 # During M0–M4 the UI is served by Vite on :5173 and proxies /api. CORS stays
 # permissive for localhost so direct-origin dev (no proxy) also works.
@@ -108,6 +111,7 @@ def health() -> dict:
     return {"ok": True, "llm_configured": settings.llm_configured}
 
 
+app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(models.router)
 app.include_router(sessions.router)

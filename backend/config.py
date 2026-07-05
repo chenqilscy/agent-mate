@@ -59,7 +59,8 @@ class Settings:
     GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "").strip()
 
     # DB + workspace live in DATA_DIR (backend/ in dev, per-user data dir when frozen).
-    DB_PATH: Path = DATA_DIR / "workbuddy.db"
+    # WORKBUDDY_DB overrides the DB path (isolated tests / running a second instance).
+    DB_PATH: Path = Path(os.getenv("WORKBUDDY_DB", str(DATA_DIR / "workbuddy.db")))
 
     WORKSPACE_ROOT: Path = Path(
         os.getenv("WORKBUDDY_WORKSPACE", str(DATA_DIR / "workspace"))
