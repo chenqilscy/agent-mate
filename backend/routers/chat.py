@@ -19,7 +19,15 @@ class ChatBody(BaseModel):
     space: str | None = None
     model: str | None = None
     plan: bool = False
+    ask: bool = False
     project_id: str | None = None
+    # Per-message loadout picked from the composer ＋ menu (merged with the
+    # project's own experts/skills/connectors when the session belongs to one).
+    experts: list[str] = []
+    skills: list[str] = []
+    connectors: list[str] = []
+    # Attached / referenced files: injected into this turn's context only.
+    refs: list[dict] = []
 
 
 SSE_HEADERS = {
@@ -56,7 +64,12 @@ async def chat(body: ChatBody):
         # First frame tells the client which session this stream belongs to
         # (essential when the session was just created).
         yield events.sse("session", {"id": session.id, "title": session.title})
-        async for chunk in runtime.run_chat(session, user, text, model=body.model, plan=body.plan):
+        async for chunk in runtime.run_chat(
+            session, user, text,
+            model=body.model, plan=body.plan, ask=body.ask,
+            experts=body.experts, skills=body.skills, connectors=body.connectors,
+            refs=body.refs,
+        ):
             yield chunk
 
     return StreamingResponse(

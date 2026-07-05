@@ -146,47 +146,70 @@ async def run_chat(
     *,
     model: str | None = None,
     plan: bool = False,
+    ask: bool = False,
+    experts: list[str] | None = None,
+    skills: list[str] | None = None,
+    connectors: list[str] | None = None,
+    refs: list[dict] | None = None,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
 
     Persists the user turn, runs the tool loop, persists the assistant turn with
-    its full trace so history replay reproduces the trace. In Plan mode the agent
-    plans only (read-only tools + ask_user) and confirms key decisions via cards.
+    its full trace so history replay reproduces the trace. Plan mode plans only
+    (read-only tools + ask_user); Ask mode answers only (no tools). The loadout
+    (experts/skills/connectors) is the project's plus any picked from the ＋ menu.
     """
     session_id = session.id
     system_prompt = PLAN_SYSTEM_PROMPT if plan else SYSTEM_PROMPT
+    if ask:
+        system_prompt += "\n\n# 仅问答模式\n只回答用户的问题，不要调用任何工具、不执行任何操作。"
 
     # Per-project workspace (§11.2): this run's tools operate in the project's own
     # checkout (or the shared default for ad-hoc chats).
     use_root(project_root(session.project_id))
 
-    # Project-scoped chat: prepend the project's instruction, expert personas and
-    # enabled skills so the agent follows the team's context (M4 + M5, spec §11).
-    active_experts: list[str] = []
-    active_skills: list[str] = []
-    active_connectors: list[str] = []
-    skill_tools = []
+    def _dedup(seq: list[str]) -> list[str]:
+        return list(dict.fromkeys(seq))
+
+    # Loadout = the project's experts/skills/connectors ∪ what the ＋ menu picked.
+    proj_experts, proj_skills, proj_connectors = [], [], []
     if session.project_id:
         project = db.get_project(session.project_id)
         if project:
             if project.instruction.strip():
                 system_prompt += f"\n\n# 项目背景与规范（项目：{project.name}）\n{project.instruction.strip()}"
-            active_experts = project.experts
-            active_skills = project.skills
-            active_connectors = project.connectors
-            if active_experts:
-                system_prompt += "\n\n# 专家人格（请综合以下专长作答）\n" + "\n".join(
-                    f"- {persona_for(n)}" for n in active_experts
-                )
-            if active_skills:
-                lines = []
-                for name in active_skills:
-                    instr, tools = skill_def(name)
-                    lines.append(f"- {name}：{instr}")
-                    skill_tools.extend(tools)
-                system_prompt += "\n\n# 已启用技能\n" + "\n".join(lines)
+            proj_experts, proj_skills, proj_connectors = project.experts, project.skills, project.connectors
 
-    llm_messages = _build_llm_messages(session_id, user_text, system_prompt)
+    active_experts = _dedup(proj_experts + (experts or []))
+    active_skills = _dedup(proj_skills + (skills or []))
+    active_connectors = _dedup(proj_connectors + (connectors or []))
+
+    skill_tools = []
+    if active_experts:
+        system_prompt += "\n\n# 专家人格（请综合以下专长作答）\n" + "\n".join(
+            f"- {persona_for(n)}" for n in active_experts
+        )
+    if active_skills:
+        lines = []
+        for name in active_skills:
+            instr, tools = skill_def(name)
+            lines.append(f"- {name}：{instr}")
+            skill_tools.extend(tools)
+        system_prompt += "\n\n# 已启用技能\n" + "\n".join(lines)
+
+    # Attached / referenced files (＋ menu) are prepended to THIS turn's LLM input
+    # only — the persisted user message stays clean, so the bubble shows just the
+    # typed text and history replay doesn't re-feed large file bodies.
+    llm_user_text = user_text
+    if refs:
+        blocks = []
+        for r in refs:
+            name = str(r.get("name", "file"))
+            body = str(r.get("content", ""))[:8000]
+            blocks.append(f"【参考文件 {name}】\n{body}")
+        llm_user_text = "\n\n".join(blocks) + "\n\n---\n\n" + user_text
+
+    llm_messages = _build_llm_messages(session_id, llm_user_text, system_prompt)
     db.add_message(session_id=session_id, role="user", content=user_text, actor=user.id)
     db.touch_session(session_id, status="running")
 
@@ -194,12 +217,13 @@ async def run_chat(
     _stop_events[session_id] = stop
     yield events.status("running")
 
-    # Active toolset = base (plan-filtered) tools + skill tools + connector (MCP)
-    # tools. Connectors spawn their stdio MCP servers now; closed in `finally`.
-    tools_list = base_tools(plan) + skill_tools
+    # Active toolset. Ask mode = no tools (pure Q&A). Otherwise base (plan-filtered)
+    # tools + skill tools + connector (MCP) tools; connectors spawn their stdio MCP
+    # servers now and are closed in `finally`.
+    tools_list = [] if ask else base_tools(plan) + skill_tools
     active_tools = {t.name: t for t in tools_list}
     mcp_tools, mcp_stack = [], None
-    if active_connectors and not plan:
+    if active_connectors and not plan and not ask:
         mcp_tools, mcp_stack = await open_connectors(
             active_connectors, env={"WORKBUDDY_NOTES_DIR": str(current_root())}
         )
@@ -207,7 +231,7 @@ async def run_chat(
     schemas = (
         [t.schema() for t in tools_list]
         + [mcp_schema(t) for t in mcp_tools]
-        + [ASK_USER_SCHEMA]
+        + ([] if ask else [ASK_USER_SCHEMA])
     )
     trace_items: list[dict[str, Any]] = []
     assistant_text = ""

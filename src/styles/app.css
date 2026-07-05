@@ -93,6 +93,11 @@
 .composer:focus-within { border-color: var(--brand); box-shadow: 0 10px 30px -16px rgba(22, 179, 122, .5); }
 .composer textarea { width: 100%; border: none; outline: none; resize: none; font-family: inherit; font-size: 14px; line-height: 1.6; padding: 15px 16px 6px; color: var(--text); background: transparent; max-height: 120px; }
 .composer textarea::placeholder { color: var(--text-3); }
+/* ＋ menu loadout: active experts/skills/connectors/attachments shown as
+   removable chips above the input, so the session's loadout is always visible. */
+.cloadout { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 14px 0; }
+.px-count { margin-left: auto; margin-right: 6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--brand-soft); color: var(--brand-600); font-size: 11px; font-weight: 700; display: inline-grid; place-items: center; }
+.rp-empty { padding: 28px 8px; text-align: center; color: var(--text-3); font-size: 13px; }
 .cbar { display: flex; align-items: center; gap: 7px; padding: 8px 10px 10px; flex-wrap: wrap; }
 .ctool { display: flex; align-items: center; gap: 5px; height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: #fff; cursor: pointer; font-family: inherit; font-size: 12px; color: var(--text-2); font-weight: 500; }
 .ctool:hover { border-color: var(--brand); color: var(--brand-600); }

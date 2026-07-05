@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useUIStore } from '../../stores/uiStore'
 import { useChatStore } from '../../stores/chatStore'
+import { useLoadoutStore } from '../../stores/loadoutStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useAuthStore } from '../../stores/authStore'
 import { toast } from '../../stores/toastStore'
@@ -82,6 +83,13 @@ export function Sidebar() {
     return () => document.removeEventListener('mousedown', onDown)
   }, [profileOpen, moreOpen])
 
+  // 新建任务: a genuinely fresh start — drop any ad-hoc loadout the previous chat
+  // had so the home composer opens clean.
+  const newTask = () => {
+    useChatStore.getState().startDraft('对话')
+    useLoadoutStore.getState().reset()
+  }
+
   const openTask = (id: string, target: ViewId = 'chat') => {
     openSession(id)
     if (target === 'projexec') {
@@ -141,7 +149,7 @@ export function Sidebar() {
           <div
             key={n.id}
             className={`nav-item ${n.cls ?? ''} ${act === n.id ? 'active' : ''}`.trim()}
-            onClick={() => setView(n.id)}
+            onClick={() => { if (n.id === 'home') newTask(); setView(n.id) }}
           >
             <span className="n-ic">{n.icon}</span>
             {n.label}

@@ -68,6 +68,18 @@ body.dark .csend { background: var(--brand); }
 body.dark .sc-top { background: linear-gradient(135deg, #20362C, #1E2A36); }
 body.dark .pf-row .up { background: var(--brand); color: #fff; }
 body.dark .mb-win button.close:hover { background: #E81123; }
+
+/* dark-mode readability: these used var(--ink) as a dark surface + white text,
+   but --ink flips to a LIGHT color in dark mode → white-on-light was unreadable.
+   Force a real dark surface so the text stays legible (fixes toasts, buttons,
+   badges, the stop/send-off states). */
+body.dark .toast { background: #2A2F36; }
+body.dark .btn-dark:not(:disabled) { background: #343A42; }
+body.dark .cat.active { background: #3A414B; color: #fff; }
+body.dark .pe-badge { background: #343A42; }
+body.dark .cstop { background: #343A42; }
+body.dark .cstop:hover { background: #434B56; }
+body.dark .ctool.model .mk { background: #17382C; }
 body.dark .ctray { background: #20252B; }
 body.dark .tray-chip:hover { background: #2A3036; }
 body.dark .csend:disabled { background: #3A414B; }

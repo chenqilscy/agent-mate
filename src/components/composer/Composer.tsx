@@ -1,12 +1,19 @@
-import { useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useLoadoutStore } from '../../stores/loadoutStore'
+import { useChatStore } from '../../stores/chatStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
 import { ModelPicker } from './ModelPicker'
 import { PermPopover } from './PermPopover'
 import { CtxPopover } from './CtxPopover'
-import { PlusMenu } from './PlusMenu'
+import { PlusMenu, type PlusActions } from './PlusMenu'
+import { PickerOverlay } from '../project/NewProjectModal'
+import { RefPicker } from './RefPicker'
+import { NP_CONNS, NP_EXPERTS, SK_GRID } from '../../data/catalog'
 import { IcPlus, IcClose, IcSend, IcChevronDown, IcMic, IcShield } from '../../lib/icons'
+
+const MAX_ATTACH = 200_000 // ~200 KB of text per attachment
 
 interface ComposerProps {
   variant?: 'home' | 'chat'
@@ -24,13 +31,54 @@ const PLACEHOLDER = '今天帮你做些什么？  @ 引用对话文件，/ 调�
 export function Composer({ variant = 'home', streaming = false, onSend, onStop, placeholder, autoFocus }: ComposerProps) {
   const [text, setText] = useState('')
   const [pop, setPop] = useState<PopId>(null)
+  const [picker, setPicker] = useState<'exp' | 'skill' | 'conn' | null>(null)
+  const [refOpen, setRefOpen] = useState(false)
   const anchorRef = useRef<HTMLElement | null>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const model = useSettingsStore((s) => s.model)
   const perm = useSettingsStore((s) => s.perm)
   const planMode = useSettingsStore((s) => s.planMode)
   const setPlan = useSettingsStore((s) => s.setPlan)
+
+  const experts = useLoadoutStore((s) => s.experts)
+  const skills = useLoadoutStore((s) => s.skills)
+  const connectors = useLoadoutStore((s) => s.connectors)
+  const refs = useLoadoutStore((s) => s.refs)
+  const toggleLoad = useLoadoutStore((s) => s.toggle)
+  const addRef = useLoadoutStore((s) => s.addRef)
+  const removeRef = useLoadoutStore((s) => s.removeRef)
+
+  const activeId = useChatStore((s) => s.activeId)
+  const activeProjectId = useChatStore((s) => s.activeProjectId)
+  const scope = activeProjectId ? { project: activeProjectId } : activeId ? { session: activeId } : {}
+
+  const plusActions: PlusActions = {
+    onPick: (kind) => setPicker(kind),
+    onAddFile: () => fileRef.current?.click(),
+    onRefFile: () => setRefOpen(true),
+  }
+
+  const onFileChosen = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-picking the same file
+    if (!file) return
+    if (file.size > MAX_ATTACH) { toast('文件过大（上限约 200KB 文本）'); return }
+    try {
+      const content = await file.text()
+      addRef({ name: file.name, content })
+      toast('已添加 · ' + file.name)
+    } catch {
+      toast('读取失败')
+    }
+  }
+
+  const iconOf = (kind: 'exp' | 'skill' | 'conn', name: string): string => {
+    if (kind === 'conn') return NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
+    if (kind === 'exp') return NP_EXPERTS.find((x) => x[1] === name)?.[0] ?? '🧑'
+    return SK_GRID.find((s) => s[1] === name)?.[0] ?? '🧩'
+  }
 
   const grow = () => {
     const ta = taRef.current
@@ -55,8 +103,26 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
 
   const closePop = () => setPop(null)
 
+  const hasLoadout = experts.length + skills.length + connectors.length + refs.length > 0
+
   return (
     <div className="composer">
+      {hasLoadout && (
+        <div className="cloadout">
+          {experts.map((n) => (
+            <span className="np-chip" key={'e' + n}><span>{iconOf('exp', n)}</span>{n}<span className="x" onClick={() => toggleLoad('exp', n)}>×</span></span>
+          ))}
+          {skills.map((n) => (
+            <span className="np-chip" key={'s' + n}><span>{iconOf('skill', n)}</span>{n}<span className="x" onClick={() => toggleLoad('skill', n)}>×</span></span>
+          ))}
+          {connectors.map((n) => (
+            <span className="np-chip" key={'c' + n}><span>{iconOf('conn', n)}</span>{n}<span className="x" onClick={() => toggleLoad('conn', n)}>×</span></span>
+          ))}
+          {refs.map((r) => (
+            <span className="np-chip" key={'r' + r.name}><span>📎</span>{r.name}<span className="x" onClick={() => removeRef(r.name)}>×</span></span>
+          ))}
+        </div>
+      )}
       <textarea
         ref={taRef}
         rows={1}
@@ -71,6 +137,16 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
           }
         }}
       />
+      <input ref={fileRef} type="file" hidden onChange={onFileChosen} />
+      {picker && (
+        <PickerOverlay
+          kind={picker}
+          sel={new Set(picker === 'exp' ? experts : picker === 'skill' ? skills : connectors)}
+          onToggle={(n) => toggleLoad(picker, n)}
+          onClose={() => setPicker(null)}
+        />
+      )}
+      {refOpen && <RefPicker scope={scope} onClose={() => setRefOpen(false)} />}
       <div className="cbar">
         <button className="cicon plusbtn" aria-label="添加" onClick={(e) => openPop('plusx', e)}>
           {pop === 'plusx' ? <IcClose /> : <IcPlus />}
@@ -126,7 +202,7 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
       </div>
 
       <Popover open={pop === 'plusx'} anchor={anchorRef.current} dir="up" onClose={closePop} minWidth={168}>
-        <PlusMenu onClose={closePop} />
+        <PlusMenu onClose={closePop} actions={plusActions} />
       </Popover>
       <Popover open={pop === 'model'} anchor={anchorRef.current} dir="up" onClose={closePop} className="model">
         <ModelPicker onClose={closePop} />

@@ -10,6 +10,7 @@ import { api } from '../lib/api'
 import { streamChat } from '../lib/sse'
 import type { AskQuestion, ChatMessage, SessionInfo, SSEEvent, TraceItem } from '../lib/types'
 import { useSettingsStore } from './settingsStore'
+import { useLoadoutStore } from './loadoutStore'
 import { useUIStore } from './uiStore'
 
 function uuid(): string {
@@ -59,6 +60,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   openSession: async (id) => {
     if (get().streaming) get().stop()
     useUIStore.getState().closeFile()
+    useLoadoutStore.getState().reset()
     try {
       const { session, messages } = await api.getMessages(id)
       set({
@@ -81,6 +83,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // Home → Chat: reset to an empty conversation. The backend session is created
   // lazily on the first send (returned via the `session` event).
+  // NB: startDraft/startProject do NOT reset the loadout — the composer's ＋-menu
+  // picks are made just before send() calls these, so wiping here would drop them.
+  // Fresh-start reset happens on the sidebar's 新建任务 action; opening a different
+  // existing session resets in openSession.
   startDraft: (title) => {
     if (get().streaming) get().stop()
     useUIStore.getState().closeFile()
@@ -180,18 +186,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     }
 
+    const settings = useSettingsStore.getState()
+    const loadout = useLoadoutStore.getState()
     try {
       await streamChat({
         text: trimmed,
         sessionId: get().activeId ?? undefined,
         title: get().title,
-        model: useSettingsStore.getState().model,
-        plan: useSettingsStore.getState().planMode,
+        model: settings.model,
+        plan: settings.planMode,
+        ask: settings.askMode,
         projectId: get().activeProjectId ?? undefined,
+        experts: loadout.experts,
+        skills: loadout.skills,
+        connectors: loadout.connectors,
+        refs: loadout.refs,
         signal: controller.signal,
         onEvent,
       })
     } finally {
+      // Attachments are one-shot — the loadout personas/skills/connectors stay.
+      useLoadoutStore.getState().clearRefs()
       set({ streaming: false, abort: null, pending: null })
       get().loadSessions()
     }
