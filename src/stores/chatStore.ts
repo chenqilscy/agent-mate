@@ -8,7 +8,7 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
 import { streamChat } from '../lib/sse'
-import type { ChatMessage, SessionInfo, SSEEvent, TraceItem } from '../lib/types'
+import type { AskQuestion, ChatMessage, SessionInfo, SSEEvent, TraceItem } from '../lib/types'
 import { useSettingsStore } from './settingsStore'
 import { useUIStore } from './uiStore'
 
@@ -23,11 +23,14 @@ interface ChatState {
   messages: ChatMessage[]
   streaming: boolean
   abort: AbortController | null
+  // ask_user: questions awaiting the user's answer (null = none pending).
+  pending: { questions: AskQuestion[] } | null
 
   loadSessions: () => Promise<void>
   openSession: (id: string) => Promise<void>
   startDraft: (title: string) => void
   send: (text: string) => Promise<void>
+  answer: (answers: string[]) => void
   stop: () => void
 }
 
@@ -38,6 +41,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   streaming: false,
   abort: null,
+  pending: null,
 
   loadSessions: async () => {
     try {
@@ -137,6 +141,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         case 'todo':
           patchBot((m) => ({ ...m, trace: [...m.trace, { kind: 'todo', text: ev.data.text }] }))
           break
+        case 'ask_user':
+          set({ pending: { questions: ev.data.questions } })
+          break
+        case 'qa_summary':
+          set({ pending: null })
+          patchBot((m) => ({ ...m, trace: [...m.trace, { kind: 'qa', qa: ev.data.qa }] }))
+          break
         case 'usage':
           useSettingsStore.getState().setUsage({
             pct: ev.data.pct,
@@ -162,19 +173,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
         sessionId: get().activeId ?? undefined,
         title: get().title,
         model: useSettingsStore.getState().model,
+        plan: useSettingsStore.getState().planMode,
         signal: controller.signal,
         onEvent,
       })
     } finally {
-      set({ streaming: false, abort: null })
+      set({ streaming: false, abort: null, pending: null })
       get().loadSessions()
     }
+  },
+
+  // Submit ask_user answers — POSTs to /answer, which wakes the suspended agent
+  // on the still-open SSE stream (the qa_summary event will confirm).
+  answer: (answers) => {
+    const { activeId, pending } = get()
+    if (!activeId || !pending) return
+    set({ pending: null })
+    api.answer(activeId, answers).catch(() => {})
   },
 
   stop: () => {
     const { abort, activeId } = get()
     abort?.abort()
     if (activeId) api.stopChat(activeId).catch(() => {})
-    set({ streaming: false, abort: null })
+    set({ streaming: false, abort: null, pending: null })
   },
 }))

@@ -24,6 +24,7 @@ export interface DiffEvent { op: string; file: string; add: number; del: number 
 export interface TodoEvent { text: string }
 export interface TextEvent { md: string }
 export interface AskUserEvent { questions: AskQuestion[] }
+export interface QaSummaryEvent { qa: QaPair[] }
 export interface ArtifactEvent { name: string; size: string; path: string }
 export interface UsageEvent { pct: number; used: number; detail: Record<string, number> }
 export interface ErrorEvent { message: string }
@@ -31,6 +32,7 @@ export interface SessionEvent { id: string; title: string }
 export interface DoneEvent { message_id?: string }
 
 export interface AskQuestion { q: string; options: string[] }
+export interface QaPair { q: string; a: string }
 
 export type SSEEvent =
   | { type: 'session'; data: SessionEvent }
@@ -42,6 +44,7 @@ export type SSEEvent =
   | { type: 'todo'; data: TodoEvent }
   | { type: 'text'; data: TextEvent }
   | { type: 'ask_user'; data: AskUserEvent }
+  | { type: 'qa_summary'; data: QaSummaryEvent }
   | { type: 'artifact'; data: ArtifactEvent }
   | { type: 'usage'; data: UsageEvent }
   | { type: 'error'; data: ErrorEvent }
@@ -55,6 +58,7 @@ export type TraceItem =
   | { kind: 'file_read'; path: string; range: string }
   | { kind: 'diff'; op: string; file: string; add: number; del: number }
   | { kind: 'todo'; text: string }
+  | { kind: 'qa'; qa: QaPair[] }
 
 // ---- domain ---------------------------------------------------------------
 

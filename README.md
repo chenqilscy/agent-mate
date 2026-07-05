@@ -7,7 +7,7 @@ following the plan in [`docs/workbuddy-实现方案.md`](docs/workbuddy-实现�
 **Principle: nothing faked.** All streaming output comes from a real LLM, all
 state is persisted, all sidebar tasks are real sessions.
 
-## Status: M0 + M1 + M2 + M3 complete
+## Status: M0 + M1 + M2 + M3 complete · M4 in progress
 
 - **M0 — scaffold**: all 8 views switchable; styling migrated verbatim from the
   prototype (design tokens + component CSS); Windows menubar, sidebar, view routing.
@@ -28,9 +28,16 @@ state is persisted, all sidebar tasks are real sessions.
   from the diff trace). A file viewer renders Markdown through the pipeline and code
   with a line-number gutter. The file tree, artifact cards, and trace blue-links all
   open the same real file (`/api/files/content`).
+- **M4 (part 1) — ask_user loop + Plan mode**: the agent can call `ask_user`; the
+  runtime suspends the coroutine on an `asyncio.Event` and resumes when the user
+  answers via `POST /api/chat/{id}/answer` — on the *same* open SSE stream, across
+  multiple rounds. The AskUserCard (paging / options / other / skip) drives it and
+  the answered Q&A persists as a trace card. Plan mode (composer toggle) swaps in a
+  plan-only system prompt and restricts the agent to read-only tools + ask_user, so
+  it plans without executing.
 
-Later milestones (project flow + ask_user + Plan mode, MCP connectors, Tauri shell,
-collaboration) are scoped in the plan doc.
+Remaining M4 (new-project persistence + project execution view + 变更 diff list) and
+later milestones (MCP connectors, Tauri shell, collaboration) are scoped in the plan.
 
 ## Architecture (Local-first)
 

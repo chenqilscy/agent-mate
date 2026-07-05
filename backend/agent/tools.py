@@ -207,9 +207,49 @@ update_plan = Tool(
 TOOLS: list[Tool] = [list_dir, read_file, write_file, run_command, update_plan]
 _BY_NAME = {t.name: t for t in TOOLS}
 
+# ask_user is not a pure function — the runtime suspends on it and resumes when
+# the user answers (spec 5.3). Its schema is exposed to the model; execution is
+# special-cased in the runtime, not dispatched through safe_run.
+ASK_USER_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "ask_user",
+        "description": (
+            "当需要用户澄清关键决策时，向用户提出 1-3 个选择题并等待回答后再继续。"
+            "计划模式下，遇到影响方向的决策务必用它与用户确认。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "maxItems": 3,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "q": {"type": "string", "description": "问题文本"},
+                            "options": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "2-4 个候选答案",
+                            },
+                        },
+                        "required": ["q", "options"],
+                    },
+                }
+            },
+            "required": ["questions"],
+        },
+    },
+}
 
-def tool_schemas() -> list[dict[str, Any]]:
-    return [t.schema() for t in TOOLS]
+# Plan mode = read-only tools + ask_user (no write_file / run_command).
+_PLAN_TOOLS = {"list_dir", "read_file", "update_plan"}
+
+
+def tool_schemas(plan: bool = False) -> list[dict[str, Any]]:
+    tools = [t for t in TOOLS if (t.name in _PLAN_TOOLS)] if plan else TOOLS
+    return [t.schema() for t in tools] + [ASK_USER_SCHEMA]
 
 
 def get_tool(name: str) -> Tool | None:

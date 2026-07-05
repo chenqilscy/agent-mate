@@ -29,6 +29,8 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
 
   const model = useSettingsStore((s) => s.model)
   const perm = useSettingsStore((s) => s.perm)
+  const planMode = useSettingsStore((s) => s.planMode)
+  const setPlan = useSettingsStore((s) => s.setPlan)
 
   const grow = () => {
     const ta = taRef.current
@@ -79,6 +81,18 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
             <IcShield style={{ width: 14, height: 14 }} />
             <span className="perm-lb">{perm}</span>
             <IcChevronDown style={{ width: 10, height: 10 }} />
+          </button>
+        )}
+
+        {variant === 'chat' && (
+          <button
+            className="ctool"
+            style={planMode ? { borderColor: 'var(--brand)', color: 'var(--brand-600)' } : undefined}
+            title="计划模式：只规划不执行，用提问卡与你确认关键决策"
+            onClick={() => setPlan(!planMode)}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 13, height: 13 }}><rect x="6" y="4" width="12" height="16" rx="2" /><path d="M9 4h6M9 10h6M9 14h4" /></svg>
+            {planMode ? 'Plan' : '执行'}
           </button>
         )}
 

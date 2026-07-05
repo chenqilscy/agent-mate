@@ -47,6 +47,20 @@ export function TraceStream({ trace, streaming }: { trace: TraceItem[]; streamin
                 {IC_TODO}<span>{t.text}</span>
               </div>
             )
+          case 'qa':
+            return (
+              <div key={i}>
+                <div className="step">🙋 向用户提问</div>
+                <div className="qa-card">
+                  {t.qa.map((p, j) => (
+                    <div key={j}>
+                      <div className="qa-q">{p.q}</div>
+                      <div className="qa-a">{p.a}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
           default:
             return null
         }

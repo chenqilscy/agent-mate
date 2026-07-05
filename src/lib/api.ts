@@ -39,6 +39,9 @@ export const api = {
 
   stopChat: (id: string) => send<{ stopped: boolean }>('POST', `/chat/${id}/stop`),
 
+  answer: (id: string, answers: string[]) =>
+    send<{ ok: boolean }>('POST', `/chat/${id}/answer`, { answers }),
+
   filesTree: (root = 'workspace') =>
     get<{ root: string; entries: FileEntry[] }>(`/files/tree?root=${root}`),
 

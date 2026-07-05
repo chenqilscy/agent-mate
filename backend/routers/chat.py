@@ -18,6 +18,7 @@ class ChatBody(BaseModel):
     title: str | None = None
     space: str | None = None
     model: str | None = None
+    plan: bool = False
 
 
 SSE_HEADERS = {
@@ -50,7 +51,7 @@ async def chat(body: ChatBody):
         # First frame tells the client which session this stream belongs to
         # (essential when the session was just created).
         yield events.sse("session", {"id": session.id, "title": session.title})
-        async for chunk in runtime.run_chat(session, user, text, model=body.model):
+        async for chunk in runtime.run_chat(session, user, text, model=body.model, plan=body.plan):
             yield chunk
 
     return StreamingResponse(
@@ -69,6 +70,8 @@ class AnswerBody(BaseModel):
 
 
 @router.post("/chat/{session_id}/answer")
-def answer(session_id: str, body: AnswerBody) -> dict:
-    # ask_user resume lands in M4. Endpoint reserved so the contract is stable.
-    return {"ok": True, "received": len(body.answers)}
+async def answer(session_id: str, body: AnswerBody) -> dict:
+    # Deliver the ask_user answers and wake the suspended agent (same SSE stream).
+    # Async so submit_answers runs on the event loop (asyncio.Event.set()).
+    ok = runtime.submit_answers(session_id, body.answers)
+    return {"ok": ok}

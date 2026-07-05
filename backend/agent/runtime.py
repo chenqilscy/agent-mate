@@ -27,16 +27,29 @@ from storage.models import Session, User
 SYSTEM_PROMPT = (
     "你是 WorkBuddy，一个运行在用户本机的智能职场助手。\n"
     "你可以使用提供的工具在工作区（沙箱目录）内操作：列目录(list_dir)、读文件(read_file)、"
-    "写文件(write_file)、运行命令(run_command)、更新待办清单(update_plan)。\n"
+    "写文件(write_file)、运行命令(run_command)、更新待办清单(update_plan)；"
+    "遇到影响方向的关键决策时用 ask_user 向用户确认。\n"
     "工作方式：先思考再行动；多步任务先用 update_plan 拆解；需要时调用工具，逐步完成并核对结果。\n"
     "只在确有必要时使用工具——简单问答直接回答，不要空跑工具。所有路径都相对工作区根目录。\n"
     "最终回答使用 Markdown：用二级标题（##）分章节，善用列表、表格、代码块，让结构清晰。"
 )
 
-MAX_ROUNDS = 8
+# Plan mode (spec 5.3): plan, don't execute. Confirm key decisions via ask_user.
+PLAN_SYSTEM_PROMPT = (
+    "你是 WorkBuddy，现在处于【计划模式】。\n"
+    "只做规划，不做改动：可以用 list_dir / read_file 了解现状，用 update_plan 记录步骤，"
+    "遇到影响方向的关键决策时**务必用 ask_user 向用户确认**（一次最多问 3 个选择题）。\n"
+    "禁止调用 write_file / run_command——这一步只产出方案，不落地。\n"
+    "先探索与澄清，再输出一份清晰、可执行的实施计划（Markdown：用二级标题分章节、分步骤、标注关键取舍）。"
+)
+
+MAX_ROUNDS = 12
 
 # Active runs → their stop signal, keyed by session id.
 _stop_events: dict[str, asyncio.Event] = {}
+
+# Suspended ask_user calls → their answer channel, keyed by session id.
+_answers: dict[str, dict[str, Any]] = {}
 
 
 def request_stop(session_id: str) -> bool:
@@ -44,8 +57,21 @@ def request_stop(session_id: str) -> bool:
     ev = _stop_events.get(session_id)
     if ev is not None:
         ev.set()
-        return True
-    return False
+    # Also wake a suspended ask_user so the stream can unwind.
+    pending = _answers.get(session_id)
+    if pending is not None:
+        pending["ev"].set()
+    return ev is not None or pending is not None
+
+
+def submit_answers(session_id: str, answers: list[str]) -> bool:
+    """Deliver the user's ask_user answers and wake the suspended agent."""
+    pending = _answers.get(session_id)
+    if pending is None:
+        return False
+    pending["answers"] = answers
+    pending["ev"].set()
+    return True
 
 
 def resolve_model(client_model: str | None) -> str:
@@ -80,11 +106,13 @@ def _trace_to_sse(item: dict[str, Any]) -> str:
         return events.diff(item["op"], item["file"], item["add"], item["del"])
     if k == "todo":
         return events.todo(item["text"])
+    if k == "qa":
+        return events.qa_summary(item["qa"])
     return ""
 
 
-def _build_llm_messages(session_id: str, new_user_text: str) -> list[dict[str, Any]]:
-    msgs: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+def _build_llm_messages(session_id: str, new_user_text: str, system_prompt: str) -> list[dict[str, Any]]:
+    msgs: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     for m in db.list_messages(session_id):
         if m.role in ("user", "assistant") and m.content:
             msgs.append({"role": m.role, "content": m.content})
@@ -92,10 +120,10 @@ def _build_llm_messages(session_id: str, new_user_text: str) -> list[dict[str, A
     return msgs
 
 
-def _usage_event(prompt_tokens: int, completion_tokens: int, schemas: list[dict[str, Any]]) -> str:
+def _usage_event(prompt_tokens: int, completion_tokens: int, schemas: list[dict[str, Any]], system_prompt: str) -> str:
     used = prompt_tokens + completion_tokens
     pct = used / settings.CONTEXT_WINDOW * 100
-    sys_tok = _approx_tokens(SYSTEM_PROMPT)
+    sys_tok = _approx_tokens(system_prompt)
     tools_tok = _approx_tokens(json.dumps(schemas, ensure_ascii=False))
     detail = {
         "系统提示词": sys_tok,
@@ -113,15 +141,18 @@ async def run_chat(
     user_text: str,
     *,
     model: str | None = None,
+    plan: bool = False,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
 
     Persists the user turn, runs the tool loop, persists the assistant turn with
-    its full trace so history replay reproduces the trace.
+    its full trace so history replay reproduces the trace. In Plan mode the agent
+    plans only (read-only tools + ask_user) and confirms key decisions via cards.
     """
     session_id = session.id
+    system_prompt = PLAN_SYSTEM_PROMPT if plan else SYSTEM_PROMPT
 
-    llm_messages = _build_llm_messages(session_id, user_text)
+    llm_messages = _build_llm_messages(session_id, user_text, system_prompt)
     db.add_message(session_id=session_id, role="user", content=user_text, actor=user.id)
     db.touch_session(session_id, status="running")
 
@@ -129,7 +160,7 @@ async def run_chat(
     _stop_events[session_id] = stop
     yield events.status("running")
 
-    schemas = tool_schemas()
+    schemas = tool_schemas(plan)
     trace_items: list[dict[str, Any]] = []
     assistant_text = ""
     last_prompt = 0
@@ -207,6 +238,33 @@ async def run_chat(
                     args = json.loads(call["function"]["arguments"] or "{}")
                 except json.JSONDecodeError:
                     args = {}
+
+                if name == "ask_user":
+                    # Suspend the agent until the user answers (spec 5.3). The
+                    # /answer endpoint sets our event and wakes us on the SAME
+                    # open SSE stream. stop also wakes us (via request_stop).
+                    questions = args.get("questions") or []
+                    ev = asyncio.Event()
+                    _answers[session_id] = {"ev": ev, "answers": None}
+                    yield events.ask_user(questions)
+                    db.touch_session(session_id, status="waiting")
+                    await ev.wait()
+                    pending = _answers.pop(session_id, None)
+                    answers = (pending or {}).get("answers")
+                    db.touch_session(session_id, status="running")
+                    if stop.is_set() or answers is None:
+                        stopped = True
+                        llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": "用户已跳过或取消本次提问。"})
+                        break
+                    qa = [
+                        {"q": q.get("q", ""), "a": answers[i] if i < len(answers) else ""}
+                        for i, q in enumerate(questions)
+                    ]
+                    yield record({"kind": "qa", "qa": qa})
+                    result = "用户的选择：\n" + "\n".join(f"- {x['q']} → {x['a']}" for x in qa)
+                    llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+                    continue
+
                 tool = get_tool(name)
                 if tool and tool.pre:
                     pre = tool.pre(args)
@@ -218,21 +276,26 @@ async def run_chat(
                 llm_messages.append(
                     {"role": "tool", "tool_call_id": call["id"], "content": outcome.text}
                 )
+            if stopped:
+                break
             # loop again so the model can use the results
     except LLMError as e:
         yield events.error(str(e))
         db.touch_session(session_id, status="idle")
         _stop_events.pop(session_id, None)
+        _answers.pop(session_id, None)
         yield events.done()
         return
     except Exception as e:  # noqa: BLE001 — surface any hiccup to the UI
         yield events.error(f"执行出错：{e}")
         db.touch_session(session_id, status="idle")
         _stop_events.pop(session_id, None)
+        _answers.pop(session_id, None)
         yield events.done()
         return
     finally:
         _stop_events.pop(session_id, None)
+        _answers.pop(session_id, None)
 
     if last_prompt == 0:
         last_prompt = sum(_approx_tokens(str(m.get("content") or "")) for m in llm_messages)
@@ -254,7 +317,7 @@ async def run_chat(
 
     db.touch_session(session_id, status="done")
 
-    yield _usage_event(last_prompt, total_completion, schemas)
+    yield _usage_event(last_prompt, total_completion, schemas, system_prompt)
     yield events.status("done", secs=secs)
     if stopped:
         yield events.text("\n\n_（已停止生成）_")

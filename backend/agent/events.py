@@ -55,6 +55,11 @@ def ask_user(questions: list[dict[str, Any]]) -> str:
     return sse("ask_user", {"questions": questions})
 
 
+def qa_summary(qa: list[dict[str, Any]]) -> str:
+    """The answered question card (Q→A pairs), shown in the trace after ask_user."""
+    return sse("qa_summary", {"qa": qa})
+
+
 def artifact(name: str, size: str, path: str) -> str:
     return sse("artifact", {"name": name, "size": size, "path": path})
 

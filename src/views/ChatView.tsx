@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Composer } from '../components/composer/Composer'
 import { MessageList } from '../components/chat/MessageList'
+import { AskUserCard } from '../components/chat/AskUserCard'
 import { OvPanel } from '../components/panel/OvPanel'
 import { useChatStore } from '../stores/chatStore'
 import { useUIStore } from '../stores/uiStore'
@@ -13,6 +14,8 @@ export function ChatView() {
   const streaming = useChatStore((s) => s.streaming)
   const send = useChatStore((s) => s.send)
   const stop = useChatStore((s) => s.stop)
+  const pending = useChatStore((s) => s.pending)
+  const answer = useChatStore((s) => s.answer)
   const ovOpen = useUIStore((s) => s.ovOpen)
   const toggleOv = useUIStore((s) => s.toggleOv)
 
@@ -72,6 +75,7 @@ export function ChatView() {
         </div>
 
         <div className="chat-foot">
+          {pending && <AskUserCard questions={pending.questions} onAnswer={answer} />}
           <Composer variant="chat" streaming={streaming} onSend={send} onStop={stop} autoFocus />
           <div className="disc">内容由 AI 生成，请核实重要信息</div>
         </div>
