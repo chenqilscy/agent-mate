@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, type FileEntry } from '../../lib/api'
 import { useWorkItemStore } from '../../stores/workItemStore'
-import { useUIStore } from '../../stores/uiStore'
+import { useLoadoutStore } from '../../stores/loadoutStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
 import type { WorkAttachment, WorkItem, WorkStatus } from '../../lib/types'
@@ -224,7 +224,7 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
   const item = useWorkItemStore((s) => s.items.find((i) => i.id === itemId))
   const projectId = useWorkItemStore((s) => s.projectId)
   const update = useWorkItemStore((s) => s.update)
-  const setPrefill = useUIStore((s) => s.setComposerPrefill)
+  const addRef = useLoadoutStore((s) => s.addRef)
   const [editDesc, setEditDesc] = useState(false)
   const [descDraft, setDescDraft] = useState('')
 
@@ -235,8 +235,9 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
   const startEdit = () => { setDescDraft(item.description); setEditDesc(true) }
   const saveDesc = () => { setEditDesc(false); if (descDraft !== item.description) void update(item.id, { description: descDraft }) }
   const addToInput = () => {
-    const text = item.description.trim() ? `${item.title}\n\n${item.description}` : item.title
-    setPrefill(text)
+    // 作为独立引用 chip 加入 Composer（🔖），与正文/文件引用区分；随下条消息真实注入并在发送后清空。
+    const content = item.description.trim() ? `${item.title}\n\n${item.description}` : item.title
+    addRef({ name: item.title, content, kind: 'todo' })
     toast('已添加到输入框')
     onClose()
   }

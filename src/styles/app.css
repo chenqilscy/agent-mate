@@ -568,6 +568,10 @@ body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
 .np-chip .np-lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .np-chip .x { cursor: pointer; color: var(--text-3); font-weight: 700; }
 .np-chip .x:hover { color: var(--text); }
+/* 计划「添加到输入框」的待办引用 chip（WB-029）——品牌色调，与文件引用/正文区分 */
+.cloadout .np-chip.ref-todo { background: var(--brand-soft); color: var(--brand-600); font-weight: 600; }
+.cloadout .np-chip.ref-todo .x { color: var(--brand-600); opacity: .65; }
+.cloadout .np-chip.ref-todo .x:hover { color: var(--brand-600); opacity: 1; }
 .np-add { margin-left: auto; border: none; background: none; color: var(--text-2); font-family: inherit; font-size: 12.5px; cursor: pointer; font-weight: 600; padding: 6px 2px; flex-shrink: 0; }
 .np-add:hover { color: var(--brand-600); }
 .np-foot { display: flex; align-items: center; gap: 10px; padding: 14px 22px 18px; border-top: 1px solid var(--border-2); margin-top: 14px; flex-shrink: 0; }

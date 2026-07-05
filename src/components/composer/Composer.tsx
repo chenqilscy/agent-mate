@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useLoadoutStore } from '../../stores/loadoutStore'
 import { useChatStore } from '../../stores/chatStore'
-import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
 import { ModelPicker } from './ModelPicker'
@@ -54,16 +53,6 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
   const activeId = useChatStore((s) => s.activeId)
   const activeProjectId = useChatStore((s) => s.activeProjectId)
   const scope = activeProjectId ? { project: activeProjectId } : activeId ? { session: activeId } : {}
-
-  // Consume a one-shot prefill (计划「添加到输入框」): append to the input, focus, clear.
-  const composerPrefill = useUIStore((s) => s.composerPrefill)
-  const setComposerPrefill = useUIStore((s) => s.setComposerPrefill)
-  useEffect(() => {
-    if (composerPrefill == null) return
-    setText((cur) => (cur.trim() ? cur.replace(/\s*$/, '\n\n') + composerPrefill : composerPrefill))
-    setComposerPrefill(null)
-    requestAnimationFrame(() => { const ta = taRef.current; if (ta) { ta.focus(); ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 120) + 'px' } })
-  }, [composerPrefill, setComposerPrefill])
 
   const plusActions: PlusActions = {
     onPick: (kind) => setPicker(kind),
@@ -130,7 +119,7 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
             <span className="np-chip" key={'c' + n} title={n}><span>{iconOf('conn', n)}</span><span className="np-lbl">{n}</span><span className="x" onClick={() => toggleLoad('conn', n)}>×</span></span>
           ))}
           {refs.map((r) => (
-            <span className="np-chip" key={'r' + r.name} title={r.name}><span>📎</span><span className="np-lbl">{r.name}</span><span className="x" onClick={() => removeRef(r.name)}>×</span></span>
+            <span className={`np-chip ${r.kind === 'todo' ? 'ref-todo' : 'ref-file'}`} key={'r' + r.name} title={r.name}><span>{r.kind === 'todo' ? '🔖' : '📎'}</span><span className="np-lbl">{r.name}</span><span className="x" onClick={() => removeRef(r.name)}>×</span></span>
           ))}
         </div>
       )}

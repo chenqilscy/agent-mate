@@ -10,6 +10,8 @@ import { create } from 'zustand'
 export interface AttachedRef {
   name: string
   content: string
+  // 'file' = @引用/添加文件（📎）；'todo' = 计划「添加到输入框」的待办（🔖）。默认 file。
+  kind?: 'file' | 'todo'
 }
 
 type Kind = 'exp' | 'skill' | 'conn'
