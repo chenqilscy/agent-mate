@@ -88,6 +88,9 @@ body.dark .ctool.model .mk { background: #17382C; }
 body.dark .ctray { background: #20252B; }
 body.dark .tray-chip:hover { background: #2A3036; }
 body.dark .csend:disabled { background: #3A414B; }
+/* WB-024: filter menu floats above the sidebar → elevated dark surface (--card
+   stays #fff in dark, so it needs its own override like .more-menu). */
+body.dark .sb-fmenu { background: #22272D; }
 body.dark .ringc { border-color: #3A414B; }
 body.dark .scrolldn { background: #22272D; }
 body.dark .reward { background: #22272D; }

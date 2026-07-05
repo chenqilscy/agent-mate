@@ -68,6 +68,27 @@
 .sb-foot .fic:hover { background: var(--chip); color: var(--text); }
 .sb-foot .fic svg { width: 15px; height: 15px; }
 
+/* WB-024: sidebar header tools — active-icon state, task/space search box,
+   status filter menu, and wide-screen docked-sidebar collapse. */
+.sb-ico.on { background: var(--brand-soft); color: var(--brand-600); }
+.sb-head .sb-icos { position: relative; }
+.sb-fmenu { position: absolute; top: 30px; right: 0; width: 150px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-md); padding: 6px; z-index: 60; animation: pop .15s ease; }
+.sb-fmenu .more-item { width: 100%; border: none; background: transparent; font-family: inherit; font-size: 12.5px; text-align: left; }
+.sb-fmenu .more-item.sel { color: var(--brand-600); font-weight: 600; }
+.sb-search { display: flex; align-items: center; gap: 6px; margin: 0 6px 8px; padding: 0 8px; height: 32px; border: 1px solid var(--border); border-radius: 8px; background: var(--chip); }
+.sb-search svg { width: 14px; height: 14px; color: var(--text-3); flex-shrink: 0; }
+.sb-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-family: inherit; font-size: 12.8px; color: var(--text); }
+.sb-search input::placeholder { color: var(--text-3); }
+.sb-scl { display: grid; place-items: center; width: 18px; height: 18px; border: none; background: transparent; color: var(--text-3); cursor: pointer; border-radius: 5px; flex-shrink: 0; }
+.sb-scl svg { width: 13px; height: 13px; }
+.sb-scl:hover { background: var(--border); color: var(--text); }
+/* Collapse is a wide-screen concept only; ≤900px uses the off-canvas drawer. When
+   collapsed, the menubar hamburger is forced visible so it can re-open the sidebar. */
+.mb-burger.show { display: grid; }
+@media (min-width: 901px) {
+  .shell.sidebar-collapsed .sidebar { display: none; }
+}
+
 /* ---- Main ---- */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; position: relative; }
 .view { display: none; flex: 1; min-height: 0; flex-direction: column; }

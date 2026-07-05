@@ -49,6 +49,8 @@ function MainView() {
 export function App() {
   const navOpen = useUIStore((s) => s.navOpen)
   const setNavOpen = useUIStore((s) => s.setNavOpen)
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
+  const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
 
   useEffect(() => {
     // Bootstrap: who am I, what models exist, what tasks are in the sidebar.
@@ -73,16 +75,20 @@ export function App() {
     // narrow shows the drawer already open without any user action (WB-021).
     const mq = window.matchMedia('(max-width: 900px)')
     const onChange = (e: MediaQueryListEvent) => {
+      // Widened past the breakpoint → the drawer no longer exists, so close it.
+      // Narrowed below it → docked-sidebar collapse is a wide-screen concept only,
+      // so drop it (else the sidebar stays hidden with no way to reach the drawer).
       if (!e.matches) setNavOpen(false)
+      else setSidebarCollapsed(false)
     }
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
-  }, [setNavOpen])
+  }, [setNavOpen, setSidebarCollapsed])
 
   return (
     <div className="win">
       <MenuBar />
-      <div className={`shell ${navOpen ? 'nav-open' : ''}`.trim()}>
+      <div className={['shell', navOpen && 'nav-open', sidebarCollapsed && 'sidebar-collapsed'].filter(Boolean).join(' ')}>
         <Sidebar />
         {/* Scrim behind the off-canvas sidebar (≤900px); inert at wide widths. */}
         <div className="nav-scrim" onClick={() => setNavOpen(false)} />

@@ -5,7 +5,7 @@ import { useLoadoutStore } from '../../stores/loadoutStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useAuthStore } from '../../stores/authStore'
 import { toast } from '../../stores/toastStore'
-import type { ProjectInfo, ViewId } from '../../lib/types'
+import type { ProjectInfo, SessionInfo, ViewId } from '../../lib/types'
 import { activate } from '../../lib/a11y'
 import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
 
@@ -55,6 +55,7 @@ export function Sidebar() {
   const projects = useProjectStore((s) => s.projects)
   const loadProjects = useProjectStore((s) => s.load)
   const setActiveProject = useProjectStore((s) => s.setActive)
+  const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
   const me = useAuthStore((s) => s.me)
 
   useEffect(() => { loadProjects() }, [loadProjects])
@@ -69,7 +70,49 @@ export function Sidebar() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const footRef = useRef<HTMLDivElement>(null)
 
+  // Header tools (WB-024): task/space search box + status filter menu.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [filter, setFilter] = useState<'all' | 'running'>('all')
+  const searchRef = useRef<HTMLInputElement>(null)
+
   const act = activeNav(view)
+
+  useEffect(() => { if (searchOpen) searchRef.current?.focus() }, [searchOpen])
+
+  useEffect(() => {
+    if (!filterOpen) return
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement
+      if (t.closest?.('.sb-fmenu') || t.closest?.('[data-filter-toggle]')) return
+      setFilterOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [filterOpen])
+
+  // Live filtering of the 任务 / 空间 lists. Search matches titles/names; the
+  // status filter keeps only running sessions. A project survives when it has a
+  // matching child, or (text search only) its own name matches.
+  const q = query.trim().toLowerCase()
+  const filtering = q !== '' || filter !== 'all'
+  const matchText = (t: string) => !q || t.toLowerCase().includes(q)
+  const matchSession = (s: SessionInfo) => matchText(s.title) && (filter === 'all' || s.status === 'running')
+  const adhocShown = adhoc.filter(matchSession)
+  const projRows = projects
+    .map((p) => {
+      const kids = sessionsOf(p.id)
+      const kidsShown = filtering ? kids.filter(matchSession) : kids
+      const show = !filtering || kidsShown.length > 0 || (filter === 'all' && matchText(p.name))
+      return { p, kids, kidsShown, show }
+    })
+    .filter((r) => r.show)
+
+  const toggleSearch = () => {
+    if (searchOpen) setQuery('') // closing → drop the active filter so the lists come back
+    setSearchOpen((v) => !v)
+  }
 
   useEffect(() => {
     if (!profileOpen && !moreOpen) return
@@ -133,17 +176,59 @@ export function Sidebar() {
           <small>v5.2.3</small>
         </div>
         <div className="sb-icos">
-          <div className="sb-ico" aria-label="收起侧栏" onClick={() => toast('收起侧栏')} {...activate(() => toast('收起侧栏'))}>
+          <div className="sb-ico" aria-label="收起侧栏" onClick={() => setSidebarCollapsed(true)} {...activate(() => setSidebarCollapsed(true))}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
           </div>
-          <div className="sb-ico" aria-label="搜索" onClick={() => toast('搜索任务')} {...activate(() => toast('搜索任务'))}>
+          <div role="button" className={`sb-ico ${searchOpen || q ? 'on' : ''}`.trim()} aria-label="搜索" aria-pressed={searchOpen} onClick={toggleSearch} {...activate(toggleSearch)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
           </div>
-          <div className="sb-ico" aria-label="筛选" onClick={() => toast('筛选')} {...activate(() => toast('筛选'))}>
+          <div
+            role="button"
+            className={`sb-ico ${filter !== 'all' ? 'on' : ''}`.trim()}
+            data-filter-toggle
+            aria-label="筛选"
+            aria-haspopup="menu"
+            aria-expanded={filterOpen}
+            onClick={() => setFilterOpen((v) => !v)}
+            {...activate(() => setFilterOpen((v) => !v))}
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 5h18l-7 8v6l-4-2v-4z" /></svg>
           </div>
+          {filterOpen && (
+            <div className="sb-fmenu">
+              {([['all', '全部'], ['running', '进行中']] as const).map(([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={`more-item ${filter === v ? 'sel' : ''}`.trim()}
+                  onClick={() => { setFilter(v); setFilterOpen(false) }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+
+      {searchOpen && (
+        <div className="sb-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
+          <input
+            ref={searchRef}
+            value={query}
+            placeholder="搜索任务 / 空间"
+            aria-label="搜索任务或空间"
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setQuery(''); setSearchOpen(false) } }}
+          />
+          {query && (
+            <button type="button" className="sb-scl" aria-label="清空搜索" onClick={() => { setQuery(''); searchRef.current?.focus() }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            </button>
+          )}
+        </div>
+      )}
 
       <nav className="nav">
         {NAV.map((n) => (
@@ -170,16 +255,16 @@ export function Sidebar() {
       </nav>
 
       <div className="sb-sec" onClick={() => setTasksOpen((v) => !v)} {...activate(() => setTasksOpen((v) => !v))}>
-        任务 ({adhoc.length}) {chevron(tasksOpen)}
+        任务 ({adhocShown.length}) {chevron(tasksOpen)}
       </div>
       {tasksOpen && (
         <div className="sb-list">
-          {adhoc.length === 0 && (
+          {adhocShown.length === 0 && (
             <div className="sb-task" style={{ color: 'var(--text-3)', cursor: 'default' }}>
-              <span className="tt">暂无任务</span>
+              <span className="tt">{filtering ? '无匹配任务' : '暂无任务'}</span>
             </div>
           )}
-          {adhoc.map((s) => (
+          {adhocShown.map((s) => (
             <div className="sb-task" key={s.id} onClick={() => openTask(s.id)} {...activate(() => openTask(s.id))}>
               <span className="tt">{s.title}</span>
               {s.status === 'running' ? <span className="dot" /> : <span className="ago">{s.ago}</span>}
@@ -189,18 +274,19 @@ export function Sidebar() {
       )}
 
       <div className="sb-sec" onClick={() => setSpacesOpen((v) => !v)} {...activate(() => setSpacesOpen((v) => !v))}>
-        空间 ({projects.length}) {chevron(spacesOpen)}
+        空间 ({projRows.length}) {chevron(spacesOpen)}
       </div>
       {spacesOpen && (
         <div className="sb-list">
-          {projects.length === 0 && (
+          {projRows.length === 0 && (
             <div className="sb-task" style={{ color: 'var(--text-3)', cursor: 'default' }}>
-              <span className="tt">暂无项目</span>
+              <span className="tt">{filtering ? '无匹配空间' : '暂无项目'}</span>
             </div>
           )}
-          {projects.map((p: ProjectInfo) => {
-            const kids = sessionsOf(p.id)
-            const open = expanded.has(p.id)
+          {projRows.map(({ p, kids, kidsShown }) => {
+            // While filtering, auto-reveal matching children; otherwise honour the
+            // manual expand toggle.
+            const open = filtering ? kidsShown.length > 0 : expanded.has(p.id)
             return (
               <div key={p.id}>
                 <div className="sb-task" onClick={() => openProject(p)} {...activate(() => openProject(p))}>
@@ -215,13 +301,13 @@ export function Sidebar() {
                     {chevron(open)}
                   </span>
                 </div>
-                {open && kids.map((s) => (
+                {open && kidsShown.map((s) => (
                   <div className="sb-task sb-sub" key={s.id} onClick={() => openTask(s.id, 'projexec')} {...activate(() => openTask(s.id, 'projexec'))}>
                     <span className="tt">{s.title}</span>
                     {s.status === 'running' ? <span className="dot" /> : <span className="ago">{s.ago}</span>}
                   </div>
                 ))}
-                {open && kids.length === 0 && (
+                {open && !filtering && kids.length === 0 && (
                   <div className="sb-task sb-sub" style={{ color: 'var(--text-3)', cursor: 'default' }}>
                     <span className="tt">暂无执行</span>
                   </div>

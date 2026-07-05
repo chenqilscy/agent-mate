@@ -7,11 +7,19 @@ import { useUIStore } from '../../stores/uiStore'
 export function MenuBar() {
   const navOpen = useUIStore((s) => s.navOpen)
   const setNavOpen = useUIStore((s) => s.setNavOpen)
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
+  const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
   return (
     <div className="menubar">
       <div className="mb-left">
-        {/* Hamburger — only shown ≤900px (CSS) to reveal the off-canvas sidebar. */}
-        <button className="mb-burger" aria-label="菜单" onClick={() => setNavOpen(!navOpen)}>
+        {/* Hamburger — shown ≤900px (CSS) to reveal the off-canvas sidebar, and
+            forced visible (.show) on wide screens once the docked sidebar is
+            collapsed (WB-024), so it doubles as the re-expand control. */}
+        <button
+          className={`mb-burger ${sidebarCollapsed ? 'show' : ''}`.trim()}
+          aria-label={sidebarCollapsed ? '展开侧栏' : '菜单'}
+          onClick={() => (sidebarCollapsed ? setSidebarCollapsed(false) : setNavOpen(!navOpen))}
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
         </button>
         <svg className="app-ic" viewBox="0 0 40 40" aria-hidden="true">
