@@ -1,25 +1,18 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ChatMessage } from '../../lib/types'
 import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
+import { Popover } from '../ui/Popover'
 import { FileTree } from './FileTree'
 import { FileViewer } from './FileViewer'
 
-// Overview panel (概览 / 工作空间文件 / 浏览器). The 目录 (outline) lists real user
-// questions plus chapter headings from the answers; 产物 lists files the agent
-// wrote (derived from diff trace); the 工作空间文件 tab is the real workspace tree.
-// Selecting any file opens it in the FileViewer (spec M3).
-interface OutlineItem {
-  text: string
-  msgId: string
-  sub: boolean
-}
+// Overview panel (概览 / 工作空间文件 / 浏览器). Switching is a real dropdown; the
+// 目录 / 产物 sections fold; the panel itself collapses with a width animation
+// (it stays mounted — ChatView toggles the `open` class).
+type Tab = '概览' | '工作空间文件' | '浏览器'
 
-interface Artifact {
-  path: string
-  name: string
-  op: string
-}
+interface OutlineItem { text: string; msgId: string; sub: boolean }
+interface Artifact { path: string; name: string; op: string }
 
 function headings(md: string): string[] {
   const out: string[] = []
@@ -39,34 +32,49 @@ function buildOutline(messages: ChatMessage[]): OutlineItem[] {
   return items
 }
 
-// Artifacts = files the agent created/edited, taken from diff trace items. The
-// diff trace is the single source of truth, so this works live and on replay.
 function buildArtifacts(messages: ChatMessage[]): Artifact[] {
   const byPath = new Map<string, Artifact>()
   for (const m of messages) {
     if (m.role !== 'assistant') continue
     for (const t of m.trace) {
-      if (t.kind === 'diff') {
-        byPath.set(t.file, { path: t.file, name: t.file.split('/').pop() ?? t.file, op: t.op })
-      }
+      if (t.kind === 'diff') byPath.set(t.file, { path: t.file, name: t.file.split('/').pop() ?? t.file, op: t.op })
     }
   }
   return [...byPath.values()]
 }
 
 function badge(name: string): string {
-  const ext = name.split('.').pop()?.toUpperCase() ?? ''
-  return ext.slice(0, 3) || 'F'
+  return (name.split('.').pop()?.toUpperCase() ?? '').slice(0, 3) || 'F'
 }
 
-const CHEVRON = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg>
+const TABS: { id: Tab; icon: string }[] = [
+  { id: '概览', icon: '▦' },
+  { id: '工作空间文件', icon: '🗂️' },
+  { id: '浏览器', icon: '🌐' },
+]
 
-export function OvPanel({ messages }: { messages: ChatMessage[] }) {
+// A section header that folds its content (rotating chevron).
+function SectionHead({ label, open, onToggle }: { label: string; open: boolean; onToggle: () => void }) {
+  return (
+    <div className="ov-h" style={{ cursor: 'pointer' }} onClick={onToggle}>
+      {label}
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ transition: 'transform .18s', transform: open ? 'none' : 'rotate(-90deg)' }}>
+        <path d="M6 9l6 6 6-6" />
+      </svg>
+    </div>
+  )
+}
+
+export function OvPanel({ open, messages }: { open: boolean; messages: ChatMessage[] }) {
   const setOv = useUIStore((s) => s.setOv)
   const viewerPath = useUIStore((s) => s.viewerPath)
   const openFile = useUIStore((s) => s.openFile)
   const closeFile = useUIStore((s) => s.closeFile)
-  const [tab, setTab] = useState<'概览' | '工作空间文件' | '浏览器'>('概览')
+  const [tab, setTab] = useState<Tab>('概览')
+  const [ddOpen, setDdOpen] = useState(false)
+  const [dirOpen, setDirOpen] = useState(true)
+  const [prodOpen, setProdOpen] = useState(true)
+  const ddRef = useRef<HTMLButtonElement>(null)
 
   const outline = buildOutline(messages)
   const artifacts = buildArtifacts(messages)
@@ -75,14 +83,23 @@ export function OvPanel({ messages }: { messages: ChatMessage[] }) {
     document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
+  const collapse = () => {
+    setDdOpen(false)
+    setOv(false)
+  }
+
   return (
-    <aside className="ovpanel open">
+    <aside className={`ovpanel ${open ? 'open' : ''}`.trim()}>
       <div className="ov-inner">
         <div className="ov-top">
-          <span className="fic" aria-label="目录"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h10" /></svg></span>
+          <span className="fic" aria-label="目录" onClick={() => { setTab('概览'); closeFile() }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
+          </span>
           <span style={{ flex: 1 }} />
-          <span className="fic" aria-label="展开" onClick={() => toast('全屏展开')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 4h6v6M20 4l-9 9" /></svg></span>
-          <span className="fic" aria-label="收起面板" style={{ background: 'var(--chip)' }} onClick={() => setOv(false)}>
+          <span className="fic" aria-label="展开" onClick={() => toast('全屏展开')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 4h6v6M20 4l-9 9" /></svg>
+          </span>
+          <span className="fic" aria-label="收起面板" style={{ background: 'var(--chip)' }} onClick={collapse}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
           </span>
         </div>
@@ -91,38 +108,37 @@ export function OvPanel({ messages }: { messages: ChatMessage[] }) {
           <FileViewer path={viewerPath} onClose={closeFile} />
         ) : (
           <>
-            <button
-              className="ov-dd"
-              onClick={() => {
-                const order: typeof tab[] = ['概览', '工作空间文件', '浏览器']
-                setTab(order[(order.indexOf(tab) + 1) % order.length])
-              }}
-            >
+            <button ref={ddRef} className="ov-dd" onClick={() => setDdOpen((v) => !v)}>
               <span className="ov-dd-lb">{tab}</span>
-              {CHEVRON}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg>
             </button>
+            <Popover open={ddOpen} anchor={ddRef.current} dir="down" onClose={() => setDdOpen(false)} minWidth={168}>
+              {TABS.map((t) => (
+                <div className="pop-item" key={t.id} onClick={() => { setTab(t.id); setDdOpen(false) }}>
+                  <span className="pi-ic">{t.icon}</span>{t.id}
+                  {tab === t.id && <span className="chk">✓</span>}
+                </div>
+              ))}
+            </Popover>
 
             {tab === '概览' && (
               <div style={{ flex: 1, overflowY: 'auto' }}>
-                <div className="ov-h">目录 {CHEVRON}</div>
-                <div className="ov-outline">
-                  {outline.length ? (
-                    outline.map((it, i) => (
-                      <div
-                        className={`ov-oi ${it.sub ? 'oh' : ''}`.trim()}
-                        key={`${it.msgId}-${i}`}
-                        title={it.text}
-                        onClick={() => jump(it.msgId)}
-                      >
-                        {it.text.length > 16 ? it.text.slice(0, 16) + '…' : it.text}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="ov-empty" style={{ padding: '2px 9px' }}>暂无内容</div>
-                  )}
-                </div>
-                <div className="ov-h">产物 {CHEVRON}</div>
-                {artifacts.length ? (
+                <SectionHead label="目录" open={dirOpen} onToggle={() => setDirOpen((v) => !v)} />
+                {dirOpen && (
+                  <div className="ov-outline">
+                    {outline.length ? (
+                      outline.map((it, i) => (
+                        <div className={`ov-oi ${it.sub ? 'oh' : ''}`.trim()} key={`${it.msgId}-${i}`} title={it.text} onClick={() => jump(it.msgId)}>
+                          {it.text.length > 16 ? it.text.slice(0, 16) + '…' : it.text}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="ov-empty" style={{ padding: '2px 9px' }}>暂无内容</div>
+                    )}
+                  </div>
+                )}
+                <SectionHead label="产物" open={prodOpen} onToggle={() => setProdOpen((v) => !v)} />
+                {prodOpen && (artifacts.length ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 4px' }}>
                     {artifacts.map((a) => (
                       <div className="ov-art" key={a.path} onClick={() => openFile(a.path)}>
@@ -136,7 +152,7 @@ export function OvPanel({ messages }: { messages: ChatMessage[] }) {
                   </div>
                 ) : (
                   <div className="ov-empty">暂无内容</div>
-                )}
+                ))}
               </div>
             )}
 

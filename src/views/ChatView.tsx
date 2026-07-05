@@ -77,7 +77,7 @@ export function ChatView() {
         </div>
       </div>
 
-      {ovOpen && <OvPanel messages={messages} />}
+      <OvPanel open={ovOpen} messages={messages} />
     </section>
   )
 }
