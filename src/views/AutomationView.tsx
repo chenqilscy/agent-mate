@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AUTO } from '../data/catalog'
 import { api } from '../lib/api'
 import { activate } from '../lib/a11y'
@@ -221,7 +221,10 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
   const [name, setName] = useState(auto?.name ?? prefill?.name ?? '')
   const [prompt, setPrompt] = useState(auto?.prompt ?? prefill?.prompt ?? '')
   const [projectId, setProjectId] = useState<string | null>(auto?.project_id ?? prefill?.project_id ?? null)
-  const [model, setModel] = useState<string>(auto?.model ?? prefill?.model ?? defaultModel)
+  // Editing keeps the automation's real model (may be null = follow default); only a
+  // fresh create defaults to the current global pick — so editing other fields never
+  // silently pins a null-model automation to a model (WB-038).
+  const [model, setModel] = useState<string | null>(auto ? auto.model : (prefill?.model ?? defaultModel))
   const [kind, setKind] = useState<TriggerKind>(auto?.trigger_kind ?? prefill?.trigger_kind ?? 'interval')
   const [interval, setInterval] = useState(auto?.interval_min ?? prefill?.interval_min ?? 60)
   const [atTime, setAtTime] = useState(auto?.at_time ?? prefill?.at_time ?? '09:00')
@@ -235,11 +238,20 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
   // Run history (edit mode only) — real sessions this automation produced (WB-035).
   const [runs, setRuns] = useState<SessionInfo[]>([])
 
-  useEffect(() => { loadProjects() }, [loadProjects])
-  useEffect(() => {
+  const loadRuns = useCallback(() => {
     if (!auto) return
     api.listAutomationRuns(auto.id).then(({ runs }) => setRuns(runs)).catch(() => {})
   }, [auto])
+
+  useEffect(() => { loadProjects() }, [loadProjects])
+  // Keep the run-history side panel live while editing (WB-039): fetch on open, then
+  // poll lightly so a run triggered here (and its running→done) shows without reopening.
+  useEffect(() => {
+    if (!auto) return
+    loadRuns()
+    const t = setInterval(loadRuns, 4000)
+    return () => clearInterval(t)
+  }, [auto, loadRuns])
 
   const selectedProject = projects.find((p) => p.id === projectId)
   const canSave = name.trim().length > 0 && prompt.trim().length > 0 && !busy
@@ -288,7 +300,7 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
           <span className="crumb-cur">{name.trim() || '新建自动化'}</span>
         </div>
         {auto && (
-          <button className="btn-ghost" onClick={() => { runNow(auto.id); toast('已触发运行 · ' + auto.name) }}>立即运行</button>
+          <button className="btn-ghost" onClick={async () => { toast('已触发运行 · ' + auto.name); await runNow(auto.id); loadRuns() }}>立即运行</button>
         )}
         {auto && (
           <button className="btn-ghost danger-b" onClick={del}>删除</button>
@@ -328,7 +340,7 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
           <div className="auto-ed-tb">
             <button className="ctool model" onClick={(e) => { modelAnchor.current = e.currentTarget; setModelOpen(true) }}>
               <span className="mk">🐋</span>
-              <span className="model-lb">{model}</span>
+              <span className="model-lb">{model ?? '跟随默认模型'}</span>
               <IcChevronDown style={{ width: 10, height: 10 }} />
             </button>
           </div>
@@ -382,6 +394,11 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
 
       <Popover open={modelOpen} anchor={modelAnchor.current} dir="down" onClose={() => setModelOpen(false)} className="model" minWidth={240}>
         {models.length === 0 && <div className="pop-item pop-empty">模型列表加载中…</div>}
+        <div className="mrow" onClick={() => { setModel(null); setModelOpen(false) }}>
+          <span className="mi">⚙</span>
+          <span className="mname">跟随默认模型</span>
+          {model === null && <span className="chk">✓</span>}
+        </div>
         {models.map((m) => (
           <div className="mrow" key={m.name} onClick={() => { setModel(m.name); setModelOpen(false) }}>
             <span className="mi" style={m.color ? { background: m.color, color: '#fff' } : undefined}>{m.icon}</span>

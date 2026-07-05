@@ -120,12 +120,14 @@ def update_automation(auto_id: str, body: UpdateAutomationBody) -> dict:
             body.interval_min if body.interval_min is not None else cur.interval_min,
             body.at_time or cur.at_time,
         )
-    # Switching the bound workspace must resolve to a project this user owns (like
-    # create). exclude_none below means clearing (project_id=None) is a no-op here —
-    # phase one supports set/switch, not unbind (WB-036).
-    if body.project_id is not None and db.get_project(body.project_id, user.id) is None:
+    # Send only fields the client actually set (exclude_unset) so an explicit null
+    # clears a nullable column (project_id / model) while an omitted field stays put
+    # (WB-037/038). Setting a workspace must resolve to a project this user owns;
+    # clearing (null) skips the ownership check.
+    data = body.model_dump(exclude_unset=True)
+    if data.get("project_id") is not None and db.get_project(data["project_id"], user.id) is None:
         raise HTTPException(404, "project not found")
-    a = db.update_automation(auto_id, **body.model_dump(exclude_none=True))
+    a = db.update_automation(auto_id, **data)
     return _view(a)
 
 

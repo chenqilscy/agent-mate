@@ -83,6 +83,11 @@ async def run_now(auto_id: str) -> Optional[str]:
     auto = db.get_automation(auto_id)
     if auto is None:
         return None
+    # Don't double-run: if a fire is already in flight (manual or scheduled), return
+    # its session instead of spending a second run (WB-040 — guards rapid double-clicks
+    # and manual-while-scheduled overlap).
+    if auto_id in _running:
+        return auto.last_session_id
     session = db.create_session(
         owner_id=auto.owner_id, title=auto.name[:26], kind="automation",
         project_id=auto.project_id, automation_id=auto.id,

@@ -60,15 +60,17 @@ export function Sidebar() {
 
   useEffect(() => { loadProjects() }, [loadProjects])
   // Ad-hoc chats (no project) live under 任务; project executions nest under their
-  // project in 空间. Automation runs are surfaced in the 自动化 view, not here, so
-  // a frequent schedule doesn't flood the task list.
+  // project in 空间; automation runs get their own 自动化 group (WB-041) so they're
+  // reachable without flooding 任务 and without hiding among a project's sessions.
   const adhoc = sessions.filter((s) => !s.project_id && s.kind !== 'automation')
-  const sessionsOf = (pid: string) => sessions.filter((s) => s.project_id === pid)
+  const sessionsOf = (pid: string) => sessions.filter((s) => s.project_id === pid && s.kind !== 'automation')
+  const autoRuns = sessions.filter((s) => s.kind === 'automation') // already updated_at DESC from the API
 
   const [moreOpen, setMoreOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(true)
   const [spacesOpen, setSpacesOpen] = useState(true)
+  const [autoOpen, setAutoOpen] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const footRef = useRef<HTMLDivElement>(null)
 
@@ -102,6 +104,10 @@ export function Sidebar() {
   const matchText = (t: string) => !q || t.toLowerCase().includes(q)
   const matchSession = (s: SessionInfo) => matchText(s.title) && (filter === 'all' || s.status === 'running')
   const adhocShown = adhoc.filter(matchSession)
+  // Automation runs can pile up (one per fire); show only the recent few here as a
+  // quick-access group — the full per-automation history lives on the 自动化 page.
+  const autoMatched = autoRuns.filter(matchSession)
+  const autoShown = autoMatched.slice(0, 10)
   const projRows = projects
     .map((p) => {
       const kids = sessionsOf(p.id)
@@ -317,6 +323,32 @@ export function Sidebar() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Automation runs (WB-041): reachable in one place regardless of workspace,
+          capped to the recent few so a frequent schedule can't flood the sidebar. */}
+      <div className="sb-sec" onClick={() => setAutoOpen((v) => !v)} {...activate(() => setAutoOpen((v) => !v))}>
+        自动化 ({autoMatched.length}) {chevron(autoOpen)}
+      </div>
+      {autoOpen && (
+        <div className="sb-list">
+          {autoShown.length === 0 && (
+            <div className="sb-task" style={{ color: 'var(--text-3)', cursor: 'default' }}>
+              <span className="tt">{filtering ? '无匹配运行' : '暂无自动化运行'}</span>
+            </div>
+          )}
+          {autoShown.map((s) => (
+            <div className="sb-task" key={s.id} onClick={() => openTask(s.id)} {...activate(() => openTask(s.id))}>
+              <span className="tt">{s.title}</span>
+              {s.status === 'running' ? <span className="dot" /> : <span className="ago">{s.ago}</span>}
+            </div>
+          ))}
+          {autoMatched.length > autoShown.length && (
+            <div className="sb-task" style={{ color: 'var(--text-3)' }} onClick={() => setView('automation')} {...activate(() => setView('automation'))}>
+              <span className="tt">…更多 {autoMatched.length - autoShown.length} 条 · 见自动化页</span>
+            </div>
+          )}
         </div>
       )}
 

@@ -661,6 +661,10 @@ def list_due_automations(now: float) -> list[Automation]:
 
 
 _AUTOMATION_FIELDS = {"name", "prompt", "trigger_kind", "interval_min", "at_time", "project_id", "model", "enabled"}
+# Columns whose NULL is a real value ("clear it"), not "field not provided" — callers
+# pass only fields the client set (exclude_unset), so None here means explicit clear
+# (WB-037/038). The others must never be written NULL.
+_AUTOMATION_NULLABLE = {"project_id", "model"}
 
 
 def update_automation(auto_id: str, **fields: Any) -> Optional[Automation]:
@@ -669,7 +673,9 @@ def update_automation(auto_id: str, **fields: Any) -> Optional[Automation]:
         return None
     sets, vals = [], []
     for k, v in fields.items():
-        if k not in _AUTOMATION_FIELDS or v is None:
+        if k not in _AUTOMATION_FIELDS:
+            continue
+        if v is None and k not in _AUTOMATION_NULLABLE:
             continue
         sets.append(f"{k}=?")
         vals.append(int(v) if k == "enabled" else v)

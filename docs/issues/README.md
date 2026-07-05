@@ -53,6 +53,11 @@
 | [WB-034](WB-034-automation-view-live-poll.md) | ✅ | P3 | frontend | 自动化看板不反映「到点自动触发」的运行（视图级自适应轮询） |
 | [WB-035](WB-035-automation-run-sessions-unreachable.md) | ✅ | P2 | frontend | 自动化产出的会话除「上次运行」外全部不可达（无运行历史入口） |
 | [WB-036](WB-036-automation-editor-shell-workspace-model.md) | ✅ | P2 | frontend | 自动化编辑器向目标设计对齐（一期）：全屏编辑器骨架 + 工作空间绑定 + 模型选择 |
+| [WB-037](WB-037-automation-unbind-workspace-silent-noop.md) | ✅ | P3 | frontend | 编辑自动化时「解绑工作空间」静默失败（UI 已清空 + 提示已保存，实际仍绑定） |
+| [WB-038](WB-038-automation-edit-pins-default-model.md) | ✅ | P3 | frontend | 编辑 model=null（跟随默认）的自动化时，保存会把它悄悄钉死到某个模型 |
+| [WB-039](WB-039-automation-editor-runs-panel-not-live.md) | ✅ | P3 | frontend | 自动化编辑器右侧「运行历史」侧栏点「立即运行」后不刷新 |
+| [WB-040](WB-040-automation-run-now-no-inflight-dedup.md) | ✅ | P3 | backend | 「立即运行」不与在飞的运行去重，连点/与到点触发并发会重复跑同一自动化 |
+| [WB-041](WB-041-sidebar-automation-runs-group.md) | ✅ | P2 | frontend | 自动化产出的会话在侧栏不可见——加独立「自动化」分组 |
 
 ## 来源
 
