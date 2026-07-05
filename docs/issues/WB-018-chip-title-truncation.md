@@ -3,7 +3,7 @@ id: WB-018
 title: 长文件名 chip / 长会话标题不截断
 severity: P2
 area: ui
-status: open
+status: fixed
 origin: 🆕 近期改动
 files:
   - src/styles/app.css:515
@@ -30,3 +30,7 @@ created: 2026-07-06
 
 ## 验证
 引用深路径文件 / 打开超长标题会话 → chip 与标题省略号截断，不破版。
+
+## 处理记录（2026-07-06）
+- 改动：chip 标签包进 `.np-lbl`（省略号、可缩），图标与 × 不缩，`.np-chip` 加 max-width:220px 并挂 `title` 全路径；`.chat-head .ch-t` 加 `min-width:0`+省略号。（src/styles/app.css, src/components/composer/Composer.tsx, src/components/project/NewProjectModal.tsx）
+- 验证：`vite build` 通过；深层路径 ref chip、超长会话标题均省略号截断不破版，hover 有 title 全文。

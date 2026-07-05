@@ -110,16 +110,16 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
       {hasLoadout && (
         <div className="cloadout">
           {experts.map((n) => (
-            <span className="np-chip" key={'e' + n}><span>{iconOf('exp', n)}</span>{n}<span className="x" onClick={() => toggleLoad('exp', n)}>×</span></span>
+            <span className="np-chip" key={'e' + n} title={n}><span>{iconOf('exp', n)}</span><span className="np-lbl">{n}</span><span className="x" onClick={() => toggleLoad('exp', n)}>×</span></span>
           ))}
           {skills.map((n) => (
-            <span className="np-chip" key={'s' + n}><span>{iconOf('skill', n)}</span>{n}<span className="x" onClick={() => toggleLoad('skill', n)}>×</span></span>
+            <span className="np-chip" key={'s' + n} title={n}><span>{iconOf('skill', n)}</span><span className="np-lbl">{n}</span><span className="x" onClick={() => toggleLoad('skill', n)}>×</span></span>
           ))}
           {connectors.map((n) => (
-            <span className="np-chip" key={'c' + n}><span>{iconOf('conn', n)}</span>{n}<span className="x" onClick={() => toggleLoad('conn', n)}>×</span></span>
+            <span className="np-chip" key={'c' + n} title={n}><span>{iconOf('conn', n)}</span><span className="np-lbl">{n}</span><span className="x" onClick={() => toggleLoad('conn', n)}>×</span></span>
           ))}
           {refs.map((r) => (
-            <span className="np-chip" key={'r' + r.name}><span>📎</span>{r.name}<span className="x" onClick={() => removeRef(r.name)}>×</span></span>
+            <span className="np-chip" key={'r' + r.name} title={r.name}><span>📎</span><span className="np-lbl">{r.name}</span><span className="x" onClick={() => removeRef(r.name)}>×</span></span>
           ))}
         </div>
       )}

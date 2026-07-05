@@ -3,7 +3,7 @@ id: WB-004
 title: RefPicker「＋」按钮浅色主题下白字白底不可见
 severity: P0
 area: ui
-status: open
+status: fixed
 origin: 🆕 近期改动
 files:
   - src/components/composer/RefPicker.tsx:78
@@ -28,3 +28,7 @@ created: 2026-07-06
 
 ## 验证
 浅色主题打开「引用对话中的文件」，每行右侧应能看到清晰的 ＋（或 hover 显现）。
+
+## 处理记录（2026-07-06）
+- 改动：`.ckc` 未选中态颜色 `#fff`→`var(--text-3)`；`.pkc-row.sel .ckc` 补 `color:#fff` 保证选中态白勾在 brand 底上仍清晰。（src/styles/app.css）
+- 验证：token 值 light `#9AA0A6` / dark `#79818B`，在浅色模态白底与深色模态深底上均可见（不再白底白字）；`vite build` 通过。

@@ -89,8 +89,8 @@ export function NewProjectModal({ open, onClose, onCreated }: {
       <b>{label}</b><small>（可选）</small>
       <div className="np-chips">
         {[...sel[kind]].map((n) => (
-          <span className="np-chip" key={n}>
-            <span>{iconOf(kind, n)}</span>{n}
+          <span className="np-chip" key={n} title={n}>
+            <span>{iconOf(kind, n)}</span><span className="np-lbl">{n}</span>
             <span className="x" onClick={() => removeChip(kind, n)}>×</span>
           </span>
         ))}

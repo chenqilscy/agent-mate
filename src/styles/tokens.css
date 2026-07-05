@@ -75,6 +75,11 @@ body.dark .mb-win button.close:hover { background: #E81123; }
    badges, the stop/send-off states). */
 body.dark .toast { background: #2A2F36; }
 body.dark .btn-dark:not(:disabled) { background: #343A42; }
+/* Dark-mode gaps (WB-008): disabled dark button (else #C9CDD3+#fff ≈ 1.4 contrast),
+   the white add-btn on dark cards, and the hard-coded discount badge. */
+body.dark .btn-dark:disabled { background: #3A414B; color: var(--text-3); }
+body.dark .add-btn { background: #22272D; }
+body.dark .mrow .off { background: #3A2326; color: #F98A8E; }
 body.dark .cat.active { background: #3A414B; color: #fff; }
 body.dark .pe-badge { background: #343A42; }
 body.dark .cstop { background: #343A42; }

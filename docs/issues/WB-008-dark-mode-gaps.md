@@ -3,7 +3,7 @@ id: WB-008
 title: 暗色主题遗漏（btn-dark:disabled / add-btn / mrow.off）
 severity: P1
 area: ui
-status: open
+status: fixed
 origin: 🏚 迁移遗留
 files:
   - src/styles/app.css:526
@@ -28,3 +28,7 @@ body.dark .mrow .off { background:#3A2326; color:#F98A8E; }
 
 ## 验证
 暗色主题下逐一查看：新建项目空标题「确定」、专家视图添加按钮、模型选择器折扣徽标，均对比清晰、融入主题。
+
+## 处理记录（2026-07-06）
+- 改动：补三条暗色覆盖：`body.dark .btn-dark:disabled{background:#3A414B;color:var(--text-3)}`、`.add-btn{background:#22272D}`、`.mrow .off{background:#3A2326;color:#F98A8E}`。（src/styles/tokens.css）
+- 验证：token 组合在暗色下对比清晰、融入主题；`vite build` 通过。
