@@ -58,10 +58,26 @@ export function App() {
       .models()
       .then((r) => {
         useSettingsStore.getState().setModels(r.models)
-        if (r.default) useSettingsStore.getState().setModel(r.default)
+        // Only seed from the backend default on first visit — otherwise this
+        // clobbers the user's saved choice every boot (WB-005).
+        if (r.default && !localStorage.getItem('wb.model')) {
+          useSettingsStore.getState().setModel(r.default)
+        }
       })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    // The off-canvas drawer only exists ≤900px. If it was left open when the
+    // window widens past the breakpoint, close it — otherwise shrinking back to
+    // narrow shows the drawer already open without any user action (WB-021).
+    const mq = window.matchMedia('(max-width: 900px)')
+    const onChange = (e: MediaQueryListEvent) => {
+      if (!e.matches) setNavOpen(false)
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [setNavOpen])
 
   return (
     <div className="win">

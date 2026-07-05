@@ -3,7 +3,7 @@ id: WB-005
 title: 启动时用后端默认模型覆盖用户已保存的选择
 severity: P0
 area: frontend
-status: open
+status: fixed
 origin: 🆕 近期改动
 files:
   - src/App.tsx:57
@@ -30,3 +30,7 @@ if (r.default && !localStorage.getItem('wb.model')) setModel(r.default)
 
 ## 验证
 选一个非默认模型 → 刷新 → 仍是所选模型。首次访问（无 localStorage）→ 用后端 default。
+
+## 处理记录（2026-07-06）
+- 改动：bootstrap 仅当 `!localStorage.getItem('wb.model')` 时才 `setModel(r.default)`。（src/App.tsx）
+- 验证：`tsc` 通过；首次访问用后端 default，已保存选择刷新后保留。

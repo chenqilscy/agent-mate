@@ -3,7 +3,7 @@ id: WB-021
 title: navOpen 跨 resize 残留（窄→宽→窄抽屉自开）
 severity: P2
 area: frontend
-status: open
+status: fixed
 origin: 🆕 近期改动
 files:
   - src/stores/uiStore.ts:55
@@ -25,3 +25,7 @@ created: 2026-07-06
 
 ## 验证
 窄屏开抽屉 → 拉宽 → 拉回窄：抽屉应为关闭态。
+
+## 处理记录（2026-07-06）
+- 改动：新增 `matchMedia('(max-width:900px)')` 监听，跨过阈值变宽（!matches）时 `setNavOpen(false)`。（src/App.tsx）
+- 验证：`tsc` 通过；窄屏开抽屉→拉宽→拉回窄，抽屉为关闭态。
