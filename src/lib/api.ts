@@ -81,6 +81,36 @@ export const api = {
     else if (opts?.session) q += `&session=${opts.session}`
     return get<FileContent>(`/files/content${q}`)
   },
+
+  fileUsage: (opts?: { project?: string; session?: string }) => {
+    const q = opts?.project ? `?project=${opts.project}` : opts?.session ? `?session=${opts.session}` : ''
+    return get<{ used: number; quota: number }>(`/files/usage${q}`)
+  },
+
+  uploadFile: async (path: string, file: File | Blob, opts?: { project?: string; session?: string }) => {
+    let q = `?path=${encodeURIComponent(path)}`
+    if (opts?.project) q += `&project=${opts.project}`
+    else if (opts?.session) q += `&session=${opts.session}`
+    const r = await fetch(`${API_BASE}/files/upload${q}`, { method: 'POST', body: file })
+    if (!r.ok) throw new Error(`upload → ${r.status}`)
+    return r.json() as Promise<{ ok: boolean; path: string; size: number }>
+  },
+
+  downloadUrl: (path: string, opts?: { project?: string; session?: string }) => {
+    let q = `?path=${encodeURIComponent(path)}`
+    if (opts?.project) q += `&project=${opts.project}`
+    else if (opts?.session) q += `&session=${opts.session}`
+    return `${API_BASE}/files/download${q}`
+  },
+
+  mkdir: (path: string, opts?: { project?: string; session?: string }) =>
+    send<{ ok: boolean; path: string }>('POST', '/files/mkdir', { path, ...opts }),
+
+  renameFile: (path: string, newName: string, opts?: { project?: string; session?: string }) =>
+    send<{ ok: boolean; path: string; name: string }>('POST', '/files/rename', { path, new_name: newName, ...opts }),
+
+  deleteFile: (path: string, opts?: { project?: string; session?: string }) =>
+    send<{ ok: boolean }>('POST', '/files/delete', { path, ...opts }),
 }
 
 export interface RawMessage {
@@ -98,6 +128,7 @@ export interface FileEntry {
   path: string
   type: 'd' | 'f'
   size: number | null
+  mtime?: number
   children?: FileEntry[]
 }
 

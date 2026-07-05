@@ -6,9 +6,12 @@ checkout, or the shared default). Strictly sandbox-scoped either way.
 from __future__ import annotations
 
 import mimetypes
+import shutil
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from agent.sandbox import (
     SandboxError,
@@ -21,6 +24,9 @@ from agent.sandbox import (
 from storage import db
 
 router = APIRouter(prefix="/api/files", tags=["files"])
+
+QUOTA_BYTES = 5 * 1024 ** 3  # 5 GB soft limit (display only)
+MAX_UPLOAD = 50 * 1024 * 1024  # 50 MB per file
 
 _TEXT_EXT = {
     ".md", ".txt", ".json", ".js", ".ts", ".tsx", ".jsx", ".py", ".css",
@@ -45,11 +51,13 @@ def _select_root(session: str | None, project: str | None) -> None:
 
 def _entry(p: Path, depth: int) -> dict:
     is_dir = p.is_dir()
+    st = p.stat()
     node: dict = {
         "name": p.name,
         "path": relpath(p),
         "type": "d" if is_dir else "f",
-        "size": None if is_dir else p.stat().st_size,
+        "size": None if is_dir else st.st_size,
+        "mtime": st.st_mtime,
     }
     if is_dir and depth < _MAX_DEPTH:
         node["children"] = _children(p, depth + 1)
@@ -104,3 +112,97 @@ def content(path: str, session: str | None = None, project: str | None = None) -
         "kind": "binary",
         "size": size,
     }
+
+
+# ---- file operations (§11 阶段 C：项目云盘) -----------------------------
+
+class _PathBody(BaseModel):
+    path: str
+    project: str | None = None
+    session: str | None = None
+
+
+class _RenameBody(_PathBody):
+    new_name: str
+
+
+@router.get("/usage")
+def usage(project: str | None = None, session: str | None = None) -> dict:
+    _select_root(session, project)
+    base = current_root()
+    total = 0
+    if base.exists():
+        for f in base.rglob("*"):
+            if f.is_file():
+                total += f.stat().st_size
+    return {"used": total, "quota": QUOTA_BYTES}
+
+
+@router.post("/upload")
+async def upload(request: Request, path: str, project: str | None = None, session: str | None = None) -> dict:
+    _select_root(session, project)
+    data = await request.body()
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(413, f"文件过大（>{MAX_UPLOAD // (1024 * 1024)}MB）")
+    try:
+        target = resolve_in_sandbox(path)
+    except SandboxError as e:
+        raise HTTPException(403, str(e))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    return {"ok": True, "path": relpath(target), "size": len(data)}
+
+
+@router.get("/download")
+def download(path: str, project: str | None = None, session: str | None = None):
+    _select_root(session, project)
+    try:
+        target = resolve_in_sandbox(path)
+    except SandboxError as e:
+        raise HTTPException(403, str(e))
+    if not target.exists() or not target.is_file():
+        raise HTTPException(404, "file not found")
+    return FileResponse(target, filename=target.name)
+
+
+@router.post("/mkdir")
+def mkdir(body: _PathBody) -> dict:
+    _select_root(body.session, body.project)
+    try:
+        target = resolve_in_sandbox(body.path)
+    except SandboxError as e:
+        raise HTTPException(403, str(e))
+    target.mkdir(parents=True, exist_ok=True)
+    return {"ok": True, "path": relpath(target)}
+
+
+@router.post("/rename")
+def rename(body: _RenameBody) -> dict:
+    _select_root(body.session, body.project)
+    try:
+        src = resolve_in_sandbox(body.path)
+        dst = resolve_in_sandbox(str((Path(body.path).parent / body.new_name)))
+    except SandboxError as e:
+        raise HTTPException(403, str(e))
+    if not src.exists():
+        raise HTTPException(404, "not found")
+    if dst.exists():
+        raise HTTPException(409, "目标已存在")
+    src.rename(dst)
+    return {"ok": True, "path": relpath(dst), "name": dst.name}
+
+
+@router.post("/delete")
+def delete(body: _PathBody) -> dict:
+    _select_root(body.session, body.project)
+    try:
+        target = resolve_in_sandbox(body.path)
+    except SandboxError as e:
+        raise HTTPException(403, str(e))
+    if target == current_root():
+        raise HTTPException(400, "不能删除根目录")
+    if target.is_dir():
+        shutil.rmtree(target, ignore_errors=True)
+    elif target.exists():
+        target.unlink()
+    return {"ok": True}

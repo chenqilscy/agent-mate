@@ -39,6 +39,17 @@ export function FileViewer({ path, onClose, scope }: { path: string; onClose: ()
   }, [path, scope?.project, scope?.session])
 
   const isMd = name.toLowerCase().endsWith('.md')
+  const download = () => {
+    const a = document.createElement('a')
+    a.href = api.downloadUrl(path, scope)
+    a.download = name
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
+  const counts = file?.kind === 'text' && file.content != null
+    ? { lines: file.content.split('\n').length, chars: file.content.length }
+    : null
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -71,6 +82,16 @@ export function FileViewer({ path, onClose, scope }: { path: string; onClose: ()
           </div>
         )}
       </div>
+      {file && (
+        <div className="pv-count">
+          {counts && <span>行数 {counts.lines}</span>}
+          {counts && <span>字数 {counts.chars}</span>}
+          <span className="sp" />
+          <span className="pv-dl" onClick={download}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>下载
+          </span>
+        </div>
+      )}
     </div>
   )
 }

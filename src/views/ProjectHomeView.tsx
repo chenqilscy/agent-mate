@@ -6,9 +6,9 @@ import { useChatStore } from '../stores/chatStore'
 import { useUIStore } from '../stores/uiStore'
 import { toast } from '../stores/toastStore'
 import { Composer } from '../components/composer/Composer'
-import { FileTree } from '../components/panel/FileTree'
 import { PickerOverlay } from '../components/project/NewProjectModal'
 import { KanbanBoard, TaskList } from '../components/project/ProjectWork'
+import { AssetsManager } from '../components/project/AssetsManager'
 import { useWorkItemStore } from '../stores/workItemStore'
 import { NP_CONNS, NP_EXPERTS, SK_GRID } from '../data/catalog'
 
@@ -140,7 +140,7 @@ export function ProjectHomeView() {
 
             {tab === '任务' && <TaskList />}
 
-            {tab === '资产' && <FileTree scope={{ project: project.id }} />}
+            {tab === '资产' && <AssetsManager scope={{ project: project.id }} />}
           </div>
 
           <div className="chat-foot">
