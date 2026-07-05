@@ -161,6 +161,7 @@ export const NP_TPLS: [string, string, string[], string[]][] = [
 
 // [icon, name, desc]
 export const NP_CONNS: [string, string, string][] = [
+  ['📝', '本地便签', '本地演示 MCP 连接器（stdio）：add_note / list_notes，证明连接器真实往返。'],
   ['📋', 'TAPD', 'TAPD 敏捷项目管理平台，支持缺陷（Bug）、需求（Story）管理'],
   ['☁️', '微云', '查看、下载、删除微云文件，上传文件到微云、生成分享链接。'],
   ['🟠', 'CNB', 'CNB 代码托管平台，支持仓库、Issue、PR、流水线管理'],

@@ -20,9 +20,10 @@ from typing import Any, AsyncIterator
 from agent import events
 from agent.experts import persona_for
 from agent.llm import LLMError, stream_chat
-from agent.sandbox import project_root, use_root
+from agent.mcp_client import call_mcp, mcp_schema, open_connectors
+from agent.sandbox import current_root, project_root, use_root
 from agent.skills import skill_def
-from agent.tools import base_tools, build_schemas, run_tool
+from agent.tools import ASK_USER_SCHEMA, base_tools, run_tool
 from config import settings
 from storage import db
 from storage.models import Session, User
@@ -163,6 +164,7 @@ async def run_chat(
     # enabled skills so the agent follows the team's context (M4 + M5, spec §11).
     active_experts: list[str] = []
     active_skills: list[str] = []
+    active_connectors: list[str] = []
     skill_tools = []
     if session.project_id:
         project = db.get_project(session.project_id)
@@ -171,6 +173,7 @@ async def run_chat(
                 system_prompt += f"\n\n# 项目背景与规范（项目：{project.name}）\n{project.instruction.strip()}"
             active_experts = project.experts
             active_skills = project.skills
+            active_connectors = project.connectors
             if active_experts:
                 system_prompt += "\n\n# 专家人格（请综合以下专长作答）\n" + "\n".join(
                     f"- {persona_for(n)}" for n in active_experts
@@ -191,10 +194,21 @@ async def run_chat(
     _stop_events[session_id] = stop
     yield events.status("running")
 
-    # Active toolset = base (plan-filtered) tools + any tools skills contributed.
+    # Active toolset = base (plan-filtered) tools + skill tools + connector (MCP)
+    # tools. Connectors spawn their stdio MCP servers now; closed in `finally`.
     tools_list = base_tools(plan) + skill_tools
     active_tools = {t.name: t for t in tools_list}
-    schemas = build_schemas(tools_list)
+    mcp_tools, mcp_stack = [], None
+    if active_connectors and not plan:
+        mcp_tools, mcp_stack = await open_connectors(
+            active_connectors, env={"WORKBUDDY_NOTES_DIR": str(current_root())}
+        )
+    mcp_by_name = {t.qualified: t for t in mcp_tools}
+    schemas = (
+        [t.schema() for t in tools_list]
+        + [mcp_schema(t) for t in mcp_tools]
+        + [ASK_USER_SCHEMA]
+    )
     trace_items: list[dict[str, Any]] = []
     assistant_text = ""
     last_prompt = 0
@@ -206,13 +220,17 @@ async def run_chat(
         trace_items.append(item)
         return _trace_to_sse(item)
 
-    # Show the loadout so the persona / skills that shaped this run are visible.
-    if active_experts or active_skills:
+    # Show the loadout so the persona / skills / connectors that shaped this run
+    # are visible.
+    connector_names = sorted({t.connector for t in mcp_tools})
+    if active_experts or active_skills or connector_names:
         parts = []
         if active_experts:
             parts.append("专家 " + "、".join(active_experts))
         if active_skills:
             parts.append("技能 " + "、".join(active_skills))
+        if connector_names:
+            parts.append("连接器 " + "、".join(connector_names))
         yield record({"kind": "step", "tool": "loadout", "label": "已加载 · " + " · ".join(parts)})
 
     try:
@@ -308,6 +326,13 @@ async def run_chat(
                     llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
                     continue
 
+                if name in mcp_by_name:
+                    mt = mcp_by_name[name]
+                    yield record({"kind": "step", "tool": mt.orig, "label": f"[{mt.connector}] {mt.orig}"})
+                    result = await call_mcp(mt, args)
+                    llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": result[:6000]})
+                    continue
+
                 tool = active_tools.get(name)
                 if tool is None:
                     llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": f"未知工具：{name}"})
@@ -342,6 +367,11 @@ async def run_chat(
     finally:
         _stop_events.pop(session_id, None)
         _answers.pop(session_id, None)
+        if mcp_stack is not None:
+            try:
+                await mcp_stack.aclose()  # terminate connector MCP servers
+            except Exception:  # noqa: BLE001
+                pass
 
     if last_prompt == 0:
         last_prompt = sum(_approx_tokens(str(m.get("content") or "")) for m in llm_messages)
