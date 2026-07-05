@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+backend/.venv/
+backend/__pycache__/
+**/__pycache__/
+
+# build
+dist/
+*.tsbuildinfo
+
+# env & secrets (API keys live in backend/.env only, never committed)
+.env
+backend/.env
+
+# local data
+backend/workbuddy.db
+backend/workspace/
+!backend/workspace/.gitkeep
+
+# editor / os
+.DS_Store
+.vscode/
+*.log
+
+# test / tooling artifacts
+.playwright-mcp/
+/*.png
