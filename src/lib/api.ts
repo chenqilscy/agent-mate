@@ -61,6 +61,7 @@ export interface FileEntry {
   path: string
   type: 'd' | 'f'
   size: number | null
+  children?: FileEntry[]
 }
 
 export interface FileContent {

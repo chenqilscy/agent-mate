@@ -17,14 +17,30 @@ _TEXT_EXT = {
 _MAX_BYTES = 512 * 1024
 
 
-def _entry(p: Path) -> dict:
+_SKIP = {"node_modules", "__pycache__", ".git", ".venv"}
+_MAX_DEPTH = 4
+
+
+def _entry(p: Path, depth: int) -> dict:
     is_dir = p.is_dir()
-    return {
+    node: dict = {
         "name": p.name,
         "path": relpath(p),
         "type": "d" if is_dir else "f",
         "size": None if is_dir else p.stat().st_size,
     }
+    if is_dir and depth < _MAX_DEPTH:
+        node["children"] = _children(p, depth + 1)
+    return node
+
+
+def _children(base: Path, depth: int) -> list[dict]:
+    out = []
+    for child in sorted(base.iterdir(), key=lambda x: (x.is_file(), x.name.lower())):
+        if child.name.startswith(".") or child.name in _SKIP:
+            continue
+        out.append(_entry(child, depth))
+    return out
 
 
 @router.get("/tree")
@@ -32,12 +48,7 @@ def tree(root: str = "workspace") -> dict:
     base = WORKSPACE_ROOT
     if not base.exists():
         return {"root": "workspace", "entries": []}
-    entries = []
-    for child in sorted(base.iterdir(), key=lambda x: (x.is_file(), x.name.lower())):
-        if child.name.startswith("."):
-            continue
-        entries.append(_entry(child))
-    return {"root": "workspace", "entries": entries}
+    return {"root": "workspace", "entries": _children(base, 0)}
 
 
 @router.get("/content")

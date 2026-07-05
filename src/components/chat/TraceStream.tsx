@@ -1,5 +1,5 @@
 import type { TraceItem } from '../../lib/types'
-import { toast } from '../../stores/toastStore'
+import { useUIStore } from '../../stores/uiStore'
 
 // Renders accumulated trace items — one shape per event type (spec 5.2). The
 // `cur` pulse on the last item while streaming reproduces the prototype's live
@@ -10,6 +10,7 @@ const IC_PEN = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 const IC_TODO = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="8" strokeDasharray="3 3" /></svg>
 
 export function TraceStream({ trace, streaming }: { trace: TraceItem[]; streaming: boolean }) {
+  const openFile = useUIStore((s) => s.openFile)
   if (!trace.length) return null
   const lastIdx = trace.length - 1
   return (
@@ -28,7 +29,7 @@ export function TraceStream({ trace, streaming }: { trace: TraceItem[]; streamin
           case 'file_read':
             return (
               <div key={i} className={`step ${cur ? 'cur' : ''}`.trim()}>
-                {IC_EYE}已读取 <a onClick={(e) => { e.preventDefault(); toast('打开 · ' + t.path) }}>{t.path}</a>
+                {IC_EYE}已读取 <a onClick={(e) => { e.preventDefault(); openFile(t.path) }}>{t.path}</a>
                 {t.range && <span className="rng">{t.range}</span>}
               </div>
             )
@@ -36,7 +37,7 @@ export function TraceStream({ trace, streaming }: { trace: TraceItem[]; streamin
             return (
               <div key={i} className={`step ${cur ? 'cur' : ''}`.trim()}>
                 {IC_PEN}<span className="op">{t.op}</span>
-                <a onClick={(e) => { e.preventDefault(); toast('打开 · ' + t.file) }}>{t.file}</a>
+                <a onClick={(e) => { e.preventDefault(); openFile(t.file) }}>{t.file}</a>
                 <span className="add">+{t.add}</span><span className="del">-{t.del}</span>
               </div>
             )

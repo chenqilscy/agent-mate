@@ -11,12 +11,16 @@ interface UIState {
   // popover stack: id of the currently open popover (null = none). One-at-a-time
   // is enough for M1; the Esc-level stack lands with the full popover system.
   openPopover: string | null
+  // File viewer (M3): path of the workspace file open in the overview panel.
+  viewerPath: string | null
 
   setView: (v: ViewId) => void
   toggleOv: () => void
   setOv: (open: boolean) => void
   setTheme: (t: Theme) => void
   setPopover: (id: string | null) => void
+  openFile: (path: string) => void
+  closeFile: () => void
 }
 
 const THEME_KEY = 'wb.theme'
@@ -39,6 +43,7 @@ export const useUIStore = create<UIState>((set) => ({
   ovOpen: false,
   theme: startTheme,
   openPopover: null,
+  viewerPath: null,
 
   setView: (v) => set({ view: v, openPopover: null }),
   toggleOv: () => set((s) => ({ ovOpen: !s.ovOpen })),
@@ -49,4 +54,8 @@ export const useUIStore = create<UIState>((set) => ({
     set({ theme: t })
   },
   setPopover: (id) => set((s) => ({ openPopover: s.openPopover === id ? null : id })),
+  // Opening a file force-opens the panel (a blue link / artifact card may be
+  // clicked while it's collapsed).
+  openFile: (path) => set({ viewerPath: path, ovOpen: true }),
+  closeFile: () => set({ viewerPath: null }),
 }))

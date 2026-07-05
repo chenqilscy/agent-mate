@@ -7,7 +7,7 @@ following the plan in [`docs/workbuddy-实现方案.md`](docs/workbuddy-实现�
 **Principle: nothing faked.** All streaming output comes from a real LLM, all
 state is persisted, all sidebar tasks are real sessions.
 
-## Status: M0 + M1 + M2 complete
+## Status: M0 + M1 + M2 + M3 complete
 
 - **M0 — scaffold**: all 8 views switchable; styling migrated verbatim from the
   prototype (design tokens + component CSS); Windows menubar, sidebar, view routing.
@@ -23,9 +23,14 @@ state is persisted, all sidebar tasks are real sessions.
   (概览) listing chapters from the answer's headings. Reasoning (when the model
   exposes it) streams as `think`. Trace + token usage are persisted and replay from
   history. Context-usage breakdown is real (system prompt / tool schemas / messages).
+- **M3 — files & artifacts**: the overview panel's 工作空间文件 tab shows the real
+  recursive workspace tree; the 产物 section lists files the agent wrote (derived
+  from the diff trace). A file viewer renders Markdown through the pipeline and code
+  with a line-number gutter. The file tree, artifact cards, and trace blue-links all
+  open the same real file (`/api/files/content`).
 
-Later milestones (files & artifacts panel, project flow + ask_user, MCP connectors,
-Tauri shell, collaboration) are scoped in the plan doc.
+Later milestones (project flow + ask_user + Plan mode, MCP connectors, Tauri shell,
+collaboration) are scoped in the plan doc.
 
 ## Architecture (Local-first)
 

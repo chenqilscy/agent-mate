@@ -10,6 +10,7 @@ import { api } from '../lib/api'
 import { streamChat } from '../lib/sse'
 import type { ChatMessage, SessionInfo, SSEEvent, TraceItem } from '../lib/types'
 import { useSettingsStore } from './settingsStore'
+import { useUIStore } from './uiStore'
 
 function uuid(): string {
   return crypto.randomUUID ? crypto.randomUUID() : String(Math.random())
@@ -49,6 +50,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   openSession: async (id) => {
     if (get().streaming) get().stop()
+    useUIStore.getState().closeFile()
     try {
       const { session, messages } = await api.getMessages(id)
       set({
@@ -72,6 +74,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // lazily on the first send (returned via the `session` event).
   startDraft: (title) => {
     if (get().streaming) get().stop()
+    useUIStore.getState().closeFile()
     set({ activeId: null, title, messages: [] })
   },
 
