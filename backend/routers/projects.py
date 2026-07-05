@@ -20,6 +20,14 @@ class CreateProjectBody(BaseModel):
     skills: list[str] = []
 
 
+class UpdateProjectBody(BaseModel):
+    name: str | None = None
+    instruction: str | None = None
+    connectors: list[str] | None = None
+    experts: list[str] | None = None
+    skills: list[str] | None = None
+
+
 def _ago(ts: float) -> str:
     diff = max(0, time.time() - ts)
     if diff < 60:
@@ -66,3 +74,25 @@ def get_project(project_id: str) -> dict:
     if not p:
         raise HTTPException(404, "project not found")
     return _view(p)
+
+
+@router.patch("/projects/{project_id}")
+def update_project(project_id: str, body: UpdateProjectBody) -> dict:
+    p = db.get_project(project_id)
+    if not p:
+        raise HTTPException(404, "project not found")
+    updated = db.update_project(
+        project_id,
+        name=body.name,
+        instruction=body.instruction,
+        connectors=body.connectors,
+        experts=body.experts,
+        skills=body.skills,
+    )
+    return _view(updated)
+
+
+@router.get("/projects/{project_id}/sessions")
+def project_sessions(project_id: str) -> dict:
+    rows = db.list_project_sessions(project_id)
+    return {"sessions": [{**s.to_dict(), "ago": _ago(s.updated_at)} for s in rows]}

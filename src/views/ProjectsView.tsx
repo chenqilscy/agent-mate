@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { toast } from '../stores/toastStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useUIStore } from '../stores/uiStore'
-import { useChatStore } from '../stores/chatStore'
 import { NewProjectModal } from '../components/project/NewProjectModal'
 import { PROJ_TPL } from '../data/catalog'
 import type { ProjectInfo } from '../lib/types'
@@ -12,15 +11,14 @@ export function ProjectsView() {
   const load = useProjectStore((s) => s.load)
   const setActive = useProjectStore((s) => s.setActive)
   const setView = useUIStore((s) => s.setView)
-  const startProject = useChatStore((s) => s.startProject)
   const [modalOpen, setModalOpen] = useState(false)
 
   useEffect(() => { load() }, [load])
 
+  // Open the project workbench (home), not straight into an execution (§11).
   const openProject = (p: ProjectInfo) => {
     setActive(p)
-    startProject(p.id, p.name)
-    setView('projexec')
+    setView('project')
   }
 
   return (

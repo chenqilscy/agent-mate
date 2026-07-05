@@ -1,4 +1,8 @@
-"""Workspace files — tree + content, strictly sandbox-scoped (spec 5.1)."""
+"""Workspace files — tree + content, per-project scoped (spec 5.1 / §11.2).
+
+`?session=` or `?project=` selects which workspace root to read (a project's own
+checkout, or the shared default). Strictly sandbox-scoped either way.
+"""
 from __future__ import annotations
 
 import mimetypes
@@ -6,7 +10,15 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from agent.sandbox import WORKSPACE_ROOT, SandboxError, relpath, resolve_in_sandbox
+from agent.sandbox import (
+    SandboxError,
+    current_root,
+    project_root,
+    relpath,
+    resolve_in_sandbox,
+    use_root,
+)
+from storage import db
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -15,10 +27,20 @@ _TEXT_EXT = {
     ".html", ".yaml", ".yml", ".toml", ".sh", ".conf", ".env", ".xml", ".csv",
 }
 _MAX_BYTES = 512 * 1024
-
-
 _SKIP = {"node_modules", "__pycache__", ".git", ".venv"}
 _MAX_DEPTH = 4
+
+
+def _select_root(session: str | None, project: str | None) -> None:
+    """Set the active workspace root from ?project= / ?session=."""
+    if project:
+        use_root(project_root(project))
+        return
+    if session:
+        s = db.get_session(session)
+        use_root(project_root(s.project_id if s else None))
+        return
+    use_root(project_root(None))
 
 
 def _entry(p: Path, depth: int) -> dict:
@@ -44,15 +66,17 @@ def _children(base: Path, depth: int) -> list[dict]:
 
 
 @router.get("/tree")
-def tree(root: str = "workspace") -> dict:
-    base = WORKSPACE_ROOT
+def tree(root: str = "workspace", session: str | None = None, project: str | None = None) -> dict:
+    _select_root(session, project)
+    base = current_root()
     if not base.exists():
         return {"root": "workspace", "entries": []}
     return {"root": "workspace", "entries": _children(base, 0)}
 
 
 @router.get("/content")
-def content(path: str) -> dict:
+def content(path: str, session: str | None = None, project: str | None = None) -> dict:
+    _select_root(session, project)
     try:
         target = resolve_in_sandbox(path)
     except SandboxError as e:

@@ -6,6 +6,7 @@ import { HomeView } from './views/HomeView'
 import { ChatView } from './views/ChatView'
 import { AssistantView } from './views/AssistantView'
 import { ProjectsView } from './views/ProjectsView'
+import { ProjectHomeView } from './views/ProjectHomeView'
 import { ProjExecView } from './views/ProjExecView'
 import { ExpertsView } from './views/ExpertsView'
 import { AutomationView } from './views/AutomationView'
@@ -28,6 +29,8 @@ function MainView() {
       return <AssistantView />
     case 'projects':
       return <ProjectsView />
+    case 'project':
+      return <ProjectHomeView />
     case 'projexec':
       return <ProjExecView />
     case 'experts':

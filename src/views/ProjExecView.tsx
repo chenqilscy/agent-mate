@@ -13,6 +13,7 @@ import { IcSearch, IcPanel } from '../lib/icons'
 // project's instruction injected as background). Right panel = 产物/工作空间文件/变更.
 export function ProjExecView() {
   const project = useProjectStore((s) => s.active)
+  const title = useChatStore((s) => s.title)
   const messages = useChatStore((s) => s.messages)
   const streaming = useChatStore((s) => s.streaming)
   const send = useChatStore((s) => s.send)
@@ -49,7 +50,9 @@ export function ProjExecView() {
           <div className="pe-crumb">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
             <span style={{ cursor: 'pointer' }} onClick={() => setView('projects')}>项目</span>
-            <span className="ps">/</span>{project?.name ?? '项目'}<span className="ps">/</span><b>开始执行</b>
+            <span className="ps">/</span>
+            <span style={{ cursor: 'pointer' }} onClick={() => setView('project')}>{project?.name ?? '项目'}</span>
+            <span className="ps">/</span><b>{title || '开始执行'}</b>
             {streaming ? (
               <span className="pe-badge spin"><span className="run-ic" /></span>
             ) : (

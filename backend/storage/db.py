@@ -319,6 +319,43 @@ def list_projects(owner_id: str) -> list[Project]:
     return [_row_to_project(r) for r in rows]
 
 
+def update_project(
+    project_id: str,
+    *,
+    name: Optional[str] = None,
+    instruction: Optional[str] = None,
+    connectors: Optional[list[str]] = None,
+    experts: Optional[list[str]] = None,
+    skills: Optional[list[str]] = None,
+) -> Project:
+    sets: list[str] = []
+    vals: list[Any] = []
+    if name is not None:
+        sets.append("name=?"); vals.append(name[:120])
+    if instruction is not None:
+        sets.append("instruction=?"); vals.append(instruction)
+    if connectors is not None:
+        sets.append("connectors=?"); vals.append(json.dumps(connectors, ensure_ascii=False))
+    if experts is not None:
+        sets.append("experts=?"); vals.append(json.dumps(experts, ensure_ascii=False))
+    if skills is not None:
+        sets.append("skills=?"); vals.append(json.dumps(skills, ensure_ascii=False))
+    sets.append("updated_at=?"); vals.append(time.time())
+    vals.append(project_id)
+    get_conn().execute(f"UPDATE projects SET {', '.join(sets)} WHERE id=?", vals)
+    get_conn().commit()
+    p = get_project(project_id)
+    assert p is not None
+    return p
+
+
+def list_project_sessions(project_id: str) -> list[Session]:
+    rows = get_conn().execute(
+        "SELECT * FROM sessions WHERE project_id=? ORDER BY updated_at DESC", (project_id,)
+    ).fetchall()
+    return [_row_to_session(r) for r in rows]
+
+
 def list_messages(session_id: str) -> list[Message]:
     rows = get_conn().execute(
         "SELECT * FROM messages WHERE session_id=? ORDER BY created_at ASC",

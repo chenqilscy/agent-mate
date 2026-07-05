@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type FileContent } from '../../lib/api'
 import { renderMarkdown } from '../../lib/markdown'
+import type { FileScope } from './FileTree'
 
 // Real file viewer (spec M3): Markdown files render through the markdown pipeline;
 // text/code render with a line-number gutter; binaries show a placeholder.
@@ -19,7 +20,7 @@ function esc(s: string): string {
   return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!))
 }
 
-export function FileViewer({ path, onClose }: { path: string; onClose: () => void }) {
+export function FileViewer({ path, onClose, scope }: { path: string; onClose: () => void; scope?: FileScope }) {
   const [file, setFile] = useState<FileContent | null>(null)
   const [error, setError] = useState<string | null>(null)
   const name = path.split('/').pop() ?? path
@@ -29,13 +30,13 @@ export function FileViewer({ path, onClose }: { path: string; onClose: () => voi
     setFile(null)
     setError(null)
     api
-      .fileContent(path)
+      .fileContent(path, scope)
       .then((f) => alive && setFile(f))
       .catch((e) => alive && setError(String(e)))
     return () => {
       alive = false
     }
-  }, [path])
+  }, [path, scope?.project, scope?.session])
 
   const isMd = name.toLowerCase().endsWith('.md')
 

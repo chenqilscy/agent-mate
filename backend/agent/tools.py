@@ -15,7 +15,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from agent.sandbox import WORKSPACE_ROOT, SandboxError, relpath, resolve_in_sandbox
+from agent.sandbox import SandboxError, current_root, relpath, resolve_in_sandbox
 
 MAX_OUTPUT = 6000
 CMD_TIMEOUT = 30
@@ -154,7 +154,7 @@ def _run_command_run(args: dict[str, Any]) -> ToolOutcome:
         proc = subprocess.run(
             command,
             shell=True,
-            cwd=str(WORKSPACE_ROOT),
+            cwd=str(current_root()),
             capture_output=True,
             text=True,
             timeout=CMD_TIMEOUT,

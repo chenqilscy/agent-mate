@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { ChatMessage } from '../../lib/types'
 import { useUIStore } from '../../stores/uiStore'
+import { useChatStore } from '../../stores/chatStore'
 import { Popover } from '../ui/Popover'
 import { FileTree } from './FileTree'
 import { FileViewer } from './FileViewer'
@@ -71,6 +72,8 @@ export function OvPanel({ open, messages }: { open: boolean; messages: ChatMessa
   const closeFile = useUIStore((s) => s.closeFile)
   const ovExpanded = useUIStore((s) => s.ovExpanded)
   const toggleExpand = useUIStore((s) => s.toggleExpand)
+  const activeId = useChatStore((s) => s.activeId)
+  const scope = activeId ? { session: activeId } : undefined
   const [tab, setTab] = useState<Tab>('概览')
   const [ddOpen, setDdOpen] = useState(false)
   const [dirOpen, setDirOpen] = useState(true)
@@ -110,7 +113,7 @@ export function OvPanel({ open, messages }: { open: boolean; messages: ChatMessa
         </div>
 
         {viewerPath ? (
-          <FileViewer path={viewerPath} onClose={closeFile} />
+          <FileViewer path={viewerPath} onClose={closeFile} scope={scope} />
         ) : (
           <>
             <button ref={ddRef} className="ov-dd" onClick={() => setDdOpen((v) => !v)}>
@@ -161,7 +164,7 @@ export function OvPanel({ open, messages }: { open: boolean; messages: ChatMessa
               </div>
             )}
 
-            {tab === '工作空间文件' && <FileTree />}
+            {tab === '工作空间文件' && <FileTree scope={scope} />}
 
             {tab === '浏览器' && (
               <div className="ov-center">

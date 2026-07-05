@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import type { ChatMessage } from '../../lib/types'
 import { useUIStore } from '../../stores/uiStore'
+import { useChatStore } from '../../stores/chatStore'
 import { FileTree } from './FileTree'
 import { FileViewer } from './FileViewer'
 
@@ -33,6 +34,8 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
   const viewerPath = useUIStore((s) => s.viewerPath)
   const openFile = useUIStore((s) => s.openFile)
   const closeFile = useUIStore((s) => s.closeFile)
+  const activeId = useChatStore((s) => s.activeId)
+  const scope = activeId ? { session: activeId } : undefined
 
   const diffs = allDiffs(messages)
   const arts = artifacts(messages)
@@ -55,7 +58,7 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
         </div>
 
         {viewerPath ? (
-          <FileViewer path={viewerPath} onClose={closeFile} />
+          <FileViewer path={viewerPath} onClose={closeFile} scope={scope} />
         ) : tab === 'prod' ? (
           arts.length ? (
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -70,7 +73,7 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
             <div className="pe-empty">请开始执行，任务产出的产物会显示在这里</div>
           )
         ) : tab === 'files' ? (
-          <FileTree />
+          <FileTree scope={scope} />
         ) : diffs.length ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px' }}>
             {diffs.map((d, i) => (

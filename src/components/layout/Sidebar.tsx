@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useUIStore } from '../../stores/uiStore'
 import { useChatStore } from '../../stores/chatStore'
+import { useProjectStore } from '../../stores/projectStore'
 import { useAuthStore } from '../../stores/authStore'
 import { toast } from '../../stores/toastStore'
-import type { ViewId } from '../../lib/types'
+import type { ProjectInfo, ViewId } from '../../lib/types'
 import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
 
 const NAV: { id: ViewId; label: string; icon: ReactNode; sub?: string; cls?: string }[] = [
@@ -38,7 +39,7 @@ const NAV: { id: ViewId; label: string; icon: ReactNode; sub?: string; cls?: str
 function activeNav(view: ViewId): ViewId | 'more' {
   if (view === 'inspire' || view === 'myfiles') return 'more'
   if (view === 'chat') return 'home'
-  if (view === 'projexec') return 'projects'
+  if (view === 'projexec' || view === 'project') return 'projects'
   return view
 }
 
@@ -49,7 +50,14 @@ export function Sidebar() {
   const setTheme = useUIStore((s) => s.setTheme)
   const sessions = useChatStore((s) => s.sessions)
   const openSession = useChatStore((s) => s.openSession)
+  const projects = useProjectStore((s) => s.projects)
+  const loadProjects = useProjectStore((s) => s.load)
+  const setActiveProject = useProjectStore((s) => s.setActive)
   const me = useAuthStore((s) => s.me)
+
+  useEffect(() => { loadProjects() }, [loadProjects])
+  // Ad-hoc chats (no project) live under 任务; project executions live under their project.
+  const adhoc = sessions.filter((s) => !s.project_id)
 
   const [moreOpen, setMoreOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -73,6 +81,11 @@ export function Sidebar() {
   const openTask = (id: string) => {
     openSession(id)
     setView('chat')
+  }
+
+  const openProject = (p: ProjectInfo) => {
+    setActiveProject(p)
+    setView('project')
   }
 
   return (
@@ -124,15 +137,15 @@ export function Sidebar() {
       </nav>
 
       <div className="sb-sec">
-        任务 ({sessions.length}) <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6" /></svg>
+        任务 ({adhoc.length}) <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6" /></svg>
       </div>
       <div className="sb-list">
-        {sessions.length === 0 && (
+        {adhoc.length === 0 && (
           <div className="sb-task" style={{ color: 'var(--text-3)', cursor: 'default' }}>
             <span className="tt">暂无任务</span>
           </div>
         )}
-        {sessions.map((s) => (
+        {adhoc.map((s) => (
           <div className="sb-task" key={s.id} onClick={() => openTask(s.id)}>
             <span className="tt">{s.title}</span>
             {s.status === 'running' ? <span className="dot" /> : <span className="ago">{s.ago}</span>}
@@ -141,17 +154,20 @@ export function Sidebar() {
       </div>
 
       <div className="sb-sec">
-        空间 (2) <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6" /></svg>
+        空间 ({projects.length}) <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6" /></svg>
       </div>
       <div className="sb-list">
-        <div className="sb-task" onClick={() => toast('打开空间 · clone-workbuddy')}>
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-3)' }}><path d="M6 9l6 6 6-6" /></svg>
-          <span className="tt">clone-workbuddy</span>
-        </div>
-        <div className="sb-task" onClick={() => toast('打开空间 · koda')}>
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-3)' }}><path d="M6 9l6 6 6-6" /></svg>
-          <span className="tt">koda</span>
-        </div>
+        {projects.length === 0 && (
+          <div className="sb-task" style={{ color: 'var(--text-3)', cursor: 'default' }}>
+            <span className="tt">暂无项目</span>
+          </div>
+        )}
+        {projects.map((p: ProjectInfo) => (
+          <div className="sb-task" key={p.id} onClick={() => openProject(p)}>
+            <IcFolder />
+            <span className="tt">{p.name}</span>
+          </div>
+        ))}
       </div>
 
       <div className="sb-flex" />

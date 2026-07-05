@@ -8,6 +8,7 @@ export type ViewId =
   | 'chat'
   | 'assistant'
   | 'projects'
+  | 'project'
   | 'experts'
   | 'automation'
   | 'projexec'

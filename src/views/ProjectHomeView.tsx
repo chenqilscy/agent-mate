@@ -1,0 +1,200 @@
+import { useEffect, useState } from 'react'
+import { api } from '../lib/api'
+import type { ProjectInfo, SessionInfo } from '../lib/types'
+import { useProjectStore } from '../stores/projectStore'
+import { useChatStore } from '../stores/chatStore'
+import { useUIStore } from '../stores/uiStore'
+import { toast } from '../stores/toastStore'
+import { Composer } from '../components/composer/Composer'
+import { FileTree } from '../components/panel/FileTree'
+import { PickerOverlay } from '../components/project/NewProjectModal'
+import { NP_CONNS, NP_EXPERTS, SK_GRID } from '../data/catalog'
+
+type Tab = '动态' | '计划' | '任务' | '资产'
+type Kind = 'conn' | 'exp' | 'skill'
+const FIELD: Record<Kind, 'connectors' | 'experts' | 'skills'> = { conn: 'connectors', exp: 'experts', skill: 'skills' }
+
+function iconOf(kind: Kind, name: string): string {
+  if (kind === 'conn') return NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
+  if (kind === 'exp') return NP_EXPERTS.find((e) => e[1] === name)?.[0] ?? '🧑'
+  return SK_GRID.find((s) => s[1] === name)?.[0] ?? '🧩'
+}
+
+const IC_ADD = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
+const IC_EDIT = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" /></svg>
+
+// Project home = a workbench (§11): breadcrumb + 4 tabs + a live 项目配置 sidebar.
+// Execution is a sub-item — the composer starts one; the 动态 tab lists them.
+export function ProjectHomeView() {
+  const active = useProjectStore((s) => s.active)
+  const setActive = useProjectStore((s) => s.setActive)
+  const reloadProjects = useProjectStore((s) => s.load)
+  const setView = useUIStore((s) => s.setView)
+  const startProject = useChatStore((s) => s.startProject)
+  const openSession = useChatStore((s) => s.openSession)
+  const send = useChatStore((s) => s.send)
+
+  const [project, setProject] = useState<ProjectInfo | null>(active)
+  const [tab, setTab] = useState<Tab>('动态')
+  const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [editInstr, setEditInstr] = useState(false)
+  const [instrDraft, setInstrDraft] = useState('')
+  const [picker, setPicker] = useState<Kind | null>(null)
+  const [pickerSet, setPickerSet] = useState<Set<string>>(new Set())
+
+  const pid = active?.id
+
+  useEffect(() => {
+    if (!pid) return
+    api.getProject(pid).then((p) => { setProject(p); setActive(p) }).catch(() => {})
+    api.projectSessions(pid).then((r) => setSessions(r.sessions)).catch(() => {})
+  }, [pid, setActive])
+
+  if (!project) return <section className="view active" data-view="project" />
+
+  const applyProject = (p: ProjectInfo) => { setProject(p); setActive(p); reloadProjects() }
+
+  const saveInstruction = async () => {
+    setEditInstr(false)
+    const p = await api.updateProject(project.id, { instruction: instrDraft })
+    applyProject(p)
+    toast('指令已更新')
+  }
+
+  const openPicker = (k: Kind) => { setPickerSet(new Set(project[FIELD[k]])); setPicker(k) }
+  const closePicker = async () => {
+    const k = picker!
+    setPicker(null)
+    const p = await api.updateProject(project.id, { [FIELD[k]]: [...pickerSet] })
+    applyProject(p)
+    toast('项目配置已更新')
+  }
+
+  const launch = (text: string) => {
+    startProject(project.id, text.length > 26 ? text.slice(0, 26) + '…' : text)
+    setView('projexec')
+    void send(text)
+  }
+  const openExec = (id: string) => { openSession(id); setView('projexec') }
+
+  const cfgSection = (k: Kind, label: string) => {
+    const items = project[FIELD[k]]
+    return (
+      <div className="pjcfg-sec">
+        <div className="pjcfg-h">
+          {label}<span className="n">{items.length}</span>
+          <span className="add" onClick={() => openPicker(k)}>{IC_ADD}</span>
+        </div>
+        {items.length ? (
+          <div className="pjcfg-icons">
+            {items.map((n) => <span className="pjcfg-ic" key={n} title={n}>{iconOf(k, n)}</span>)}
+          </div>
+        ) : (
+          <div className="pjcfg-sub">未配置，点 ＋ 添加</div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <section className="view active" data-view="project">
+      <div className="chat-head">
+        <div className="pe-crumb">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
+          <span style={{ cursor: 'pointer' }} onClick={() => setView('projects')}>项目</span>
+          <span className="ps">/</span><b>{project.name}</b>
+        </div>
+        <div style={{ marginLeft: 'auto' }}>
+          <button className="btn-dark" style={{ height: 32 }} onClick={() => toast('邀请成员（M7 协作版）')}>邀请</button>
+        </div>
+      </div>
+
+      <div className="pjh">
+        <div className="pjh-main">
+          <div className="pjh-tabs">
+            {(['动态', '计划', '任务', '资产'] as Tab[]).map((t) => (
+              <div key={t} className={`pjh-tab ${tab === t ? 'active' : ''}`.trim()} onClick={() => setTab(t)}>{t}</div>
+            ))}
+          </div>
+
+          <div className="pjh-body">
+            {tab === '动态' && (
+              sessions.length ? (
+                sessions.map((s) => (
+                  <div className="pj-feed-row" key={s.id} onClick={() => openExec(s.id)}>
+                    <span className="fi"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16v12H5.2L4 17.2z" /></svg></span>
+                    <span className="ft">{s.title}</span>
+                    <span className="fa">{s.status === 'running' ? '执行中' : s.ago}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="pj-empty">还没有执行记录。在下方描述任务，开始项目的第一次执行。</div>
+              )
+            )}
+
+            {tab === '计划' && (
+              <div className="pj-kanban">
+                {['待开始', '进行中', '暂停', '完成'].map((col) => (
+                  <div className="pj-kcol" key={col}>
+                    <div className="pj-kcol-h">{col}<span className="cnt">0</span></div>
+                    <div className="pjcfg-sub" style={{ textAlign: 'center', marginTop: 30 }}>阶段 B 上线</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {tab === '任务' && (
+              <div className="pj-empty">工作项（看板/任务）将在阶段 B 落地。</div>
+            )}
+
+            {tab === '资产' && <FileTree scope={{ project: project.id }} />}
+          </div>
+
+          <div className="chat-foot">
+            <Composer variant="chat" onSend={launch} placeholder={`在「${project.name}」里开始一次执行…`} />
+            <div className="disc">内容由 AI 生成，请核实重要信息</div>
+          </div>
+        </div>
+
+        <aside className="pjcfg">
+          <h3>项目配置</h3>
+          <div className="pjcfg-sec">
+            <div className="pjcfg-h">
+              指令
+              {!editInstr && <span className="add" onClick={() => { setInstrDraft(project.instruction); setEditInstr(true) }}>{IC_EDIT}</span>}
+            </div>
+            {editInstr ? (
+              <>
+                <textarea className="pjcfg-ta" value={instrDraft} onChange={(e) => setInstrDraft(e.target.value)} autoFocus />
+                <div className="pjcfg-edit-f">
+                  <button className="btn-ghost" style={{ height: 28, padding: '0 12px' }} onClick={() => setEditInstr(false)}>取消</button>
+                  <button className="btn-dark" style={{ height: 28, padding: '0 14px' }} onClick={saveInstruction}>保存</button>
+                </div>
+              </>
+            ) : (
+              <div className="pjcfg-instr">{project.instruction || '未设置项目指令，点右上角编辑。'}</div>
+            )}
+          </div>
+
+          {cfgSection('conn', '连接器')}
+          {cfgSection('exp', '专家')}
+          {cfgSection('skill', '技能')}
+
+          <div className="pjcfg-sec">
+            <div className="pjcfg-h">自动化</div>
+            <div className="pjcfg-sub">让 AI 按计划自动执行任务（阶段 B）</div>
+          </div>
+        </aside>
+      </div>
+
+      {picker && (
+        <PickerOverlay
+          kind={picker}
+          sel={pickerSet}
+          onToggle={(n) => setPickerSet((prev) => { const nx = new Set(prev); nx.has(n) ? nx.delete(n) : nx.add(n); return nx })}
+          onClose={closePicker}
+        />
+      )}
+    </section>
+  )
+}

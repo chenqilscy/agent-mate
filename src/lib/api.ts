@@ -52,11 +52,25 @@ export const api = {
     skills: string[]
   }) => send<ProjectInfo>('POST', '/projects', body),
 
-  filesTree: (root = 'workspace') =>
-    get<{ root: string; entries: FileEntry[] }>(`/files/tree?root=${root}`),
+  getProject: (id: string) => get<ProjectInfo>(`/projects/${id}`),
 
-  fileContent: (path: string) =>
-    get<FileContent>(`/files/content?path=${encodeURIComponent(path)}`),
+  updateProject: (id: string, patch: Partial<Pick<ProjectInfo, 'name' | 'instruction' | 'connectors' | 'experts' | 'skills'>>) =>
+    send<ProjectInfo>('PATCH', `/projects/${id}`, patch),
+
+  projectSessions: (id: string) =>
+    get<{ sessions: SessionInfo[] }>(`/projects/${id}/sessions`),
+
+  filesTree: (opts?: { project?: string; session?: string }) => {
+    const q = opts?.project ? `?project=${opts.project}` : opts?.session ? `?session=${opts.session}` : ''
+    return get<{ root: string; entries: FileEntry[] }>(`/files/tree${q}`)
+  },
+
+  fileContent: (path: string, opts?: { project?: string; session?: string }) => {
+    let q = `?path=${encodeURIComponent(path)}`
+    if (opts?.project) q += `&project=${opts.project}`
+    else if (opts?.session) q += `&session=${opts.session}`
+    return get<FileContent>(`/files/content${q}`)
+  },
 }
 
 export interface RawMessage {

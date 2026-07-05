@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { api, type FileEntry } from '../../lib/api'
 import { useUIStore } from '../../stores/uiStore'
 
+export interface FileScope { project?: string; session?: string }
+
 // Real workspace tree (spec M3). Fed by /api/files/tree; clicking a file opens it
 // in the viewer. Dirs expand/collapse locally.
 function iconFor(entry: FileEntry): string {
@@ -13,9 +15,8 @@ function iconFor(entry: FileEntry): string {
   return map[ext] ?? '📄'
 }
 
-function Node({ entry, depth }: { entry: FileEntry; depth: number }) {
+function Node({ entry, depth, onOpen }: { entry: FileEntry; depth: number; onOpen: (path: string) => void }) {
   const [open, setOpen] = useState(depth === 0)
-  const openFile = useUIStore((s) => s.openFile)
   const viewerPath = useUIStore((s) => s.viewerPath)
   const isDir = entry.type === 'd'
 
@@ -24,7 +25,7 @@ function Node({ entry, depth }: { entry: FileEntry; depth: number }) {
       <div
         className={`ws-row ${!isDir && viewerPath === entry.path ? 'on' : ''}`.trim()}
         style={{ paddingLeft: 16 + depth * 16 }}
-        onClick={() => (isDir ? setOpen((v) => !v) : openFile(entry.path))}
+        onClick={() => (isDir ? setOpen((v) => !v) : onOpen(entry.path))}
       >
         <span className="wi">{iconFor(entry)}</span>
         {entry.name}
@@ -36,21 +37,23 @@ function Node({ entry, depth }: { entry: FileEntry; depth: number }) {
           </span>
         )}
       </div>
-      {isDir && open && entry.children?.map((c) => <Node key={c.path} entry={c} depth={depth + 1} />)}
+      {isDir && open && entry.children?.map((c) => <Node key={c.path} entry={c} depth={depth + 1} onOpen={onOpen} />)}
     </>
   )
 }
 
-export function FileTree() {
+export function FileTree({ scope }: { scope?: FileScope }) {
   const [entries, setEntries] = useState<FileEntry[] | null>(null)
+  const openFile = useUIStore((s) => s.openFile)
 
   useEffect(() => {
     let alive = true
-    api.filesTree().then((r) => alive && setEntries(r.entries)).catch(() => alive && setEntries([]))
+    setEntries(null)
+    api.filesTree(scope).then((r) => alive && setEntries(r.entries)).catch(() => alive && setEntries([]))
     return () => {
       alive = false
     }
-  }, [])
+  }, [scope?.project, scope?.session])
 
   if (!entries) return <div className="ws-h">加载中…</div>
   if (entries.length === 0) {
@@ -64,7 +67,7 @@ export function FileTree() {
   return (
     <div style={{ flex: 1, overflowY: 'auto' }}>
       <div className="ws-h">工作空间</div>
-      {entries.map((e) => <Node key={e.path} entry={e} depth={0} />)}
+      {entries.map((e) => <Node key={e.path} entry={e} depth={0} onOpen={openFile} />)}
     </div>
   )
 }

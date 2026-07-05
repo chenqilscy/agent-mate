@@ -144,8 +144,8 @@ export function NewProjectModal({ open, onClose, onCreated }: {
 }
 
 // Multi-select picker for connectors / experts / skills.
-function PickerOverlay({ kind, sel, onToggle, onClose }: {
-  kind: Kind
+export function PickerOverlay({ kind, sel, onToggle, onClose }: {
+  kind: 'conn' | 'exp' | 'skill'
   sel: Set<string>
   onToggle: (name: string) => void
   onClose: () => void

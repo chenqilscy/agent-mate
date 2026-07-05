@@ -19,6 +19,7 @@ from typing import Any, AsyncIterator
 
 from agent import events
 from agent.llm import LLMError, stream_chat
+from agent.sandbox import project_root, use_root
 from agent.tools import get_tool, safe_run, tool_schemas
 from config import settings
 from storage import db
@@ -151,6 +152,10 @@ async def run_chat(
     """
     session_id = session.id
     system_prompt = PLAN_SYSTEM_PROMPT if plan else SYSTEM_PROMPT
+
+    # Per-project workspace (§11.2): this run's tools operate in the project's own
+    # checkout (or the shared default for ad-hoc chats).
+    use_root(project_root(session.project_id))
 
     # Project-scoped chat: prepend the project's instruction as background/spec so
     # the agent follows the team's context (project page → 执行).
