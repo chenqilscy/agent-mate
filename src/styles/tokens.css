@@ -18,6 +18,15 @@
   --shadow-md: 0 10px 34px -14px rgba(20, 28, 40, .28);
   --r: 12px;
   --font: "PingFang SC", "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+
+  /* highlight.js token colors (light) — GitHub-light palette */
+  --hl-comment: #6a737d;
+  --hl-keyword: #d73a49;
+  --hl-string: #22863a;
+  --hl-number: #005cc5;
+  --hl-func: #6f42c1;
+  --hl-built: #005cc5;
+  --hl-attr: #e36209;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -38,6 +47,14 @@ body.dark {
   --ink: #EDEFF2; --text: #E7EAEE; --text-2: #A6ADB6; --text-3: #79818B;
   --border: #343A42; --border-2: #2B3138; --chip: #2A3036;
   --brand-soft: #17382C; --brand-soft2: #152A21;
+  /* highlight.js token colors (dark) — GitHub-dark palette */
+  --hl-comment: #8b949e;
+  --hl-keyword: #ff7b72;
+  --hl-string: #a5d6ff;
+  --hl-number: #79c0ff;
+  --hl-func: #d2a8ff;
+  --hl-built: #79c0ff;
+  --hl-attr: #7ee787;
 }
 body.dark .win, body.dark .sidebar, body.dark .main, body.dark .menubar { background: #1B1F24; }
 body.dark .composer, body.dark .tpl, body.dark .ecard, body.dark .scard, body.dark .conn,

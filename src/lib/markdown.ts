@@ -6,8 +6,9 @@
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 // `lib/common` bundles ~35 popular languages instead of all 190+ — much smaller.
+// Token colors are theme-aware CSS in app.css (not an imported light-only theme),
+// so code blocks read correctly in both light and dark mode.
 import hljs from 'highlight.js/lib/common'
-import 'highlight.js/styles/github.css'
 
 marked.setOptions({
   gfm: true,
