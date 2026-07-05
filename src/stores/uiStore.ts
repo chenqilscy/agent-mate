@@ -13,6 +13,8 @@ interface UIState {
   openPopover: string | null
   // File viewer (M3): path of the workspace file open in the overview panel.
   viewerPath: string | null
+  // Whether the overview panel is expanded to full width.
+  ovExpanded: boolean
 
   setView: (v: ViewId) => void
   toggleOv: () => void
@@ -21,6 +23,7 @@ interface UIState {
   setPopover: (id: string | null) => void
   openFile: (path: string) => void
   closeFile: () => void
+  toggleExpand: () => void
 }
 
 const THEME_KEY = 'wb.theme'
@@ -44,10 +47,12 @@ export const useUIStore = create<UIState>((set) => ({
   theme: startTheme,
   openPopover: null,
   viewerPath: null,
+  ovExpanded: false,
 
   setView: (v) => set({ view: v, openPopover: null }),
   toggleOv: () => set((s) => ({ ovOpen: !s.ovOpen })),
-  setOv: (open) => set({ ovOpen: open }),
+  // Collapsing the panel also drops the expanded state so it reopens at normal width.
+  setOv: (open) => set(open ? { ovOpen: true } : { ovOpen: false, ovExpanded: false }),
   setTheme: (t) => {
     localStorage.setItem(THEME_KEY, t)
     applyTheme(t)
@@ -58,4 +63,5 @@ export const useUIStore = create<UIState>((set) => ({
   // clicked while it's collapsed).
   openFile: (path) => set({ viewerPath: path, ovOpen: true }),
   closeFile: () => set({ viewerPath: null }),
+  toggleExpand: () => set((s) => ({ ovExpanded: !s.ovExpanded })),
 }))

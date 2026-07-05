@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
 import type { ChatMessage } from '../../lib/types'
 import { useUIStore } from '../../stores/uiStore'
-import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
 import { FileTree } from './FileTree'
 import { FileViewer } from './FileViewer'
@@ -70,6 +69,8 @@ export function OvPanel({ open, messages }: { open: boolean; messages: ChatMessa
   const viewerPath = useUIStore((s) => s.viewerPath)
   const openFile = useUIStore((s) => s.openFile)
   const closeFile = useUIStore((s) => s.closeFile)
+  const ovExpanded = useUIStore((s) => s.ovExpanded)
+  const toggleExpand = useUIStore((s) => s.toggleExpand)
   const [tab, setTab] = useState<Tab>('概览')
   const [ddOpen, setDdOpen] = useState(false)
   const [dirOpen, setDirOpen] = useState(true)
@@ -89,15 +90,19 @@ export function OvPanel({ open, messages }: { open: boolean; messages: ChatMessa
   }
 
   return (
-    <aside className={`ovpanel ${open ? 'open' : ''}`.trim()}>
+    <aside className={`ovpanel ${open ? 'open' : ''} ${open && ovExpanded ? 'expanded' : ''}`.trim()}>
       <div className="ov-inner">
         <div className="ov-top">
           <span className="fic" aria-label="目录" onClick={() => { setTab('概览'); closeFile() }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
           </span>
           <span style={{ flex: 1 }} />
-          <span className="fic" aria-label="展开" onClick={() => toast('全屏展开')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 4h6v6M20 4l-9 9" /></svg>
+          <span className="fic" aria-label={ovExpanded ? '收起为侧栏' : '全屏展开'} onClick={toggleExpand}>
+            {ovExpanded ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 20H4v-6M4 20l9-9" /></svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 4h6v6M20 4l-9 9" /></svg>
+            )}
           </span>
           <span className="fic" aria-label="收起面板" style={{ background: 'var(--chip)' }} onClick={collapse}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
