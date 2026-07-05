@@ -37,6 +37,7 @@ class UpdateAutomationBody(BaseModel):
     trigger_kind: str | None = None
     interval_min: int | None = None
     at_time: str | None = None
+    project_id: str | None = None
     model: str | None = None
     enabled: bool | None = None
 
@@ -119,6 +120,11 @@ def update_automation(auto_id: str, body: UpdateAutomationBody) -> dict:
             body.interval_min if body.interval_min is not None else cur.interval_min,
             body.at_time or cur.at_time,
         )
+    # Switching the bound workspace must resolve to a project this user owns (like
+    # create). exclude_none below means clearing (project_id=None) is a no-op here —
+    # phase one supports set/switch, not unbind (WB-036).
+    if body.project_id is not None and db.get_project(body.project_id, user.id) is None:
+        raise HTTPException(404, "project not found")
     a = db.update_automation(auto_id, **body.model_dump(exclude_none=True))
     return _view(a)
 
@@ -139,3 +145,18 @@ async def run_automation(auto_id: str) -> dict:
         raise HTTPException(404, "automation not found")
     session_id = await scheduler.run_now(auto_id)
     return {"ok": session_id is not None, "session_id": session_id}
+
+
+@router.get("/automations/{auto_id}/runs")
+def list_automation_runs(auto_id: str) -> dict:
+    """Every session this automation produced, newest first — the run-history that
+    the sidebar deliberately hides (WB-035). Owner-scoped like the rest."""
+    user = current_user()
+    if db.get_automation(auto_id, user.id) is None:
+        raise HTTPException(404, "automation not found")
+    runs = []
+    for s in db.list_automation_runs(auto_id, user.id):
+        d = s.to_dict()
+        d["ago"] = _ago(s.created_at)  # when this run fired
+        runs.append(d)
+    return {"runs": runs}

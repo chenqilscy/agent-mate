@@ -44,7 +44,7 @@ class Session:
     owner_id: str
     project_id: Optional[str]
     space: Optional[str]
-    kind: str  # "chat" | "assistant" | "projexec"
+    kind: str  # "chat" | "assistant" | "projexec" | "automation"
     status: str  # "idle" | "running" | "waiting" | "done"
     created_at: float
     updated_at: float

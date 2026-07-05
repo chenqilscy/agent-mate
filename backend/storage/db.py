@@ -78,7 +78,8 @@ def init_db() -> None:
             kind TEXT NOT NULL,
             status TEXT NOT NULL,
             created_at REAL NOT NULL,
-            updated_at REAL NOT NULL
+            updated_at REAL NOT NULL,
+            automation_id TEXT
         );
 
         CREATE TABLE IF NOT EXISTS messages (
@@ -168,6 +169,23 @@ def _migrate_columns() -> None:
     ):
         if col not in have:
             conn.execute(f"ALTER TABLE work_items ADD COLUMN {ddl}")
+
+    # WB-035: sessions 增 automation_id —— 把自动化产出的会话反向关联回其自动化，供「运行历史」。
+    have_s = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    if "automation_id" not in have_s:
+        conn.execute("ALTER TABLE sessions ADD COLUMN automation_id TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_automation "
+        "ON sessions(automation_id, created_at DESC)"
+    )
+    # 老库回填：此前未记 automation_id，用每条自动化已知的 last_session_id 把最近一次运行关联上，
+    # 升级后「运行历史」至少能看到最近一次而非空列表。仅动 automation_id 尚为 NULL 的行，幂等。
+    conn.execute(
+        "UPDATE sessions SET automation_id = "
+        "(SELECT a.id FROM automations a WHERE a.last_session_id = sessions.id) "
+        "WHERE automation_id IS NULL "
+        "AND EXISTS (SELECT 1 FROM automations a WHERE a.last_session_id = sessions.id)"
+    )
     conn.commit()
 
 
@@ -200,7 +218,11 @@ def create_session(
     kind: str = "chat",
     space: Optional[str] = None,
     project_id: Optional[str] = None,
+    automation_id: Optional[str] = None,
 ) -> Session:
+    # automation_id links a run back to the automation that produced it (WB-035);
+    # None for ordinary chat/project sessions. It's a table column only, not carried
+    # on the Session dataclass — callers that need runs use list_automation_runs.
     now = time.time()
     s = Session(
         id=new_uuid(),
@@ -214,9 +236,9 @@ def create_session(
         updated_at=now,
     )
     get_conn().execute(
-        """INSERT INTO sessions (id,title,owner_id,project_id,space,kind,status,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
-        (s.id, s.title, s.owner_id, s.project_id, s.space, s.kind, s.status, s.created_at, s.updated_at),
+        """INSERT INTO sessions (id,title,owner_id,project_id,space,kind,status,created_at,updated_at,automation_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (s.id, s.title, s.owner_id, s.project_id, s.space, s.kind, s.status, s.created_at, s.updated_at, automation_id),
     )
     get_conn().commit()
     return s
@@ -247,6 +269,15 @@ def list_sessions(owner_id: str, space: Optional[str] = None) -> list[Session]:
             "SELECT * FROM sessions WHERE owner_id=? ORDER BY updated_at DESC",
             (owner_id,),
         ).fetchall()
+    return [_row_to_session(r) for r in rows]
+
+
+def list_automation_runs(automation_id: str, owner_id: str) -> list[Session]:
+    """All sessions produced by one automation, newest first (WB-035). owner-scoped."""
+    rows = get_conn().execute(
+        "SELECT * FROM sessions WHERE automation_id=? AND owner_id=? ORDER BY created_at DESC",
+        (automation_id, owner_id),
+    ).fetchall()
     return [_row_to_session(r) for r in rows]
 
 
@@ -629,7 +660,7 @@ def list_due_automations(now: float) -> list[Automation]:
     return [_row_to_automation(r) for r in rows]
 
 
-_AUTOMATION_FIELDS = {"name", "prompt", "trigger_kind", "interval_min", "at_time", "model", "enabled"}
+_AUTOMATION_FIELDS = {"name", "prompt", "trigger_kind", "interval_min", "at_time", "project_id", "model", "enabled"}
 
 
 def update_automation(auto_id: str, **fields: Any) -> Optional[Automation]:

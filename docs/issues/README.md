@@ -51,6 +51,8 @@
 | [WB-031](WB-031-live-work-item-sse-sync.md) | ✅ | P3 | frontend | 计划 · agent 改状态时实时回写看板（SSE 事件），而非仅返回刷新 |
 | [WB-033](WB-033-automation-runnow-stuck-running.md) | ✅ | P2 | frontend | 「立即运行」自动化后状态永久卡在「运行中」（前端只刷新一次、无轮询） |
 | [WB-034](WB-034-automation-view-live-poll.md) | ✅ | P3 | frontend | 自动化看板不反映「到点自动触发」的运行（视图级自适应轮询） |
+| [WB-035](WB-035-automation-run-sessions-unreachable.md) | ✅ | P2 | frontend | 自动化产出的会话除「上次运行」外全部不可达（无运行历史入口） |
+| [WB-036](WB-036-automation-editor-shell-workspace-model.md) | ✅ | P2 | frontend | 自动化编辑器向目标设计对齐（一期）：全屏编辑器骨架 + 工作空间绑定 + 模型选择 |
 
 ## 来源
 

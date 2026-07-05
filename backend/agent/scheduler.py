@@ -50,7 +50,7 @@ async def _fire_guarded(auto: Automation) -> None:
     try:
         session = db.create_session(
             owner_id=auto.owner_id, title=auto.name[:26], kind="automation",
-            project_id=auto.project_id,
+            project_id=auto.project_id, automation_id=auto.id,
         )
         db.mark_automation_run(auto.id, last_session_id=session.id, last_status="running")
         await _execute(auto, session)
@@ -85,7 +85,7 @@ async def run_now(auto_id: str) -> Optional[str]:
         return None
     session = db.create_session(
         owner_id=auto.owner_id, title=auto.name[:26], kind="automation",
-        project_id=auto.project_id,
+        project_id=auto.project_id, automation_id=auto.id,
     )
     db.mark_automation_run(auto_id, last_session_id=session.id, last_status="running")
     _running.add(auto_id)

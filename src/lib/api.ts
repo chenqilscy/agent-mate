@@ -92,6 +92,9 @@ export const api = {
   runAutomation: (id: string) =>
     send<{ ok: boolean; session_id: string | null }>('POST', `/automations/${id}/run`),
 
+  listAutomationRuns: (id: string) =>
+    get<{ runs: SessionInfo[] }>(`/automations/${id}/runs`),
+
   filesTree: (opts?: { project?: string; session?: string }) => {
     const q = opts?.project ? `?project=${opts.project}` : opts?.session ? `?session=${opts.session}` : ''
     return get<{ root: string; entries: FileEntry[] }>(`/files/tree${q}`)
