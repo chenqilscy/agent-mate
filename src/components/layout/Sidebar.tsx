@@ -56,11 +56,15 @@ export function Sidebar() {
   const me = useAuthStore((s) => s.me)
 
   useEffect(() => { loadProjects() }, [loadProjects])
-  // Ad-hoc chats (no project) live under 任务; project executions live under their project.
+  // Ad-hoc chats (no project) live under 任务; project executions nest under their project in 空间.
   const adhoc = sessions.filter((s) => !s.project_id)
+  const sessionsOf = (pid: string) => sessions.filter((s) => s.project_id === pid)
 
   const [moreOpen, setMoreOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [tasksOpen, setTasksOpen] = useState(true)
+  const [spacesOpen, setSpacesOpen] = useState(true)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const footRef = useRef<HTMLDivElement>(null)
 
   const act = activeNav(view)
@@ -78,15 +82,33 @@ export function Sidebar() {
     return () => document.removeEventListener('mousedown', onDown)
   }, [profileOpen, moreOpen])
 
-  const openTask = (id: string) => {
+  const openTask = (id: string, target: ViewId = 'chat') => {
     openSession(id)
-    setView('chat')
+    if (target === 'projexec') {
+      const s = sessions.find((x) => x.id === id)
+      const p = s?.project_id ? projects.find((pr) => pr.id === s.project_id) : null
+      if (p) setActiveProject(p)
+    }
+    setView(target)
   }
 
   const openProject = (p: ProjectInfo) => {
     setActiveProject(p)
     setView('project')
+    setExpanded((prev) => new Set(prev).add(p.id))
   }
+  const toggleExpand = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+
+  const chevron = (open: boolean) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transition: 'transform .15s', transform: open ? 'none' : 'rotate(-90deg)' }}>
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  )
 
   return (
     <aside className="sidebar">
@@ -136,39 +158,66 @@ export function Sidebar() {
         </div>
       </nav>
 
-      <div className="sb-sec">
-        任务 ({adhoc.length}) <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6" /></svg>
+      <div className="sb-sec" onClick={() => setTasksOpen((v) => !v)}>
+        任务 ({adhoc.length}) {chevron(tasksOpen)}
       </div>
-      <div className="sb-list">
-        {adhoc.length === 0 && (
-          <div className="sb-task" style={{ color: 'var(--text-3)', cursor: 'default' }}>
-            <span className="tt">暂无任务</span>
-          </div>
-        )}
-        {adhoc.map((s) => (
-          <div className="sb-task" key={s.id} onClick={() => openTask(s.id)}>
-            <span className="tt">{s.title}</span>
-            {s.status === 'running' ? <span className="dot" /> : <span className="ago">{s.ago}</span>}
-          </div>
-        ))}
-      </div>
+      {tasksOpen && (
+        <div className="sb-list">
+          {adhoc.length === 0 && (
+            <div className="sb-task" style={{ color: 'var(--text-3)', cursor: 'default' }}>
+              <span className="tt">暂无任务</span>
+            </div>
+          )}
+          {adhoc.map((s) => (
+            <div className="sb-task" key={s.id} onClick={() => openTask(s.id)}>
+              <span className="tt">{s.title}</span>
+              {s.status === 'running' ? <span className="dot" /> : <span className="ago">{s.ago}</span>}
+            </div>
+          ))}
+        </div>
+      )}
 
-      <div className="sb-sec">
-        空间 ({projects.length}) <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6" /></svg>
+      <div className="sb-sec" onClick={() => setSpacesOpen((v) => !v)}>
+        空间 ({projects.length}) {chevron(spacesOpen)}
       </div>
-      <div className="sb-list">
-        {projects.length === 0 && (
-          <div className="sb-task" style={{ color: 'var(--text-3)', cursor: 'default' }}>
-            <span className="tt">暂无项目</span>
-          </div>
-        )}
-        {projects.map((p: ProjectInfo) => (
-          <div className="sb-task" key={p.id} onClick={() => openProject(p)}>
-            <IcFolder />
-            <span className="tt">{p.name}</span>
-          </div>
-        ))}
-      </div>
+      {spacesOpen && (
+        <div className="sb-list">
+          {projects.length === 0 && (
+            <div className="sb-task" style={{ color: 'var(--text-3)', cursor: 'default' }}>
+              <span className="tt">暂无项目</span>
+            </div>
+          )}
+          {projects.map((p: ProjectInfo) => {
+            const kids = sessionsOf(p.id)
+            const open = expanded.has(p.id)
+            return (
+              <div key={p.id}>
+                <div className="sb-task" onClick={() => openProject(p)}>
+                  <IcFolder />
+                  <span className="tt">{p.name}</span>
+                  <span
+                    className="sb-chev"
+                    onClick={(e) => { e.stopPropagation(); toggleExpand(p.id) }}
+                  >
+                    {chevron(open)}
+                  </span>
+                </div>
+                {open && kids.map((s) => (
+                  <div className="sb-task sb-sub" key={s.id} onClick={() => openTask(s.id, 'projexec')}>
+                    <span className="tt">{s.title}</span>
+                    {s.status === 'running' ? <span className="dot" /> : <span className="ago">{s.ago}</span>}
+                  </div>
+                ))}
+                {open && kids.length === 0 && (
+                  <div className="sb-task sb-sub" style={{ color: 'var(--text-3)', cursor: 'default' }}>
+                    <span className="tt">暂无执行</span>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       <div className="sb-flex" />
 
