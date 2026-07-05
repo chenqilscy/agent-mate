@@ -15,7 +15,12 @@ from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("workspace-search")
 
-_ROOT = Path(os.environ.get("WORKBUDDY_NOTES_DIR", ".")).resolve()
+
+def _root() -> Path:
+    # Resolved at call time (not import) so this works both as a spawned subprocess
+    # (env set at spawn) and in-process (env set per run).
+    return Path(os.environ.get("WORKBUDDY_NOTES_DIR", ".")).resolve()
+
 
 # Skip huge files and obvious binaries so a search stays fast and text-only.
 _MAX_BYTES = 1_000_000
@@ -32,8 +37,9 @@ def search_files(query: str, max_results: int = 20) -> str:
     q = (query or "").strip().lower()
     if not q:
         return "请提供检索关键词。"
+    root = _root()
     hits: list[str] = []
-    for path in _ROOT.rglob("*"):
+    for path in root.rglob("*"):
         if len(hits) >= max_results:
             break
         if not path.is_file() or path.suffix.lower() in _SKIP_SUFFIX:
@@ -44,7 +50,7 @@ def search_files(query: str, max_results: int = 20) -> str:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        rel = path.relative_to(_ROOT).as_posix()
+        rel = path.relative_to(root).as_posix()
         for i, line in enumerate(text.splitlines(), 1):
             if q in line.lower():
                 hits.append(f"{rel}:{i}: {line.strip()[:200]}")
@@ -58,9 +64,10 @@ def search_files(query: str, max_results: int = 20) -> str:
 @mcp.tool()
 def list_workspace() -> str:
     """列出当前工作区里的文件（相对路径），了解可检索的范围。"""
+    root = _root()
     files = [
-        p.relative_to(_ROOT).as_posix()
-        for p in sorted(_ROOT.rglob("*"))
+        p.relative_to(root).as_posix()
+        for p in sorted(root.rglob("*"))
         if p.is_file()
     ]
     if not files:

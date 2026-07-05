@@ -26,18 +26,32 @@ from mcp import ClientSession, StdioServerParameters
 # the slow/broken local-server spawn seen in some bundled builds.
 _CONNECT_TIMEOUT = 12.0
 from mcp.client.stdio import stdio_client
+from mcp.shared.memory import create_connected_server_and_client_session
 
 _BACKEND = Path(__file__).resolve().parent.parent
 _SERVERS = _BACKEND / "mcp_servers"
 
 
 def _local(server: str) -> dict[str, Any]:
-    """Launch spec for a built-in local FastMCP server. In dev, run the .py with
-    the interpreter; in a PyInstaller bundle (no interpreter to run a .py), re-exec
-    the app itself as `WorkBuddy.exe --mcp-server=<server>` (main.py routes it)."""
-    if getattr(sys, "frozen", False):
-        return {"command": sys.executable, "args": [f"--mcp-server={server}"], "builtin": True}
-    return {"command": sys.executable, "args": [str(_SERVERS / f"{server}.py")], "builtin": True}
+    """A built-in local FastMCP server. It runs IN-PROCESS via MCP's in-memory
+    transport (no subprocess), so it works identically in dev and in a PyInstaller
+    bundle — a spawned subprocess held open inside the SSE stream wedges a frozen
+    build (A2.1), an in-process server doesn't."""
+    return {"builtin_server": server, "builtin": True}
+
+
+def _builtin_fastmcp(server: str):
+    """The FastMCP instance for a built-in server (imported lazily)."""
+    if server == "notes":
+        from mcp_servers.notes import mcp
+        return mcp
+    if server == "clock":
+        from mcp_servers.clock import mcp
+        return mcp
+    if server == "search":
+        from mcp_servers.search import mcp
+        return mcp
+    return None
 
 # Connector name → how to launch its MCP server.
 #
@@ -131,21 +145,55 @@ async def open_connectors(
     stack = AsyncExitStack()
     tools: list[McpTool] = []
     skipped: list[dict[str, str]] = []
+
+    def _collect(name: str, idx: int, session: ClientSession, listed: Any) -> None:
+        for t in listed.tools:
+            safe_tool = re.sub(r"[^a-zA-Z0-9_-]+", "_", t.name)[:40]
+            tools.append(
+                McpTool(
+                    connector=name,
+                    qualified=f"mcp__{_slug(name, idx)}__{safe_tool}",
+                    orig=t.name,
+                    description=t.description or "",
+                    schema=t.inputSchema or {"type": "object", "properties": {}},
+                    session=session,
+                )
+            )
+
     for idx, name in enumerate(names):
         spec = CONNECTORS.get(name)
         if not spec:
             skipped.append({"name": name, "reason": "未内置该连接器"})
             continue
-        # Bundled (PyInstaller) build: an MCP server subprocess held open inside a
-        # streaming response wedges the SSE stream on the frozen event loop (open
-        # follow-up). Skip cleanly so chat still works; connectors are dev-only for
-        # now. (Fix path: onedir build or an embedded interpreter.)
-        if getattr(sys, "frozen", False):
-            skipped.append({"name": name, "reason": "桌面打包版暂不支持连接器（开发环境可用）"})
-            continue
         missing = [k for k in spec.get("requires", []) if not os.environ.get(k, "").strip()]
         if missing:
             skipped.append({"name": name, "reason": f"需在 backend/.env 配置 {', '.join(missing)}"})
+            continue
+
+        # ── Built-in server: run IN-PROCESS via MCP's in-memory transport (no
+        #    subprocess). Works in dev and in a frozen bundle alike. The server
+        #    reads WORKBUDDY_NOTES_DIR at call time, so set it for this run first.
+        if spec.get("builtin_server"):
+            fastmcp = _builtin_fastmcp(spec["builtin_server"])
+            if fastmcp is None:
+                skipped.append({"name": name, "reason": "内置服务缺失"})
+                continue
+            if env and env.get("WORKBUDDY_NOTES_DIR"):
+                os.environ["WORKBUDDY_NOTES_DIR"] = env["WORKBUDDY_NOTES_DIR"]
+            try:
+                session = await stack.enter_async_context(
+                    create_connected_server_and_client_session(fastmcp._mcp_server)
+                )
+                _collect(name, idx, session, await session.list_tools())
+            except Exception:  # noqa: BLE001 — a broken connector must not break chat
+                skipped.append({"name": name, "reason": "启动失败"})
+            continue
+
+        # ── Third-party server: spawn as a stdio subprocess. A frozen bundle can
+        #    wedge on a held-open subprocess, so gate it (opt back in with
+        #    WORKBUDDY_BUNDLE_CONNECTORS=1).
+        if getattr(sys, "frozen", False) and os.environ.get("WORKBUDDY_BUNDLE_CONNECTORS") != "1":
+            skipped.append({"name": name, "reason": "桌面打包版暂不支持该连接器（开发环境可用）"})
             continue
         params = StdioServerParameters(
             command=_resolve_command(spec["command"]),
@@ -171,18 +219,7 @@ async def open_connectors(
                 return session, await session.list_tools()
 
             session, listed = await asyncio.wait_for(_connect(), timeout=_CONNECT_TIMEOUT)
-            for t in listed.tools:
-                safe_tool = re.sub(r"[^a-zA-Z0-9_-]+", "_", t.name)[:40]
-                tools.append(
-                    McpTool(
-                        connector=name,
-                        qualified=f"mcp__{_slug(name, idx)}__{safe_tool}",
-                        orig=t.name,
-                        description=t.description or "",
-                        schema=t.inputSchema or {"type": "object", "properties": {}},
-                        session=session,
-                    )
-                )
+            _collect(name, idx, session, listed)
         except asyncio.TimeoutError:
             skipped.append({"name": name, "reason": "启动超时"})
             continue

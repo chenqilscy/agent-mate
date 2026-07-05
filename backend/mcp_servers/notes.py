@@ -15,22 +15,27 @@ from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("notes")
 
-_DIR = Path(os.environ.get("WORKBUDDY_NOTES_DIR", ".")).resolve()
-_FILE = _DIR / "notes.json"
+
+def _file() -> Path:
+    # Resolved at call time (not import) so this server works both as a spawned
+    # subprocess (env set at spawn) and in-process (env set per run).
+    return Path(os.environ.get("WORKBUDDY_NOTES_DIR", ".")).resolve() / "notes.json"
 
 
 def _load() -> list[str]:
-    if _FILE.exists():
+    f = _file()
+    if f.exists():
         try:
-            return json.loads(_FILE.read_text(encoding="utf-8"))
+            return json.loads(f.read_text(encoding="utf-8"))
         except Exception:
             return []
     return []
 
 
 def _save(notes: list[str]) -> None:
-    _FILE.parent.mkdir(parents=True, exist_ok=True)
-    _FILE.write_text(json.dumps(notes, ensure_ascii=False, indent=2), encoding="utf-8")
+    f = _file()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(notes, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 @mcp.tool()
