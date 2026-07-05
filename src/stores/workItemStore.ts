@@ -1,13 +1,30 @@
 // workItemStore — kanban / task items for the active project (§11 阶段 B).
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import type { WorkItem, WorkStatus } from '../lib/types'
+import type { WorkAttachment, WorkItem, WorkStatus } from '../lib/types'
+
+export interface NewWorkItem {
+  title: string
+  status?: WorkStatus
+  description?: string
+  due_date?: string | null
+  attachments?: WorkAttachment[]
+}
+
+export interface WorkItemPatch {
+  title?: string
+  status?: WorkStatus
+  description?: string
+  due_date?: string | null
+  attachments?: WorkAttachment[]
+}
 
 interface WorkItemState {
   projectId: string | null
   items: WorkItem[]
   load: (projectId: string) => Promise<void>
-  add: (title: string, status: WorkStatus) => Promise<void>
+  add: (input: NewWorkItem) => Promise<WorkItem | null>
+  update: (id: string, patch: WorkItemPatch) => Promise<void>
   move: (id: string, status: WorkStatus) => Promise<void>
   rename: (id: string, title: string) => Promise<void>
   remove: (id: string) => Promise<void>
@@ -28,11 +45,25 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
     }
   },
 
-  add: async (title, status) => {
+  add: async (input) => {
     const pid = get().projectId
-    if (!pid || !title.trim()) return
-    const wi = await api.createWorkItem({ project_id: pid, title: title.trim(), status })
+    if (!pid || !input.title.trim()) return null
+    const wi = await api.createWorkItem({
+      project_id: pid,
+      title: input.title.trim(),
+      status: input.status,
+      description: input.description,
+      due_date: input.due_date,
+      attachments: input.attachments,
+    })
     set({ items: [...get().items, wi] })
+    return wi
+  },
+
+  // Generic patch for the 待办详情 modal (description / status / due date / attachments).
+  update: async (id, patch) => {
+    const wi = await api.updateWorkItem(id, patch)
+    set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
   },
 
   // Optimistic move so the drag feels instant; reconcile from the server.

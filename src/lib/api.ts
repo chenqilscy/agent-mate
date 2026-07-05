@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { Automation, CreateAutomationInput, Me, ModelOption, ProjectInfo, SessionInfo, WorkItem, WorkStatus } from './types'
+import type { Automation, CreateAutomationInput, Me, ModelOption, ProjectInfo, SessionInfo, WorkAttachment, WorkItem, WorkStatus } from './types'
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
@@ -62,11 +62,15 @@ export const api = {
 
   listWorkItems: (project: string) => get<{ items: WorkItem[] }>(`/work-items?project=${project}`),
 
-  createWorkItem: (body: { project_id: string; title: string; status?: WorkStatus }) =>
-    send<WorkItem>('POST', '/work-items', body),
+  createWorkItem: (body: {
+    project_id: string; title: string; status?: WorkStatus
+    description?: string; due_date?: string | null; attachments?: WorkAttachment[]
+  }) => send<WorkItem>('POST', '/work-items', body),
 
-  updateWorkItem: (id: string, patch: { status?: WorkStatus; title?: string }) =>
-    send<WorkItem>('PATCH', `/work-items/${id}`, patch),
+  updateWorkItem: (id: string, patch: {
+    status?: WorkStatus; title?: string
+    description?: string; due_date?: string | null; attachments?: WorkAttachment[]
+  }) => send<WorkItem>('PATCH', `/work-items/${id}`, patch),
 
   deleteWorkItem: (id: string) => send<{ ok: boolean }>('DELETE', `/work-items/${id}`),
 

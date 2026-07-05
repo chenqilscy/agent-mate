@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import time
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -12,6 +14,24 @@ from storage import db
 router = APIRouter(prefix="/api", tags=["work_items"])
 
 STATUSES = {"todo", "doing", "paused", "done"}
+MAX_ATTACHMENTS = 20
+
+
+def _clean_attachments(raw: Any) -> list[dict]:
+    """只保留 {name, kind, path} 形状的引用，防止塞进任意 JSON。不复制文件、只存引用。"""
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for a in raw[:MAX_ATTACHMENTS]:
+        if not isinstance(a, dict):
+            continue
+        name = str(a.get("name", "")).strip()[:200]
+        if not name:
+            continue
+        kind = a.get("kind") if a.get("kind") in ("local", "asset") else "local"
+        path = a.get("path")
+        out.append({"name": name, "kind": kind, "path": str(path)[:500] if path else None})
+    return out
 
 
 class CreateWorkItemBody(BaseModel):
@@ -19,11 +39,17 @@ class CreateWorkItemBody(BaseModel):
     title: str
     status: str = "todo"
     source: str = "手动"
+    description: str = ""
+    due_date: str | None = None
+    attachments: list[dict] = []
 
 
 class UpdateWorkItemBody(BaseModel):
     title: str | None = None
     status: str | None = None
+    description: str | None = None
+    due_date: str | None = None
+    attachments: list[dict] | None = None
 
 
 def _ago(ts: float) -> str:
@@ -60,8 +86,13 @@ def create_item(body: CreateWorkItemBody) -> dict:
         raise HTTPException(400, "empty title")
     status = body.status if body.status in STATUSES else "todo"
     user = current_user()
+    # Only create in a project the caller owns (WB-013).
+    if not db.get_project(body.project_id, owner_id=user.id):
+        raise HTTPException(404, "project not found")
     wi = db.create_work_item(
         project_id=body.project_id, owner_id=user.id, title=title, status=status, source=body.source,
+        description=(body.description or "").strip(), due_date=(body.due_date or None),
+        attachments=_clean_attachments(body.attachments),
     )
     return _view(wi, user)
 
@@ -73,7 +104,17 @@ def update_item(item_id: str, body: UpdateWorkItemBody) -> dict:
     user = current_user()
     if not db.get_work_item(item_id, owner_id=user.id):
         raise HTTPException(404, "work item not found")
-    wi = db.update_work_item(item_id, title=body.title, status=body.status)
+    # due_date is nullable: an explicit `due_date: null` clears it; omitting leaves it.
+    fields = body.model_fields_set
+    wi = db.update_work_item(
+        item_id,
+        title=body.title,
+        status=body.status,
+        description=body.description,
+        due_date=body.due_date if "due_date" in fields else None,
+        clear_due_date="due_date" in fields and body.due_date is None,
+        attachments=_clean_attachments(body.attachments) if body.attachments is not None else None,
+    )
     if not wi:
         raise HTTPException(404, "work item not found")
     return _view(wi, user)

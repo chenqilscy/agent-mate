@@ -121,7 +121,10 @@ def init_db() -> None:
             source TEXT NOT NULL DEFAULT '手动',
             assignee TEXT NOT NULL,
             created_at REAL NOT NULL,
-            updated_at REAL NOT NULL
+            updated_at REAL NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            due_date TEXT,
+            attachments TEXT NOT NULL DEFAULT '[]'
         );
         CREATE INDEX IF NOT EXISTS idx_work_items_project
             ON work_items(project_id, created_at);
@@ -149,7 +152,23 @@ def init_db() -> None:
         """
     )
     conn.commit()
+    _migrate_columns()
     _ensure_local_user()
+
+
+def _migrate_columns() -> None:
+    """幂等补列：老库缺少后加的列时 ALTER TABLE 补上（CREATE TABLE IF NOT EXISTS 不会改已存在的表）。"""
+    conn = get_conn()
+    # WB-026: work_items 增 description / due_date / attachments。
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(work_items)").fetchall()}
+    for col, ddl in (
+        ("description", "description TEXT NOT NULL DEFAULT ''"),
+        ("due_date", "due_date TEXT"),
+        ("attachments", "attachments TEXT NOT NULL DEFAULT '[]'"),
+    ):
+        if col not in have:
+            conn.execute(f"ALTER TABLE work_items ADD COLUMN {ddl}")
+    conn.commit()
 
 
 def _ensure_local_user() -> None:
@@ -419,27 +438,39 @@ def list_project_sessions(project_id: str) -> list[Session]:
 # ---- work items (kanban / tasks, §11 阶段 B) ----------------------------
 
 def _row_to_work_item(r: sqlite3.Row) -> WorkItem:
+    keys = r.keys()
+    try:
+        attachments = json.loads(r["attachments"]) if "attachments" in keys and r["attachments"] else []
+    except (json.JSONDecodeError, TypeError):
+        attachments = []
     return WorkItem(
         id=r["id"], project_id=r["project_id"], owner_id=r["owner_id"], title=r["title"],
         status=r["status"], source=r["source"], assignee=r["assignee"],
         created_at=r["created_at"], updated_at=r["updated_at"],
+        description=r["description"] if "description" in keys and r["description"] else "",
+        due_date=r["due_date"] if "due_date" in keys else None,
+        attachments=attachments if isinstance(attachments, list) else [],
     )
 
 
 def create_work_item(
     *, project_id: str, owner_id: str, title: str, status: str = "todo",
-    source: str = "手动", assignee: str = "",
+    source: str = "手动", assignee: str = "", description: str = "",
+    due_date: Optional[str] = None, attachments: Optional[list] = None,
 ) -> WorkItem:
     now = time.time()
     wi = WorkItem(
         id=new_uuid(), project_id=project_id, owner_id=owner_id, title=title[:200],
         status=status, source=source, assignee=assignee or owner_id,
         created_at=now, updated_at=now,
+        description=description[:4000], due_date=due_date, attachments=attachments or [],
     )
     get_conn().execute(
-        """INSERT INTO work_items (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
-        (wi.id, wi.project_id, wi.owner_id, wi.title, wi.status, wi.source, wi.assignee, wi.created_at, wi.updated_at),
+        """INSERT INTO work_items
+           (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at,description,due_date,attachments)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (wi.id, wi.project_id, wi.owner_id, wi.title, wi.status, wi.source, wi.assignee,
+         wi.created_at, wi.updated_at, wi.description, wi.due_date, json.dumps(wi.attachments, ensure_ascii=False)),
     )
     get_conn().commit()
     return wi
@@ -462,12 +493,24 @@ def get_work_item(item_id: str, owner_id: Optional[str] = None) -> Optional[Work
     return _row_to_work_item(r) if r else None
 
 
-def update_work_item(item_id: str, *, title: Optional[str] = None, status: Optional[str] = None) -> Optional[WorkItem]:
+def update_work_item(
+    item_id: str, *, title: Optional[str] = None, status: Optional[str] = None,
+    description: Optional[str] = None, due_date: Optional[str] = None,
+    clear_due_date: bool = False, attachments: Optional[list] = None,
+) -> Optional[WorkItem]:
     sets, vals = [], []
     if title is not None:
         sets.append("title=?"); vals.append(title[:200])
     if status is not None:
         sets.append("status=?"); vals.append(status)
+    if description is not None:
+        sets.append("description=?"); vals.append(description[:4000])
+    if clear_due_date:
+        sets.append("due_date=?"); vals.append(None)
+    elif due_date is not None:
+        sets.append("due_date=?"); vals.append(due_date)
+    if attachments is not None:
+        sets.append("attachments=?"); vals.append(json.dumps(attachments, ensure_ascii=False))
     if not sets:
         return get_work_item(item_id)
     sets.append("updated_at=?"); vals.append(time.time())

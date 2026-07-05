@@ -282,8 +282,9 @@ cd workbuddy && pnpm install && pnpm dev
   - `GET  /api/projects/{id}` — 项目详情（含配置）
   - `PATCH /api/projects/{id}` — 编辑指令 / 连接器 / 专家 / 技能
   - `GET  /api/projects/{id}/sessions` — 项目下执行会话（左栏分组 / 动态来源）
-- 新增 `work_items` 表（阶段 B）：`id · project_id · owner_id · title · status(待开始/进行中/暂停/完成) · source · assignee(actor) · created_at`。看板与任务列表同源。
-  - `GET/POST /api/work-items`，`PATCH /api/work-items/{id}`（拖拽改状态）
+- 新增 `work_items` 表（阶段 B）：`id · project_id · owner_id · title · status(待开始/进行中/暂停/完成) · source · assignee(actor) · created_at · updated_at`。看板与任务列表同源。
+  - **补齐（WB-026）**：追加 `description · due_date · attachments(JSON 引用数组)` 三列；老库经幂等 `ALTER TABLE ADD COLUMN` 迁移（`db._migrate_columns`，`init_db` 内调用）。`attachments` 元素为 `{name, kind:local|asset, path}` 的**引用**（项目资产引用项目云盘文件、本地文件先上传到云盘再引用，均不重复存储）。
+  - `GET/POST /api/work-items`，`PATCH /api/work-items/{id}`：POST 可带 `description/due_date/attachments`；PATCH 支持这些字段的偏改，`due_date` 用 `model_fields_set` 区分「显式置空清除」与「不改」。
 - 资产复用项目 workspace（阶段 C）：`GET /api/files/tree?project=…`、`POST /api/files/upload?project=…`、下载/重命名/删除；配额为软限制展示。
 
 ### 11.4 分阶段完善路线
@@ -292,6 +293,7 @@ cd workbuddy && pnpm install && pnpm dev
 |---|---|---|
 | **A 项目结构**（下一步先做） | ① 每项目独立工作空间（contextvar 作用域）；② 项目主页四标签壳 + 常驻「项目配置」侧栏（指令等可编辑，PATCH 落库）；③ 侧栏执行会话按项目分组；执行降为项目子视图 | 打开项目见工作台；改指令即改 Agent 行为；产物/文件只看本项目 |
 | **B 工作管理** | 计划(看板拖拽) + 任务(工作项列表)，`work_items` 落库，状态机 | 卡片可新建/流转，任务列表与看板同源 |
+| **B+ 计划补齐**（WB-026/027/028，✅已落地） | ① **待办详情弹窗**：描述可编辑、状态/截止日期下拉、附件、「添加到输入框」（经 `uiStore.composerPrefill` 一次性注入项目 Composer）；② **新建待办弹窗**：标题+描述+附件（本地文件/项目资产）+截止日期，替换列内内联输入；③ **顶部工具条**：归属/来源筛选 + 批量操作（多选改状态/删除）+ 搜索；④ **添加数据源**：TAPD/CNB/GitHub 选择器 UI 为**诚实占位**，动作提示「敬请期待」，不伪造授权/导入（真实同步为后续外部集成） | 点卡片见详情并可编辑落库；新建带描述/截止/附件；筛选/批量/搜索生效；数据源占位不产生假数据 |
 | **C 资产** | 资产标签 = 项目云盘（列表/上传/下载/重命名/删除/配额）+ 富文件查看器（操作菜单/分页/字数） | 上传/下载/改名真实生效，查看器带操作 |
 | **D 协作**（归入 M7） | 成员动态、邀请/成员与角色、共享、消息推送 | 两成员同项目互见（依赖 Cloud Hub） |
 

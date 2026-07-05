@@ -116,6 +116,12 @@ export interface ProjectInfo {
 
 export type WorkStatus = 'todo' | 'doing' | 'paused' | 'done'
 
+export interface WorkAttachment {
+  name: string
+  kind: 'local' | 'asset'
+  path: string | null
+}
+
 export interface WorkItem {
   id: string
   project_id: string
@@ -124,7 +130,12 @@ export interface WorkItem {
   source: string
   assignee: string
   assignee_name: string
+  description: string
+  due_date: string | null
+  attachments: WorkAttachment[]
   ago?: string
+  created_at?: number
+  updated_at?: number
 }
 
 export type TriggerKind = 'interval' | 'daily'

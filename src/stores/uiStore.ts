@@ -22,6 +22,9 @@ interface UIState {
   // ≤900px drawer): here the sidebar is fully hidden and re-opened via the
   // menubar hamburger. Reset when the window narrows past 900px (App.tsx).
   sidebarCollapsed: boolean
+  // One-shot text to drop into the active Composer input（计划「添加到输入框」用）。
+  // Composer consumes it via effect then clears it back to null.
+  composerPrefill: string | null
 
   setView: (v: ViewId) => void
   toggleOv: () => void
@@ -33,6 +36,7 @@ interface UIState {
   toggleExpand: () => void
   setNavOpen: (open: boolean) => void
   setSidebarCollapsed: (collapsed: boolean) => void
+  setComposerPrefill: (text: string | null) => void
 }
 
 const THEME_KEY = 'wb.theme'
@@ -59,6 +63,7 @@ export const useUIStore = create<UIState>((set) => ({
   ovExpanded: false,
   navOpen: false,
   sidebarCollapsed: false,
+  composerPrefill: null,
 
   // Switching views also dismisses the mobile nav drawer (you navigated, so the
   // drawer's job is done) and any open popover.
@@ -79,4 +84,5 @@ export const useUIStore = create<UIState>((set) => ({
   toggleExpand: () => set((s) => ({ ovExpanded: !s.ovExpanded })),
   setNavOpen: (navOpen) => set({ navOpen }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+  setComposerPrefill: (composerPrefill) => set({ composerPrefill }),
 }))

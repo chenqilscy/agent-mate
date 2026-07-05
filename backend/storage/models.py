@@ -80,6 +80,11 @@ class WorkItem:
     assignee: str  # actor / user id
     created_at: float
     updated_at: float
+    description: str = ""
+    due_date: Optional[str] = None  # "YYYY-MM-DD" or None
+    # 引用列表，元素形如 {"name": str, "kind": "local"|"asset", "path": str|None}。
+    # 只存引用，不复制文件（项目资产引用项目云盘现有文件）。
+    attachments: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
