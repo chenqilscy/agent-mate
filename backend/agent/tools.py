@@ -29,9 +29,15 @@ CMD_TIMEOUT = 30
 
 @dataclass
 class ToolOutcome:
-    """What a tool execution produced: text fed back to the LLM + trace items."""
+    """What a tool execution produced: text fed back to the LLM + trace items.
+
+    `live` holds transient SSE payloads the runtime emits but does NOT persist in
+    the trace (WB-031) — e.g. a plan-item status change the kanban syncs live,
+    which must not be re-fired on history replay.
+    """
     text: str
     trace: list[dict[str, Any]] = field(default_factory=list)
+    live: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -276,6 +282,8 @@ def _set_work_item_status_run(args: dict[str, Any]) -> ToolOutcome:
     return ToolOutcome(
         text=f"已将计划项「{wi.title}」状态改为「{label}」。",
         trace=[{"kind": "step", "tool": "set_work_item_status", "label": f"计划项「{wi.title}」→ {label}"}],
+        # Transient live sync for the kanban (WB-031) — not persisted in the trace.
+        live=[{"id": wi.id, "project_id": wi.project_id, "status": status, "title": wi.title}],
     )
 
 

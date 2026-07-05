@@ -64,6 +64,12 @@ def artifact(name: str, size: str, path: str) -> str:
     return sse("artifact", {"name": name, "size": size, "path": path})
 
 
+def work_item(item: dict[str, Any]) -> str:
+    """A plan item changed (WB-031) — the frontend syncs its kanban store live.
+    Transient: emitted when a tool mutates a work item, NOT persisted in the trace."""
+    return sse("work_item", {"item": item})
+
+
 def usage(pct: float, used: int, detail: dict[str, Any] | None = None) -> str:
     return sse("usage", {"pct": round(pct, 2), "used": used, "detail": detail or {}})
 

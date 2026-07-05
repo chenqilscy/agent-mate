@@ -25,6 +25,9 @@ interface WorkItemState {
   load: (projectId: string) => Promise<void>
   add: (input: NewWorkItem) => Promise<WorkItem | null>
   update: (id: string, patch: WorkItemPatch) => Promise<void>
+  // Apply a live change pushed over SSE (WB-031: agent changed a plan item's
+  // status). Local-only, no API call; scoped to the active project.
+  applyRemote: (item: { id: string; project_id: string; status: WorkStatus }) => void
   move: (id: string, status: WorkStatus) => Promise<void>
   rename: (id: string, title: string) => Promise<void>
   remove: (id: string) => Promise<void>
@@ -64,6 +67,12 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
   update: async (id, patch) => {
     const wi = await api.updateWorkItem(id, patch)
     set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
+  },
+
+  applyRemote: (item) => {
+    // Ignore changes for a project whose board isn't loaded (it refetches on open).
+    if (item.project_id !== get().projectId) return
+    set({ items: get().items.map((i) => (i.id === item.id ? { ...i, status: item.status } : i)) })
   },
 
   // Optimistic move so the drag feels instant; reconcile from the server.

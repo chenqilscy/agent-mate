@@ -454,6 +454,10 @@ async def run_chat(
                 outcome = await asyncio.to_thread(run_tool, tool, args)
                 for it in outcome.trace:
                     yield record(it)
+                # Transient live events (WB-031: kanban sync) — emitted, not recorded,
+                # so history replay never re-fires a stale state change.
+                for ev in outcome.live:
+                    yield events.work_item(ev)
                 llm_messages.append(
                     {"role": "tool", "tool_call_id": call["id"], "content": outcome.text}
                 )

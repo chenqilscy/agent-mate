@@ -12,6 +12,7 @@ import type { AskQuestion, ChatMessage, SessionInfo, SSEEvent, TraceItem } from 
 import { useSettingsStore } from './settingsStore'
 import { useLoadoutStore } from './loadoutStore'
 import { useUIStore } from './uiStore'
+import { useWorkItemStore } from './workItemStore'
 
 function uuid(): string {
   return crypto.randomUUID ? crypto.randomUUID() : String(Math.random())
@@ -175,6 +176,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         case 'qa_summary':
           set({ pending: null })
           patchBot((m) => ({ ...m, trace: [...m.trace, { kind: 'qa', qa: ev.data.qa }] }))
+          break
+        case 'work_item':
+          // Agent changed a plan item's status (WB-031) — sync the kanban live.
+          useWorkItemStore.getState().applyRemote(ev.data.item)
           break
         case 'usage':
           useSettingsStore.getState().setUsage({
