@@ -7,6 +7,7 @@ import { OvPanel } from '../components/panel/OvPanel'
 import { useChatStore } from '../stores/chatStore'
 import { useUIStore } from '../stores/uiStore'
 import { toast } from '../stores/toastStore'
+import { activate } from '../lib/a11y'
 import { IcSearch, IcShare, IcHistory, IcPanel } from '../lib/icons'
 
 export function ChatView() {
@@ -68,10 +69,10 @@ export function ChatView() {
         <div className="chat-head">
           <div className="ch-t">{title}</div>
           <div className="ch-r">
-            <div className={`fic ${searchOpen ? 'on' : ''}`.trim()} data-tip="对话内搜索（⌘F / Ctrl+F）" aria-label="搜索" onClick={() => setSearchOpen((v) => !v)}><IcSearch /></div>
-            <div className="fic" aria-label="分享" onClick={() => toast('分享对话')}><IcShare /></div>
-            <div className="fic" aria-label="历史提问" onClick={() => toast('历史提问')}><IcHistory /></div>
-            <div className="fic" aria-label="产物面板" onClick={toggleOv}><IcPanel /></div>
+            <div className={`fic ${searchOpen ? 'on' : ''}`.trim()} data-tip="对话内搜索（⌘F / Ctrl+F）" aria-label="搜索" onClick={() => setSearchOpen((v) => !v)} {...activate(() => setSearchOpen((v) => !v))}><IcSearch /></div>
+            <div className="fic" aria-label="分享" onClick={() => toast('分享对话')} {...activate(() => toast('分享对话'))}><IcShare /></div>
+            <div className="fic" aria-label="历史提问" onClick={() => toast('历史提问')} {...activate(() => toast('历史提问'))}><IcHistory /></div>
+            <div className="fic" aria-label="产物面板" onClick={toggleOv} {...activate(toggleOv)}><IcPanel /></div>
           </div>
         </div>
 

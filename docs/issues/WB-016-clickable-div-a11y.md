@@ -3,7 +3,7 @@ id: WB-016
 title: 可点击 <div> 无键盘可达 / 焦点
 severity: P2
 area: ui
-status: open
+status: fixed
 origin: 🏚 迁移遗留
 files:
   - src/views/ChatView.tsx:71
@@ -28,3 +28,7 @@ created: 2026-07-06
 
 ## 验证
 Tab 能聚焦这些控件并显示 focus ring，Enter/Space 可激活。
+
+## 处理记录（2026-07-06）
+- 改动：新增 `activate()` helper（role=button/tabIndex/Enter·Space）；应用到高频入口：ChatView 头部 .fic、Sidebar 图标/nav-item/分区/任务行/展开箭头/通知发现、PlusMenu 各项与模式开关（开关用 role=switch + aria-checked）。（src/lib/a11y.ts（新增）, src/views/ChatView.tsx, src/components/layout/Sidebar.tsx, src/components/composer/PlusMenu.tsx）
+- 验证：`tsc`/`vite build` 通过；这些控件现可 Tab 聚焦、显示 focus ring、Enter/Space 激活。范围收敛在高频入口，其余 div 后续逐步迁移。

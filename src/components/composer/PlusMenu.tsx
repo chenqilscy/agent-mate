@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { toast } from '../../stores/toastStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useLoadoutStore } from '../../stores/loadoutStore'
+import { activate } from '../../lib/a11y'
 
 // The ＋ menu (spec 4.2). All items are now live:
 //  · 添加文件 / 引用对话中的文件 → attach file content to the next message (M1/M3)
@@ -24,7 +25,7 @@ const ICON = {
 
 function Item({ path, label, count, onClick }: { path: string; label: string; count?: number; onClick: () => void }) {
   return (
-    <div className="pop-item px-root" onClick={onClick}>
+    <div className="pop-item px-root" onClick={onClick} {...activate(onClick)}>
       <span className="pi-ic">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={path} /></svg>
       </span>
@@ -55,7 +56,7 @@ export function PlusMenu({ onClose, actions }: { onClose: () => void; actions: P
       <Item path={ICON.ref} label="引用对话中的文件" onClick={() => { actions.onRefFile(); onClose() }} />
 
       <div>
-        <div className={`pop-item px-root ${modeOpen ? 'on' : ''}`.trim()} onClick={() => setModeOpen((v) => !v)}>
+        <div className={`pop-item px-root ${modeOpen ? 'on' : ''}`.trim()} onClick={() => setModeOpen((v) => !v)} {...activate(() => setModeOpen((v) => !v))}>
           <span className="pi-ic">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={ICON.mode} /></svg>
           </span>
@@ -65,10 +66,10 @@ export function PlusMenu({ onClose, actions }: { onClose: () => void; actions: P
         {modeOpen && (
           <>
             <div className="mode-row">计划 <small>Plan</small>
-              <span className={`sw ${planMode ? 'on' : ''}`.trim()} onClick={(e) => { e.stopPropagation(); setPlan(!planMode); toast('计划模式已' + (!planMode ? '开启' : '关闭')) }} />
+              <span className={`sw ${planMode ? 'on' : ''}`.trim()} aria-label="计划模式" onClick={(e) => { e.stopPropagation(); setPlan(!planMode); toast('计划模式已' + (!planMode ? '开启' : '关闭')) }} {...activate((e) => { e?.stopPropagation(); setPlan(!planMode); toast('计划模式已' + (!planMode ? '开启' : '关闭')) })} role="switch" aria-checked={planMode ? 'true' : 'false'} />
             </div>
             <div className="mode-row">仅问答 <small>Ask</small>
-              <span className={`sw ${askMode ? 'on' : ''}`.trim()} onClick={(e) => { e.stopPropagation(); setAsk(!askMode); toast('仅问答已' + (!askMode ? '开启' : '关闭')) }} />
+              <span className={`sw ${askMode ? 'on' : ''}`.trim()} aria-label="仅问答模式" onClick={(e) => { e.stopPropagation(); setAsk(!askMode); toast('仅问答已' + (!askMode ? '开启' : '关闭')) }} {...activate((e) => { e?.stopPropagation(); setAsk(!askMode); toast('仅问答已' + (!askMode ? '开启' : '关闭')) })} role="switch" aria-checked={askMode ? 'true' : 'false'} />
             </div>
           </>
         )}

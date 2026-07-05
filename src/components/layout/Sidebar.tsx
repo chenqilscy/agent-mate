@@ -6,6 +6,7 @@ import { useProjectStore } from '../../stores/projectStore'
 import { useAuthStore } from '../../stores/authStore'
 import { toast } from '../../stores/toastStore'
 import type { ProjectInfo, ViewId } from '../../lib/types'
+import { activate } from '../../lib/a11y'
 import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
 
 const NAV: { id: ViewId; label: string; icon: ReactNode; sub?: string; cls?: string }[] = [
@@ -132,13 +133,13 @@ export function Sidebar() {
           <small>v5.2.3</small>
         </div>
         <div className="sb-icos">
-          <div className="sb-ico" aria-label="收起侧栏" onClick={() => toast('收起侧栏')}>
+          <div className="sb-ico" aria-label="收起侧栏" onClick={() => toast('收起侧栏')} {...activate(() => toast('收起侧栏'))}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
           </div>
-          <div className="sb-ico" aria-label="搜索" onClick={() => toast('搜索任务')}>
+          <div className="sb-ico" aria-label="搜索" onClick={() => toast('搜索任务')} {...activate(() => toast('搜索任务'))}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
           </div>
-          <div className="sb-ico" aria-label="筛选" onClick={() => toast('筛选')}>
+          <div className="sb-ico" aria-label="筛选" onClick={() => toast('筛选')} {...activate(() => toast('筛选'))}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 5h18l-7 8v6l-4-2v-4z" /></svg>
           </div>
         </div>
@@ -150,6 +151,7 @@ export function Sidebar() {
             key={n.id}
             className={`nav-item ${n.cls ?? ''} ${act === n.id ? 'active' : ''}`.trim()}
             onClick={() => { if (n.id === 'home') newTask(); setView(n.id) }}
+            {...activate(() => { if (n.id === 'home') newTask(); setView(n.id) })}
           >
             <span className="n-ic">{n.icon}</span>
             {n.label}
@@ -158,6 +160,7 @@ export function Sidebar() {
         <div
           className={`nav-item ${act === 'more' ? 'active' : ''}`.trim()}
           onClick={() => setMoreOpen((v) => !v)}
+          {...activate(() => setMoreOpen((v) => !v))}
         >
           <span className="n-ic">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></svg>
@@ -166,7 +169,7 @@ export function Sidebar() {
         </div>
       </nav>
 
-      <div className="sb-sec" onClick={() => setTasksOpen((v) => !v)}>
+      <div className="sb-sec" onClick={() => setTasksOpen((v) => !v)} {...activate(() => setTasksOpen((v) => !v))}>
         任务 ({adhoc.length}) {chevron(tasksOpen)}
       </div>
       {tasksOpen && (
@@ -177,7 +180,7 @@ export function Sidebar() {
             </div>
           )}
           {adhoc.map((s) => (
-            <div className="sb-task" key={s.id} onClick={() => openTask(s.id)}>
+            <div className="sb-task" key={s.id} onClick={() => openTask(s.id)} {...activate(() => openTask(s.id))}>
               <span className="tt">{s.title}</span>
               {s.status === 'running' ? <span className="dot" /> : <span className="ago">{s.ago}</span>}
             </div>
@@ -185,7 +188,7 @@ export function Sidebar() {
         </div>
       )}
 
-      <div className="sb-sec" onClick={() => setSpacesOpen((v) => !v)}>
+      <div className="sb-sec" onClick={() => setSpacesOpen((v) => !v)} {...activate(() => setSpacesOpen((v) => !v))}>
         空间 ({projects.length}) {chevron(spacesOpen)}
       </div>
       {spacesOpen && (
@@ -200,18 +203,20 @@ export function Sidebar() {
             const open = expanded.has(p.id)
             return (
               <div key={p.id}>
-                <div className="sb-task" onClick={() => openProject(p)}>
+                <div className="sb-task" onClick={() => openProject(p)} {...activate(() => openProject(p))}>
                   <IcFolder />
                   <span className="tt">{p.name}</span>
                   <span
                     className="sb-chev"
+                    aria-label={open ? '收起' : '展开'}
                     onClick={(e) => { e.stopPropagation(); toggleExpand(p.id) }}
+                    {...activate((e) => { e?.stopPropagation(); toggleExpand(p.id) })}
                   >
                     {chevron(open)}
                   </span>
                 </div>
                 {open && kids.map((s) => (
-                  <div className="sb-task sb-sub" key={s.id} onClick={() => openTask(s.id, 'projexec')}>
+                  <div className="sb-task sb-sub" key={s.id} onClick={() => openTask(s.id, 'projexec')} {...activate(() => openTask(s.id, 'projexec'))}>
                     <span className="tt">{s.title}</span>
                     {s.status === 'running' ? <span className="dot" /> : <span className="ago">{s.ago}</span>}
                   </div>
@@ -241,11 +246,11 @@ export function Sidebar() {
           <path d="M15 26q5 4 10 0" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" />
         </svg>
         <span className="name">{me?.name ?? '奇'}</span>
-        <div className="fic" aria-label="通知" style={{ position: 'relative' }} onClick={() => toast('消息中心')}>
+        <div className="fic" aria-label="通知" style={{ position: 'relative' }} onClick={(e) => { e.stopPropagation(); toast('消息中心') }} {...activate((e) => { e?.stopPropagation(); toast('消息中心') })}>
           <span className="bell-dot" />
           <IcBell />
         </div>
-        <div className="fic" aria-label="发现" onClick={() => toast('发现')}>
+        <div className="fic" aria-label="发现" onClick={(e) => { e.stopPropagation(); toast('发现') }} {...activate((e) => { e?.stopPropagation(); toast('发现') })}>
           <IcCompass />
         </div>
       </div>
