@@ -1,3 +1,6 @@
 # Rust build output (huge) and Tauri-generated schemas.
 /target/
 /gen/schemas/
+# Sidecar binary — a ~17MB build artifact rebuilt from backend/ (see
+# backend/build_sidecar.py); don't bloat the repo with it.
+/binaries/

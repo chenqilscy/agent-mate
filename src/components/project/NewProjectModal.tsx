@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { NP_CONNS, NP_EXPERTS, NP_TPLS, SK_GRID } from '../../data/catalog'
+import { NEEDS_TOKEN_CONNECTORS, NP_CONNS, NP_EXPERTS, NP_TPLS, READY_CONNECTORS, SK_GRID } from '../../data/catalog'
 import { useProjectStore } from '../../stores/projectStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
@@ -170,10 +170,18 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
           {kind === 'conn' && (
             NP_CONNS.filter((c) => match(c[1]) || match(c[2])).map((c) => {
               const on = sel.has(c[1])
+              const ready = READY_CONNECTORS.has(c[1])
+              const needsToken = NEEDS_TOKEN_CONNECTORS.has(c[1])
               return (
                 <div className={`pkc-row ${on ? 'sel' : ''}`.trim()} key={c[1]} onClick={() => onToggle(c[1])}>
                   <span className="pi">{c[0]}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}><div className="pn">{c[1]}</div><div className="pd">{c[2]}</div></div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="pn">
+                      {c[1]}
+                      {ready && <span className={`conn-tag ${needsToken ? 'tok' : 'rdy'}`}>{needsToken ? '需配置' : '内置'}</span>}
+                    </div>
+                    <div className="pd">{c[2]}</div>
+                  </div>
                   <span className="ckc">{on ? '✓' : ''}</span>
                 </div>
               )

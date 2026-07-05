@@ -6,14 +6,43 @@ The API key lives here and only here — it is never sent to the frontend
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 BACKEND_DIR = Path(__file__).resolve().parent
 
-# Load backend/.env if present (falls back to real env vars otherwise).
-load_dotenv(BACKEND_DIR / ".env")
+# Frozen (PyInstaller sidecar) awareness: a bundled exe's __file__ lives in a
+# temp extraction dir that's wiped on exit, so the DB / workspace must live in a
+# persistent per-user data dir instead, and .env is looked up next to the exe.
+# In dev (not frozen) everything stays under backend/ exactly as before.
+FROZEN = getattr(sys, "frozen", False)
+
+
+def _user_data_dir() -> Path:
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
+    d = base / "WorkBuddy"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+if FROZEN:
+    EXE_DIR = Path(sys.executable).resolve().parent
+    DATA_DIR = _user_data_dir()
+    # .env next to the exe wins, else the data dir.
+    for _env in (EXE_DIR / ".env", DATA_DIR / ".env"):
+        if _env.exists():
+            load_dotenv(_env)
+            break
+else:
+    DATA_DIR = BACKEND_DIR
+    load_dotenv(BACKEND_DIR / ".env")
 
 
 class Settings:
@@ -24,10 +53,16 @@ class Settings:
     HOST: str = os.getenv("HOST", "127.0.0.1")
     PORT: int = int(os.getenv("PORT", "8000"))
 
-    DB_PATH: Path = BACKEND_DIR / "workbuddy.db"
+    # Optional connector credentials. Read straight from os.environ by the MCP
+    # client's per-connector secret_env (mcp_client.py); listed here for
+    # discoverability. Forwarded ONLY to the owning connector's subprocess.
+    GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "").strip()
+
+    # DB + workspace live in DATA_DIR (backend/ in dev, per-user data dir when frozen).
+    DB_PATH: Path = DATA_DIR / "workbuddy.db"
 
     WORKSPACE_ROOT: Path = Path(
-        os.getenv("WORKBUDDY_WORKSPACE", str(BACKEND_DIR / "workspace"))
+        os.getenv("WORKBUDDY_WORKSPACE", str(DATA_DIR / "workspace"))
     ).resolve()
 
     # Context window used to compute the context-usage ring (approximate).

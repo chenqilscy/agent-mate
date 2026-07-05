@@ -3,7 +3,12 @@
 
 import type { Automation, CreateAutomationInput, Me, ModelOption, ProjectInfo, SessionInfo, WorkAttachment, WorkItem, WorkStatus } from './types'
 
-export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
+// In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
+// there's no proxy and the app is served from tauri://localhost, so hit the local
+// backend directly (CORS on the backend allows the tauri origin).
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+export const API_BASE =
+  import.meta.env.VITE_API_BASE ?? (isTauri ? 'http://127.0.0.1:8000/api' : '/api')
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${API_BASE}${path}`)

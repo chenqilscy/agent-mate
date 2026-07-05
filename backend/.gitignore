@@ -1,0 +1,5 @@
+
+# PyInstaller sidecar build artifacts
+dist/
+.pyi-build/
+.exe-run.log
