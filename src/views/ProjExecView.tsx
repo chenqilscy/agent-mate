@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Composer } from '../components/composer/Composer'
 import { MessageList } from '../components/chat/MessageList'
 import { AskUserCard } from '../components/chat/AskUserCard'
+import { ChatSearch } from '../components/chat/ChatSearch'
 import { PePanel } from '../components/panel/PePanel'
 import { useChatStore } from '../stores/chatStore'
 import { useProjectStore } from '../stores/projectStore'
@@ -25,6 +26,18 @@ export function ProjExecView() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
   const [showDn, setShowDn] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -46,6 +59,7 @@ export function ProjExecView() {
   return (
     <section className="view active split" data-view="projexec">
       <div className="chat-col">
+        {searchOpen && <ChatSearch containerRef={scrollRef} messages={messages} onClose={() => setSearchOpen(false)} />}
         <div className="chat-head">
           <div className="pe-crumb">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
@@ -60,7 +74,7 @@ export function ProjExecView() {
             )}
           </div>
           <div className="ch-r" style={{ marginLeft: 'auto' }}>
-            <div className="fic" aria-label="搜索" onClick={() => toast('对话内搜索')}><IcSearch /></div>
+            <div className={`fic ${searchOpen ? 'on' : ''}`.trim()} data-tip="对话内搜索（⌘F / Ctrl+F）" aria-label="搜索" onClick={() => setSearchOpen((v) => !v)}><IcSearch /></div>
             <div className="fic" aria-label="邀请成员" onClick={() => toast('邀请成员（M7 协作版）')}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="10" cy="8" r="4" /><path d="M2 21c0-4 4-6 8-6M19 8v6M16 11h6" /></svg>
             </div>

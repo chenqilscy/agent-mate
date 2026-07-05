@@ -47,6 +47,9 @@ function MainView() {
 }
 
 export function App() {
+  const navOpen = useUIStore((s) => s.navOpen)
+  const setNavOpen = useUIStore((s) => s.setNavOpen)
+
   useEffect(() => {
     // Bootstrap: who am I, what models exist, what tasks are in the sidebar.
     useAuthStore.getState().load()
@@ -63,8 +66,10 @@ export function App() {
   return (
     <div className="win">
       <MenuBar />
-      <div className="shell">
+      <div className={`shell ${navOpen ? 'nav-open' : ''}`.trim()}>
         <Sidebar />
+        {/* Scrim behind the off-canvas sidebar (≤900px); inert at wide widths. */}
+        <div className="nav-scrim" onClick={() => setNavOpen(false)} />
         <main className="main" id="main">
           <MainView />
         </main>

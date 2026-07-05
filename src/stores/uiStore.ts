@@ -15,6 +15,9 @@ interface UIState {
   viewerPath: string | null
   // Whether the overview panel is expanded to full width.
   ovExpanded: boolean
+  // Responsive (≤900px): sidebar collapses to an off-canvas drawer; this is its
+  // open state. Ignored at wide widths where the sidebar is always docked.
+  navOpen: boolean
 
   setView: (v: ViewId) => void
   toggleOv: () => void
@@ -24,6 +27,7 @@ interface UIState {
   openFile: (path: string) => void
   closeFile: () => void
   toggleExpand: () => void
+  setNavOpen: (open: boolean) => void
 }
 
 const THEME_KEY = 'wb.theme'
@@ -48,8 +52,11 @@ export const useUIStore = create<UIState>((set) => ({
   openPopover: null,
   viewerPath: null,
   ovExpanded: false,
+  navOpen: false,
 
-  setView: (v) => set({ view: v, openPopover: null }),
+  // Switching views also dismisses the mobile nav drawer (you navigated, so the
+  // drawer's job is done) and any open popover.
+  setView: (v) => set({ view: v, openPopover: null, navOpen: false }),
   toggleOv: () => set((s) => ({ ovOpen: !s.ovOpen })),
   // Collapsing the panel also drops the expanded state so it reopens at normal width.
   setOv: (open) => set(open ? { ovOpen: true } : { ovOpen: false, ovExpanded: false }),
@@ -64,4 +71,5 @@ export const useUIStore = create<UIState>((set) => ({
   openFile: (path) => set({ viewerPath: path, ovOpen: true }),
   closeFile: () => set({ viewerPath: null }),
   toggleExpand: () => set((s) => ({ ovExpanded: !s.ovExpanded })),
+  setNavOpen: (navOpen) => set({ navOpen }),
 }))

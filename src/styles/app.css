@@ -17,7 +17,12 @@
 .mb-win button.close:hover { background: #E81123; color: #fff; }
 .mb-win svg { width: 11px; height: 11px; }
 
-.shell { flex: 1; display: flex; min-height: 0; }
+.shell { flex: 1; display: flex; min-height: 0; position: relative; }
+/* Off-canvas nav plumbing — inert until the ≤900px media query activates it. */
+.mb-burger { display: none; width: 30px; height: 30px; border: none; background: transparent; color: var(--text-2); border-radius: 7px; cursor: pointer; place-items: center; margin-right: 2px; }
+.mb-burger:hover { background: var(--chip); }
+.mb-burger svg { width: 18px; height: 18px; }
+.nav-scrim { display: none; }
 
 /* ---- Sidebar ---- */
 .sidebar { width: 252px; flex-shrink: 0; background: #fff; border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 12px 10px 8px; }
@@ -433,6 +438,29 @@
 .scrolldn svg { width: 15px; height: 15px; }
 .chat-col { position: relative; }
 
+/* ---- 对话内搜索 (⌘F) ---- */
+.chat-head .ch-r .fic.on { background: var(--brand-soft); color: var(--brand-600); }
+.chat-search {
+  position: absolute; top: 56px; right: 22px; z-index: 30;
+  display: flex; align-items: center; gap: 3px;
+  padding: 5px 6px 5px 10px; background: #fff;
+  border: 1px solid var(--border); border-radius: 11px; box-shadow: var(--shadow-md);
+  animation: pop .14s ease;
+}
+.chat-search .cs-mag { width: 14px; height: 14px; color: var(--text-3); flex-shrink: 0; }
+.chat-search input { border: none; outline: none; background: transparent; font-family: inherit; font-size: 13px; width: 172px; color: var(--text); padding: 0 4px; }
+.chat-search input::placeholder { color: var(--text-3); }
+.cs-count { font-size: 12px; color: var(--text-3); min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; }
+.cs-btn { width: 26px; height: 26px; border: none; background: transparent; border-radius: 7px; cursor: pointer; color: var(--text-2); display: grid; place-items: center; }
+.cs-btn svg { width: 15px; height: 15px; }
+.cs-btn:hover:not(:disabled) { background: var(--chip); color: var(--text); }
+.cs-btn:disabled { opacity: .35; cursor: default; }
+::highlight(wb-search) { background-color: #FFE58F; color: #1F2329; }
+::highlight(wb-search-cur) { background-color: #FA8C16; color: #fff; }
+body.dark .chat-search { background: #22272D; }
+body.dark ::highlight(wb-search) { background-color: #5A4A16; color: #fff; }
+body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
+
 /* ---- streaming trace ---- */
 .bot-st { display: flex; align-items: center; gap: 6px; }
 .run-ic { width: 11px; height: 11px; border: 2px solid var(--border); border-top-color: var(--brand); border-radius: 50%; display: inline-block; animation: rot 1s linear infinite; }
@@ -748,11 +776,27 @@ body.dark .pj-kadd { background: #22272D; }
   .selgrid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 900px) {
-  .sidebar { display: none; }
+  /* Sidebar becomes an off-canvas drawer, revealed by the menubar hamburger. */
+  .mb-burger { display: grid; }
+  .sidebar {
+    position: absolute; left: 0; top: 0; bottom: 0; z-index: 60; width: 260px;
+    transform: translateX(-100%); transition: transform .22s ease;
+  }
+  .shell.nav-open .sidebar { transform: none; box-shadow: var(--shadow-md); }
+  .nav-scrim {
+    display: block; position: absolute; inset: 0; z-index: 55;
+    background: rgba(15, 20, 28, .42); opacity: 0; pointer-events: none; transition: opacity .22s ease;
+  }
+  .shell.nav-open .nav-scrim { opacity: 1; pointer-events: auto; }
+
   .chat-scroll, .chat-foot { padding-left: 5%; padding-right: 5%; }
   .hero-title { font-size: 24px; }
   .insp-cols { columns: 2 200px; }
   .card-grid.g4 { grid-template-columns: 1fr 1fr; }
   .view.split { position: relative; }
   .ovpanel.open { position: absolute; right: 0; top: 0; bottom: 0; z-index: 40; box-shadow: var(--shadow-md); }
+  /* Full-width chat when the overview panel overlays it, and keep the find bar in view. */
+  .chat-col:has(~ .ovpanel.expanded) { display: flex; }
+  .chat-search { right: 12px; top: 52px; }
+  .chat-search input { width: 132px; }
 }
