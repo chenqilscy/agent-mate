@@ -47,7 +47,7 @@ export function HomeView() {
               <div
                 key={label}
                 className="qchip"
-                onClick={() => (label === '更多' ? toast('更多快捷入口') : launch(label))}
+                onClick={() => (label === '更多' ? toast('更多快捷入口，敬请期待') : launch(label))}
               >
                 {ic === '⋯' ? (
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></svg>
