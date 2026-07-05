@@ -18,9 +18,11 @@ import time
 from typing import Any, AsyncIterator
 
 from agent import events
+from agent.experts import persona_for
 from agent.llm import LLMError, stream_chat
 from agent.sandbox import project_root, use_root
-from agent.tools import get_tool, safe_run, tool_schemas
+from agent.skills import skill_def
+from agent.tools import base_tools, build_schemas, run_tool
 from config import settings
 from storage import db
 from storage.models import Session, User
@@ -157,14 +159,29 @@ async def run_chat(
     # checkout (or the shared default for ad-hoc chats).
     use_root(project_root(session.project_id))
 
-    # Project-scoped chat: prepend the project's instruction as background/spec so
-    # the agent follows the team's context (project page → 执行).
+    # Project-scoped chat: prepend the project's instruction, expert personas and
+    # enabled skills so the agent follows the team's context (M4 + M5, spec §11).
+    active_experts: list[str] = []
+    active_skills: list[str] = []
+    skill_tools = []
     if session.project_id:
         project = db.get_project(session.project_id)
-        if project and project.instruction.strip():
-            system_prompt += (
-                f"\n\n# 项目背景与规范（项目：{project.name}）\n{project.instruction.strip()}"
-            )
+        if project:
+            if project.instruction.strip():
+                system_prompt += f"\n\n# 项目背景与规范（项目：{project.name}）\n{project.instruction.strip()}"
+            active_experts = project.experts
+            active_skills = project.skills
+            if active_experts:
+                system_prompt += "\n\n# 专家人格（请综合以下专长作答）\n" + "\n".join(
+                    f"- {persona_for(n)}" for n in active_experts
+                )
+            if active_skills:
+                lines = []
+                for name in active_skills:
+                    instr, tools = skill_def(name)
+                    lines.append(f"- {name}：{instr}")
+                    skill_tools.extend(tools)
+                system_prompt += "\n\n# 已启用技能\n" + "\n".join(lines)
 
     llm_messages = _build_llm_messages(session_id, user_text, system_prompt)
     db.add_message(session_id=session_id, role="user", content=user_text, actor=user.id)
@@ -174,7 +191,10 @@ async def run_chat(
     _stop_events[session_id] = stop
     yield events.status("running")
 
-    schemas = tool_schemas(plan)
+    # Active toolset = base (plan-filtered) tools + any tools skills contributed.
+    tools_list = base_tools(plan) + skill_tools
+    active_tools = {t.name: t for t in tools_list}
+    schemas = build_schemas(tools_list)
     trace_items: list[dict[str, Any]] = []
     assistant_text = ""
     last_prompt = 0
@@ -185,6 +205,15 @@ async def run_chat(
     def record(item: dict[str, Any]) -> str:
         trace_items.append(item)
         return _trace_to_sse(item)
+
+    # Show the loadout so the persona / skills that shaped this run are visible.
+    if active_experts or active_skills:
+        parts = []
+        if active_experts:
+            parts.append("专家 " + "、".join(active_experts))
+        if active_skills:
+            parts.append("技能 " + "、".join(active_skills))
+        yield record({"kind": "step", "tool": "loadout", "label": "已加载 · " + " · ".join(parts)})
 
     try:
         for _round in range(MAX_ROUNDS):
@@ -279,12 +308,15 @@ async def run_chat(
                     llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
                     continue
 
-                tool = get_tool(name)
-                if tool and tool.pre:
+                tool = active_tools.get(name)
+                if tool is None:
+                    llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": f"未知工具：{name}"})
+                    continue
+                if tool.pre:
                     pre = tool.pre(args)
                     if pre:
                         yield record(pre)
-                outcome = safe_run(name, args)
+                outcome = run_tool(tool, args)
                 for it in outcome.trace:
                     yield record(it)
                 llm_messages.append(

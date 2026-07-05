@@ -247,9 +247,27 @@ ASK_USER_SCHEMA: dict[str, Any] = {
 _PLAN_TOOLS = {"list_dir", "read_file", "update_plan"}
 
 
-def tool_schemas(plan: bool = False) -> list[dict[str, Any]]:
-    tools = [t for t in TOOLS if (t.name in _PLAN_TOOLS)] if plan else TOOLS
+def base_tools(plan: bool = False) -> list[Tool]:
+    return [t for t in TOOLS if (t.name in _PLAN_TOOLS)] if plan else list(TOOLS)
+
+
+def build_schemas(tools: list[Tool]) -> list[dict[str, Any]]:
+    """OpenAI tool schemas for a concrete toolset + the special ask_user schema."""
     return [t.schema() for t in tools] + [ASK_USER_SCHEMA]
+
+
+def tool_schemas(plan: bool = False) -> list[dict[str, Any]]:
+    return build_schemas(base_tools(plan))
+
+
+def run_tool(tool: Tool, args: dict[str, Any]) -> ToolOutcome:
+    """Execute a concrete Tool (base or skill-provided) with error capture."""
+    try:
+        return tool.run(args)
+    except SandboxError as e:
+        return ToolOutcome(text=f"沙箱拒绝：{e}")
+    except Exception as e:  # noqa: BLE001
+        return ToolOutcome(text=f"工具出错：{e}")
 
 
 def get_tool(name: str) -> Tool | None:
