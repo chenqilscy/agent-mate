@@ -38,9 +38,18 @@ def main() -> None:
     dst_dir = ROOT / "src-tauri" / "binaries"
     dst_dir.mkdir(parents=True, exist_ok=True)
     suffix = ".exe" if sys.platform == "win32" else ""
-    dst = dst_dir / f"workbuddy-backend-{target_triple()}{suffix}"
-    shutil.copy2(src, dst)
-    print(f"sidecar staged → {dst}")
+
+    # Name the sidecar with the triple Tauri's bundler expects. On Windows Tauri
+    # looks for the *msvc* triple even when the rust host toolchain is gnu (the
+    # PyInstaller exe is toolchain-agnostic, so the triple is just a match label);
+    # stage under both to be safe.
+    triples = {target_triple()}
+    if sys.platform == "win32":
+        triples |= {"x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"}
+    for triple in triples:
+        dst = dst_dir / f"workbuddy-backend-{triple}{suffix}"
+        shutil.copy2(src, dst)
+        print(f"sidecar staged → {dst}")
 
 
 if __name__ == "__main__":
