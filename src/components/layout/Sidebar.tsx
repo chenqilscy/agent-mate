@@ -143,7 +143,7 @@ export function Sidebar() {
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node
       if (footRef.current && footRef.current.contains(t)) return
-      if ((t as HTMLElement).closest?.('.profile') || (t as HTMLElement).closest?.('.more-menu')) return
+      if ((t as HTMLElement).closest?.('.profile') || (t as HTMLElement).closest?.('.more-wrap')) return
       setProfileOpen(false)
       setMoreOpen(false)
     }
@@ -266,18 +266,42 @@ export function Sidebar() {
             {n.label}
           </div>
         ))}
-        <div
-          className={`nav-item ${act === 'more' ? 'active' : ''}`.trim()}
-          onClick={() => setMoreOpen((v) => !v)}
-          {...activate(() => setMoreOpen((v) => !v))}
-        >
-          <span className="n-ic">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></svg>
-          </span>
-          更多<span className="sub">资料库·灵感</span>
+        {/* Wrap the trigger + flyout so the menu anchors to the button (WB-042),
+            instead of the old hard-coded left:250px; bottom:118px that flung it
+            to the sidebar's bottom-right corner. */}
+        <div className="more-wrap">
+          <div
+            className={`nav-item ${act === 'more' ? 'active' : ''}`.trim()}
+            onClick={() => setMoreOpen((v) => !v)}
+            {...activate(() => setMoreOpen((v) => !v))}
+          >
+            <span className="n-ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></svg>
+            </span>
+            更多<span className="sub">资料库·灵感</span>
+          </div>
+          {moreOpen && (
+            <div className="more-menu open">
+              <div className="more-item" onClick={() => { setView('myfiles'); setMoreOpen(false) }}>
+                <IcFolder />我的文件
+              </div>
+              <div className="more-item" onClick={() => toast('打开 · 腾讯文档')}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>腾讯文档
+              </div>
+              <div className="more-item" onClick={() => toast('打开 · ima知识库')}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 5h16v11H4z" /><path d="M4 20h16" /></svg>ima知识库
+              </div>
+              <div className="more-item div" onClick={() => { setView('inspire'); setMoreOpen(false) }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" /></svg>灵感
+              </div>
+            </div>
+          )}
         </div>
       </nav>
 
+      {/* 任务 + 空间 share one scroll region so long session/project lists stay
+          reachable; head/nav above and foot below stay pinned (WB-032). */}
+      <div className="sb-scroll">
       <div className="sb-sec" onClick={() => setTasksOpen((v) => !v)} {...activate(() => setTasksOpen((v) => !v))}>
         任务 ({adhocShown.length}) {chevron(tasksOpen)}
       </div>
@@ -367,8 +391,7 @@ export function Sidebar() {
           )}
         </div>
       )}
-
-      <div className="sb-flex" />
+      </div>
 
       <div className="sb-foot" ref={footRef} onClick={(e) => {
         if ((e.target as HTMLElement).closest('.fic')) return
@@ -390,23 +413,6 @@ export function Sidebar() {
           <IcCompass />
         </div>
       </div>
-
-      {moreOpen && (
-        <div className="more-menu open">
-          <div className="more-item" onClick={() => { setView('myfiles'); setMoreOpen(false) }}>
-            <IcFolder />我的文件
-          </div>
-          <div className="more-item" onClick={() => toast('打开 · 腾讯文档')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>腾讯文档
-          </div>
-          <div className="more-item" onClick={() => toast('打开 · ima知识库')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 5h16v11H4z" /><path d="M4 20h16" /></svg>ima知识库
-          </div>
-          <div className="more-item div" onClick={() => { setView('inspire'); setMoreOpen(false) }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" /></svg>灵感
-          </div>
-        </div>
-      )}
 
       {profileOpen && (
         <div className="profile open" role="dialog" aria-label="账号">
