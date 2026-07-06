@@ -125,6 +125,19 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_projects_owner
             ON projects(owner_id, updated_at DESC);
 
+        -- Project membership (M7 C2): who can see/act in a project besides its
+        -- owner. The owner has no row here (they're tracked by projects.owner_id);
+        -- rows are Admin/Member/Viewer. Access = owner OR a row here.
+        CREATE TABLE IF NOT EXISTS project_members (
+            project_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            PRIMARY KEY (project_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_members_user
+            ON project_members(user_id);
+
         CREATE TABLE IF NOT EXISTS work_items (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
@@ -545,6 +558,90 @@ def list_project_sessions(project_id: str) -> list[Session]:
         "SELECT * FROM sessions WHERE project_id=? ORDER BY updated_at DESC", (project_id,)
     ).fetchall()
     return [_row_to_session(r) for r in rows]
+
+
+# ---- project membership / roles (M7 C2) --------------------------------
+
+def add_project_member(project_id: str, user_id: str, role: Role) -> None:
+    """Add a member or change their role (upsert). The owner is never stored here."""
+    get_conn().execute(
+        "INSERT INTO project_members (project_id, user_id, role, created_at) VALUES (?,?,?,?) "
+        "ON CONFLICT(project_id, user_id) DO UPDATE SET role=excluded.role",
+        (project_id, user_id, role.value, time.time()),
+    )
+    get_conn().commit()
+
+
+def remove_project_member(project_id: str, user_id: str) -> None:
+    get_conn().execute(
+        "DELETE FROM project_members WHERE project_id=? AND user_id=?", (project_id, user_id)
+    )
+    get_conn().commit()
+
+
+def project_member_role(project_id: str, user_id: str) -> Optional[Role]:
+    """The user's explicit membership role (does NOT count ownership), or None."""
+    row = get_conn().execute(
+        "SELECT role FROM project_members WHERE project_id=? AND user_id=?",
+        (project_id, user_id),
+    ).fetchone()
+    return Role(row["role"]) if row else None
+
+
+def project_access_role(project_id: str, user_id: str) -> Optional[Role]:
+    """Effective role for access checks: Owner if the user owns the project, else
+    their membership role, else None (no access). This is the single gate C2 uses."""
+    row = get_conn().execute("SELECT owner_id FROM projects WHERE id=?", (project_id,)).fetchone()
+    if not row:
+        return None
+    if row["owner_id"] == user_id:
+        return Role.OWNER
+    return project_member_role(project_id, user_id)
+
+
+def get_project_for(project_id: str, user_id: str) -> Optional[Project]:
+    """Project if the user is owner OR a member, else None — drop-in access gate
+    replacing the old owner-only `get_project(id, owner_id=...)`."""
+    if project_access_role(project_id, user_id) is None:
+        return None
+    return get_project(project_id)
+
+
+def list_projects_for(user_id: str) -> list[tuple[Project, Role]]:
+    """Projects the user owns or is a member of, newest first, each with the
+    caller's effective role."""
+    rows = get_conn().execute(
+        """
+        SELECT p.*, 'Owner' AS _role FROM projects p WHERE p.owner_id=?
+        UNION
+        SELECT p.*, m.role AS _role FROM projects p
+          JOIN project_members m ON m.project_id = p.id
+          WHERE m.user_id=? AND p.owner_id<>?
+        ORDER BY updated_at DESC
+        """,
+        (user_id, user_id, user_id),
+    ).fetchall()
+    return [(_row_to_project(r), Role(r["_role"])) for r in rows]
+
+
+def list_project_members(project_id: str) -> list[dict]:
+    """Members with names + roles, owner first. The owner is synthesised from
+    projects.owner_id (they have no project_members row)."""
+    proj = get_conn().execute("SELECT owner_id FROM projects WHERE id=?", (project_id,)).fetchone()
+    if not proj:
+        return []
+    out: list[dict] = []
+    owner = get_user(proj["owner_id"])
+    if owner:
+        out.append({"user_id": owner.id, "name": owner.name, "role": Role.OWNER.value, "is_owner": True})
+    rows = get_conn().execute(
+        "SELECT m.user_id, m.role, u.name FROM project_members m "
+        "JOIN users u ON u.id = m.user_id WHERE m.project_id=? ORDER BY m.created_at",
+        (project_id,),
+    ).fetchall()
+    for r in rows:
+        out.append({"user_id": r["user_id"], "name": r["name"], "role": r["role"], "is_owner": False})
+    return out
 
 
 # ---- work items (kanban / tasks, §11 阶段 B) ----------------------------

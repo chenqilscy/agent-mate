@@ -10,6 +10,7 @@ import { Composer } from '../components/composer/Composer'
 import { PickerOverlay } from '../components/project/NewProjectModal'
 import { KanbanBoard, TaskList } from '../components/project/ProjectWork'
 import { AssetsManager } from '../components/project/AssetsManager'
+import { MembersModal } from '../components/project/MembersModal'
 import { useWorkItemStore } from '../stores/workItemStore'
 import { NP_CONNS, NP_EXPERTS, SK_GRID } from '../data/catalog'
 
@@ -44,6 +45,7 @@ export function ProjectHomeView() {
   const [instrDraft, setInstrDraft] = useState('')
   const [picker, setPicker] = useState<Kind | null>(null)
   const [pickerSet, setPickerSet] = useState<Set<string>>(new Set())
+  const [membersOpen, setMembersOpen] = useState(false)
   const loadWork = useWorkItemStore((s) => s.load)
 
   const pid = active?.id
@@ -63,6 +65,11 @@ export function ProjectHomeView() {
   if (!project) return <section className="view active" data-view="project" />
 
   const applyProject = (p: ProjectInfo) => { setProject(p); setActive(p); reloadProjects() }
+  // The caller's role in this project (M7 C2) drives the badge + management access.
+  const ROLE_LABEL: Record<string, string> = { Owner: '所有者', Admin: '管理员', Member: '成员', Viewer: '只读' }
+  const canManage = project.role === 'Owner' || project.role === 'Admin'
+  const isShared = !!project.role && project.role !== 'Owner'
+  const onLeft = () => { setMembersOpen(false); toast('已退出项目'); reloadProjects(); setView('projects') }
 
   const saveInstruction = async () => {
     setEditInstr(false)
@@ -113,9 +120,10 @@ export function ProjectHomeView() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
           <span style={{ cursor: 'pointer' }} onClick={() => setView('projects')}>项目</span>
           <span className="ps">/</span><b>{project.name}</b>
+          {isShared && <span className="pj-rolebadge" title={`你在本项目的角色：${ROLE_LABEL[project.role!] || project.role}`}>协作 · {ROLE_LABEL[project.role!] || project.role}</span>}
         </div>
         <div style={{ marginLeft: 'auto' }}>
-          <button className="btn-dark" style={{ height: 32 }} onClick={() => toast('邀请成员（M7 协作版）')}>邀请</button>
+          <button className="btn-dark" style={{ height: 32 }} onClick={() => setMembersOpen(true)}>{canManage ? '邀请' : '成员'}</button>
         </div>
       </div>
 
@@ -180,11 +188,23 @@ export function ProjectHomeView() {
           {cfgSection('skill', '技能')}
 
           <div className="pjcfg-sec">
+            <div className="pjcfg-h">
+              成员
+              <span className="add" onClick={() => setMembersOpen(true)}>{canManage ? IC_ADD : IC_EDIT}</span>
+            </div>
+            <div className="pjcfg-sub">
+              {canManage ? '邀请队友、分配角色（所有者/管理员/成员/只读）' : `你的角色：${ROLE_LABEL[project.role!] || project.role}`}
+            </div>
+          </div>
+
+          <div className="pjcfg-sec">
             <div className="pjcfg-h">自动化</div>
             <div className="pjcfg-sub">让 AI 按计划自动执行任务（阶段 B）</div>
           </div>
         </aside>
       </div>
+
+      {membersOpen && <MembersModal project={project} onClose={() => setMembersOpen(false)} onLeft={onLeft} />}
 
       {picker && (
         <PickerOverlay

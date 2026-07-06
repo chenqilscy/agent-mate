@@ -114,6 +114,14 @@ export interface ProjectInfo {
   experts: string[]
   skills: string[]
   ago?: string
+  role?: string // the current user's role in this project (M7 C2): Owner|Admin|Member|Viewer
+}
+
+export interface ProjectMember {
+  user_id: string
+  name: string
+  role: string // Owner|Admin|Member|Viewer
+  is_owner: boolean
 }
 
 export type WorkStatus = 'todo' | 'doing' | 'paused' | 'done'

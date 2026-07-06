@@ -6,6 +6,9 @@ import { NewProjectModal } from '../components/project/NewProjectModal'
 import { PROJ_TPL } from '../data/catalog'
 import type { ProjectInfo } from '../lib/types'
 
+// A shared project (M7 C2) carries the caller's role; owned projects show no badge.
+const ROLE_LABEL: Record<string, string> = { Admin: '管理员', Member: '成员', Viewer: '只读' }
+
 export function ProjectsView() {
   const projects = useProjectStore((s) => s.projects)
   const load = useProjectStore((s) => s.load)
@@ -60,7 +63,10 @@ export function ProjectsView() {
             <div className="my-proj" key={p.id} onClick={() => openProject(p)}>
               <span className="t-ic" style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--brand-soft)', display: 'grid', placeItems: 'center', color: 'var(--brand-600)' }}>🤖</span>
               <div>
-                <div style={{ fontSize: 13.5, fontWeight: 700 }}>{p.name}</div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {p.name}
+                  {p.role && p.role !== 'Owner' && <span className="pj-rolebadge sm">协作 · {ROLE_LABEL[p.role] || p.role}</span>}
+                </div>
                 <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>添加于 {p.ago}</div>
               </div>
               <span className="mp-more" onClick={(e) => { e.stopPropagation(); toast('项目菜单') }}>⋮</span>

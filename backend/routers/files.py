@@ -23,6 +23,7 @@ from agent.sandbox import (
 )
 from auth.deps import current_user
 from storage import db
+from storage.models import Role
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -38,21 +39,25 @@ _SKIP = {"node_modules", "__pycache__", ".git", ".venv"}
 _MAX_DEPTH = 4
 
 
-def _select_root(session: str | None, project: str | None) -> None:
+def _select_root(session: str | None, project: str | None, write: bool = False) -> None:
     """Set the active workspace root from ?project= / ?session=.
 
-    Ownership is enforced (WB-013): a project/session that isn't the caller's is
-    rejected with 404, so file content/download can't be read across owners by
-    guessing an id. Same-owner cross-project access is by design.
+    Access (WB-013 / M7 C2): a project the caller can't see (not owner, not member)
+    404s, so files can't be read across accounts by guessing an id. Project files
+    are shared with members; `write=True` ops (upload/mkdir/rename/delete) are
+    blocked for a Viewer. Session roots stay owner-scoped (session sharing is C3).
     """
-    owner_id = current_user().id
+    user = current_user()
     if project:
-        if not db.get_project(project, owner_id=owner_id):
+        role = db.project_access_role(project, user.id)
+        if role is None:
             raise HTTPException(404, "project not found")
+        if write and role == Role.VIEWER:
+            raise HTTPException(403, "只读成员不能修改项目文件")
         use_root(project_root(project))
         return
     if session:
-        s = db.get_session(session, owner_id=owner_id)
+        s = db.get_session(session, owner_id=user.id)
         if not s:
             raise HTTPException(404, "session not found")
         use_root(project_root(s.project_id))
@@ -153,7 +158,7 @@ def usage(project: str | None = None, session: str | None = None) -> dict:
 
 @router.post("/upload")
 async def upload(request: Request, path: str, project: str | None = None, session: str | None = None) -> dict:
-    _select_root(session, project)
+    _select_root(session, project, write=True)
     # Reject by declared size first (cheap), then keep enforcing while streaming —
     # a missing/lying Content-Length must not let a huge body fill memory before
     # the check (WB-017).
@@ -189,7 +194,7 @@ def download(path: str, project: str | None = None, session: str | None = None):
 
 @router.post("/mkdir")
 def mkdir(body: _PathBody) -> dict:
-    _select_root(body.session, body.project)
+    _select_root(body.session, body.project, write=True)
     try:
         target = resolve_in_sandbox(body.path)
     except SandboxError as e:
@@ -200,7 +205,7 @@ def mkdir(body: _PathBody) -> dict:
 
 @router.post("/rename")
 def rename(body: _RenameBody) -> dict:
-    _select_root(body.session, body.project)
+    _select_root(body.session, body.project, write=True)
     try:
         src = resolve_in_sandbox(body.path)
         dst = resolve_in_sandbox(str((Path(body.path).parent / body.new_name)))
@@ -216,7 +221,7 @@ def rename(body: _RenameBody) -> dict:
 
 @router.post("/delete")
 def delete(body: _PathBody) -> dict:
-    _select_root(body.session, body.project)
+    _select_root(body.session, body.project, write=True)
     try:
         target = resolve_in_sandbox(body.path)
     except SandboxError as e:

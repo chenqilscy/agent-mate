@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from auth.deps import current_user
 from storage import db
+from storage.models import Role
 
 router = APIRouter(prefix="/api", tags=["work_items"])
 
@@ -70,11 +71,21 @@ def _view(wi, user) -> dict:
     return d
 
 
+def _require_project_write(project_id: str, user_id: str) -> None:
+    """Members (Owner/Admin/Member) may write a project's items; Viewer is read-only;
+    non-members 404 (M7 C2)."""
+    role = db.project_access_role(project_id, user_id)
+    if role is None:
+        raise HTTPException(404, "project not found")
+    if role == Role.VIEWER:
+        raise HTTPException(403, "只读成员不能修改任务")
+
+
 @router.get("/work-items")
 def list_items(project: str) -> dict:
     user = current_user()
-    # Only list a project's items if the caller owns the project (WB-013).
-    if not db.get_project(project, owner_id=user.id):
+    # Any member (incl. Viewer) can see a project's items (M7 C2).
+    if not db.get_project_for(project, user.id):
         raise HTTPException(404, "project not found")
     return {"items": [_view(wi, user) for wi in db.list_work_items(project)]}
 
@@ -86,9 +97,7 @@ def create_item(body: CreateWorkItemBody) -> dict:
         raise HTTPException(400, "empty title")
     status = body.status if body.status in STATUSES else "todo"
     user = current_user()
-    # Only create in a project the caller owns (WB-013).
-    if not db.get_project(body.project_id, owner_id=user.id):
-        raise HTTPException(404, "project not found")
+    _require_project_write(body.project_id, user.id)
     wi = db.create_work_item(
         project_id=body.project_id, owner_id=user.id, title=title, status=status, source=body.source,
         description=(body.description or "").strip(), due_date=(body.due_date or None),
@@ -102,8 +111,12 @@ def update_item(item_id: str, body: UpdateWorkItemBody) -> dict:
     if body.status is not None and body.status not in STATUSES:
         raise HTTPException(400, "bad status")
     user = current_user()
-    if not db.get_work_item(item_id, owner_id=user.id):
+    # Items belong to the project, not the creator: any writer-member may edit any
+    # item in a shared project (M7 C2), so gate by project role, not item owner.
+    existing = db.get_work_item(item_id)
+    if not existing:
         raise HTTPException(404, "work item not found")
+    _require_project_write(existing.project_id, user.id)
     # due_date is nullable: an explicit `due_date: null` clears it; omitting leaves it.
     fields = body.model_fields_set
     wi = db.update_work_item(
@@ -122,7 +135,9 @@ def update_item(item_id: str, body: UpdateWorkItemBody) -> dict:
 
 @router.delete("/work-items/{item_id}")
 def delete_item(item_id: str) -> dict:
-    if not db.get_work_item(item_id, owner_id=current_user().id):
+    existing = db.get_work_item(item_id)
+    if not existing:
         raise HTTPException(404, "work item not found")
+    _require_project_write(existing.project_id, current_user().id)
     db.delete_work_item(item_id)
     return {"ok": True}

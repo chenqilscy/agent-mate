@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { Automation, CreateAutomationInput, Me, ModelOption, ProjectInfo, SessionInfo, WorkAttachment, WorkItem, WorkStatus } from './types'
+import type { Automation, CreateAutomationInput, Me, ModelOption, ProjectInfo, ProjectMember, SessionInfo, WorkAttachment, WorkItem, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -81,6 +81,15 @@ export const api = {
 
   projectSessions: (id: string) =>
     get<{ sessions: SessionInfo[] }>(`/projects/${id}/sessions`),
+
+  // Project members / roles (M7 C2).
+  listMembers: (id: string) => get<{ members: ProjectMember[] }>(`/projects/${id}/members`),
+  addMember: (id: string, name: string, role: string) =>
+    send<{ members: ProjectMember[] }>('POST', `/projects/${id}/members`, { name, role }),
+  updateMemberRole: (id: string, userId: string, role: string) =>
+    send<{ members: ProjectMember[] }>('PATCH', `/projects/${id}/members/${userId}`, { role }),
+  removeMember: (id: string, userId: string) =>
+    send<{ ok: boolean }>('DELETE', `/projects/${id}/members/${userId}`),
 
   listWorkItems: (project: string) => get<{ items: WorkItem[] }>(`/work-items?project=${project}`),
 
