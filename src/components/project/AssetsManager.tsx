@@ -161,7 +161,7 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
                   {menuFor === e.path && (
                     <div className="pop open" style={{ position: 'absolute', right: 8, top: 30, minWidth: 120 }} onClick={(ev) => ev.stopPropagation()}>
                       {e.type === 'f' && (
-                        <div className="pop-item" onClick={() => { setMenuFor(null); const a = document.createElement('a'); a.href = api.downloadUrl(e.path, scope); a.download = e.name; a.click() }}>下载</div>
+                        <div className="pop-item" onClick={() => { setMenuFor(null); void api.downloadFile(e.path, e.name, scope) }}>下载</div>
                       )}
                       <div className="pop-item" onClick={() => { setMenuFor(null); setRenaming(e.path); setRenameDraft(e.name) }}>重命名</div>
                       <div className="pop-item" style={{ color: '#E5484D' }} onClick={() => doDelete(e)}>删除</div>

@@ -39,14 +39,7 @@ export function FileViewer({ path, onClose, scope }: { path: string; onClose: ()
   }, [path, scope?.project, scope?.session])
 
   const isMd = name.toLowerCase().endsWith('.md')
-  const download = () => {
-    const a = document.createElement('a')
-    a.href = api.downloadUrl(path, scope)
-    a.download = name
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-  }
+  const download = () => { void api.downloadFile(path, name, scope) }
   const counts = file?.kind === 'text' && file.content != null
     ? { lines: file.content.split('\n').length, chars: file.content.length }
     : null

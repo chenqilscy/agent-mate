@@ -147,16 +147,32 @@ export const api = {
     let q = `?path=${encodeURIComponent(path)}`
     if (opts?.project) q += `&project=${opts.project}`
     else if (opts?.session) q += `&session=${opts.session}`
-    const r = await fetch(`${API_BASE}/files/upload${q}`, { method: 'POST', body: file })
+    // Carry the Bearer token like every other authed call — a raw fetch bypasses
+    // the get()/send() helpers, so a logged-in user's upload would otherwise be
+    // treated as the local owner and 404 on their own/shared project (WB-046).
+    const r = await fetch(`${API_BASE}/files/upload${q}`, { method: 'POST', body: file, headers: authHeaders() })
     if (!r.ok) throw new Error(`upload → ${r.status}`)
     return r.json() as Promise<{ ok: boolean; path: string; size: number }>
   },
 
-  downloadUrl: (path: string, opts?: { project?: string; session?: string }) => {
+  // A plain <a href> can't carry the Authorization header, so fetch the bytes with
+  // auth, then hand the browser a blob URL to save (token never enters the URL —
+  // WB-046). Returns once the download has been triggered.
+  downloadFile: async (path: string, name: string, opts?: { project?: string; session?: string }) => {
     let q = `?path=${encodeURIComponent(path)}`
     if (opts?.project) q += `&project=${opts.project}`
     else if (opts?.session) q += `&session=${opts.session}`
-    return `${API_BASE}/files/download${q}`
+    const r = await fetch(`${API_BASE}/files/download${q}`, { headers: authHeaders() })
+    if (!r.ok) throw new Error(`download → ${r.status}`)
+    const url = URL.createObjectURL(await r.blob())
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    // Defer revoke so the browser has grabbed the blob before we free it.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
   },
 
   mkdir: (path: string, opts?: { project?: string; session?: string }) =>

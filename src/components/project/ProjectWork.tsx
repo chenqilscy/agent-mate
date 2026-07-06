@@ -200,10 +200,7 @@ function AttachmentChips({ list, projectId, onRemove }: {
   if (!list.length) return null
   const download = (a: WorkAttachment) => {
     if (!a.path || !projectId) return
-    const el = document.createElement('a')
-    el.href = api.downloadUrl(a.path, { project: projectId })
-    el.download = a.name
-    el.click()
+    void api.downloadFile(a.path, a.name, { project: projectId })
   }
   return (
     <div className="wb-attach-list">
