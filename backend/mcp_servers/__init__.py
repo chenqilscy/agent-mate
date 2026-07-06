@@ -8,7 +8,7 @@ main.py routes here. Same FastMCP servers, launched two ways.
 from __future__ import annotations
 
 # connector name / cli name → module holding a FastMCP `mcp` object.
-_SERVERS = {"notes", "clock", "search"}
+_SERVERS = {"notes", "clock", "search", "telegram"}
 
 
 def run_mcp_server(name: str) -> None:
@@ -18,6 +18,8 @@ def run_mcp_server(name: str) -> None:
         from mcp_servers.clock import mcp
     elif name == "search":
         from mcp_servers.search import mcp
+    elif name == "telegram":
+        from mcp_servers.telegram import mcp
     else:
         raise SystemExit(f"unknown mcp server: {name}")
     mcp.run()

@@ -87,6 +87,13 @@ stop_run(tok, sid)
 lbl = loadout_label(evs)
 c.check("C8 connectors not opened in plan mode", (lbl is None) or ("时间助手" not in lbl), repr(lbl))
 
+# C9 — Telegram (built-in but token-gated) without a token → not-ready, not silent
+c.section("C9 Telegram 无 token → 连接器未就绪(不静默失败)")
+evs, sid = stream(tok, {"text": "只回复 OK。", "connectors": ["Telegram"]}, stop_when=is_loadout, max_seconds=30)
+stop_run(tok, sid)
+lbl = loadout_label(evs) or ""
+c.check("C9 Telegram shown as not-ready in loadout", "未就绪" in lbl and "Telegram" in lbl, lbl)
+
 ok = c.summary("test_C_skills_connectors")
 print("cleanup:", wipe_users(U))
 sys.exit(0 if ok else 1)

@@ -57,6 +57,10 @@ class Settings:
     # client's per-connector secret_env (mcp_client.py); listed here for
     # discoverability. Forwarded ONLY to the owning connector's subprocess.
     GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "").strip()
+    # Telegram connector (built-in mcp_servers/telegram.py, read at call time).
+    # TELEGRAM_CHAT_ID is an optional default target for send_message.
+    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
     # DB + workspace live in DATA_DIR (backend/ in dev, per-user data dir when frozen).
     # WORKBUDDY_DB overrides the DB path (isolated tests / running a second instance).

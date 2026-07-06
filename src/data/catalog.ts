@@ -303,6 +303,7 @@ export const NP_CONNS: [string, string, string][] = [
   ['⏰', '时间助手', '内置 MCP 连接器：now / today / days_until，给智能体一个真实的时钟与日期计算。'],
   ['🔍', '工作区检索', '内置 MCP 连接器：search_files / list_workspace，对当前工作区做全文检索。'],
   ['🐙', 'GitHub', '真实第三方 MCP 连接器：管理仓库、Issue、PR、文件。需在 backend/.env 配置 GITHUB_TOKEN 且本机有 Node/npx。'],
+  ['✈️', 'Telegram', '内置 MCP 连接器：get_me / send_message / get_updates，通过 Bot API 收发 Telegram 消息。需在 backend/.env 配置 TELEGRAM_BOT_TOKEN（@BotFather 获取）。'],
   ['📋', 'TAPD', 'TAPD 敏捷项目管理平台，支持缺陷（Bug）、需求（Story）管理'],
   ['☁️', '微云', '查看、下载、删除微云文件，上传文件到微云、生成分享链接。'],
   ['🟠', 'CNB', 'CNB 代码托管平台，支持仓库、Issue、PR、流水线管理'],
@@ -317,8 +318,8 @@ export const NP_CONNS: [string, string, string][] = [
 // (CONNECTORS in backend/agent/mcp_client.py). The rest of NP_CONNS is an
 // aspirational catalog — selecting them is a no-op until a server is registered.
 // READY = works now; NEEDS_TOKEN = ready but needs a credential in backend/.env.
-export const READY_CONNECTORS = new Set(['本地便签', '时间助手', '工作区检索', 'GitHub'])
-export const NEEDS_TOKEN_CONNECTORS = new Set(['GitHub'])
+export const READY_CONNECTORS = new Set(['本地便签', '时间助手', '工作区检索', 'GitHub', 'Telegram'])
+export const NEEDS_TOKEN_CONNECTORS = new Set(['GitHub', 'Telegram'])
 
 // [icon, name, subtitle, desc, tags]
 export const NP_EXPERTS: [string, string, string, string, string[]][] = [

@@ -51,6 +51,9 @@ def _builtin_fastmcp(server: str):
     if server == "search":
         from mcp_servers.search import mcp
         return mcp
+    if server == "telegram":
+        from mcp_servers.telegram import mcp
+        return mcp
     return None
 
 # Connector name → how to launch its MCP server.
@@ -66,6 +69,11 @@ CONNECTORS: dict[str, dict[str, Any]] = {
     "本地便签": _local("notes"),
     "时间助手": _local("clock"),
     "工作区检索": _local("search"),
+    # ── built-in, but needs a token in backend/.env ──
+    # A built-in FastMCP server (runs in-process, no Node/npx) that still gates on
+    # a credential via `requires`, so a run without the token is skipped with a
+    # clear reason instead of failing opaquely at call time.
+    "Telegram": {"builtin_server": "telegram", "builtin": True, "requires": ["TELEGRAM_BOT_TOKEN"]},
     # ── third-party, needs a token in backend/.env ──
     "GitHub": {
         "command": "npx",
