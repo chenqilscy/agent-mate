@@ -67,7 +67,7 @@
 | [WB-047](WB-047-plan-exec-activity-feed-uninformative-title.md) | ✅ | P2 | frontend | 「动态」tab 中执行计划项的记录只显示随手指令（如「执行它」），看不出执行的是哪个计划项 |
 | [WB-048](WB-048-experts-hub-browse-interactions.md) | ✅ | P2 | frontend | 专家/专家团页交互落地（专家团切换 + 分类过滤 + 详情弹窗 + 召唤进会话） |
 | [WB-049](WB-049-my-experts-custom-expert-fullstack.md) | ✅ | P2 | backend | 我的专家 —— 自定义专家全栈（后端持久化 + 人格注入 + 前端创建/列表/召唤） |
-| [WB-050](WB-050-chat-foreign-project-access-not-gated.md) | ⬜ | P2 | backend | 非成员可把 /chat 指向他人项目（新建会话分支未校验 project 访问权，run 在该项目沙箱内执行） |
+| [WB-050](WB-050-chat-foreign-project-access-not-gated.md) | ✅ | P2 | backend | 非成员可把 /chat 指向他人项目（新建会话分支未校验 project 访问权，run 在该项目沙箱内执行） |
 
 ## 来源
 

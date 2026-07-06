@@ -55,6 +55,11 @@ async def chat(body: ChatBody):
         if not session:
             raise HTTPException(404, "session not found")
     else:
+        # New session: if it targets a project, the caller must have access to it,
+        # else a stranger could drive a run inside that project's workspace sandbox
+        # (WB-050). Mirrors the owner-scoping of the session_id branch above.
+        if body.project_id and db.project_access_role(body.project_id, user.id) is None:
+            raise HTTPException(404, "project not found")
         title = (body.title or text)[:26]
         session = db.create_session(
             owner_id=user.id,
