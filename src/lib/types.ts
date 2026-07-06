@@ -214,3 +214,22 @@ export interface CreateAutomationInput {
   model?: string | null
   enabled?: boolean
 }
+
+// SkillHub 已安装技能（WB-055）——磁盘扫描结果。key = 技能目录名。
+export interface InstalledSkill {
+  key: string
+  slug: string
+  name: string
+  description: string
+  version: string
+  source: string
+  disabled: boolean
+}
+
+export interface SkillDetail extends InstalledSkill {
+  markdown: string                       // 完整 SKILL.md（含 front-matter）
+  body: string                           // 去掉 front-matter 的正文
+  frontmatter: Record<string, unknown>
+  references: string[]
+  dir: string
+}

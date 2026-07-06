@@ -4,10 +4,12 @@ import { useChatStore } from '../stores/chatStore'
 import { useLoadoutStore } from '../stores/loadoutStore'
 import { useUIStore } from '../stores/uiStore'
 import { useExpertStore } from '../stores/expertStore'
-import { useSkillStore } from '../stores/skillStore'
+import { useSkillStore, matchSkill } from '../stores/skillStore'
 import { CreateExpertModal } from '../components/expert/CreateExpertModal'
 import { ConnectorDetailModal } from '../components/connector/ConnectorDetailModal'
+import { SkillDetail } from '../components/skill/SkillDetail'
 import { api } from '../lib/api'
+import type { InstalledSkill } from '../lib/types'
 import {
   CONN_META, CONNS, EXP_CATS, EXP_GRID, EXP_SCENES, EXP_TEAMS, INSTALLED, SK_CATS, SK_GRID,
   SKILLHUB_CATS, SKILLHUB_FEATURED, SKILLHUB_GRID, SKILLHUB_KITS,
@@ -218,6 +220,8 @@ const IcTrash = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 const IcExt = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg>
 const IcSort = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 4v16M7 20l-3-3M7 4l3 3M17 20V4M17 4l3 3M17 20l-3-3" /></svg>
 
+const IcSpin = () => <svg className="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 3a9 9 0 1 0 9 9" /></svg>
+
 // 「编辑技能」：挂上 skill-creator 技能班底，回首页 composer 预填「请帮我编辑 X 这个 skill」。
 function editSkill(name: string) {
   useLoadoutStore.getState().summonSkills(['skill-creator'])
@@ -227,77 +231,75 @@ function editSkill(name: string) {
   toast('已载入 skill-creator · 去编辑「' + name + '」')
 }
 
-// 按技能名跨目录取图标/底色/描述（用于「我安装的」等只有名字的场景）。
-function skillInfo(name: string): { icon: string; color: string; desc: string } {
+// 展示名 → 图标/底色（后端已安装技能没有图标，取静态目录里的配色，命不中则用首字母中性块）。
+function skillTile(name: string): { icon: string; color: string } {
   const inst = INSTALLED.find((x) => x[2] === name)
-  if (inst) return { icon: inst[0], color: inst[1], desc: inst[3] }
+  if (inst) return { icon: inst[0], color: inst[1] }
   const g = SKILLHUB_GRID.find((x) => x[2] === name)
-  if (g) return { icon: g[0], color: g[1], desc: g[3] }
+  if (g) return { icon: g[0], color: g[1] }
   const f = SKILLHUB_FEATURED.find((x) => x[2] === name)
-  if (f) return { icon: f[0], color: f[1], desc: f[3] }
-  const sk = SK_GRID.find((x) => x[1] === name)
-  if (sk) return { icon: sk[0], color: '#6B7280', desc: sk[2] }
-  return { icon: name.slice(0, 1).toUpperCase(), color: '#6B7280', desc: '已安装技能' }
+  if (f) return { icon: f[0], color: f[1] }
+  return { icon: (name.trim()[0] || '?').toUpperCase(), color: '#6B7280' }
 }
 
-// 已安装技能卡片的「⋯」菜单：关闭(停用)/编辑/卸载。点任意处关闭（挂载后才注册监听，
-// 避免打开它的那一次点击立刻把自己关掉）。
-function SkillMenu({ name, disabled, onClose }: { name: string; disabled: boolean; onClose: () => void }) {
+// 已安装技能卡片的「⋯」菜单：关闭(停用)/编辑/卸载 —— 真实调后端（skillStore）。
+// 点任意处关闭（挂载后才注册监听，避免打开它的那一次点击立刻把自己关掉）。
+function SkillMenu({ skill, onClose }: { skill: InstalledSkill; onClose: () => void }) {
   useEffect(() => {
     const h = () => onClose()
     document.addEventListener('click', h)
     return () => document.removeEventListener('click', h)
   }, [onClose])
-  const skills = useSkillStore.getState()
+  const store = useSkillStore.getState()
   return (
     <div className="card-menu open">
-      <div className="more-item" onClick={() => { skills.toggleDisabled(name); toast((disabled ? '已启用 · ' : '已关闭 · ') + name) }}>
-        <IcPower />{disabled ? '启用' : '关闭'}
+      <div className="more-item" onClick={() => store.toggle(skill.key, !skill.disabled)}>
+        <IcPower />{skill.disabled ? '启用' : '关闭'}
       </div>
-      <div className="more-item" onClick={() => editSkill(name)}>
+      <div className="more-item" onClick={() => editSkill(skill.name)}>
         <IcEdit />编辑
       </div>
-      <div className="more-item div" onClick={() => { skills.uninstall(name); toast('已卸载 · ' + name) }}>
+      <div className="more-item div" onClick={() => store.uninstall(skill.key)}>
         <IcTrash />卸载
       </div>
     </div>
   )
 }
 
-// 已安装标记 ✓ + ⋯ 菜单（网格卡与精选卡共用）。
-function InstalledCtl({ name }: { name: string }) {
-  const disabled = useSkillStore((s) => s.disabled.includes(name))
+// 已安装标记 ✓ + ⋯ 菜单（网格卡与精选卡共用）。stopPropagation 不触发卡片详情。
+function InstalledCtl({ skill }: { skill: InstalledSkill }) {
   const [menu, setMenu] = useState(false)
   return (
-    <div className="hc-act">
-      {disabled && <span className="hc-off">已关闭</span>}
+    <div className="hc-act" onClick={(e) => e.stopPropagation()}>
+      {skill.disabled && <span className="hc-off">已关闭</span>}
       <span className="hc-chk" title="已安装">✓</span>
       <button className="hc-more" aria-label="管理技能" onClick={(e) => { e.stopPropagation(); setMenu((v) => !v) }}>⋯</button>
-      {menu && <SkillMenu name={name} disabled={disabled} onClose={() => setMenu(false)} />}
+      {menu && <SkillMenu skill={skill} onClose={() => setMenu(false)} />}
     </div>
   )
 }
 
-// 安装按钮（未安装态）。
+// 安装按钮（未安装态）——真实安装，进行中转圈。
 function InstallBtn({ name }: { name: string }) {
   const install = useSkillStore((s) => s.install)
+  const busy = useSkillStore((s) => s.installing.includes(name))
   return (
-    <button className="add-btn" aria-label="安装" onClick={(e) => { e.stopPropagation(); install(name); toast('已安装 · ' + name) }}>
-      <IcPlusSm />
+    <button className="add-btn" aria-label="安装" disabled={busy} onClick={(e) => { e.stopPropagation(); void install(name) }}>
+      {busy ? <IcSpin /> : <IcPlusSm />}
     </button>
   )
 }
 
-// SkillHub 商店网格卡：图标 + 名称 + 描述 + 下载/星标，右上角安装/管理。
-function SkillHubCard({ item }: { item: (typeof SKILLHUB_GRID)[number] }) {
+// SkillHub 商店网格卡：图标 + 名称 + 描述 + 下载/星标，右上角安装/管理；已装可点开详情。
+function SkillHubCard({ item, onOpenDetail }: { item: (typeof SKILLHUB_GRID)[number]; onOpenDetail: (key: string) => void }) {
   const [label, color, name, desc, downloads, stars] = item
-  const installed = useSkillStore((s) => s.installed.includes(name))
+  const inst = useSkillStore((s) => matchSkill(s.installed, name))
   return (
-    <div className="hcard">
+    <div className={`hcard ${inst ? 'clickable' : ''}`.trim()} onClick={inst ? () => onOpenDetail(inst.key) : undefined}>
       <div className="hc-h">
         <span className="hc-ic" style={{ background: color }}>{label}</span>
         <div className="hc-n" title={name}>{name}</div>
-        {installed ? <InstalledCtl name={name} /> : <InstallBtn name={name} />}
+        {inst ? <InstalledCtl skill={inst} /> : <InstallBtn name={name} />}
       </div>
       <div className="hc-d">{desc}</div>
       <div className="hc-foot">
@@ -309,16 +311,16 @@ function SkillHubCard({ item }: { item: (typeof SKILLHUB_GRID)[number] }) {
 }
 
 // 精选技能大卡（顶部）。
-function FeaturedCard({ item }: { item: (typeof SKILLHUB_FEATURED)[number] }) {
+function FeaturedCard({ item, onOpenDetail }: { item: (typeof SKILLHUB_FEATURED)[number]; onOpenDetail: (key: string) => void }) {
   const [icon, , name, desc, badge] = item
-  const installed = useSkillStore((s) => s.installed.includes(name))
+  const inst = useSkillStore((s) => matchSkill(s.installed, name))
   return (
-    <div className="fcard">
+    <div className={`fcard ${inst ? 'clickable' : ''}`.trim()} onClick={inst ? () => onOpenDetail(inst.key) : undefined}>
       {badge && <span className="fc-badge">{badge}</span>}
       <div className="fc-h">
         <span className="fc-ic">{icon}</span>
         <div className="fc-n" title={name}>{name}</div>
-        {installed ? <InstalledCtl name={name} /> : <InstallBtn name={name} />}
+        {inst ? <InstalledCtl skill={inst} /> : <InstallBtn name={name} />}
       </div>
       <div className="fc-d">{desc}</div>
     </div>
@@ -326,7 +328,7 @@ function FeaturedCard({ item }: { item: (typeof SKILLHUB_FEATURED)[number] }) {
 }
 
 // 精选技能区（4 个一屏，「换一换」轮换池）。
-function FeaturedSkills() {
+function FeaturedSkills({ onOpenDetail }: { onOpenDetail: (key: string) => void }) {
   const [off, setOff] = useState(0)
   const n = Math.min(4, SKILLHUB_FEATURED.length)
   const items = Array.from({ length: n }, (_, i) => SKILLHUB_FEATURED[(off + i) % SKILLHUB_FEATURED.length])
@@ -339,14 +341,14 @@ function FeaturedSkills() {
         </div>
       </div>
       <div className="card-grid g4">
-        {items.map((it) => <FeaturedCard key={it[2]} item={it} />)}
+        {items.map((it) => <FeaturedCard key={it[2]} item={it} onOpenDetail={onOpenDetail} />)}
       </div>
     </>
   )
 }
 
 // SkillHub 目录：分类过滤 + skillhub.cn 链接 + 排序 + 网格。
-function SkillHubView() {
+function SkillHubView({ onOpenDetail }: { onOpenDetail: (key: string) => void }) {
   const [cat, setCat] = useState('全部')
   const list = SKILLHUB_GRID.filter(([, , , , , , c]) => cat === '全部' || c === cat)
   return (
@@ -363,7 +365,7 @@ function SkillHubView() {
         </div>
       </div>
       <div className="card-grid g4">
-        {list.map((it) => <SkillHubCard key={it[2] + it[0]} item={it} />)}
+        {list.map((it) => <SkillHubCard key={it[2] + it[0]} item={it} onOpenDetail={onOpenDetail} />)}
       </div>
       {list.length === 0 && <div className="hub-blank">该分类下暂无技能</div>}
     </>
@@ -409,26 +411,27 @@ function KitView() {
   )
 }
 
-function SkillsPane() {
+function SkillsPane({ onOpenDetail }: { onOpenDetail: (key: string) => void }) {
   const [seg, setSeg] = useState<'skillhub' | 'reco' | 'kit'>('skillhub')
   return (
     <div className="hub-pane show">
-      <FeaturedSkills />
+      <FeaturedSkills onOpenDetail={onOpenDetail} />
       <div className="sk-seg">
         <div className={`sk-seg-item ${seg === 'reco' ? 'active' : ''}`.trim()} onClick={() => setSeg('reco')}>推荐</div>
         <div className={`sk-seg-item ${seg === 'skillhub' ? 'active' : ''}`.trim()} onClick={() => setSeg('skillhub')}>SkillHub</div>
         <div className={`sk-seg-item ${seg === 'kit' ? 'active' : ''}`.trim()} onClick={() => setSeg('kit')}>套件</div>
       </div>
-      {seg === 'skillhub' && <SkillHubView />}
+      {seg === 'skillhub' && <SkillHubView onOpenDetail={onOpenDetail} />}
       {seg === 'reco' && <RecoView />}
       {seg === 'kit' && <KitView />}
     </div>
   )
 }
 
-// 我安装的（从顶栏「我安装的 N」进入）：管理已安装技能。
-function InstalledPane({ onBack }: { onBack: () => void }) {
+// 我安装的（从顶栏「我安装的 N」进入）：真实磁盘技能，点开进详情。
+function InstalledPane({ onBack, onOpenDetail }: { onBack: () => void; onOpenDetail: (key: string) => void }) {
   const installed = useSkillStore((s) => s.installed)
+  const loading = useSkillStore((s) => s.loading)
   return (
     <div className="hub-pane show">
       <div className="ph" style={{ alignItems: 'center', marginTop: 2 }}>
@@ -439,33 +442,32 @@ function InstalledPane({ onBack }: { onBack: () => void }) {
       {installed.length === 0 ? (
         <div className="auto-empty">
           <div className="auto-empty-ic">🧩</div>
-          <div className="auto-empty-t">还没有安装任何技能</div>
+          <div className="auto-empty-t">{loading ? '加载中…' : '还没有安装任何技能'}</div>
           <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: -6 }}>去 SkillHub 商店挑选并安装你需要的技能</div>
           <button className="btn-dark auto-empty-add" onClick={onBack}>去技能市场</button>
         </div>
       ) : (
         <div className="card-grid g4" style={{ marginTop: 14 }}>
-          {installed.map((name) => <InstalledCard key={name} name={name} />)}
+          {installed.map((skill) => <InstalledCard key={skill.key} skill={skill} onOpenDetail={onOpenDetail} />)}
         </div>
       )}
     </div>
   )
 }
 
-function InstalledCard({ name }: { name: string }) {
-  const info = skillInfo(name)
-  const disabled = useSkillStore((s) => s.disabled.includes(name))
+function InstalledCard({ skill, onOpenDetail }: { skill: InstalledSkill; onOpenDetail: (key: string) => void }) {
+  const tile = skillTile(skill.name)
   const [menu, setMenu] = useState(false)
   return (
-    <div className={`inst-card ${disabled ? 'off' : ''}`.trim()}>
-      <span className="inst-ic" style={{ background: info.color }}>{info.icon}</span>
+    <div className={`inst-card clickable ${skill.disabled ? 'off' : ''}`.trim()} onClick={() => onOpenDetail(skill.key)}>
+      <span className="inst-ic" style={{ background: tile.color }}>{tile.icon}</span>
       <div style={{ minWidth: 0 }}>
-        <div className="inst-n">{name}{disabled && <span className="hc-off" style={{ marginLeft: 6 }}>已关闭</span>}</div>
-        <div className="inst-d">{info.desc}</div>
+        <div className="inst-n">{skill.name}{skill.disabled && <span className="hc-off" style={{ marginLeft: 6 }}>已关闭</span>}</div>
+        <div className="inst-d">{skill.description || '已安装技能'}</div>
       </div>
-      <div className="more-wrap" style={{ position: 'absolute', top: 8, right: 8 }}>
+      <div className="more-wrap" style={{ position: 'absolute', top: 8, right: 8 }} onClick={(e) => e.stopPropagation()}>
         <span className="inst-more" onClick={(e) => { e.stopPropagation(); setMenu((v) => !v) }}>⋯</span>
-        {menu && <SkillMenu name={name} disabled={disabled} onClose={() => setMenu(false)} />}
+        {menu && <SkillMenu skill={skill} onClose={() => setMenu(false)} />}
       </div>
     </div>
   )
@@ -603,12 +605,18 @@ export function ExpertsView() {
   // 「我的专家」子视图（WB-049）/「我安装的」子视图，仅在各自 tab 下有效；切 tab 退回目录。
   const [myExperts, setMyExperts] = useState(false)
   const [myInstalled, setMyInstalled] = useState(false)
+  // 技能详情页（WB-056）：非空则占满 hub-body，展示该技能 SKILL.md。
+  const [detailKey, setDetailKey] = useState<string | null>(null)
   const installedCount = useSkillStore((s) => s.installed.length)
+  const loadSkills = useSkillStore((s) => s.load)
   const placeholder = { experts: '搜索专家职称或描述', skills: '搜索技能', connectors: '搜索连接器' }[hub]
   const actLabel = { experts: '我的专家', skills: '添加技能', connectors: '自定义连接器' }[hub]
 
+  // 进入应用即拉一次已安装技能（顶栏计数、卡片安装态、我安装的页都依赖它）。
+  useEffect(() => { void loadSkills() }, [loadSkills])
+
   const onAct = () => { if (hub === 'experts') setMyExperts(true); else toast(actLabel) }
-  const switchHub = (id: Hub) => { setHub(id); setMyExperts(false); setMyInstalled(false) }
+  const switchHub = (id: Hub) => { setHub(id); setMyExperts(false); setMyInstalled(false); setDetailKey(null) }
 
   return (
     <section className="view active" data-view="experts">
@@ -625,7 +633,7 @@ export function ExpertsView() {
         </div>
         {hub === 'skills' ? (
           <>
-            <button className={`hub-act ${myInstalled ? 'on' : ''}`.trim()} onClick={() => setMyInstalled((v) => !v)}>
+            <button className={`hub-act ${myInstalled ? 'on' : ''}`.trim()} onClick={() => { setDetailKey(null); setMyInstalled((v) => !v) }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="4" /><path d="M8.5 12l2.5 2.5 4.5-5" /></svg>
               我安装的<span className="hub-act-n">{installedCount}</span>
             </button>
@@ -637,7 +645,13 @@ export function ExpertsView() {
       </div>
       <div className="hub-body">
         {hub === 'experts' && (myExperts ? <MyExpertsPane onBack={() => setMyExperts(false)} /> : <ExpertsPane />)}
-        {hub === 'skills' && (myInstalled ? <InstalledPane onBack={() => setMyInstalled(false)} /> : <SkillsPane />)}
+        {hub === 'skills' && (
+          detailKey
+            ? <SkillDetail skillKey={detailKey} onBack={() => setDetailKey(null)} />
+            : myInstalled
+              ? <InstalledPane onBack={() => setMyInstalled(false)} onOpenDetail={setDetailKey} />
+              : <SkillsPane onOpenDetail={setDetailKey} />
+        )}
         {hub === 'connectors' && <ConnectorsPane />}
       </div>
     </section>

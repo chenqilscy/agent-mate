@@ -1,0 +1,77 @@
+"""SkillHub 已安装技能 —— 真实安装 / 发现 / 管理（WB-055）。
+
+技能是**每机器**的磁盘资源（~/.workbuddy/skills/），不按 owner 隔离；安装走真实
+skillhub CLI 下载解压（agent/skills_store.py）。清单/详情来自真实文件，非模拟。
+"""
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from agent import skills_store
+
+router = APIRouter(prefix="/api", tags=["skills"])
+
+
+class InstallBody(BaseModel):
+    slug: str = ""
+    name: str = ""  # 展示名/搜索词；无 slug 时用它去 SkillHub 搜索解析
+
+
+class ToggleBody(BaseModel):
+    disabled: bool
+
+
+@router.get("/skills")
+def list_installed() -> dict:
+    return {"skills": skills_store.scan(), "cli": skills_store.cli_available()}
+
+
+@router.get("/skills/search")
+def search_skills(q: str = "", limit: int = 8) -> dict:
+    return {"results": skills_store.search(q, limit)}
+
+
+@router.get("/skills/{key}")
+def get_detail(key: str) -> dict:
+    d = skills_store.detail(key)
+    if not d:
+        raise HTTPException(404, "skill not found")
+    return {"skill": d}
+
+
+@router.post("/skills/install")
+def install_skill(body: InstallBody) -> dict:
+    if not skills_store.cli_available():
+        raise HTTPException(503, "SkillHub CLI 未安装（~/.skillhub/skills_store_cli.py）")
+    slug = body.slug.strip()
+    display = body.name.strip()
+    if not slug:
+        slug = skills_store.resolve_slug(display) or ""
+        if not slug:
+            raise HTTPException(404, f"SkillHub 未找到「{display or body.slug}」")
+    res = skills_store.install(slug, display_name=display)
+    if not res.get("ok"):
+        raise HTTPException(502, res.get("error") or "安装失败")
+    return res
+
+
+@router.post("/skills/{key}/uninstall")
+def uninstall_skill(key: str) -> dict:
+    if not skills_store.uninstall(key):
+        raise HTTPException(404, "skill not found")
+    return {"ok": True}
+
+
+@router.post("/skills/{key}/toggle")
+def toggle_skill(key: str, body: ToggleBody) -> dict:
+    if not skills_store.set_disabled(key, body.disabled):
+        raise HTTPException(404, "skill not found")
+    return {"ok": True, "disabled": body.disabled}
+
+
+@router.post("/skills/{key}/reveal")
+def reveal_skill(key: str) -> dict:
+    if not skills_store.reveal(key):
+        raise HTTPException(400, "无法打开该技能目录")
+    return {"ok": True}

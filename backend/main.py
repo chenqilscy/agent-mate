@@ -33,7 +33,7 @@ from fastapi.responses import JSONResponse
 from agent import scheduler
 from auth.middleware import AuthMiddleware
 from config import FROZEN, settings
-from routers import auth, automations, chat, experts, files, kdocs, me, models, notifications, projects, sessions, work_items
+from routers import auth, automations, chat, experts, files, kdocs, me, models, notifications, projects, sessions, skills, work_items
 from storage import db
 
 app = FastAPI(title="WorkBuddy API", version="0.1.0")
@@ -120,6 +120,7 @@ app.include_router(files.router)
 app.include_router(projects.router)
 app.include_router(experts.router)
 app.include_router(kdocs.router)
+app.include_router(skills.router)
 app.include_router(work_items.router)
 app.include_router(automations.router)
 app.include_router(notifications.router)

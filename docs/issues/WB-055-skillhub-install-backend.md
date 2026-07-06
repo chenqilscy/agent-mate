@@ -3,7 +3,7 @@ id: WB-055
 title: SkillHub 已安装技能落到后端 + 会话真正挂载（规划）
 severity: P2
 area: backend
-status: deferred
+status: fixed
 origin: 🆕 近期改动
 files:
   - src/stores/skillStore.ts
@@ -39,3 +39,16 @@ P2：功能闭环缺一环，但当前客户端持久化已可用、不阻塞浏
 ## 验证
 
 - 安装后换会话/刷新/换设备，已安装列表一致；已安装技能确实能被 agent 调用（真实工具事件，非模拟）。
+
+## 处理记录（2026-07-07）
+- 后端：新增 `agent/skills_store.py`（扫描 `~/.workbuddy/skills/*/SKILL.md`、真实跑
+  skillhub CLI `install --dir` 下载解压、uninstall/toggle(.disabled)/detail/reveal、
+  search 解析展示名→slug）；`routers/skills.py` 暴露 `/api/skills`（list/search/detail/
+  install/{key}/uninstall|toggle|reveal），`main.py` 注册；`config.py` 加 `SKILLS_DIR`/`SKILLHUB_CLI`；
+  子进程白名单 env（不透传 LLM_API_KEY，WB-011）。
+- 真生效：`agent/skills.py::skill_def` 命中已安装（未停用）磁盘 skill 时注入其真实 SKILL.md 正文。
+- 前端：`skillStore` 从 localStorage 改为后端为准（list/install/uninstall/toggle）；`api.ts` 加 skills 方法。
+- 验证：模块级 scan/resolve/install/uninstall/inject 全通过；HTTP 在独立 :8001 实例实测
+  list/detail/toggle/install(按名解析下载)/uninstall 全 200，真实磁盘目录未残留。`npx tsc --noEmit` 过、`vite build` 过。
+- 待办：运行中的 :8000 后端需重启以暴露新路由（reload 未生效，见 CLAUDE.md 已知坑）；live UI 端到端待在应用里点一遍。
+- commit：（本提交）

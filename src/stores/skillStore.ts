@@ -1,78 +1,96 @@
-// skillStore — SkillHub「技能」页的已安装/已关闭状态，客户端本地持久化。
+// skillStore — SkillHub 已安装技能（WB-055），后端为准。
 //
-// SkillHub 商店是静态产品目录（catalog.ts 的 SKILLHUB_*）。用户对某个技能的
-// 安装 / 卸载 / 关闭（停用）是纯客户端目录状态，落在浏览器 localStorage —— 真实
-// 持久化、跨刷新保留，但与后端技能系统解耦（会话内实际挂载的技能仍走 loadoutStore）。
-// 初次装载以内置 INSTALLED 作为「已安装」种子，和原型「已安装 N」计数对齐。
+// 「安装/卸载/关闭」是**真实**的：安装走后端 skillhub CLI 下载解压进 ~/.workbuddy/skills/，
+// 清单来自后端对该目录的磁盘扫描（不再是 localStorage 假状态）。已安装且未关闭的技能进
+// 会话 loadout 时，后端会注入其真实 SKILL.md（agent/skills_store.py）。
 import { create } from 'zustand'
-import { INSTALLED } from '../data/catalog'
+import { api, API_BASE, authHeaders } from '../lib/api'
+import type { InstalledSkill } from '../lib/types'
+import { toast } from './toastStore'
 
-const LS_KEY = 'wb.skills.v1'
-
-interface Persisted {
-  installed: string[]
-  disabled: string[]
+// 一个目录卡（按展示名）是否已安装：按 name / slug / key 任一匹配。
+export function matchSkill(installed: InstalledSkill[], name: string): InstalledSkill | undefined {
+  return installed.find((s) => s.name === name || s.slug === name || s.key === name)
 }
 
-function load(): Persisted {
-  try {
-    const raw = localStorage.getItem(LS_KEY)
-    if (raw) {
-      const p = JSON.parse(raw) as Partial<Persisted>
-      if (Array.isArray(p.installed)) {
-        return { installed: p.installed, disabled: Array.isArray(p.disabled) ? p.disabled : [] }
-      }
+interface SkillState {
+  installed: InstalledSkill[]
+  loaded: boolean
+  loading: boolean
+  cliAvailable: boolean
+  installing: string[] // 正在安装的展示名（卡片转圈用）
+
+  load: (force?: boolean) => Promise<void>
+  install: (name: string, slug?: string) => Promise<void>
+  uninstall: (key: string) => Promise<void>
+  toggle: (key: string, disabled: boolean) => Promise<void>
+}
+
+export const useSkillStore = create<SkillState>((set, get) => ({
+  installed: [],
+  loaded: false,
+  loading: false,
+  cliAvailable: true,
+  installing: [],
+
+  load: async (force = false) => {
+    if (get().loading || (get().loaded && !force)) return
+    set({ loading: true })
+    try {
+      const { skills, cli } = await api.listSkills()
+      set({ installed: skills, cliAvailable: cli, loaded: true })
+    } catch {
+      /* 后端未连接：保留现状 */
+    } finally {
+      set({ loading: false })
     }
-  } catch {
-    /* 坏数据/无 localStorage：回落到种子 */
-  }
-  return { installed: INSTALLED.map((x) => x[2]), disabled: [] }
-}
+  },
 
-function persist(installed: string[], disabled: string[]) {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify({ installed, disabled }))
-  } catch {
-    /* 忽略写入失败（隐私模式等） */
-  }
-}
+  // 真实安装：无 slug 时后端用展示名去 SkillHub 搜索解析。
+  install: async (name, slug) => {
+    if (get().installing.includes(name)) return
+    set((s) => ({ installing: [...s.installing, name] }))
+    try {
+      const r = await fetch(`${API_BASE}/skills/install`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ name, slug: slug ?? '' }),
+      })
+      if (!r.ok) {
+        let msg = `安装失败（${r.status}）`
+        try { const j = await r.json(); if (j?.detail) msg = String(j.detail) } catch { /* ignore */ }
+        toast(msg)
+        return
+      }
+      const data = (await r.json()) as { skill?: InstalledSkill }
+      toast('已安装 · ' + (data.skill?.name || name))
+      await get().load(true)
+    } catch {
+      toast('安装失败（后端未连接？）')
+    } finally {
+      set((s) => ({ installing: s.installing.filter((n) => n !== name) }))
+    }
+  },
 
-interface SkillState extends Persisted {
-  install: (name: string) => void
-  uninstall: (name: string) => void
-  // 关闭/启用：停用一个已安装技能而不卸载它。
-  toggleDisabled: (name: string) => void
-}
+  uninstall: async (key) => {
+    try {
+      await api.uninstallSkill(key)
+      toast('已卸载')
+      await get().load(true)
+    } catch {
+      toast('卸载失败')
+    }
+  },
 
-export const useSkillStore = create<SkillState>((set) => {
-  const init = load()
-  return {
-    installed: init.installed,
-    disabled: init.disabled,
-
-    install: (name) =>
-      set((s) => {
-        if (s.installed.includes(name)) return {}
-        const installed = [...s.installed, name]
-        persist(installed, s.disabled)
-        return { installed }
-      }),
-
-    uninstall: (name) =>
-      set((s) => {
-        const installed = s.installed.filter((n) => n !== name)
-        const disabled = s.disabled.filter((n) => n !== name)
-        persist(installed, disabled)
-        return { installed, disabled }
-      }),
-
-    toggleDisabled: (name) =>
-      set((s) => {
-        const disabled = s.disabled.includes(name)
-          ? s.disabled.filter((n) => n !== name)
-          : [...s.disabled, name]
-        persist(s.installed, disabled)
-        return { disabled }
-      }),
-  }
-})
+  // 乐观更新 disabled；失败回滚。
+  toggle: async (key, disabled) => {
+    set((s) => ({ installed: s.installed.map((x) => (x.key === key ? { ...x, disabled } : x)) }))
+    try {
+      await api.toggleSkill(key, disabled)
+      toast(disabled ? '已关闭' : '已启用')
+    } catch {
+      set((s) => ({ installed: s.installed.map((x) => (x.key === key ? { ...x, disabled: !disabled } : x)) }))
+      toast('操作失败')
+    }
+  },
+}))

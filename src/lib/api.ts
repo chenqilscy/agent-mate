@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, Me, ModelOption, ProjectInfo, ProjectMember, SessionInfo, WorkAttachment, WorkItem, WorkStatus } from './types'
+import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, InstalledSkill, Me, ModelOption, ProjectInfo, ProjectMember, SessionInfo, SkillDetail, WorkAttachment, WorkItem, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -89,6 +89,17 @@ export const api = {
   kdocsConnect: () =>
     send<{ status: 'connected' | 'pending'; authUrl: string | null }>('POST', '/connectors/kdocs/connect'),
   kdocsDisconnect: () => send<{ status: string }>('POST', '/connectors/kdocs/disconnect'),
+
+  // SkillHub 技能 · 真实安装/发现/管理（WB-055）。清单来自 ~/.workbuddy/skills 磁盘扫描，
+  // 安装走真实 skillhub CLI 下载解压。key = 技能目录名。
+  listSkills: () => get<{ skills: InstalledSkill[]; cli: boolean }>('/skills'),
+  skillDetail: (key: string) => get<{ skill: SkillDetail }>(`/skills/${encodeURIComponent(key)}`),
+  installSkill: (body: { slug?: string; name?: string }) =>
+    send<{ ok: boolean; skill: InstalledSkill }>('POST', '/skills/install', body),
+  uninstallSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/uninstall`),
+  toggleSkill: (key: string, disabled: boolean) =>
+    send<{ ok: boolean; disabled: boolean }>('POST', `/skills/${encodeURIComponent(key)}/toggle`, { disabled }),
+  revealSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/reveal`),
 
   updateProject: (id: string, patch: Partial<Pick<ProjectInfo, 'name' | 'instruction' | 'connectors' | 'experts' | 'skills'>>) =>
     send<ProjectInfo>('PATCH', `/projects/${id}`, patch),

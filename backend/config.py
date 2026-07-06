@@ -73,6 +73,17 @@ class Settings:
         os.getenv("WORKBUDDY_WORKSPACE", str(DATA_DIR / "workspace"))
     ).resolve()
 
+    # SkillHub 已安装技能目录（WB-055）。真实安装把 skill 解压到这里，agent 扫描
+    # <dir>/*/SKILL.md 加载。与出货版 WorkBuddy 及 skillhub CLI 的默认约定一致。
+    SKILLS_DIR: Path = Path(
+        os.getenv("WORKBUDDY_SKILLS_DIR", str(Path.home() / ".workbuddy" / "skills"))
+    ).expanduser().resolve()
+    # skillhub CLI（本机脚本，install.sh --cli-only 装到 ~/.skillhub/）。安装技能时
+    # 用后端自己的 Python 直接跑它，避免依赖 bash wrapper / PATH。
+    SKILLHUB_CLI: Path = Path(
+        os.getenv("SKILLHUB_CLI", str(Path.home() / ".skillhub" / "skills_store_cli.py"))
+    ).expanduser()
+
     # Context window used to compute the context-usage ring (approximate).
     # Clamped to >=1 so a misconfigured CONTEXT_WINDOW=0 can't divide-by-zero
     # at the end of a stream (WB-022).

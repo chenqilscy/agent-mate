@@ -210,4 +210,12 @@ SKILLS: dict[str, tuple[str, list[Tool]]] = {
 
 
 def skill_def(name: str) -> tuple[str, list[Tool]]:
-    return SKILLS.get(name, (f"运用「{name}」技能的专长完成相关任务。", []))
+    # 内置技能（带工具包）优先；否则若它对应一个已安装（未停用）的磁盘 skill（WB-055），
+    # 注入其真实 SKILL.md 正文 —— 让从 SkillHub 装的技能真生效，而不是通用兜底话术。
+    if name in SKILLS:
+        return SKILLS[name]
+    from agent import skills_store  # 延迟导入，避免与 config/加载顺序耦合
+    body = skills_store.instructions_for(name)
+    if body:
+        return (body, [])
+    return (f"运用「{name}」技能的专长完成相关任务。", [])
