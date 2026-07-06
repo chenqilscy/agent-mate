@@ -28,14 +28,20 @@ interface LoadoutState {
   skills: string[]
   connectors: string[]
   refs: AttachedRef[]
+  // 一次性草稿：下一个挂载的 Composer 读取后清空（用于「编辑技能」等预填输入框的场景）。
+  draft: string
 
   toggle: (kind: Kind, name: string) => void
   // 召唤：清空本会话 loadout 并只保留给定专家（用于「召唤专家/专家团」，
   // 语义同 reset + 选中这些专家，配合 startDraft 开一段以这些专家为班底的干净对话）。
   summon: (experts: string[]) => void
+  // 同 summon，但换成技能班底（用于「编辑技能」：只挂 skill-creator，清掉专家/连接器）。
+  summonSkills: (skills: string[]) => void
   addRef: (r: AttachedRef) => void
   removeRef: (name: string) => void
   clearRefs: () => void
+  setDraft: (text: string) => void
+  clearDraft: () => void
   reset: () => void
 }
 
@@ -44,6 +50,7 @@ export const useLoadoutStore = create<LoadoutState>((set) => ({
   skills: [],
   connectors: [],
   refs: [],
+  draft: '',
 
   toggle: (kind, name) =>
     set((s) => {
@@ -54,11 +61,16 @@ export const useLoadoutStore = create<LoadoutState>((set) => ({
     }),
 
   summon: (experts) =>
-    set({ experts: [...new Set(experts)], skills: [], connectors: [], refs: [] }),
+    set({ experts: [...new Set(experts)], skills: [], connectors: [], refs: [], draft: '' }),
+
+  summonSkills: (skills) =>
+    set({ experts: [], skills: [...new Set(skills)], connectors: [], refs: [] }),
 
   addRef: (r) =>
     set((s) => (s.refs.some((x) => x.name === r.name) ? {} : { refs: [...s.refs, r] })),
   removeRef: (name) => set((s) => ({ refs: s.refs.filter((r) => r.name !== name) })),
   clearRefs: () => set({ refs: [] }),
-  reset: () => set({ experts: [], skills: [], connectors: [], refs: [] }),
+  setDraft: (text) => set({ draft: text }),
+  clearDraft: () => set({ draft: '' }),
+  reset: () => set({ experts: [], skills: [], connectors: [], refs: [], draft: '' }),
 }))

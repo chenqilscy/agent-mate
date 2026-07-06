@@ -61,6 +61,9 @@ class Settings:
     # TELEGRAM_CHAT_ID is an optional default target for send_message.
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    # 金山文档 connector (built-in mcp_servers/kdocs.py, shells out to kdocs-cli,
+    # read at call time). A WPS 云文档 token; the CLI can also use its own keychain.
+    KDOCS_TOKEN: str = os.getenv("KDOCS_TOKEN", "").strip()
 
     # DB + workspace live in DATA_DIR (backend/ in dev, per-user data dir when frozen).
     # WORKBUDDY_DB overrides the DB path (isolated tests / running a second instance).

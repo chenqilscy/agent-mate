@@ -54,6 +54,9 @@ def _builtin_fastmcp(server: str):
     if server == "telegram":
         from mcp_servers.telegram import mcp
         return mcp
+    if server == "kdocs":
+        from mcp_servers.kdocs import mcp
+        return mcp
     return None
 
 # Connector name → how to launch its MCP server.
@@ -74,6 +77,12 @@ CONNECTORS: dict[str, dict[str, Any]] = {
     # a credential via `requires`, so a run without the token is skipped with a
     # clear reason instead of failing opaquely at call time.
     "Telegram": {"builtin_server": "telegram", "builtin": True, "requires": ["TELEGRAM_BOT_TOKEN"]},
+    # 金山文档 (WPS 云文档): a built-in FastMCP server that shells out to the
+    # separately-installed `kdocs-cli`. Auth is the WPS OAuth「连接」flow
+    # (routers/kdocs.py → `kdocs-cli auth login` → keychain), so we gate on the CLI
+    # being installed, not on an env token. The bridge still honours an optional
+    # KDOCS_TOKEN (passed via --token) but doesn't require it.
+    "金山文档": {"builtin_server": "kdocs", "builtin": True, "requires_bin": ["kdocs-cli"]},
     # ── third-party, needs a token in backend/.env ──
     "GitHub": {
         "command": "npx",
@@ -176,6 +185,12 @@ async def open_connectors(
         missing = [k for k in spec.get("requires", []) if not os.environ.get(k, "").strip()]
         if missing:
             skipped.append({"name": name, "reason": f"需在 backend/.env 配置 {', '.join(missing)}"})
+            continue
+        # `requires_bin`: an external CLI must be on PATH (e.g. kdocs-cli for 金山文档,
+        # whose auth is OAuth→keychain, not an env token). Missing → clean skip.
+        missing_bin = [b for b in spec.get("requires_bin", []) if not shutil.which(b)]
+        if missing_bin:
+            skipped.append({"name": name, "reason": f"未安装 {', '.join(missing_bin)}"})
             continue
 
         # ── Built-in server: run IN-PROCESS via MCP's in-memory transport (no

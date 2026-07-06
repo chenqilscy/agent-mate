@@ -83,6 +83,13 @@ export const api = {
   }) => send<CustomExpert>('POST', '/experts', body),
   deleteExpert: (id: string) => send<{ ok: boolean }>('DELETE', `/experts/${id}`),
 
+  // 金山文档连接器 · WPS OAuth 授权（连接/状态/断开）。connect 触发浏览器授权，
+  // 返回 authUrl 供前端兜底打开；轮询 kdocsStatus 直到 authenticated。
+  kdocsStatus: () => get<{ installed: boolean; authenticated: boolean }>('/connectors/kdocs/status'),
+  kdocsConnect: () =>
+    send<{ status: 'connected' | 'pending'; authUrl: string | null }>('POST', '/connectors/kdocs/connect'),
+  kdocsDisconnect: () => send<{ status: string }>('POST', '/connectors/kdocs/disconnect'),
+
   updateProject: (id: string, patch: Partial<Pick<ProjectInfo, 'name' | 'instruction' | 'connectors' | 'experts' | 'skills'>>) =>
     send<ProjectInfo>('PATCH', `/projects/${id}`, patch),
 

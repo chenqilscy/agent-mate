@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useLoadoutStore } from '../../stores/loadoutStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -94,6 +94,18 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'
   }
+
+  // 一次性草稿：某处（如「编辑技能」）在跳转前塞了 draft，本 Composer 挂载即取走并清空。
+  useEffect(() => {
+    const d = useLoadoutStore.getState().draft
+    if (d) {
+      setText(d)
+      useLoadoutStore.getState().clearDraft()
+      requestAnimationFrame(grow)
+    }
+    // 仅在挂载时消费一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const submit = () => {
     const t = text.trim()
