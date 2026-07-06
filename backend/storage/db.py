@@ -352,6 +352,20 @@ def get_session(session_id: str, owner_id: Optional[str] = None) -> Optional[Ses
     return _row_to_session(row)
 
 
+def get_session_for(session_id: str, user_id: str) -> Optional[Session]:
+    """Session if the caller owns it, OR it belongs to a project the caller is a
+    member of — read-only shared visibility (M7 C3). Personal (non-project)
+    sessions of other users stay private."""
+    s = get_session(session_id)
+    if not s:
+        return None
+    if s.owner_id == user_id:
+        return s
+    if s.project_id and project_access_role(s.project_id, user_id) is not None:
+        return s
+    return None
+
+
 def list_sessions(owner_id: str, space: Optional[str] = None) -> list[Session]:
     if space:
         rows = get_conn().execute(

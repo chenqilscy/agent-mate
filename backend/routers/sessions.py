@@ -63,12 +63,19 @@ def create_session(body: CreateSessionBody) -> dict:
 
 @router.get("/sessions/{session_id}/messages")
 def get_messages(session_id: str) -> dict:
-    # owner-scoped so one user can't replay another's history (WB-013).
-    s = db.get_session(session_id, owner_id=current_user().id)
+    # M7 C3: a project member may READ a teammate's execution session (owner still
+    # 404s a stranger's personal session — get_session_for enforces that). Read-only:
+    # driving it (chat/rename/delete) stays owner-scoped, so read_only tells the UI.
+    me = current_user()
+    s = db.get_session_for(session_id, me.id)
     if not s:
         raise HTTPException(404, "session not found")
+    view = _session_view(s)
+    owner = db.get_user(s.owner_id)
+    view["owner_name"] = owner.name if owner else s.owner_id
+    view["read_only"] = s.owner_id != me.id
     return {
-        "session": _session_view(s),
+        "session": view,
         "messages": [m.to_dict() for m in db.list_messages(session_id)],
     }
 

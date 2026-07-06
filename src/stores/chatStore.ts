@@ -29,6 +29,9 @@ interface ChatState {
   pending: { questions: AskQuestion[] } | null
   // project scope: when set, a new session is created under this project.
   activeProjectId: string | null
+  // M7 C3: viewing a teammate's project session is read-only (you can't drive it).
+  readOnly: boolean
+  ownerName: string | null
 
   loadSessions: () => Promise<void>
   openSession: (id: string) => Promise<void>
@@ -48,6 +51,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   abort: null,
   pending: null,
   activeProjectId: null,
+  readOnly: false,
+  ownerName: null,
 
   loadSessions: async () => {
     try {
@@ -68,6 +73,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeId: id,
         activeProjectId: session.project_id ?? null,
         title: session.title,
+        readOnly: session.read_only ?? false,
+        ownerName: session.owner_name ?? null,
         messages: messages.map((m) => ({
           id: m.id,
           role: m.role,
@@ -91,7 +98,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   startDraft: (title) => {
     if (get().streaming) get().stop()
     useUIStore.getState().closeFile()
-    set({ activeId: null, activeProjectId: null, title, messages: [] })
+    set({ activeId: null, activeProjectId: null, title, messages: [], readOnly: false, ownerName: null })
   },
 
   // Open a project's execution: a fresh chat scoped to the project. The first
@@ -99,12 +106,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   startProject: (projectId, name) => {
     if (get().streaming) get().stop()
     useUIStore.getState().closeFile()
-    set({ activeId: null, activeProjectId: projectId, title: name, messages: [] })
+    set({ activeId: null, activeProjectId: projectId, title: name, messages: [], readOnly: false, ownerName: null })
   },
 
   send: async (text) => {
     const trimmed = text.trim()
-    if (!trimmed || get().streaming) return
+    // Read-only = viewing a teammate's session (M7 C3); the backend would 404 a
+    // drive attempt anyway, so refuse locally and keep the view clean.
+    if (!trimmed || get().streaming || get().readOnly) return
 
     const userMsg: ChatMessage = { id: uuid(), role: 'user', content: trimmed, trace: [] }
     const botMsg: ChatMessage = {

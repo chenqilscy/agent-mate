@@ -85,6 +85,9 @@ export interface SessionInfo {
   project_id?: string | null
   ago?: string
   updated_at?: number
+  owner_id?: string
+  owner_name?: string // who ran it (M7 C3 activity feed)
+  read_only?: boolean // true when the caller is a viewer, not the session's owner (M7 C3)
 }
 
 export interface ModelOption {

@@ -139,7 +139,20 @@ def update_project(project_id: str, body: UpdateProjectBody) -> dict:
 def project_sessions(project_id: str) -> dict:
     _require_access(project_id, current_user().id)
     rows = db.list_project_sessions(project_id)
-    return {"sessions": [{**s.to_dict(), "ago": _ago(s.updated_at)} for s in rows]}
+    # Attribute each run to who started it (M7 C3 activity feed). Names cached so
+    # a busy project's feed doesn't hit users N times.
+    names: dict[str, str] = {}
+
+    def owner_name(uid: str) -> str:
+        if uid not in names:
+            u = db.get_user(uid)
+            names[uid] = u.name if u else uid
+        return names[uid]
+
+    return {"sessions": [
+        {**s.to_dict(), "ago": _ago(s.updated_at), "owner_name": owner_name(s.owner_id)}
+        for s in rows
+    ]}
 
 
 # ---- members (M7 C2) ----------------------------------------------------

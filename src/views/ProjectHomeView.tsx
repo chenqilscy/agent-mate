@@ -142,7 +142,7 @@ export function ProjectHomeView() {
                   <div className="pj-feed-row" key={s.id} onClick={() => openExec(s.id)}>
                     <span className="fi"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16v12H5.2L4 17.2z" /></svg></span>
                     <span className="ft">{s.title}</span>
-                    <span className="fa">{s.status === 'running' ? '执行中' : s.ago}</span>
+                    <span className="fa">{s.owner_name ? `${s.owner_name} · ` : ''}{s.status === 'running' ? '执行中' : s.ago}</span>
                   </div>
                 ))
               ) : (

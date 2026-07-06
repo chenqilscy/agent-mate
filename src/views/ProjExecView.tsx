@@ -19,6 +19,8 @@ export function ProjExecView() {
   const streaming = useChatStore((s) => s.streaming)
   const send = useChatStore((s) => s.send)
   const stop = useChatStore((s) => s.stop)
+  const readOnly = useChatStore((s) => s.readOnly)
+  const ownerName = useChatStore((s) => s.ownerName)
   const pending = useChatStore((s) => s.pending)
   const answer = useChatStore((s) => s.answer)
   const setView = useUIStore((s) => s.setView)
@@ -98,9 +100,20 @@ export function ProjExecView() {
         </div>
 
         <div className="chat-foot">
-          {pending && <AskUserCard questions={pending.questions} onAnswer={answer} />}
-          <Composer variant="chat" streaming={streaming} onSend={send} onStop={stop} autoFocus />
-          <div className="disc">内容由 AI 生成，请核实重要信息</div>
+          {readOnly ? (
+            // M7 C3: a teammate's run is read-only — you can view its trace/output
+            // but not continue it. The owner drives their own session.
+            <div className="pe-readonly">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a2 2 0 100-4 2 2 0 000 4z" /><path d="M6 10V7a6 6 0 0112 0v3" /><rect x="4" y="10" width="16" height="11" rx="2" /></svg>
+              由 <b>{ownerName || '队友'}</b> 执行 · 只读查看
+            </div>
+          ) : (
+            <>
+              {pending && <AskUserCard questions={pending.questions} onAnswer={answer} />}
+              <Composer variant="chat" streaming={streaming} onSend={send} onStop={stop} autoFocus />
+              <div className="disc">内容由 AI 生成，请核实重要信息</div>
+            </>
+          )}
         </div>
       </div>
 
