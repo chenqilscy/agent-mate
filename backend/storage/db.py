@@ -175,6 +175,23 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_automations_owner
             ON automations(owner_id, created_at DESC);
+
+        -- In-app message center (M7 C4): real cross-user events land here, one row
+        -- per recipient. Fed by collaboration actions (added to a project, role
+        -- changed, removed). read=0 until the user opens the center.
+        CREATE TABLE IF NOT EXISTS notifications (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL DEFAULT '',
+            project_id TEXT,
+            actor_name TEXT,
+            read INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_notifications_user
+            ON notifications(user_id, created_at DESC);
         """
     )
     conn.commit()
@@ -656,6 +673,53 @@ def list_project_members(project_id: str) -> list[dict]:
     for r in rows:
         out.append({"user_id": r["user_id"], "name": r["name"], "role": r["role"], "is_owner": False})
     return out
+
+
+# ---- notifications / message center (M7 C4) -----------------------------
+
+def create_notification(
+    *,
+    user_id: str,
+    kind: str,
+    title: str,
+    body: str = "",
+    project_id: Optional[str] = None,
+    actor_name: Optional[str] = None,
+) -> None:
+    get_conn().execute(
+        "INSERT INTO notifications (id,user_id,kind,title,body,project_id,actor_name,read,created_at) "
+        "VALUES (?,?,?,?,?,?,?,0,?)",
+        (new_uuid(), user_id, kind, title, body, project_id, actor_name, time.time()),
+    )
+    get_conn().commit()
+
+
+def list_notifications(user_id: str, limit: int = 50) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
+        (user_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def unread_notification_count(user_id: str) -> int:
+    return get_conn().execute(
+        "SELECT COUNT(*) FROM notifications WHERE user_id=? AND read=0", (user_id,)
+    ).fetchone()[0]
+
+
+def mark_notifications_read(user_id: str, ids: Optional[list[str]] = None) -> None:
+    """Mark the user's notifications read — all of them, or just `ids`."""
+    conn = get_conn()
+    if ids:
+        placeholders = ",".join("?" * len(ids))
+        conn.execute(
+            f"UPDATE notifications SET read=1 WHERE user_id=? AND id IN ({placeholders})",
+            (user_id, *ids),
+        )
+    else:
+        conn.execute("UPDATE notifications SET read=1 WHERE user_id=?", (user_id,))
+    conn.commit()
 
 
 # ---- work items (kanban / tasks, §11 阶段 B) ----------------------------

@@ -127,6 +127,18 @@ export interface ProjectMember {
   is_owner: boolean
 }
 
+// In-app message center (M7 C4). `read` is 0/1 straight from SQLite.
+export interface AppNotification {
+  id: string
+  kind: string // member_added | role_changed | member_removed
+  title: string
+  body: string
+  project_id: string | null
+  actor_name: string | null
+  read: number
+  created_at: number
+}
+
 export type WorkStatus = 'todo' | 'doing' | 'paused' | 'done'
 
 export interface WorkAttachment {

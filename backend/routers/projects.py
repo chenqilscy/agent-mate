@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api", tags=["projects"])
 
 # Roles allowed to manage members / edit project settings.
 _MANAGE_ROLES = {Role.OWNER, Role.ADMIN}
+_ROLE_CN = {"Owner": "所有者", "Admin": "管理员", "Member": "成员", "Viewer": "只读"}
 
 
 def _require_access(project_id: str, user_id: str) -> Role:
@@ -165,7 +166,8 @@ def list_members(project_id: str) -> dict:
 
 @router.post("/projects/{project_id}/members")
 def add_member(project_id: str, body: AddMemberBody) -> dict:
-    _require_manage(project_id, current_user().id)
+    me = current_user()
+    _require_manage(project_id, me.id)
     role = _member_role(body.role)
     found = db.get_user_by_name((body.name or "").strip())
     if not found:
@@ -175,16 +177,32 @@ def add_member(project_id: str, body: AddMemberBody) -> dict:
     if p and target.id == p.owner_id:
         raise HTTPException(400, "该用户已是项目所有者")
     db.add_project_member(project_id, target.id, role)
+    # M7 C4: tell the invitee, in their message center.
+    if p:
+        db.create_notification(
+            user_id=target.id, kind="member_added",
+            title=f"{me.name} 邀请你加入项目「{p.name}」",
+            body=f"你的角色：{_ROLE_CN.get(role.value, role.value)}",
+            project_id=project_id, actor_name=me.name,
+        )
     return {"members": db.list_project_members(project_id)}
 
 
 @router.patch("/projects/{project_id}/members/{user_id}")
 def update_member(project_id: str, user_id: str, body: UpdateMemberBody) -> dict:
-    _require_manage(project_id, current_user().id)
+    me = current_user()
+    _require_manage(project_id, me.id)
     role = _member_role(body.role)
     if db.project_member_role(project_id, user_id) is None:
         raise HTTPException(404, "成员不存在")
     db.add_project_member(project_id, user_id, role)  # upsert = change role
+    p = db.get_project(project_id)
+    if p and user_id != me.id:
+        db.create_notification(
+            user_id=user_id, kind="role_changed",
+            title=f"你在项目「{p.name}」的角色调整为 {_ROLE_CN.get(role.value, role.value)}",
+            project_id=project_id, actor_name=me.name,
+        )
     return {"members": db.list_project_members(project_id)}
 
 
@@ -194,7 +212,15 @@ def remove_member(project_id: str, user_id: str) -> dict:
     # Leaving (removing yourself) needs only access; removing others needs manage.
     if user_id == me.id:
         _require_access(project_id, me.id)
-    else:
-        _require_manage(project_id, me.id)
+        db.remove_project_member(project_id, user_id)
+        return {"ok": True}
+    _require_manage(project_id, me.id)
+    p = db.get_project(project_id)
     db.remove_project_member(project_id, user_id)
+    if p:
+        db.create_notification(
+            user_id=user_id, kind="member_removed",
+            title=f"你已被移出项目「{p.name}」",
+            project_id=project_id, actor_name=me.name,
+        )
     return {"ok": True}
