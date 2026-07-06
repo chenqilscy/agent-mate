@@ -234,8 +234,11 @@ async def run_chat(
 
     skill_tools = []
     if active_experts:
+        # 自定义专家（我的专家 · WB-049）：本 owner 的自造专家人格优先于内置 EXPERTS 字典，
+        # 让「召唤」自造专家时其人格真注入系统提示。查不到再回退 persona_for（内置/通用）。
+        custom_personas = {e.name: e.persona for e in db.list_experts(user.id) if e.persona}
         system_prompt += "\n\n# 专家人格（请综合以下专长作答）\n" + "\n".join(
-            f"- {persona_for(n)}" for n in active_experts
+            f"- {custom_personas.get(n) or persona_for(n)}" for n in active_experts
         )
     if active_skills:
         lines = []

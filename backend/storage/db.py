@@ -27,6 +27,7 @@ from storage.models import (
     LOCAL_USER_ID,
     LOCAL_USER_NAME,
     Automation,
+    Expert,
     Message,
     Project,
     Role,
@@ -127,6 +128,23 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_projects_owner
             ON projects(owner_id, updated_at DESC);
+
+        -- 自定义专家（我的专家 · WB-049），owner 维度。persona 在 run_chat 里
+        -- 注入系统提示，命中优先于内置 EXPERTS 字典，让自造专家真影响回答。
+        CREATE TABLE IF NOT EXISTS experts (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            subtitle TEXT NOT NULL DEFAULT '',
+            avatar TEXT NOT NULL DEFAULT '🧑',
+            intro TEXT NOT NULL DEFAULT '',
+            persona TEXT NOT NULL DEFAULT '',
+            tags TEXT NOT NULL DEFAULT '[]',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_experts_owner
+            ON experts(owner_id, updated_at DESC);
 
         -- Project membership (M7 C2): who can see/act in a project besides its
         -- owner. The owner has no row here (they're tracked by projects.owner_id);
@@ -623,6 +641,83 @@ def list_project_sessions(project_id: str) -> list[Session]:
         "SELECT * FROM sessions WHERE project_id=? ORDER BY updated_at DESC", (project_id,)
     ).fetchall()
     return [_row_to_session(r) for r in rows]
+
+
+# ---- experts (自定义专家 · WB-049) -------------------------------------
+
+def create_expert(
+    *,
+    owner_id: str,
+    name: str,
+    subtitle: str = "",
+    avatar: str = "🧑",
+    intro: str = "",
+    persona: str = "",
+    tags: Optional[list[str]] = None,
+) -> Expert:
+    now = time.time()
+    e = Expert(
+        id=new_uuid(),
+        owner_id=owner_id,
+        name=name[:60],
+        subtitle=subtitle[:60],
+        avatar=(avatar or "🧑")[:8],
+        intro=intro[:2000],
+        persona=persona[:4000],
+        tags=[t[:20] for t in (tags or [])[:8]],
+        created_at=now,
+        updated_at=now,
+    )
+    get_conn().execute(
+        """INSERT INTO experts (id,owner_id,name,subtitle,avatar,intro,persona,tags,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (
+            e.id, e.owner_id, e.name, e.subtitle, e.avatar, e.intro, e.persona,
+            json.dumps(e.tags, ensure_ascii=False), e.created_at, e.updated_at,
+        ),
+    )
+    get_conn().commit()
+    return e
+
+
+def _row_to_expert(row: sqlite3.Row) -> Expert:
+    return Expert(
+        id=row["id"],
+        owner_id=row["owner_id"],
+        name=row["name"],
+        subtitle=row["subtitle"],
+        avatar=row["avatar"],
+        intro=row["intro"],
+        persona=row["persona"],
+        tags=json.loads(row["tags"]),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def get_expert(expert_id: str, owner_id: Optional[str] = None) -> Optional[Expert]:
+    if owner_id is not None:
+        row = get_conn().execute(
+            "SELECT * FROM experts WHERE id=? AND owner_id=?", (expert_id, owner_id)
+        ).fetchone()
+    else:
+        row = get_conn().execute("SELECT * FROM experts WHERE id=?", (expert_id,)).fetchone()
+    return _row_to_expert(row) if row else None
+
+
+def list_experts(owner_id: str) -> list[Expert]:
+    rows = get_conn().execute(
+        "SELECT * FROM experts WHERE owner_id=? ORDER BY updated_at DESC", (owner_id,)
+    ).fetchall()
+    return [_row_to_expert(r) for r in rows]
+
+
+def delete_expert(expert_id: str, owner_id: str) -> bool:
+    cur = get_conn().execute(
+        "DELETE FROM experts WHERE id=? AND owner_id=?", (expert_id, owner_id)
+    )
+    get_conn().commit()
+    return cur.rowcount > 0
 
 
 # ---- project membership / roles (M7 C2) --------------------------------

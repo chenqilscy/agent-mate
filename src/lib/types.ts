@@ -126,6 +126,19 @@ export interface ProjectInfo {
   role?: string // the current user's role in this project (M7 C2): Owner|Admin|Member|Viewer
 }
 
+// 自定义专家（我的专家 · WB-049）。persona 在后端注入系统提示，让自造专家真生效。
+export interface CustomExpert {
+  id: string
+  name: string
+  subtitle: string
+  avatar: string
+  intro: string
+  persona: string
+  tags: string[]
+  created_at: number
+  updated_at: number
+}
+
 export interface ProjectMember {
   user_id: string
   name: string

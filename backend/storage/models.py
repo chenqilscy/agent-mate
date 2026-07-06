@@ -75,6 +75,25 @@ class Project:
 
 
 @dataclass
+class Expert:
+    """自定义专家（我的专家 · WB-049）。owner 维度存储；召唤时其 persona 注入系统提示，
+    命中优先于内置 EXPERTS 字典（见 agent/runtime.py）。"""
+    id: str
+    owner_id: str
+    name: str
+    subtitle: str  # 职称/一句话身份
+    avatar: str  # emoji 头像
+    intro: str  # 能力介绍（展示用）
+    persona: str  # 人格指令（注入系统提示，真影响回答）
+    tags: list[str]
+    created_at: float
+    updated_at: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class WorkItem:
     id: str
     project_id: str

@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AppNotification, Automation, CreateAutomationInput, Me, ModelOption, ProjectInfo, ProjectMember, SessionInfo, WorkAttachment, WorkItem, WorkStatus } from './types'
+import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, Me, ModelOption, ProjectInfo, ProjectMember, SessionInfo, WorkAttachment, WorkItem, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -75,6 +75,13 @@ export const api = {
   }) => send<ProjectInfo>('POST', '/projects', body),
 
   getProject: (id: string) => get<ProjectInfo>(`/projects/${id}`),
+
+  // Custom experts (我的专家 · WB-049).
+  listExperts: () => get<{ experts: CustomExpert[] }>('/experts'),
+  createExpert: (body: {
+    name: string; subtitle?: string; avatar?: string; intro?: string; persona?: string; tags?: string[]
+  }) => send<CustomExpert>('POST', '/experts', body),
+  deleteExpert: (id: string) => send<{ ok: boolean }>('DELETE', `/experts/${id}`),
 
   updateProject: (id: string, patch: Partial<Pick<ProjectInfo, 'name' | 'instruction' | 'connectors' | 'experts' | 'skills'>>) =>
     send<ProjectInfo>('PATCH', `/projects/${id}`, patch),

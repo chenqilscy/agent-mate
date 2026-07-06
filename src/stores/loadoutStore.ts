@@ -30,6 +30,9 @@ interface LoadoutState {
   refs: AttachedRef[]
 
   toggle: (kind: Kind, name: string) => void
+  // 召唤：清空本会话 loadout 并只保留给定专家（用于「召唤专家/专家团」，
+  // 语义同 reset + 选中这些专家，配合 startDraft 开一段以这些专家为班底的干净对话）。
+  summon: (experts: string[]) => void
   addRef: (r: AttachedRef) => void
   removeRef: (name: string) => void
   clearRefs: () => void
@@ -49,6 +52,9 @@ export const useLoadoutStore = create<LoadoutState>((set) => ({
       const next = cur.includes(name) ? cur.filter((n) => n !== name) : [...cur, name]
       return { [key]: next } as Partial<LoadoutState>
     }),
+
+  summon: (experts) =>
+    set({ experts: [...new Set(experts)], skills: [], connectors: [], refs: [] }),
 
   addRef: (r) =>
     set((s) => (s.refs.some((x) => x.name === r.name) ? {} : { refs: [...s.refs, r] })),
