@@ -58,6 +58,9 @@
 | [WB-039](WB-039-automation-editor-runs-panel-not-live.md) | ✅ | P3 | frontend | 自动化编辑器右侧「运行历史」侧栏点「立即运行」后不刷新 |
 | [WB-040](WB-040-automation-run-now-no-inflight-dedup.md) | ✅ | P3 | backend | 「立即运行」不与在飞的运行去重，连点/与到点触发并发会重复跑同一自动化 |
 | [WB-041](WB-041-sidebar-automation-runs-group.md) | ✅ | P2 | frontend | 自动化产出的会话在侧栏不可见——加独立「自动化」分组 |
+| [WB-043](WB-043-automation-run-records-tab.md) | ✅ | P2 | frontend | 自动化「运行记录」tab —— 逐次运行状态/摘要持久化 + 跨自动化运行列表 + 详情弹窗 |
+| [WB-044](WB-044-automation-view-restructure-tabs-list-templates.md) | ✅ | P2 | frontend | 自动化视图重构：定时任务/运行记录 tab + 工具条 + 紧凑列表 + 从模版添加独立页 |
+| [WB-045](WB-045-bound-automation-runs-belong-to-space.md) | ✅ | P3 | frontend | 绑定了工作空间的自动化，其运行会话应归入该「空间」而非「自动化」分组 |
 
 ## 来源
 

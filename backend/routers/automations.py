@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from agent import scheduler
+from agent.sandbox import project_root
 from auth.deps import current_user
 from storage import db
 
@@ -149,6 +150,15 @@ async def run_automation(auto_id: str) -> dict:
     return {"ok": session_id is not None, "session_id": session_id}
 
 
+def _run_view(s) -> dict:
+    """A run (automation session) as the UI wants it: the session dict + a relative
+    label + the workspace path it ran in (WB-043 detail modal)."""
+    d = s.to_dict()
+    d["ago"] = _ago(s.created_at)  # when this run fired
+    d["workspace"] = str(project_root(s.project_id))
+    return d
+
+
 @router.get("/automations/{auto_id}/runs")
 def list_automation_runs(auto_id: str) -> dict:
     """Every session this automation produced, newest first — the run-history that
@@ -156,9 +166,12 @@ def list_automation_runs(auto_id: str) -> dict:
     user = current_user()
     if db.get_automation(auto_id, user.id) is None:
         raise HTTPException(404, "automation not found")
-    runs = []
-    for s in db.list_automation_runs(auto_id, user.id):
-        d = s.to_dict()
-        d["ago"] = _ago(s.created_at)  # when this run fired
-        runs.append(d)
-    return {"runs": runs}
+    return {"runs": [_run_view(s) for s in db.list_automation_runs(auto_id, user.id)]}
+
+
+@router.get("/automation-runs")
+def list_all_automation_runs() -> dict:
+    """Cross-automation run feed for the 运行记录 tab (WB-043) — every automation run
+    this owner produced, newest first, owner-scoped and capped."""
+    user = current_user()
+    return {"runs": [_run_view(s) for s in db.list_all_automation_runs(user.id)]}

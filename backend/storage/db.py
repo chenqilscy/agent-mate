@@ -91,7 +91,10 @@ def init_db() -> None:
             status TEXT NOT NULL,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL,
-            automation_id TEXT
+            automation_id TEXT,
+            run_status TEXT,
+            run_summary TEXT,
+            run_kind TEXT
         );
 
         CREATE TABLE IF NOT EXISTS messages (
@@ -233,6 +236,11 @@ def _migrate_columns() -> None:
         "WHERE automation_id IS NULL "
         "AND EXISTS (SELECT 1 FROM automations a WHERE a.last_session_id = sessions.id)"
     )
+    # WB-043: sessions 增逐次运行结果——run_status（running/ok/error）、run_summary（失败原因/摘要）、
+    # run_kind（test/scheduled）。仅自动化运行的会话有值，其余 NULL。幂等补列。
+    for col in ("run_status", "run_summary", "run_kind"):
+        if col not in have_s:
+            conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT")
     conn.commit()
 
 
@@ -330,10 +338,12 @@ def create_session(
     space: Optional[str] = None,
     project_id: Optional[str] = None,
     automation_id: Optional[str] = None,
+    run_kind: Optional[str] = None,
+    run_status: Optional[str] = None,
 ) -> Session:
     # automation_id links a run back to the automation that produced it (WB-035);
-    # None for ordinary chat/project sessions. It's a table column only, not carried
-    # on the Session dataclass — callers that need runs use list_automation_runs.
+    # None for ordinary chat/project sessions. run_kind/run_status hold the per-run
+    # outcome for automation runs (WB-043) — the scheduler sets them.
     now = time.time()
     s = Session(
         id=new_uuid(),
@@ -345,11 +355,13 @@ def create_session(
         status="idle",
         created_at=now,
         updated_at=now,
+        run_status=run_status,
+        run_kind=run_kind,
     )
     get_conn().execute(
-        """INSERT INTO sessions (id,title,owner_id,project_id,space,kind,status,created_at,updated_at,automation_id)
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
-        (s.id, s.title, s.owner_id, s.project_id, s.space, s.kind, s.status, s.created_at, s.updated_at, automation_id),
+        """INSERT INTO sessions (id,title,owner_id,project_id,space,kind,status,created_at,updated_at,automation_id,run_status,run_kind)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (s.id, s.title, s.owner_id, s.project_id, s.space, s.kind, s.status, s.created_at, s.updated_at, automation_id, run_status, run_kind),
     )
     get_conn().commit()
     return s
@@ -443,7 +455,29 @@ def _row_to_session(row: sqlite3.Row) -> Session:
         status=row["status"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        run_status=row["run_status"],
+        run_summary=row["run_summary"],
+        run_kind=row["run_kind"],
     )
+
+
+def mark_session_run(session_id: str, *, run_status: str, run_summary: Optional[str] = None) -> None:
+    """Record an automation run's outcome on its session (WB-043)."""
+    get_conn().execute(
+        "UPDATE sessions SET run_status=?, run_summary=?, updated_at=? WHERE id=?",
+        (run_status, run_summary, time.time(), session_id),
+    )
+    get_conn().commit()
+
+
+def list_all_automation_runs(owner_id: str, limit: int = 100) -> list[Session]:
+    """Every automation run this owner produced, newest first (WB-043) — the cross-
+    automation 运行记录 feed. Owner-scoped, capped."""
+    rows = get_conn().execute(
+        "SELECT * FROM sessions WHERE kind='automation' AND owner_id=? ORDER BY created_at DESC LIMIT ?",
+        (owner_id, limit),
+    ).fetchall()
+    return [_row_to_session(r) for r in rows]
 
 
 # ---- messages -----------------------------------------------------------

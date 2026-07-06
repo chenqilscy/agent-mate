@@ -48,6 +48,11 @@ class Session:
     status: str  # "idle" | "running" | "waiting" | "done"
     created_at: float
     updated_at: float
+    # Per-run outcome for automation runs (WB-043); None for ordinary chat/project
+    # sessions. run_status: 'running' | 'ok' | 'error'; run_kind: 'test' | 'scheduled'.
+    run_status: Optional[str] = None
+    run_summary: Optional[str] = None
+    run_kind: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

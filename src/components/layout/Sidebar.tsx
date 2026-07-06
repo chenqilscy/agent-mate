@@ -59,12 +59,12 @@ export function Sidebar() {
   const me = useAuthStore((s) => s.me)
 
   useEffect(() => { loadProjects() }, [loadProjects])
-  // Ad-hoc chats (no project) live under 任务; project executions nest under their
-  // project in 空间; automation runs get their own 自动化 group (WB-041) so they're
-  // reachable without flooding 任务 and without hiding among a project's sessions.
+  // Ad-hoc chats (no project) live under 任务; a workspace-bound automation's runs
+  // nest under that 空间 like project executions (WB-045); only unbound automation
+  // runs go to the dedicated 自动化 group (WB-041). Mutually exclusive, no dup.
   const adhoc = sessions.filter((s) => !s.project_id && s.kind !== 'automation')
-  const sessionsOf = (pid: string) => sessions.filter((s) => s.project_id === pid && s.kind !== 'automation')
-  const autoRuns = sessions.filter((s) => s.kind === 'automation') // already updated_at DESC from the API
+  const sessionsOf = (pid: string) => sessions.filter((s) => s.project_id === pid)
+  const autoRuns = sessions.filter((s) => s.kind === 'automation' && !s.project_id) // unbound only; updated_at DESC from the API
 
   const [moreOpen, setMoreOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)

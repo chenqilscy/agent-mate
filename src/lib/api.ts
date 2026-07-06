@@ -126,6 +126,9 @@ export const api = {
   listAutomationRuns: (id: string) =>
     get<{ runs: SessionInfo[] }>(`/automations/${id}/runs`),
 
+  listAllAutomationRuns: () =>
+    get<{ runs: SessionInfo[] }>('/automation-runs'),
+
   filesTree: (opts?: { project?: string; session?: string }) => {
     const q = opts?.project ? `?project=${opts.project}` : opts?.session ? `?session=${opts.session}` : ''
     return get<{ root: string; entries: FileEntry[] }>(`/files/tree${q}`)

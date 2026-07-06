@@ -84,10 +84,16 @@ export interface SessionInfo {
   space?: string | null
   project_id?: string | null
   ago?: string
+  created_at?: number
   updated_at?: number
   owner_id?: string
   owner_name?: string // who ran it (M7 C3 activity feed)
   read_only?: boolean // true when the caller is a viewer, not the session's owner (M7 C3)
+  // Per-run outcome for automation runs (WB-043); null for ordinary sessions.
+  run_status?: 'running' | 'ok' | 'error' | null
+  run_summary?: string | null
+  run_kind?: 'test' | 'scheduled' | null
+  workspace?: string | null
 }
 
 export interface ModelOption {

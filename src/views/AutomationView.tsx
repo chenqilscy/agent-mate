@@ -24,8 +24,37 @@ function triggerLabel(a: Automation): string {
   return a.trigger_kind === 'daily' ? `每天 ${a.at_time}` : `每 ${a.interval_min} 分钟`
 }
 
+// A run's human label: kind (测试运行 / 定时运行) + outcome (完成 / 失败) — WB-043.
+function runLabel(r: SessionInfo): string {
+  if (r.run_status === 'running') return '运行中'
+  const kind = r.run_kind === 'test' ? '测试运行' : '定时运行'
+  return kind + (r.run_status === 'error' ? '失败' : '完成')
+}
+
+// created_at (epoch seconds) → day bucket / HH:MM / full timestamp for 运行记录.
+function pad(n: number): string { return String(n).padStart(2, '0') }
+function dayLabel(ts?: number): string {
+  if (!ts) return '更早'
+  const d = new Date(ts * 1000), now = new Date()
+  const same = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  if (same(d, now)) return '今天'
+  const y = new Date(now); y.setDate(now.getDate() - 1)
+  if (same(d, y)) return '昨天'
+  return `${d.getMonth() + 1}月${d.getDate()}日`
+}
+function hhmm(ts?: number): string {
+  if (!ts) return ''
+  const d = new Date(ts * 1000)
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+function fullTime(ts?: number): string {
+  if (!ts) return ''
+  const d = new Date(ts * 1000)
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
 // What the editor is opened with: an existing automation (edit) or a template
-// prefill (create). Both null → list/templates view.
+// prefill (create).
 type EditState = { auto?: Automation; prefill?: Partial<CreateAutomationInput> }
 
 export function AutomationView() {
@@ -36,121 +65,152 @@ export function AutomationView() {
   const runNow = useAutomationStore((s) => s.runNow)
   const openSession = useChatStore((s) => s.openSession)
   const setView = useUIStore((s) => s.setView)
+  const projects = useProjectStore((s) => s.projects)
+  const loadProjects = useProjectStore((s) => s.load)
 
   const [editing, setEditing] = useState<EditState | null>(null)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [tab, setTab] = useState<'schedule' | 'runs'>('schedule')
+  const [query, setQuery] = useState('')
   const [menuId, setMenuId] = useState<string | null>(null)
   const menuAnchor = useRef<HTMLElement | null>(null)
-  // Run history (WB-035): automation runs are hidden from the sidebar by design, so
-  // surface every run here. Fetched on demand when the history popover opens; the
-  // menu popover shares the same anchor and closes first, so only one shows at a time.
+  // Per-automation run history popover (WB-035); shares the menu anchor.
   const [histId, setHistId] = useState<string | null>(null)
   const [histRuns, setHistRuns] = useState<SessionInfo[]>([])
+  const [detail, setDetail] = useState<SessionInfo | null>(null) // run detail modal (WB-043)
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); loadProjects() }, [load, loadProjects])
 
-  // Keep the board live: a run (manual or a scheduler fire while this page is open)
-  // flips a card to "running" on the backend, then to ok/error on completion. Poll
-  // so the UI reflects it without a manual refresh — faster while a run is in flight,
-  // slower when idle (also keeps the "下次 …/上次 …" relative labels fresh). Paused
-  // while the editor is open (the list isn't visible then).
+  // Keep the board live; paused while a full-page sub-view (editor / templates) is up.
   const anyRunning = items.some((a) => a.last_status === 'running')
   useEffect(() => {
-    if (editing) return
+    if (editing || templatesOpen) return
     const t = setInterval(() => { load() }, anyRunning ? 3000 : 15000)
     return () => clearInterval(t)
-  }, [anyRunning, load, editing])
+  }, [anyRunning, load, editing, templatesOpen])
+
+  const projName = (pid?: string | null): string | null =>
+    pid ? (projects.find((p) => p.id === pid)?.name ?? '工作空间') : null
 
   const openRun = async (a: Automation) => {
     if (!a.last_session_id) { toast('尚未运行'); return }
-    await openSession(a.last_session_id)
-    setView('chat')
+    await openSession(a.last_session_id); setView('chat')
   }
-
-  const doRun = async (a: Automation) => {
-    setMenuId(null)
-    toast('已触发运行 · ' + a.name)
-    await runNow(a.id)
-  }
-
-  // Fetch first, then open — avoids flashing the empty state during the request.
+  const doRun = async (a: Automation) => { setMenuId(null); toast('已触发运行 · ' + a.name); await runNow(a.id) }
   const openHistory = async (a: Automation) => {
     setMenuId(null)
-    try {
-      const { runs } = await api.listAutomationRuns(a.id)
-      setHistRuns(runs)
-      setHistId(a.id)
-    } catch {
-      toast('加载运行记录失败')
-    }
+    try { const { runs } = await api.listAutomationRuns(a.id); setHistRuns(runs); setHistId(a.id) }
+    catch { toast('加载运行记录失败') }
   }
+  const openRunSession = async (id: string) => { setHistId(null); setDetail(null); await openSession(id); setView('chat') }
+  const pickTemplate = (n: string, d: string) => { setTemplatesOpen(false); setEditing({ prefill: { name: n, prompt: d } }) }
 
-  const openRunSession = async (id: string) => {
-    setHistId(null)
-    await openSession(id)
-    setView('chat')
-  }
+  const templateGrid = (
+    <div className="card-grid g3">
+      {AUTO.map(([ic, n, d]) => (
+        <div className="tpl" key={n} {...activate(() => pickTemplate(n, d))} onClick={() => pickTemplate(n, d)}>
+          <span className="t-ic">{ic}</span>
+          <div><div className="t-n">{n}</div><div className="t-d">{d}</div></div>
+        </div>
+      ))}
+    </div>
+  )
 
+  // ---- full-page sub-views -------------------------------------------------
   if (editing) {
     return (
       <section className="view active" data-view="automation">
         <div className="page-scroll">
-          <AutomationEditor
-            auto={editing.auto}
-            prefill={editing.prefill}
-            onClose={() => setEditing(null)}
-            onOpenSession={openRunSession}
-          />
+          <AutomationEditor auto={editing.auto} prefill={editing.prefill} onClose={() => setEditing(null)} onOpenSession={openRunSession} />
         </div>
       </section>
     )
   }
 
+  if (templatesOpen) {
+    return (
+      <section className="view active" data-view="automation">
+        <div className="page-scroll">
+          <div className="ph auto-ed-top">
+            <div className="ph-l auto-ed-crumb">
+              <span className="t-ic">⏰</span>
+              <span className="crumb-dim">自动化 /</span>
+              <span className="crumb-cur">从模版添加</span>
+            </div>
+            <button className="btn-ghost" onClick={() => setTemplatesOpen(false)}>返回</button>
+          </div>
+          <div style={{ marginTop: 18 }}>{templateGrid}</div>
+        </div>
+      </section>
+    )
+  }
+
+  // ---- empty state ---------------------------------------------------------
+  if (items.length === 0) {
+    return (
+      <section className="view active" data-view="automation">
+        <div className="page-scroll">
+          <div className="auto-empty">
+            <div className="auto-empty-ic">⏰</div>
+            <div className="auto-empty-t">开启你的第一个自动化任务吧</div>
+            <button className="btn-dark auto-empty-add" onClick={() => setEditing({})}>{IC_ADD}添加自动化</button>
+          </div>
+          <div className="sec-title">自动化任务模版</div>
+          {templateGrid}
+        </div>
+      </section>
+    )
+  }
+
+  // ---- main: tabs + toolbar + (schedule list | runs) -----------------------
+  const q = query.trim().toLowerCase()
+  const shownItems = items.filter((a) => !q || a.name.toLowerCase().includes(q))
+
   return (
     <section className="view active" data-view="automation">
       <div className="page-scroll">
-        <div className="ph">
-          <div className="ph-l">
-            <h1>自动化</h1>
-            <div className="sub">管理自动化任务并查看近期运行记录。到点由真实智能体执行并产出会话。</div>
+        <div className="auto-hd">
+          <div className="auto-tabs">
+            <button className={`auto-tab ${tab === 'schedule' ? 'on' : ''}`.trim()} onClick={() => setTab('schedule')}>定时任务</button>
+            <button className={`auto-tab ${tab === 'runs' ? 'on' : ''}`.trim()} onClick={() => setTab('runs')}>运行记录</button>
           </div>
-          <button className="btn-line" style={{ marginTop: 0 }} onClick={() => setEditing({})}>
-            {IC_ADD}新建
-          </button>
+          <div className="auto-tools">
+            <div className="auto-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
+              <input placeholder="搜索自动化/记录" value={query} onChange={(e) => setQuery(e.target.value)} />
+            </div>
+            <button className="btn-line" style={{ marginTop: 0 }} onClick={() => setTemplatesOpen(true)}>从模版添加</button>
+            <button className="btn-dark auto-add" onClick={() => setEditing({})}>{IC_ADD}添加自动化</button>
+          </div>
         </div>
 
-        {items.length > 0 && (
+        {tab === 'schedule' ? (
           <>
-            <div className="sec-title">我的自动化（{items.length}）</div>
-            <div className="card-grid g2">
-              {items.map((a) => (
-                <div className="auto-card" key={a.id}>
-                  <div className="auto-h">
-                    <span className="t-ic">{iconOf(a.name)}</span>
-                    <div className="auto-tt">
-                      <div className="auto-n">{a.name}</div>
-                      <div className="auto-meta">
-                        {triggerLabel(a)}
-                        <span className="dot">·</span>
-                        {a.enabled ? `下次 ${a.next_run_label}` : '已停用'}
-                      </div>
+            <div className="sec-title">当前</div>
+            <div className="auto-list">
+              {shownItems.length === 0 && <div className="auto-row-empty">无匹配自动化</div>}
+              {shownItems.map((a) => (
+                <div className="auto-row" key={a.id} {...activate(() => setEditing({ auto: a }))} onClick={() => setEditing({ auto: a })}>
+                  <span className="t-ic">{iconOf(a.name)}</span>
+                  <div className="auto-row-main">
+                    <div className="auto-row-n">{a.name}</div>
+                    <div className="auto-row-sub">
+                      {projName(a.project_id) && <><span className="ws">{projName(a.project_id)}</span><span className="dot">·</span></>}
+                      {triggerLabel(a)}
                     </div>
+                  </div>
+                  <div className="auto-row-right" onClick={(e) => e.stopPropagation()}>
+                    {a.last_status === 'running'
+                      ? <span className="auto-chip run"><i className="run-ic" />运行中</span>
+                      : a.enabled ? <span className="auto-next">{a.next_run_label}执行</span>
+                        : <span className="auto-next off">已停用</span>}
                     <span
                       className={`sw ${a.enabled ? 'on' : ''}`.trim()}
-                      role="switch"
-                      aria-checked={a.enabled ? 'true' : 'false'}
-                      aria-label={a.enabled ? '停用' : '启用'}
+                      role="switch" aria-checked={a.enabled ? 'true' : 'false'} aria-label={a.enabled ? '停用' : '启用'}
                       onClick={() => toggle(a.id, !a.enabled)}
                     />
-                  </div>
-                  <div className="auto-prompt">{a.prompt}</div>
-                  <div className="auto-f">
-                    {a.last_status === 'running' && <span className="auto-chip run"><i className="run-ic" />运行中</span>}
-                    {a.last_status === 'ok' && <span className="auto-chip ok">上次成功 · {a.last_run_label}</span>}
-                    {a.last_status === 'error' && <span className="auto-chip err">上次失败 · {a.last_run_label}</span>}
-                    {!a.last_status && <span className="auto-chip">尚未运行</span>}
                     <button
-                      className="auto-more"
-                      aria-label="更多"
+                      className="auto-more" aria-label="更多"
                       onClick={(e) => { menuAnchor.current = e.currentTarget; setMenuId(menuId === a.id ? null : a.id) }}
                     >
                       <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
@@ -165,14 +225,12 @@ export function AutomationView() {
                     <div className="pop-item danger" onClick={() => { setMenuId(null); remove(a.id); toast('已删除 · ' + a.name) }}>删除</div>
                   </Popover>
 
-                  {/* Run history (WB-035): every session this automation produced,
-                      reusing the 历史提问 popover pattern (.pop-item.hist-item). */}
                   <Popover open={histId === a.id} anchor={menuAnchor.current} dir="down" onClose={() => setHistId(null)} minWidth={200}>
                     <div className="pop-h">运行历史（{histRuns.length}）</div>
                     {histRuns.length === 0 && <div className="pop-item pop-empty">还没有运行记录</div>}
                     {histRuns.map((r) => (
                       <div className="pop-item hist-item" key={r.id} {...activate(() => openRunSession(r.id))} onClick={() => openRunSession(r.id)}>
-                        {r.status === 'running' ? '运行中 · ' : ''}{r.ago}
+                        {r.run_status === 'error' ? '⚠ ' : r.run_status === 'running' ? '运行中 · ' : ''}{r.ago}
                       </div>
                     ))}
                   </Popover>
@@ -180,22 +238,115 @@ export function AutomationView() {
               ))}
             </div>
           </>
+        ) : (
+          <RunsTab query={q} onOpenDetail={setDetail} />
         )}
+      </div>
 
-        <div className="sec-title">从模板入手</div>
-        <div className="card-grid g3">
-          {AUTO.map(([ic, n, d]) => (
-            <div className="tpl" key={n} {...activate(() => setEditing({ prefill: { name: n, prompt: d } }))} onClick={() => setEditing({ prefill: { name: n, prompt: d } })}>
-              <span className="t-ic">{ic}</span>
-              <div>
-                <div className="t-n">{n}</div>
-                <div className="t-d">{d}</div>
+      {detail && (
+        <RunDetailModal
+          run={detail}
+          onClose={() => setDetail(null)}
+          onOpenSession={openRunSession}
+          workspaceName={projName(detail.project_id)}
+        />
+      )}
+    </section>
+  )
+}
+
+function RunStatusIcon({ status }: { status?: string | null }) {
+  if (status === 'error') return <span className="run-st err" title="失败">!</span>
+  if (status === 'running') return <span className="run-st run" title="运行中"><i className="run-ic" /></span>
+  return <span className="run-st ok" title="完成">✓</span>
+}
+
+// 运行记录 tab (WB-043): cross-automation run feed, grouped by day, each with its
+// per-run outcome; click a row for the detail modal.
+function RunsTab({ query, onOpenDetail }: { query: string; onOpenDetail: (r: SessionInfo) => void }) {
+  const [runs, setRuns] = useState<SessionInfo[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(() => {
+    api.listAllAutomationRuns().then(({ runs }) => setRuns(runs)).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+  useEffect(() => {
+    load()
+    const t = setInterval(load, 5000) // reflect running → done without a manual refresh
+    return () => clearInterval(t)
+  }, [load])
+
+  const shown = runs.filter((r) => !query || r.title.toLowerCase().includes(query) || runLabel(r).toLowerCase().includes(query))
+  const groups: { label: string; runs: SessionInfo[] }[] = []
+  for (const r of shown) {
+    const lbl = dayLabel(r.created_at)
+    const g = groups.find((x) => x.label === lbl) ?? (groups.push({ label: lbl, runs: [] }), groups[groups.length - 1])
+    g.runs.push(r)
+  }
+
+  return (
+    <div className="auto-runs">
+      {loading && runs.length === 0 && <div className="auto-row-empty">加载中…</div>}
+      {!loading && shown.length === 0 && <div className="auto-row-empty">{query ? '无匹配运行记录' : '还没有运行记录'}</div>}
+      {groups.map((g) => (
+        <div key={g.label}>
+          <div className="auto-day">{g.label}</div>
+          {g.runs.map((r) => (
+            <div className="auto-run" key={r.id} {...activate(() => onOpenDetail(r))} onClick={() => onOpenDetail(r)}>
+              <div className="auto-run-main">
+                <span className="auto-run-n">{r.title}</span>
+                <span className="auto-run-lb">{runLabel(r)}</span>
+              </div>
+              <div className="auto-run-right">
+                <span className="auto-run-time">{hhmm(r.created_at)}</span>
+                <RunStatusIcon status={r.run_status} />
               </div>
             </div>
           ))}
         </div>
+      ))}
+    </div>
+  )
+}
+
+// Run detail modal (WB-043): the saved execution summary + run detail for one run.
+function RunDetailModal({ run, onClose, onOpenSession, workspaceName }: {
+  run: SessionInfo
+  onClose: () => void
+  onOpenSession: (id: string) => void
+  workspaceName: string | null
+}) {
+  const failed = run.run_status === 'error'
+  return (
+    <div className="np-overlay open" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="np-modal auto-detail" role="dialog" aria-modal="true" aria-label="运行详情">
+        <div className="np-h">{run.title}<button className="np-x" onClick={onClose}>×</button></div>
+        <div className="np-body">
+          <div className="auto-detail-msg">
+            {failed ? '本次任务已启动，但在生成结果前中断，以下为保存下来的执行摘要。' : '本次运行已完成，以下为执行摘要。'}
+          </div>
+          <div className="auto-detail-badges">
+            <span className={`auto-chip ${failed ? 'err' : 'ok'}`}>{runLabel(run)}</span>
+            <span className="auto-detail-time">{fullTime(run.created_at)}</span>
+          </div>
+          <div className="np-lbl">摘要</div>
+          <div className="auto-detail-box">{run.run_summary || (failed ? '运行失败' : '运行完成')}</div>
+          <div className="np-lbl">运行明细</div>
+          <div className="auto-detail-box">
+            <div className="auto-detail-path">
+              <span className="p">{run.workspace || workspaceName || '默认工作区'}</span>
+              <span className={failed ? 'err' : 'ok'}>{failed ? '失败' : '完成'}</span>
+            </div>
+            {run.run_summary && <div className={`auto-detail-err ${failed ? 'err' : ''}`.trim()}>{run.run_summary}</div>}
+          </div>
+        </div>
+        <div className="np-foot">
+          <span className="np-hint" />
+          <button className="btn-ghost" onClick={onClose}>关闭</button>
+          <button className="btn-dark" onClick={() => onOpenSession(run.id)}>打开会话</button>
+        </div>
       </div>
-    </section>
+    </div>
   )
 }
 
@@ -373,7 +524,7 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
             {runs.length === 0 && <div className="pop-item pop-empty">还没有运行记录</div>}
             {runs.map((r) => (
               <div className="pop-item hist-item" key={r.id} {...activate(() => onOpenSession(r.id))} onClick={() => onOpenSession(r.id)}>
-                {r.status === 'running' ? '运行中 · ' : ''}{r.ago}
+                {r.run_status === 'error' ? '⚠ ' : r.run_status === 'running' ? '运行中 · ' : ''}{r.ago}
               </div>
             ))}
           </aside>

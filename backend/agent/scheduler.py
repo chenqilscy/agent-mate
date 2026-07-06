@@ -27,11 +27,13 @@ _running: set[str] = set()  # automation ids with a fire in flight (no overlap)
 
 
 async def _execute(auto: Automation, session) -> None:
-    """Drive one automation run to completion in `session`, then record status."""
+    """Drive one automation run to completion in `session`, then record status +
+    a per-run summary (WB-043) so 运行记录 can show why a run failed."""
     user = db.get_user(auto.owner_id) or db.get_user(LOCAL_USER_ID)
     status = "ok"
+    summary: Optional[str] = None
     if user is None:
-        status = "error"
+        status, summary = "error", "运行账户不存在"
     else:
         try:
             async def _drive() -> None:
@@ -39,8 +41,11 @@ async def _execute(auto: Automation, session) -> None:
                     pass
 
             await asyncio.wait_for(_drive(), timeout=RUN_TIMEOUT)
-        except Exception:  # noqa: BLE001 — a bad run must not kill the scheduler
-            status = "error"
+        except asyncio.TimeoutError:
+            status, summary = "error", "Run timed out"
+        except Exception as e:  # noqa: BLE001 — a bad run must not kill the scheduler
+            status, summary = "error", (str(e)[:500] or "运行失败")
+    db.mark_session_run(session.id, run_status=status, run_summary=summary)
     db.mark_automation_run(
         auto.id, last_run_at=time.time(), last_session_id=session.id, last_status=status
     )
@@ -51,6 +56,7 @@ async def _fire_guarded(auto: Automation) -> None:
         session = db.create_session(
             owner_id=auto.owner_id, title=auto.name[:26], kind="automation",
             project_id=auto.project_id, automation_id=auto.id,
+            run_kind="scheduled", run_status="running",
         )
         db.mark_automation_run(auto.id, last_session_id=session.id, last_status="running")
         await _execute(auto, session)
@@ -91,6 +97,7 @@ async def run_now(auto_id: str) -> Optional[str]:
     session = db.create_session(
         owner_id=auto.owner_id, title=auto.name[:26], kind="automation",
         project_id=auto.project_id, automation_id=auto.id,
+        run_kind="test", run_status="running",
     )
     db.mark_automation_run(auto_id, last_session_id=session.id, last_status="running")
     _running.add(auto_id)
