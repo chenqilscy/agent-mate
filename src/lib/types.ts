@@ -232,4 +232,5 @@ export interface SkillDetail extends InstalledSkill {
   frontmatter: Record<string, unknown>
   references: string[]
   dir: string
+  installed?: boolean                    // true=本地已安装；false=安装前预览（WB-057）
 }

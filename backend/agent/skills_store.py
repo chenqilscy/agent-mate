@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -172,13 +173,14 @@ def scan() -> list[dict[str, Any]]:
     return out
 
 
-def detail(key: str) -> dict[str, Any] | None:
-    d = _safe_dir(key)
-    if not d:
-        return None
+def _build_detail(d: Path, installed: bool, name_override: str = "") -> dict[str, Any] | None:
+    """从任意目录（已安装的 SKILLS_DIR 子目录 或 预览临时目录）构造详情。"""
     info = _info_from_dir(d)
     if not info:
         return None
+    if name_override:
+        info["name"] = name_override
+    info["installed"] = installed
     try:
         raw = (d / SKILL_MD).read_text(encoding="utf-8", errors="ignore")
     except OSError:
@@ -193,9 +195,66 @@ def detail(key: str) -> dict[str, Any] | None:
         "body": body,             # 去掉 front-matter 的正文，供预览渲染
         "frontmatter": fm,
         "references": refs,
-        "dir": str(d),
+        "dir": str(d) if installed else "",
     })
     return info
+
+
+def detail(key: str) -> dict[str, Any] | None:
+    d = _safe_dir(key)
+    return _build_detail(d, installed=True) if d else None
+
+
+def _installed_dir_for_slug(slug: str) -> Path | None:
+    root = skills_dir()
+    for d in (root.iterdir() if root.exists() else []):
+        if not d.is_dir():
+            continue
+        if d.name == slug or d.name.replace("__skillhub", "") == slug:
+            return d
+        if str(_read_json(d / SKILLHUB_META).get("slug") or "") == slug:
+            return d
+    return None
+
+
+# 安装前预览缓存（slug → detail），避免重复下载。小 local 应用，简单封顶即可。
+_preview_cache: dict[str, dict[str, Any]] = {}
+
+
+def preview(slug: str = "", name: str = "") -> dict[str, Any] | None:
+    """安装前预览：已安装则给本地详情；否则把 zip 下到临时目录读 SKILL.md，读完即删。
+    不污染 ~/.workbuddy/skills/。"""
+    slug = (slug or "").strip()
+    name = (name or "").strip()
+    if not slug and name:
+        slug = resolve_slug(name) or ""
+    if not slug:
+        return None
+    inst = _installed_dir_for_slug(slug)
+    if inst:
+        return _build_detail(inst, installed=True)
+    if slug in _preview_cache:
+        return _preview_cache[slug]
+    if not cli_available():
+        return None
+    tmp = Path(tempfile.mkdtemp(prefix="skhub-prev-"))
+    try:
+        _run_cli(["install", slug, "--dir", str(tmp), "--json", "--force"], timeout=120)
+        dest = tmp / slug
+        if not (dest / SKILL_MD).is_file():
+            return None
+        det = _build_detail(dest, installed=False, name_override=name)
+        if det:
+            det["key"] = ""      # 未安装无本地 key
+            det["slug"] = slug
+            if len(_preview_cache) > 64:
+                _preview_cache.clear()
+            _preview_cache[slug] = det
+        return det
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ── 跑 skillhub CLI（后端自己的 Python，不依赖 bash wrapper / PATH）───────────

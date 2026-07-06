@@ -560,6 +560,9 @@ body.dark .conn-tag.tok { background: #3A2E17; color: #E7A33E; }
 .skd-top { display: flex; align-items: flex-start; gap: 16px; margin: 6px 0 14px; }
 .skd-title { font-size: 20px; font-weight: 800; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .skd-ver { font-size: 11px; font-weight: 600; color: var(--text-3); background: var(--chip); padding: 1px 8px; border-radius: 20px; }
+.skd-ver.skd-preview { color: #C77700; background: #FFF4E5; }
+body.dark .skd-ver.skd-preview { color: #E7A33E; background: #3A2E17; }
+.skd-actions .btn-dark svg { width: 14px; height: 14px; }
 .skd-desc { font-size: 13px; color: var(--text-2); line-height: 1.6; margin-top: 8px; }
 .skd-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .skd-menu { width: 140px; }

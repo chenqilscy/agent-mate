@@ -32,6 +32,15 @@ def search_skills(q: str = "", limit: int = 8) -> dict:
     return {"results": skills_store.search(q, limit)}
 
 
+@router.get("/skills/preview")
+def preview_skill(slug: str = "", name: str = "") -> dict:
+    # 安装前预览：未安装的技能也能看 SKILL.md（临时下载，不落 ~/.workbuddy/skills）。
+    d = skills_store.preview(slug=slug, name=name)
+    if not d:
+        raise HTTPException(404, f"SkillHub 未找到「{name or slug}」或预览失败")
+    return {"skill": d}
+
+
 @router.get("/skills/{key}")
 def get_detail(key: str) -> dict:
     d = skills_store.detail(key)

@@ -94,6 +94,9 @@ export const api = {
   // 安装走真实 skillhub CLI 下载解压。key = 技能目录名。
   listSkills: () => get<{ skills: InstalledSkill[]; cli: boolean }>('/skills'),
   skillDetail: (key: string) => get<{ skill: SkillDetail }>(`/skills/${encodeURIComponent(key)}`),
+  // 安装前预览：未安装也能看 SKILL.md（后端临时下载，不落盘）。
+  skillPreview: (q: { slug?: string; name?: string }) =>
+    get<{ skill: SkillDetail }>(`/skills/preview?slug=${encodeURIComponent(q.slug ?? '')}&name=${encodeURIComponent(q.name ?? '')}`),
   installSkill: (body: { slug?: string; name?: string }) =>
     send<{ ok: boolean; skill: InstalledSkill }>('POST', '/skills/install', body),
   uninstallSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/uninstall`),
