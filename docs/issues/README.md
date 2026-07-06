@@ -64,6 +64,7 @@
 | [WB-044](WB-044-automation-view-restructure-tabs-list-templates.md) | ✅ | P2 | frontend | 自动化视图重构：定时任务/运行记录 tab + 工具条 + 紧凑列表 + 从模版添加独立页 |
 | [WB-045](WB-045-bound-automation-runs-belong-to-space.md) | ✅ | P3 | frontend | 绑定了工作空间的自动化，其运行会话应归入该「空间」而非「自动化」分组 |
 | [WB-046](WB-046-file-endpoints-missing-auth-token.md) | ✅ | P1 | frontend | 登录用户上传/下载文件不带 Bearer token（uploadFile 原生 fetch / downloadUrl 明文 URL 绕过鉴权） |
+| [WB-047](WB-047-plan-exec-activity-feed-uninformative-title.md) | ✅ | P2 | frontend | 「动态」tab 中执行计划项的记录只显示随手指令（如「执行它」），看不出执行的是哪个计划项 |
 
 ## 来源
 

@@ -88,7 +88,11 @@ export function ProjectHomeView() {
   }
 
   const launch = (text: string) => {
-    startProject(project.id, text.length > 26 ? text.slice(0, 26) + '…' : text)
+    // 执行计划项时，待办以 🔖 ref 只注入本轮 LLM 输入、不进正文/标题；此时用计划项名
+    // 作会话标题，让「动态」feed 能认出执行的是哪个计划项，而非随手指令（WB-047）。
+    const todoRef = useLoadoutStore.getState().refs.find((r) => r.kind === 'todo')
+    const raw = todoRef?.name ?? text
+    startProject(project.id, raw.length > 26 ? raw.slice(0, 26) + '…' : raw)
     setView('projexec')
     void send(text)
   }
