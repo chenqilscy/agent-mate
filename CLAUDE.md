@@ -10,8 +10,10 @@ WorkBuddy —— 从高保真原型 [`docs/workbuddy-v2.html`](docs/workbuddy-v2
 前端 React 19 + Vite + TS + Zustand（`src/`），后端 Python FastAPI + SSE + 自研 agent 工具循环 + SQLite（`backend/`）。
 Local-first：后端跑在用户本机 localhost，浏览器（`:5173` 代理 `/api` 到 `:8000`）只是显示器。
 
-进度：M0–M5 + §11 项目工作台 A/B/C 已完成并验证；近期完成 ＋菜单 loadout、⌘F 对话内搜索、900px 响应式抽屉。
-未做：Tauri 2 外壳打包（需 Rust）、M7 协作。
+进度：M0–M5 + §11 项目工作台 A–D 已完成并验证；Tauri 2 桌面外壳（路线 A：外壳/sidecar/安装包/托盘·更新脚手架）已落地；
+能力补全（路线 B：自动化 + 内置/第三方 MCP 连接器 + 更多真实技能工具）已落地；
+**M7 协作 C1–C4**（真账户鉴权 / 项目成员·角色·邀请 / 队友执行只读可见+动态署名 / 消息中心真事件）已完成并验证（共享后端即 Hub）。
+未做：更深协作（评论 / @提及 / 在线状态，需实时通道）；Tauri 打包的自动更新端点与代码签名（需用户基建/证书）。
 
 ## 铁律（不可妥协）
 
