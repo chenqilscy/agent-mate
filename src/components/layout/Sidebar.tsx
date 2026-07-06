@@ -4,9 +4,12 @@ import { useChatStore } from '../../stores/chatStore'
 import { useLoadoutStore } from '../../stores/loadoutStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useAuthStore } from '../../stores/authStore'
+import { useNotificationStore } from '../../stores/notificationStore'
 import { toast } from '../../stores/toastStore'
 import type { ProjectInfo, SessionInfo, ViewId } from '../../lib/types'
 import { activate } from '../../lib/a11y'
+import { LoginModal } from '../auth/LoginModal'
+import { MessageCenter } from './MessageCenter'
 import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
 
 const NAV: { id: ViewId; label: string; icon: ReactNode; sub?: string; cls?: string }[] = [
@@ -57,8 +60,21 @@ export function Sidebar() {
   const setActiveProject = useProjectStore((s) => s.setActive)
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
   const me = useAuthStore((s) => s.me)
+  const loggedIn = useAuthStore((s) => s.loggedIn)
+  const logout = useAuthStore((s) => s.logout)
+  const [loginOpen, setLoginOpen] = useState(false)
+  const unread = useNotificationStore((s) => s.unread)
+  const loadNotifs = useNotificationStore((s) => s.load)
+  const [msgOpen, setMsgOpen] = useState(false)
 
   useEffect(() => { loadProjects() }, [loadProjects])
+  // Message center (M7 C4): load on mount + poll lightly so the bell badge stays
+  // live even while the center is closed.
+  useEffect(() => {
+    void loadNotifs()
+    const t = setInterval(() => void loadNotifs(), 30_000)
+    return () => clearInterval(t)
+  }, [loadNotifs])
   // Ad-hoc chats (no project) live under 任务; a workspace-bound automation's runs
   // nest under that 空间 like project executions (WB-045); only unbound automation
   // runs go to the dedicated 自动化 group (WB-041). Mutually exclusive, no dup.
@@ -366,8 +382,8 @@ export function Sidebar() {
           <path d="M15 26q5 4 10 0" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" />
         </svg>
         <span className="name">{me?.name ?? '奇'}</span>
-        <div className="fic" aria-label="通知" style={{ position: 'relative' }} onClick={(e) => { e.stopPropagation(); toast('消息中心') }} {...activate((e) => { e?.stopPropagation(); toast('消息中心') })}>
-          <span className="bell-dot" />
+        <div className="fic" aria-label="通知" style={{ position: 'relative' }} onClick={(e) => { e.stopPropagation(); setMsgOpen(true) }} {...activate((e) => { e?.stopPropagation(); setMsgOpen(true) })}>
+          {unread > 0 && <span className="bell-dot" />}
           <IcBell />
         </div>
         <div className="fic" aria-label="发现" onClick={(e) => { e.stopPropagation(); toast('发现') }} {...activate((e) => { e?.stopPropagation(); toast('发现') })}>
@@ -415,11 +431,20 @@ export function Sidebar() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 115 1c0 1.5-2.5 2-2.5 3.5M12 17h.01" /></svg>帮助与反馈
           </div>
           <div className="pf-div" />
-          <div className="pf-row" onClick={() => { toast('退出登录'); setProfileOpen(false) }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" /></svg>退出登录
-          </div>
+          {loggedIn ? (
+            <div className="pf-row" onClick={() => { setProfileOpen(false); void logout() }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" /></svg>退出登录
+            </div>
+          ) : (
+            <div className="pf-row" onClick={() => { setProfileOpen(false); setLoginOpen(true) }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" /></svg>登录 / 注册账号
+            </div>
+          )}
         </div>
       )}
+
+      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
+      {msgOpen && <MessageCenter onClose={() => setMsgOpen(false)} />}
     </aside>
   )
 }

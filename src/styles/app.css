@@ -628,6 +628,9 @@ body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
 .np-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); display: none; align-items: center; justify-content: center; z-index: 150; padding: 20px; }
 .np-overlay.open { display: flex; animation: fade .18s ease; }
 .np-modal { width: 604px; max-width: 100%; max-height: 92vh; background: #fff; border-radius: 16px; display: flex; flex-direction: column; box-shadow: var(--shadow-md); overflow: hidden; }
+.np-modal.auth-modal { width: 380px; }
+.auth-switch { margin-top: 12px; font-size: 12.5px; color: var(--text-3); }
+.auth-switch span { color: var(--brand-600); cursor: pointer; margin-left: 5px; font-weight: 600; }
 .np-h { display: flex; align-items: center; gap: 12px; padding: 18px 22px 4px; font-size: 16px; font-weight: 800; flex-shrink: 0; }
 .np-x { margin-left: auto; width: 28px; height: 28px; border-radius: 8px; border: none; background: transparent; cursor: pointer; color: var(--text-2); font-size: 19px; line-height: 1; display: grid; place-items: center; }
 .np-x:hover { background: var(--chip); }
@@ -899,6 +902,51 @@ body.dark .wb-date { color-scheme: dark; }
 .wb-date:focus { border-color: var(--brand); }
 .wb-attach-btn { width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 8px; background: transparent; cursor: pointer; font-size: 15px; color: var(--text-2); display: grid; place-items: center; }
 .wb-attach-btn:hover { border-color: var(--brand); color: var(--brand-600); }
+
+/* 项目成员 / 角色 (M7 C2) — 只用主题变量，明暗自适应 */
+.pj-rolebadge { margin-left: 8px; font-size: 11px; font-weight: 700; color: var(--brand-600); background: var(--brand-soft); border-radius: 6px; padding: 2px 8px; white-space: nowrap; }
+.pj-rolebadge.sm { margin-left: 0; font-size: 10.5px; padding: 1px 7px; }
+.members-modal { width: 440px; }
+.mm-add { display: flex; gap: 8px; align-items: center; }
+.mm-add .np-input { flex: 1; min-width: 0; }
+.mm-role-sel { height: 34px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text); font-family: inherit; font-size: 12.5px; padding: 0 6px; outline: none; cursor: pointer; }
+.mm-role-sel:focus { border-color: var(--brand); }
+.mm-count { color: var(--text-3); font-weight: 600; font-size: 12px; margin-left: 4px; }
+.mm-list { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.mm-empty { color: var(--text-3); font-size: 12.5px; padding: 14px 2px; }
+.mm-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border-2); }
+.mm-row:last-child { border-bottom: none; }
+.mm-av { width: 30px; height: 30px; border-radius: 50%; background: var(--brand-soft); color: var(--brand-600); display: grid; place-items: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+.mm-info { flex: 1; min-width: 0; }
+.mm-name { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mm-you { font-size: 10px; font-weight: 700; color: var(--brand-600); background: var(--brand-soft); border-radius: 5px; padding: 1px 5px; }
+.mm-sub { font-size: 11.5px; color: var(--text-3); margin-top: 1px; }
+.mm-badge { font-size: 11.5px; font-weight: 600; color: var(--text-2); background: var(--chip); border-radius: 6px; padding: 3px 9px; flex-shrink: 0; }
+.mm-x { width: 26px; height: 26px; border: none; background: transparent; color: var(--text-3); cursor: pointer; font-size: 17px; line-height: 1; border-radius: 6px; flex-shrink: 0; }
+.mm-x:hover { background: var(--chip); color: #E5484D; }
+
+/* 只读查看队友的执行会话 (M7 C3) */
+.pe-readonly { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 16px; font-size: 12.5px; color: var(--text-2); background: var(--chip); border: 1px solid var(--border); border-radius: 12px; }
+.pe-readonly svg { width: 15px; height: 15px; color: var(--text-3); flex-shrink: 0; }
+.pe-readonly b { color: var(--text); font-weight: 700; }
+
+/* 消息中心 (M7 C4) — 只用主题变量，明暗自适应 */
+.msg-center { width: 420px; }
+.msg-unread { font-size: 11px; font-weight: 700; color: #fff; background: #E5484D; border-radius: 9px; padding: 1px 7px; margin-left: 2px; }
+.msg-body { max-height: 60vh; padding-top: 8px; padding-bottom: 8px; }
+.msg-empty { text-align: center; color: var(--text-3); font-size: 12.5px; line-height: 1.7; padding: 40px 24px; }
+.msg-empty-ic { display: block; font-size: 30px; margin-bottom: 10px; opacity: .8; }
+.msg-row { display: flex; align-items: flex-start; gap: 11px; padding: 11px 8px; border-bottom: 1px solid var(--border-2); border-radius: 8px; }
+.msg-row:last-child { border-bottom: none; }
+.msg-row.clickable { cursor: pointer; }
+.msg-row.clickable:hover { background: var(--chip); }
+.msg-row.unread { background: var(--brand-soft); }
+.msg-ic { width: 30px; height: 30px; border-radius: 8px; background: var(--chip); display: grid; place-items: center; font-size: 15px; flex-shrink: 0; }
+.msg-main { flex: 1; min-width: 0; }
+.msg-title { font-size: 13px; font-weight: 600; line-height: 1.45; color: var(--text); }
+.msg-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.msg-meta { font-size: 11px; color: var(--text-3); margin-top: 4px; }
+.msg-dot { width: 8px; height: 8px; border-radius: 50%; background: #E5484D; flex-shrink: 0; margin-top: 6px; }
 .wb-attach-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .wb-attach-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; background: var(--chip); border-radius: 8px; padding: 6px 10px; font-size: 12.5px; }
 .wb-attach-chip .ic { flex-shrink: 0; }
