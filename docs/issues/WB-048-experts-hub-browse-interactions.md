@@ -56,4 +56,4 @@ P2：核心浏览/召唤链路不可用，「专家团」整块不可见、召�
   - `src/views/ExpertsView.tsx`：`ExpertsPane` 改受控（`sub` 专家/专家团切换 + `cat` 真过滤 + 空态）；新增 `ExpertDetailModal`（套 `.np-overlay/.np-modal`，能力介绍/擅长领域/团队成员[主理人徽标]/试试这样问我/召唤）；顶层 `summon()` 接线：召唤=`loadout.summon`+`startDraft`+回首页；示例问题=同上并直接 `send`。精选场景卡点击切到专家团。
   - `src/styles/app.css`：新增 `.hub-blank` 空态样式（token 化，暗色安全）。
 - 验证：`npx tsc --noEmit` 通过。Playwright 实测（:5180，已登录）：专家↔专家团切换生效；「法务安全」过滤专家团仅剩中文法律咨询团、切到「专家」tab 触发「该分类下暂无专家」空态；团队详情弹窗成员/主理人/擅长/示例问题齐全；点「召唤 内容创作专家团」→ 跳首页且 composer 已挂入全部 7 名成员 chip；单专家弹窗正确省略成员/示例问题段。**明暗双主题**弹窗均无白底白字/深底深字（复用现成弹窗类，天然继承 body.dark 覆盖）。示例问题→send 路径与首页 launch 同构、loadout 由 `send()` 于发送时读取（已在召唤路径验证同一机制），未单独发起真实 LLM 调用以免污染会话。
-- commit：（待提交）
+- commit：741ee24（与 WB-049 同一 commit：ExpertsView.tsx / README 同时承载两条）
