@@ -50,10 +50,13 @@ PLAN_SYSTEM_PROMPT = (
 MAX_ROUNDS = 12
 
 # Attached-refs limits (WB-010): a single turn can't blow up context/memory.
-MAX_REFS = 10           # at most this many referenced files per turn
-MAX_REF_BODY = 8000     # chars kept from each ref's body
-MAX_REFS_TOTAL = 32_000  # chars across all ref bodies combined
-MAX_REF_NAME = 120      # chars kept from a ref's display name
+# WB-025: raised so a mid-size document actually goes through — front-end
+# EFFECTIVE_REF_LIMIT (Composer.tsx) mirrors MAX_REF_BODY, and truncation is now
+# surfaced (chip「已截断」+ the injected marker below) instead of silent.
+MAX_REFS = 10                # at most this many referenced files per turn
+MAX_REF_BODY = 1_000_000     # chars kept from each ref's body (== front EFFECTIVE_REF_LIMIT)
+MAX_REFS_TOTAL = 4_000_000   # chars across all ref bodies combined
+MAX_REF_NAME = 120           # chars kept from a ref's display name
 
 # Active runs are keyed by a per-run id, not session id (WB-015): two runs on the
 # same session (e.g. a second message while one is suspended on ask_user) must not
@@ -254,17 +257,24 @@ async def run_chat(
             budget = MAX_REFS_TOTAL - total
             if budget <= 0:
                 break
-            body = str(r.get("content", ""))[:min(MAX_REF_BODY, budget)]  # cap per-ref + running total
+            raw = str(r.get("content", ""))
+            body = raw[:min(MAX_REF_BODY, budget)]  # cap per-ref + running total
             total += len(body)
+            # WB-025: if we dropped part of the body, say so in-band so the model (and
+            # anyone reading the trace) knows the content is partial — never silent.
+            note = (
+                f"\n[⚠ 内容已截断：仅注入前 {len(body)} 字符，原文共 {len(raw)} 字符]"
+                if len(raw) > len(body) else ""
+            )
             # A 计划「添加到输入框」ref carries the work_item id (WB-030): render it as a
             # task the agent can act on, not a plain file, and point at the status tool.
             if r.get("kind") == "todo" and r.get("itemId"):
                 blocks.append(
-                    f"【关联待办任务 {name}（计划项 id={r['itemId']}）】\n{body}\n"
+                    f"【关联待办任务 {name}（计划项 id={r['itemId']}）】\n{body}{note}\n"
                     "（处理完成或推进后，调用 set_work_item_status(item_id, status) 回写它的状态）"
                 )
             else:
-                blocks.append(f"【参考文件 {name}】\n{body}")
+                blocks.append(f"【参考文件 {name}】\n{body}{note}")
         llm_user_text = "\n\n".join(blocks) + "\n\n---\n\n" + user_text
 
     llm_messages = _build_llm_messages(session_id, llm_user_text, system_prompt)

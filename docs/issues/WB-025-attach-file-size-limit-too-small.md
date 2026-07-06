@@ -3,7 +3,7 @@ id: WB-025
 title: ＋菜单「添加文件」上限 200KB 过小（且被后端 8000 字符截断掩盖）
 severity: P2
 area: frontend
-status: open
+status: fixed
 origin: 既有实现
 files:
   - src/components/composer/Composer.tsx:16
@@ -60,3 +60,27 @@ P2：不是崩溃或数据错误，是可用性限制。阻断「附一份中等
 - 附加内容超过后端 `MAX_REF_BODY` 时，用户能看到「已截断」类提示，且实际注入 LLM 的长度符合新约定（手动跑一次带 ref 的 `/chat`，确认注入块长度）。
 - `npx tsc --noEmit` 通过；改后端则 `python -m py_compile backend/agent/runtime.py`。
 - 明暗双主题下 toast/chip 提示均可见（视觉零重设计、暗色不翻车）。
+
+## 处理记录（2026-07-07）
+
+按用户拍板的口径：**每个 ref 有效上限 ≈1MB**（放大而非仅调数字，且截断可见）。
+
+- 前端 `src/components/composer/Composer.tsx`：
+  - `MAX_ATTACH` 200KB → **4MB**（硬性 payload 上限，仍守 WB-010 不让单次附件撑爆内存/请求体）；
+    新增 `EFFECTIVE_REF_LIMIT = 1_000_000`，注释与后端 `MAX_REF_BODY` 互相指认，作为「实际注入 LLM 的每 ref 字符数」。
+  - `onFileChosen`：超 4MB 仍拒收（文案改为「上限约 4MB 文本」）；成功附加时，若文本 > 100 万字符，
+    toast 明确「注入时会截断至前 100 万字符」。
+  - ref chip：当 `content.length > EFFECTIVE_REF_LIMIT` 时，chip 名后缀「· 已截断」并在 `title` 说明——
+    复用既有 `.np-lbl` 文本、无新增 CSS/写死颜色，随主题走，暗色不翻车。
+- 后端 `backend/agent/runtime.py`：
+  - `MAX_REF_BODY` 8000 → **1_000_000**，`MAX_REFS_TOTAL` 32_000 → **4_000_000**（`MAX_REFS=10` 不变）。
+  - 注入循环：截断时在该 ref 块内追加 in-band 标记「[⚠ 内容已截断：仅注入前 N 字符，原文共 M 字符]」，
+    不再静默丢弃。
+- 验证：
+  - `npx tsc --noEmit` 通过；`py_compile backend/agent/runtime.py` 通过。
+  - 后端按 live 常量实测注入逻辑：300k 字符 ref → 全量注入 300000、无标记；1.2M 字符 ref → 注入 1000000、
+    带截断标记「injected 1000000 of 1200000」。即「注入长度符合新约定」。
+  - 前端 chip/toast 为确定性的长度判断（已 tsc 通过，且经 Vite HMR 推入用户正在运行的窗口）；
+    截断提示走既有 chip 文本样式、无主题翻转风险。浏览器 profile 被用户当前 App 窗口占用（SingletonLock），
+    未强杀以免打断用户；用户可在开着的窗口直接附一个 >200KB / >1MB 文本文件眼见 chip 与 toast。
+- commit：随本次提交（master，标题带 WB-025）。

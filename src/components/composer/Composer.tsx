@@ -13,7 +13,13 @@ import { RefPicker } from './RefPicker'
 import { NP_CONNS, NP_EXPERTS, SK_GRID } from '../../data/catalog'
 import { IcPlus, IcClose, IcSend, IcChevronDown, IcMic, IcShield } from '../../lib/icons'
 
-const MAX_ATTACH = 200_000 // ~200 KB of text per attachment
+// Attach limits — kept in step with the backend ref caps in backend/agent/runtime.py
+// (MAX_REF_BODY / MAX_REFS_TOTAL). EFFECTIVE_REF_LIMIT mirrors MAX_REF_BODY: the chars
+// actually fed to the LLM per ref. A file longer than this is still attachable, but the
+// chip flags it「已截断」so the user knows only the head is injected (WB-025). MAX_ATTACH
+// is a hard payload guard so a single attach can't blow up memory/request size (WB-010).
+const EFFECTIVE_REF_LIMIT = 1_000_000 // chars injected per ref (== backend MAX_REF_BODY)
+const MAX_ATTACH = 4_000_000 // ~4 MB hard cap per attachment
 
 interface ComposerProps {
   variant?: 'home' | 'chat'
@@ -64,11 +70,13 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
     const file = e.target.files?.[0]
     e.target.value = '' // allow re-picking the same file
     if (!file) return
-    if (file.size > MAX_ATTACH) { toast('文件过大（上限约 200KB 文本）'); return }
+    if (file.size > MAX_ATTACH) { toast('文件过大（上限约 4MB 文本）'); return }
     try {
       const content = await file.text()
       addRef({ name: file.name, content })
-      toast('已添加 · ' + file.name)
+      toast(content.length > EFFECTIVE_REF_LIMIT
+        ? `已添加 · ${file.name}（超 100 万字符，注入时会截断至前 100 万字符）`
+        : '已添加 · ' + file.name)
     } catch {
       toast('读取失败')
     }
@@ -118,9 +126,12 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
           {connectors.map((n) => (
             <span className="np-chip" key={'c' + n} title={n}><span>{iconOf('conn', n)}</span><span className="np-lbl">{n}</span><span className="x" onClick={() => toggleLoad('conn', n)}>×</span></span>
           ))}
-          {refs.map((r) => (
-            <span className={`np-chip ${r.kind === 'todo' ? 'ref-todo' : 'ref-file'}`} key={'r' + r.name} title={r.name}><span>{r.kind === 'todo' ? '🔖' : '📎'}</span><span className="np-lbl">{r.name}</span><span className="x" onClick={() => removeRef(r.name)}>×</span></span>
-          ))}
+          {refs.map((r) => {
+            const truncated = r.content.length > EFFECTIVE_REF_LIMIT
+            return (
+              <span className={`np-chip ${r.kind === 'todo' ? 'ref-todo' : 'ref-file'}`} key={'r' + r.name} title={truncated ? `${r.name}（注入时截断至前 100 万字符）` : r.name}><span>{r.kind === 'todo' ? '🔖' : '📎'}</span><span className="np-lbl">{r.name}{truncated ? ' · 已截断' : ''}</span><span className="x" onClick={() => removeRef(r.name)}>×</span></span>
+            )
+          })}
         </div>
       )}
       <textarea
