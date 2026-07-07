@@ -108,4 +108,27 @@ P2：这是原型里承诺、方案里排期但从未落地的一整个一级视
 - 备注：本 issue = Slice 1（后端闭环，已完成并真机验证）。Slice 2（AssistantView 接真状态+真会话历史）、
   Slice 3（`POST /api/channels/telegram/webhook` 供公网/Hub 部署）另开 issue 推进。assistant 会话是真实
   会话，会出现在会话列表里（铁律#1 真持久化）——Slice 2 会把它收敛进助理页展示。
-- commit：（尚未提交）
+- commit：f0ffd1a（Slice 1）
+
+## 处理记录 · Slice 2（2026-07-08）—— AssistantView 接真实状态 + 真会话历史
+
+- 改动（前端助理页真正可用）：
+  - 后端 `channels/telegram_bridge.py`：`ensure_assistant_session`（App 与 Telegram 共用同一助理会话，
+    每 owner 一条）+ `status()`（渠道状态，getMe 结果 60s 缓存）+ `say()`（从 App 驱动同一助手）；
+    `_authorize_and_get_session` 改为复用该共享会话再绑定 chat。
+  - `storage/db.py`：`get_assistant_session(owner_id)`。
+  - `routers/channels.py`（新）：`GET /api/channels/telegram`（状态 + 真实 transcript）、
+    `POST /api/channels/telegram/say`（驱动同一助手，返回回复）；`main.py` 注册。
+  - 前端 `lib/api.ts`：`TelegramChannel` 类型 + `getTelegramChannel` / `telegramSay`。
+  - `views/AssistantView.tsx`：去掉三条 canned 假消息与假「🟢 微信小程序」状态；改为真实状态芯片
+    （🟢已连接@bot / 🟡连接中/已配置未开启 / ⚪未连接）、真实 transcript（复用 `MessageList`，4s 轮询
+    反映 Telegram 侧新消息）、可用 Composer（驱动同一助手，乐观 UI + typing 指示）；未配置时给
+    setup 引导而非假对话。会话仅在首次 say/配对时创建，不在打开视图的 GET 里冒空会话。
+- 验证：
+  - `npx tsc --noEmit` 通过；`npx vite build` 通过。
+  - 硬重启 :8000 加载新代码：`GET /api/channels/telegram` 返回 connected=true / @CkyBuddyBot /
+    bound_chat=8617683065 + **之前 Telegram 对话的真实 transcript**（你是？/模型/世界杯三轮）；
+    `POST /say {text:"…"}` 驱动真实 DeepSeek，返回「从 App 发送测试成功 ✅」并写入同一共享会话。
+  - 未跑：浏览器明暗双主题实时截图（Playwright profile 被占用无法接管）；复用的均为既有主题安全 class
+    （ast-conn/ac-chip/ov-center/MessageList），未引入暗色会翻车的硬编码色，仅加主题无关 emoji 状态点。
+- commit：（Slice 2 尚未提交）

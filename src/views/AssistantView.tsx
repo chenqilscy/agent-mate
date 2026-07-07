@@ -1,18 +1,104 @@
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Composer } from '../components/composer/Composer'
-import { CatLogo, IcSearch, IcShare, IcHistory, IcPanel, IcGear } from '../lib/icons'
+import { MessageList } from '../components/chat/MessageList'
+import { IcSearch, IcShare, IcHistory, IcPanel, IcGear } from '../lib/icons'
+import { api, type TelegramChannel } from '../lib/api'
+import type { ChatMessage } from '../lib/types'
 import { toast } from '../stores/toastStore'
 
-// Assistant (external-channel) view. Content is the prototype's canned intro; the
-// real external-channel connectivity (企业微信/WhatsApp/邮件) is P2 (M5+). The
-// composer is present and consistent, routing to a toast until channels land.
+// Assistant (external-channel) view — WB-072. The Telegram bridge is the real
+// backend; this view shows the REAL channel status + the REAL assistant transcript
+// (shared with Telegram — same session), and its composer drives the SAME assistant
+// from the App. Not configured → setup guidance instead of the old canned mock.
 export function AssistantView() {
+  const [ch, setCh] = useState<TelegramChannel | null>(null)
+  const [sending, setSending] = useState(false)
+  const [pending, setPending] = useState<string | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const stickRef = useRef(true)
+
+  const load = async () => {
+    try { setCh(await api.getTelegramChannel()) } catch { /* backend down — keep last */ }
+  }
+
+  useEffect(() => { load() }, [])
+
+  // Telegram messages arrive out-of-band (from the phone), so poll to reflect them.
+  // Pause while sending (optimistic UI) and when the tab is hidden.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!sending && document.visibilityState === 'visible') load()
+    }, 4000)
+    return () => clearInterval(id)
+  }, [sending])
+
+  const onSend = async (text: string) => {
+    if (sending) return
+    setPending(text)
+    setSending(true)
+    try {
+      await api.telegramSay(text)
+      await load() // reload transcript (now includes this turn + the reply)
+    } catch {
+      toast('发送失败，请重试')
+    } finally {
+      setSending(false)
+      setPending(null)
+    }
+  }
+
+  // Real transcript → ChatMessage[]; while sending, append the optimistic user turn
+  // and a running bot bubble (MessageList renders the typing indicator for it).
+  const base: ChatMessage[] = (ch?.messages ?? []).map((m) => ({
+    id: m.id, role: m.role, content: m.content, trace: [], status: 'done' as const,
+  }))
+  const display: ChatMessage[] = sending && pending != null
+    ? [
+        ...base,
+        { id: '_pending_u', role: 'user', content: pending, trace: [], status: 'done' as const },
+        { id: '_pending_b', role: 'assistant', content: '', trace: [], status: 'running' as const },
+      ]
+    : base
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight
+  }, [display.length, sending])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onScroll = () => {
+      stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 80
+    }
+    el.addEventListener('scroll', onScroll)
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
+
+  const chip = !ch
+    ? { dot: '⚪', label: '加载中…' }
+    : !ch.configured
+      ? { dot: '⚪', label: '未连接' }
+      : ch.connected
+        ? { dot: '🟢', label: `已连接 @${ch.bot_username}` }
+        : ch.enabled
+          ? { dot: '🟡', label: '连接中…' }
+          : { dot: '🟡', label: '已配置（未开启）' }
+
+  const onGear = () => {
+    if (!ch?.configured) { toast('在 backend/.env 配置 TELEGRAM_BOT_TOKEN 并设 TELEGRAM_ASSISTANT=1，重启后端'); return }
+    toast(ch.bound_chat_id
+      ? `已绑定 Telegram chat：${ch.bound_chat_id}`
+      : `在 Telegram 给 ${ch.bot_username ? '@' + ch.bot_username : 'bot'} 发 /start 完成配对`)
+  }
+
   return (
     <section className="view active split" data-view="assistant">
       <div className="chat-col">
         <div className="chat-head">
           <div className="ast-conn">
-            已连接：<span className="ac-chip">🟢 微信小程序</span>
-            <IcGear onClick={() => toast('助理设置')} />
+            已连接：<span className="ac-chip">{chip.dot} {chip.label}</span>
+            <IcGear onClick={onGear} />
           </div>
           <div className="ch-r" style={{ marginLeft: 'auto' }}>
             <div className="fic" aria-label="搜索" onClick={() => toast('对话内搜索')}><IcSearch /></div>
@@ -22,34 +108,29 @@ export function AssistantView() {
           </div>
         </div>
 
-        <div className="chat-scroll">
-          <div className="msg bot">
-            <CatLogo className="bot-ic" />
-            <div className="bot-body">
-              <p>看来这是我们的第一次正式交流。在深入之前，我想先跟你一起定下来一些基本的东西，这样以后合作起来会更顺畅。</p>
-              <p>关于我这边的事比较简单——我目前还没有名字、没有固定风格，这些你可以帮我定。你呢？怎么称呼你比较合适？平时做些什么，有什么特别在忙的项目吗？</p>
+        <div className="chat-scroll" ref={scrollRef}>
+          {ch && !ch.configured ? (
+            <div className="ov-center" style={{ paddingTop: 100 }}>
+              <span style={{ fontSize: 34 }}>📡</span>
+              助理外部渠道未连接
+              <small>在 <b>backend/.env</b> 配置 TELEGRAM_BOT_TOKEN，并设 TELEGRAM_ASSISTANT=1，重启后端；
+                再在 Telegram 给你的 bot 发 /start，即可随时从手机与助理对话。</small>
             </div>
-          </div>
-          <div className="msg me"><div className="bub-me">给助理发一条消息，告诉他我们连通了</div></div>
-          <div className="msg bot">
-            <CatLogo className="bot-ic" />
-            <div className="bot-body">
-              <div className="bot-nm">WorkBuddy</div>
-              <div className="bot-st">已完成 ›</div>
-              <p>好的！你指的"助理"是通过什么方式发消息呢？比如：</p>
-              <ul>
-                <li><b>企业微信 / 钉钉 / 飞书</b> — 如果有连通的账号</li>
-                <li><b>WhatsApp</b> — 我可以帮忙连接你的个人 WhatsApp</li>
-                <li><b>邮件</b> — 通过 Gmail 等</li>
-                <li><b>其他方式</b> — 你来说，我来想办法</li>
-              </ul>
-              <p>另外，方便告诉我这位助理怎么称呼吗？这样消息写得更自然 😊</p>
+          ) : ch && display.length === 0 ? (
+            <div className="ov-center" style={{ paddingTop: 100 }}>
+              <span style={{ fontSize: 34 }}>💬</span>
+              还没有对话
+              <small>在 Telegram 给 {ch.bot_username ? '@' + ch.bot_username : 'bot'} 发 /start，或直接在下面和助理开始对话。</small>
             </div>
-          </div>
+          ) : (
+            <MessageList messages={display} streaming={sending} />
+          )}
         </div>
 
         <div className="chat-foot">
-          <Composer variant="chat" onSend={() => toast('助理外部渠道连通功能将在 M5 落地')} />
+          {ch?.configured
+            ? <Composer variant="chat" streaming={sending} onSend={onSend} autoFocus />
+            : <div className="disc">配置并开启 Telegram 渠道后，即可在此与助理对话</div>}
           <div className="disc">内容由 AI 生成，请核实重要信息</div>
         </div>
       </div>

@@ -70,6 +70,12 @@ export const api = {
     get<{ hub: boolean; notifications: { id: string; title: string; body: string; created_at: number; read: number }[]; unread: number }>('/hub/notifications'),
   hubMarkNotifs: (ids?: string[]) => send<{ ok: boolean }>('POST', '/hub/notifications/read', ids ? { ids } : {}),
 
+  // 助理外部渠道 · Telegram（WB-072）。状态 + 真实会话历史；say = 从 App 驱动同一助手
+  // （与 Telegram 共用同一助理会话）。渠道是本机 local-first 特性，不携带项目/登录作用域。
+  getTelegramChannel: () => get<TelegramChannel>('/channels/telegram'),
+  telegramSay: (text: string) =>
+    send<{ session_id: string; reply: string }>('POST', '/channels/telegram/say', { text }),
+
   listSessions: (space?: string) =>
     get<{ sessions: SessionInfo[] }>(`/sessions${space ? `?space=${encodeURIComponent(space)}` : ''}`),
 
@@ -242,6 +248,16 @@ export const api = {
 
   deleteFile: (path: string, opts?: { project?: string; session?: string }) =>
     send<{ ok: boolean }>('POST', '/files/delete', { path, ...opts }),
+}
+
+export interface TelegramChannel {
+  configured: boolean          // backend/.env 是否配了 TELEGRAM_BOT_TOKEN
+  enabled: boolean             // 是否开了 TELEGRAM_ASSISTANT
+  connected: boolean           // enabled 且 getMe 成功（bot 在线）
+  bot_username: string | null
+  bound_chat_id: string | null // 已配对的 Telegram chat（白名单/主人）
+  session_id: string | null    // 助理会话（尚无对话时为 null）
+  messages: { id: string; role: 'user' | 'assistant'; content: string; created_at: number }[]
 }
 
 export interface RawMessage {

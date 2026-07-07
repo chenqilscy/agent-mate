@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Optional
 
 from agent import runtime
@@ -40,6 +41,16 @@ def _owner_id() -> str:
     return LOCAL_USER_ID
 
 
+def ensure_assistant_session(owner_id: str) -> str:
+    """返回该 owner 的助理会话 id，没有则创建。App 助理页与 Telegram 共用同一条会话
+    （WB-072 Slice 2），两个入口写同一份 transcript。"""
+    existing = db.get_assistant_session(owner_id)
+    if existing:
+        return existing.id
+    session = db.create_session(owner_id=owner_id, title="Telegram 助理", kind="assistant")
+    return session.id
+
+
 def _authorize_and_get_session(chat_id: str) -> Optional[str]:
     """判定该 chat 是否有权，并返回其（必要时新建并绑定的）会话 id；无权返回 None。
 
@@ -60,10 +71,10 @@ def _authorize_and_get_session(chat_id: str) -> Optional[str]:
         if db.first_channel_binding(CHANNEL) is not None:
             return None  # 已配对给别人，锁定
 
-    session = db.create_session(owner_id=_owner_id(), title="Telegram 助理", kind="assistant")
-    db.bind_channel(CHANNEL, str(chat_id), session.id, _owner_id())
-    log.info("Telegram 助理已绑定 chat_id=%s → session=%s", chat_id, session.id)
-    return session.id
+    session_id = ensure_assistant_session(_owner_id())  # 复用 App/Telegram 共享的助理会话
+    db.bind_channel(CHANNEL, str(chat_id), session_id, _owner_id())
+    log.info("Telegram 助理已绑定 chat_id=%s → session=%s", chat_id, session_id)
+    return session_id
 
 
 def _is_start(text: str) -> bool:
@@ -172,6 +183,53 @@ async def _loop() -> None:
         except Exception:  # noqa: BLE001 — 任何异常都不该让轮询循环退出
             log.exception("Telegram 轮询循环异常")
             await asyncio.sleep(_BACKOFF)
+
+
+# ---- App 助理页接口（Slice 2）------------------------------------------------
+# 助理页与 Telegram 共用同一助理会话；这里给前端提供「渠道状态 + 从 App 驱动同一助手」。
+
+_bot_cache: dict = {"username": None, "at": 0.0}  # getMe 结果缓存，避免每次状态轮询都打 API
+
+
+async def _bot_username() -> Optional[str]:
+    if not tg.token():
+        return None
+    now = time.time()
+    if _bot_cache["username"] and now - _bot_cache["at"] < 60:
+        return _bot_cache["username"]
+    ok, res = await tg.get_me()
+    if ok and isinstance(res, dict):
+        _bot_cache["username"] = res.get("username")
+        _bot_cache["at"] = now
+        return _bot_cache["username"]
+    return None
+
+
+async def status() -> dict:
+    """渠道状态给前端助理页。不创建会话（仅打开视图不该冒出空会话）。"""
+    configured = bool(tg.token())
+    enabled = settings.telegram_assistant_enabled
+    binding = db.first_channel_binding(CHANNEL)
+    session = db.get_assistant_session(_owner_id())
+    uname = await _bot_username() if configured else None
+    return {
+        "configured": configured,
+        "enabled": enabled,
+        "connected": bool(enabled and uname),
+        "bot_username": uname,
+        "bound_chat_id": binding["chat_id"] if binding else None,
+        "session_id": session.id if session else None,
+    }
+
+
+async def say(text: str) -> dict:
+    """从 App 助理页驱动同一助手（与 Telegram 共享会话）。返回本轮回复文本。"""
+    text = (text or "").strip()
+    session_id = ensure_assistant_session(_owner_id())
+    if not text:
+        return {"session_id": session_id, "reply": ""}
+    reply = await _run_agent(session_id, text)
+    return {"session_id": session_id, "reply": reply}
 
 
 async def start() -> None:

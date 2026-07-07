@@ -761,6 +761,16 @@ def get_session(session_id: str, owner_id: Optional[str] = None) -> Optional[Ses
     return _row_to_session(row)
 
 
+def get_assistant_session(owner_id: str) -> Optional[Session]:
+    """某 owner 的助理会话（外部渠道共用的单一长期会话，kind=assistant）。WB-072 Slice 2：
+    App 助理页与 Telegram 桥接共享它——每个 owner 至多一个，取最早那条。"""
+    row = get_conn().execute(
+        "SELECT * FROM sessions WHERE owner_id=? AND kind='assistant' ORDER BY created_at ASC LIMIT 1",
+        (owner_id,),
+    ).fetchone()
+    return _row_to_session(row) if row else None
+
+
 def get_session_for(session_id: str, user_id: str) -> Optional[Session]:
     """Session if the caller owns it, OR it belongs to a project the caller is a
     member of — read-only shared visibility (M7 C3). Personal (non-project)
