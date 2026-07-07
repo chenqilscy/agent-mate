@@ -69,6 +69,8 @@ class Project:
     skills: list[str]
     created_at: float
     updated_at: float
+    # 'local' = 本机创建；'hub' = 从 Hub 下行拉取的只读镜像（WB-062 Phase 2）。
+    origin: str = "local"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

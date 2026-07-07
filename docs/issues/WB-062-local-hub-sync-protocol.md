@@ -58,8 +58,14 @@ P1：#2 协作真正跑通的关键一环。依赖 WB-061（对端就绪）。
 - `backend/auth/middleware.py`：本地缓存命中即返回；未命中且已接 Hub → **`anyio.to_thread` 把阻塞的 Hub 校验丢工作线程**（不占事件循环，WB-002）。无 token / 未接 Hub → 回退 `LOCAL_USER_ID`。
 - 验证：py_compile；隔离 backend + live hub E2E **14 项全过**（离线守卫、Hub token 校验+镜像+缓存+幂等、坏 token 回退、本地 token 路径不变）。**HUB_URL 空 = 零行为变化**，现有单机/离线照旧。
 
-### Phase 2 —— 下行 pull（项目/成员镜像）⬜ 待做
-projects 表加 `origin`('local'|'hub')；拉 Hub `/api/projects` + `/members` 镜像进本地（origin='hub' 只读）；WB-050 访问校验读镜像成员表。登录时 + 定时增量。
+### Phase 2 —— 下行 pull（项目/成员镜像）（✅ 完成并验证，2026-07-07）
+- `projects` 加 `origin`('local'|'hub')（CREATE + `_migrate` 幂等补列 + `Project.origin` 字段 + `_row_to_project`）。
+- `hub_client`：`list_projects(token)` / `list_project_members(token,pid)`（guarded）。
+- `storage/db.py`：`mirror_hub_project`（幂等 upsert，origin='hub'）+ `replace_hub_project_members`（清旧重建，成员账号镜像进 users）。
+- `backend/hub_sync.py`（新）：`pull(token)` —— 拉该账号 Hub 项目 + 成员，幂等镜像进本地。
+- `backend/routers/hub.py`（新）：`POST /api/hub/pull`（同步路由=线程池，阻塞 Hub 调用不占事件循环）、`GET /api/hub/status`；`main.py` 挂载。
+- **访问控制不改**：Hub 项目/成员落进**同一批** `projects`/`project_members` 表，owner/成员按 Hub 侧 id 对齐（与鉴权桥镜像的账号 id 一致），故 WB-050 的 `project_access_role` 自动认镜像项目。
+- 验证：py_compile；隔离 backend × live hub **两账号 E2E 15 项全过**（A 建共享项目+邀 B→B pull 到 origin='hub' 镜像+得 Member 访问；A-only 项目不泄漏给 B；access 读镜像；幂等无重复；owner/成员名解析；镜像 payload 无凭据字段）；origin 迁移在真库副本安全（6 项目原样、全 origin='local'）。
 
 ### Phase 3 —— 上行 outbox（执行产出回传）+ Hub 接收端点 ⬜ 待做
 outbox 表；run 完成入队；后台 worker 推 Hub；Hub 侧加接收端点（team timeline 只读镜像）。凭据/工作区文件绝不进 payload；上报默认关（`HUB_TIMELINE_UPLOAD`，隐私）。

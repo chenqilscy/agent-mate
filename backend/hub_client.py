@@ -20,19 +20,38 @@ def hub_enabled() -> bool:
     return bool(settings.HUB_URL)
 
 
-def verify_token(token: str) -> Optional[dict[str, Any]]:
-    """Hub token → account dict（`{id,name,plan,...}`）或 None（未接 / 不可达 / 无效）。"""
+def _get(path: str, token: str) -> Optional[Any]:
+    """带 token GET Hub 的 `path`，返回解析后的 JSON 或 None（guarded，从不抛）。"""
     if not token or not settings.HUB_URL:
         return None
     try:
         r = httpx.get(
-            f"{settings.HUB_URL}/api/auth/verify",
+            f"{settings.HUB_URL}{path}",
             headers={"Authorization": f"Bearer {token}"},
             timeout=_TIMEOUT,
         )
         if r.status_code != 200:
             return None
-        acct = r.json().get("account")
-        return acct if isinstance(acct, dict) else None
+        return r.json()
     except Exception:  # noqa: BLE001 —— 网络/解析任何错都当「未接/不可达」，回退本地
         return None
+
+
+def verify_token(token: str) -> Optional[dict[str, Any]]:
+    """Hub token → account dict（`{id,name,plan,...}`）或 None（未接 / 不可达 / 无效）。"""
+    d = _get("/api/auth/verify", token)
+    acct = d.get("account") if isinstance(d, dict) else None
+    return acct if isinstance(acct, dict) else None
+
+
+def list_projects(token: str) -> Optional[list[dict[str, Any]]]:
+    """该账号在 Hub 的项目（owner + 成员），或 None（未接/不可达）。WB-062 Phase 2 下行 pull。"""
+    d = _get("/api/projects", token)
+    projs = d.get("projects") if isinstance(d, dict) else None
+    return projs if isinstance(projs, list) else None
+
+
+def list_project_members(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
+    d = _get(f"/api/projects/{project_id}/members", token)
+    mem = d.get("members") if isinstance(d, dict) else None
+    return mem if isinstance(mem, list) else None

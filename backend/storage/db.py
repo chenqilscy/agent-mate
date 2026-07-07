@@ -135,7 +135,8 @@ def init_db() -> None:
             experts TEXT NOT NULL DEFAULT '[]',
             skills TEXT NOT NULL DEFAULT '[]',
             created_at REAL NOT NULL,
-            updated_at REAL NOT NULL
+            updated_at REAL NOT NULL,
+            origin TEXT NOT NULL DEFAULT 'local'
         );
         CREATE INDEX IF NOT EXISTS idx_projects_owner
             ON projects(owner_id, updated_at DESC);
@@ -330,6 +331,11 @@ def _migrate_columns() -> None:
     for col in ("run_status", "run_summary", "run_kind"):
         if col not in have_s:
             conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT")
+
+    # WB-062 Phase 2: projects 增 origin（'local'|'hub'）——标记从 Hub 下行拉取的只读镜像项目。
+    have_p = {r["name"] for r in conn.execute("PRAGMA table_info(projects)").fetchall()}
+    if "origin" not in have_p:
+        conn.execute("ALTER TABLE projects ADD COLUMN origin TEXT NOT NULL DEFAULT 'local'")
     conn.commit()
 
 
@@ -504,6 +510,52 @@ def cache_token(token: str, user_id: str) -> None:
         (token, user_id, time.time()),
     )
     get_conn().commit()
+
+
+def mirror_hub_project(
+    *, id: str, name: str, owner_id: str, instruction: str = "",
+    connectors: Optional[list] = None, experts: Optional[list] = None, skills: Optional[list] = None,
+) -> None:
+    """幂等镜像一个 Hub 项目进本地 projects（origin='hub'，只读镜像；WB-062 Phase 2）。
+    id/owner_id = Hub 侧 project/account id。WB-050 的 project_access_role 读同一批表，故镜像后
+    本地访问控制「自动」认它——无需改访问校验。"""
+    now = time.time()
+    get_conn().execute(
+        """INSERT INTO projects (id,name,owner_id,instruction,connectors,experts,skills,created_at,updated_at,origin)
+           VALUES (?,?,?,?,?,?,?,?,?,'hub')
+           ON CONFLICT(id) DO UPDATE SET name=excluded.name, owner_id=excluded.owner_id,
+             instruction=excluded.instruction, connectors=excluded.connectors,
+             experts=excluded.experts, skills=excluded.skills, updated_at=excluded.updated_at, origin='hub'""",
+        (id, name[:120], owner_id, instruction,
+         json.dumps(connectors or [], ensure_ascii=False),
+         json.dumps(experts or [], ensure_ascii=False),
+         json.dumps(skills or [], ensure_ascii=False), now, now),
+    )
+    get_conn().commit()
+
+
+def replace_hub_project_members(project_id: str, members: list[dict]) -> None:
+    """幂等重置一个镜像项目的成员表：清旧、按 Hub 返回重建（owner 不入表，由 owner_id 记）。
+    同时把每个成员账号镜像进 users 以便显示名解析（WB-062 Phase 2）。"""
+    conn = get_conn()
+    conn.execute("DELETE FROM project_members WHERE project_id=?", (project_id,))
+    for m in members:
+        aid = m.get("account_id")
+        if not aid:
+            continue
+        upsert_external_user(aid, m.get("name", ""))  # 成员/owner 账号镜像进 users
+        if m.get("is_owner"):
+            continue  # owner 由 projects.owner_id 记，不入 project_members
+        try:
+            role = Role(m.get("role", "Member"))
+        except ValueError:
+            role = Role.MEMBER
+        conn.execute(
+            "INSERT INTO project_members (project_id,user_id,role,created_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(project_id,user_id) DO UPDATE SET role=excluded.role",
+            (project_id, aid, role.value, time.time()),
+        )
+    conn.commit()
 
 
 # ---- sessions -----------------------------------------------------------
@@ -746,6 +798,7 @@ def _row_to_project(row: sqlite3.Row) -> Project:
         skills=json.loads(row["skills"]),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        origin=row["origin"] if "origin" in row.keys() else "local",
     )
 
 
