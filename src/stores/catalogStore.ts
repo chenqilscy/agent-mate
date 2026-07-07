@@ -12,6 +12,15 @@ import * as C from '../data/catalog'
 // Hub 镜像的 SkillHub 场景分类（WB-070）：来自 Hub /api/v1/categories 快照 + 每类计数。
 export interface SkillCat { key: string; name: string; nameEn?: string; sortOrder?: number; count: number }
 
+// SkillHub 12 场景 key → 中文名（快照自 Hub /api/v1/categories）。仅用于「无 Hub 时」的 rankings
+// 兜底渲染（WB-071）——rankings 卡只带场景 key，无中文名/骨架；接 Hub 时中文名由镜像 taxonomy 提供。
+const SCENE_NAME: Record<string, string> = {
+  'office-efficiency': '办公效率', 'content-creation': '内容创作', 'dev-programming': '开发编程',
+  'data-analysis': '数据分析', 'design-media': '设计多媒体', 'ai-agent': 'AI Agent',
+  'knowledge-management': '知识管理', 'business-ops': '商业运营', 'education': '教育学习',
+  'professional': '行业专业', 'it-ops-security': 'IT 运维与安全', 'life-service': '生活服务',
+}
+
 // 由 API 供给的橱窗键（与后端 storage/db.showcase_all 对齐；不含 SKILLHUB_*）。
 type Catalog = Pick<
   typeof C,
@@ -79,11 +88,37 @@ async function syncFromHub(): Promise<void> {
   } catch { /* 未接 Hub / 不可达：保留本地兜底 */ }
 }
 
+// 无 Hub 镜像时的真实浏览兜底（WB-071）：拉 /api/skills/rankings（本地 CLI 跑真 skillhub.cn 排行），
+// 把卡的 category（场景 key）补中文名，填 skillMirror/skillCats——SkillHubView 遂显真实卡而非静态假数据。
+// 分层：Hub 镜像 → 真实 rankings（本层）→ 静态 SKILLHUB_*（拉不到时的离线最后兜底）。
+async function fallbackToRankings(): Promise<void> {
+  if (useCatalogStore.getState().skillMirror.length > 0) return // 已有 Hub 镜像 → 不重复拉
+  try {
+    const r = await api.skillRankings('hot') // hot=较广的真实排行；离线/无 CLI → 抛错，回退静态
+    const cards: SkillCard[] = (r.skills || []).map((c) => ({
+      ...c,
+      skillhub_category: c.category,
+      skillhub_category_name: SCENE_NAME[c.category ?? ''] ?? (c.category || '其他'),
+    }))
+    if (!cards.length) return
+    const counts: Record<string, number> = {}
+    for (const c of cards) { const k = c.skillhub_category ?? ''; counts[k] = (counts[k] ?? 0) + 1 }
+    const cats: SkillCat[] = Object.entries(counts)
+      .map(([key, count]) => ({ key, name: SCENE_NAME[key] ?? key, count }))
+      .sort((a, b) => b.count - a.count)
+    useCatalogStore.setState({ skillMirror: cards, skillCats: cats })
+  } catch { /* 离线 / 无 CLI：保持空 → SkillHubView 自然回退静态 SKILLHUB_* */ }
+}
+
 // 便捷 hook：取整份目录（组件里按需解构，如 const { EXP_GRID } = useCatalog()）。
 export function useCatalog(): Catalog {
   return useCatalogStore((s) => s)
 }
 
 // 启动即拉取一次（兜底已就绪，拉到后 set() 触发消费组件重渲染；失败保留兜底、不白屏）。
-// 随后触发一次 Hub 下行 pull，把 Hub 镜像目录（含 SkillHub 369 技能）并进来（WB-070）。
-void useCatalogStore.getState().load().then(syncFromHub)
+// 随后触发 Hub 下行 pull 并进镜像（WB-070）；仍无 Hub 镜像 → 用真实 rankings 兜底（WB-071）。
+void (async () => {
+  await useCatalogStore.getState().load()
+  await syncFromHub()
+  await fallbackToRankings()
+})()

@@ -103,6 +103,9 @@ export const api = {
   // SkillHub 实时搜索（WB-070）：本地 backend 优先经 Hub 查询代理（富字段），未接/不可达 → 回退本地 CLI。
   searchSkills: (q: string, limit = 12) =>
     get<{ results: SkillCard[]; source?: string }>(`/skills/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  // SkillHub 实时排行（WB-064 端点）：无 Hub 镜像时技能浏览的真实兜底源（本地 CLI 跑 skill rankings）。
+  skillRankings: (type = 'featured') =>
+    get<{ type: string; skills: SkillCard[] }>(`/skills/rankings?type=${encodeURIComponent(type)}`),
   skillDetail: (key: string) => get<{ skill: SkillDetail }>(`/skills/${encodeURIComponent(key)}`),
   // 安装前预览：未安装也能看 SKILL.md（后端临时下载，不落盘）。
   skillPreview: (q: { slug?: string; name?: string }) =>
