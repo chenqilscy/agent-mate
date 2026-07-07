@@ -94,7 +94,7 @@
 | [WB-075](WB-075-linked-hub-modal-unreachable.md) | ✅ | P2 | frontend | 已连接 Hub 后无入口打开连接弹窗，导入/通知/断开成死代码 —— 加「管理」入口（WB-067 真机 E2E 发现） |
 | [WB-076](WB-076-global-hub-connect-entry.md) | ✅ | P2 | frontend | 连接 Hub 入口只在项目讨论面板内，零项目新用户无法首次连接 —— 账号菜单加全局入口（WB-067 复盘） |
 | [WB-077](WB-077-assistant-settings-panel.md) | ✅ | P2 | frontend | 助理设置面板 —— 齿轮点开的真配置（名字/人格/模型/开关/绑定/token 存 DB，write-only 不回传前端） |
-| [WB-078](WB-078-buddywebmgr-epic.md) | ⬜ | P1 | frontend | BuddyWebMgr —— Hub 控制台升级为完整 Web 管理门户（总纲/epic；设计见 docs/buddywebmgr-管理门户设计.md） |
+| [WB-078](WB-078-buddywebmgr-epic.md) | ✅ | P1 | frontend | BuddyWebMgr —— Hub 控制台升级为完整 Web 管理门户（总纲/epic；六子任务全落地，设计见 docs/buddywebmgr-管理门户设计.md） |
 | [WB-079](WB-079-buddywebmgr-rename-nav.md) | ✅ | P2 | frontend | BuddyWebMgr 品牌更名 + 导航重构（门户骨架；仅 Web 品牌层，不动 hub/·HUB_URL 内部标识） |
 | [WB-080](WB-080-portal-project-config.md) | ✅ | P2 | frontend | 门户项目管理面 —— 配置编辑（指令 + 连接器/专家/技能 picker，读目录、写 PATCH /projects） |
 | [WB-081](WB-081-hub-work-items-sync.md) | ✅ | P2 | fullstack | 团队计划/任务 —— Hub work_items 模型 + 路由 + 门户看板（本地⇄Hub 同步拆二期 WB-091） |

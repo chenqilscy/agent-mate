@@ -3,7 +3,7 @@ id: WB-078
 title: BuddyWebMgr —— Hub 控制台升级为完整 Web 管理门户（总纲/epic）
 severity: P1
 area: frontend
-status: open
+status: fixed
 origin: 用户诉求 2026-07-08
 files:
   - docs/buddywebmgr-管理门户设计.md
@@ -41,3 +41,16 @@ P1：门户是团队用 WorkBuddy 的管理入口，当前能力缺口大。
 ## 验证
 
 各子任务分别验证；整体：门户更名 BuddyWebMgr，项目可编辑配置，目录三类可视化 CRUD，SkillHub 可浏览/搜索。
+
+## 处理记录（2026-07-08）
+
+epic 六子任务全部落地并 Playwright 实测（隔离 Hub :8100 × hub-test.db，alice=平台管理员）：
+- **WB-079**（9392600）品牌更名 + 导航重构。
+- **WB-080**（a315e95）项目管理面 —— 配置编辑（指令 + 连接器/专家/技能 picker）。
+- **WB-082**（9ec0aa5）目录运营中心框架 + 专家/专家团 CRUD（+ 后端 `?all=true` 含停用项）。
+- **WB-083**（d9390df）连接器 CRUD（launch spec 编辑器：内置/stdio，secret_env 仅变量名）。
+- **WB-084**（bf56457）技能 CRUD + SkillHub（浏览 369 / 12 分类 / 实时搜索 / 加入精选 / 手动同步）。
+- **WB-081**（31def46）团队计划/任务 —— Hub work_items 模型/路由 + 门户看板；本地⇄Hub 同步拆二期 **WB-091**。
+
+**诚实边界**：专家 persona / 连接器 launch 的**真下发到本地执行**、SkillHub 精选列的 App 首页消费、本地⇄Hub work_items 同步（WB-091），
+均为「Hub 权威存储已就绪、App 侧真消费待 pull 映射」的后续项——门户侧管理（用户四点诉求的核心）已完整可用。改名仅 Web 品牌层，未动 `hub/`·`HUB_URL` 内部标识。
