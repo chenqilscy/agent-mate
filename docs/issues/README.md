@@ -111,3 +111,7 @@
 WB-058～063 来自 2026-07-07 的架构讨论：把「能力定义入库」与「多用户协作管理平台」
 两项诉求整合为 **WorkBuddy Hub（local-first 执行 + 云端控制平面）** 重构。总设计见
 [`docs/workbuddy-hub-架构设计.md`](../workbuddy-hub-架构设计.md)，WB-058 为总纲、WB-059～063 为分阶段子任务。
+
+WB-078～084 来自 2026-07-08 用户检查 Hub 站点后的诉求：把 Hub 控制台升级为完整 Web 管理门户并更名
+**BuddyWebMgr**（项目管理面 + 目录运营中心 + SkillHub）。总设计见
+[`docs/buddywebmgr-管理门户设计.md`](../buddywebmgr-管理门户设计.md)，WB-078 为总纲、WB-079～084 为分阶段子任务。
