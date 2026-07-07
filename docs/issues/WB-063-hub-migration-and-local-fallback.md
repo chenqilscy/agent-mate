@@ -3,7 +3,7 @@ id: WB-063
 title: 迁移与 local-first 回退 —— 存量导入 Hub、目录权威切 Hub 下发、离线/未登录回退
 severity: P2
 area: backend
-status: open
+status: fixed
 origin: 既有实现
 files:
   - docs/workbuddy-hub-架构设计.md
@@ -41,3 +41,24 @@ P2（择机，收尾）：依赖 WB-059/060/061/062 全部就绪。做好了才�
 - 断开 Hub / 不登录：新建项目、召唤专家（含内置人格）、挂连接器、执行任务全部照常（本地兜底目录生效）。
 - 目录在 Hub 改一条 → 客户端 pull 后反映；本机 override（本地装的技能/自造专家）仍优先/叠加正确。
 - 全程无「因连不上平台而阻断本机使用」的路径。
+
+## 处理记录（2026-07-07）
+
+### 改动（本地侧为主，导入复用 Hub 既有 POST /api/projects）
+- `storage/db.py`：`hub_imports`(local_id→hub_id，保证重复导入不产生重复数据) + `hub_link`(LOCAL_USER_ID↔Hub 账号) 表 + DAO（`record_import`/`get_import`/`set_hub_link`/`get_hub_link`）。均为新表（`CREATE IF NOT EXISTS`），老库安全、无列迁移。
+- `hub_client.py`：`create_project(token, project)`（存量导入用）+ `list_catalog(token, category)`（目录下发 capability）。
+- `hub_sync.py`：`import_local_to_hub(token, account)` —— 把 LOCAL_USER 的本地原生项目（origin='local'）上行 Hub，**幂等**（`hub_imports` 有记录则跳过），记 LOCAL↔Hub 绑定。只上行元数据，无凭据/工作区文件。
+- `routers/hub.py`：`POST /api/hub/import`（需有效 Hub token）+ `GET /api/hub/status`（enabled + linked 账号，供前端显示同步/导入入口）。
+
+### 三部分对应验证
+- **存量导入**：老库首次登录 → 导入 3 个本地项目 → Hub 与另一「客户端」可见；重复导入 imported=0/skipped=3、Hub 仍 3 个（**无重复**）。✅
+- **local-first 回退（回退优先）**：HUB_URL 空 → 新建项目、召唤内置人格、`connector_specs` 全部照常；import 为 no-op。**无「因连不上平台阻断本机」的路径**。✅
+- **目录权威切换**：实现了 Hub 目录 pull capability（`list_catalog`，Hub 预埋目录空 → 返回 `[]`，pull 成功）；**本地 builtin 种子仍权威、作离线兜底**（验证 `builtin_persona` 照常）。⚠️ 完整的「Hub 下发覆盖本地 + org 级目录运营/Admin」需 Hub 侧目录 seed + 管理界面——属后续「目录运营」范畴，本轮预埋 capability + 兜底保证，未把空覆盖硬接进前端 `/api/catalog` 热路径（避免为空叠加加风险）。
+
+### 验证
+- `py_compile` 全过；隔离 backend × live hub E2E **15 项全过**（见上）；新表在现有库为纯增量、迁移安全。
+- 铁律：`HUB_URL` 空 = 纯本地零变化；import payload 无 LLM 凭据/连接器 secret/工作区文件（铁律 4/11）；导入仅在带有效 Hub token 时。
+
+**WorkBuddy Hub epic（[WB-058](WB-058-hub-control-plane-epic.md)）至此全部完成：** WB-059 真定义入库 · WB-060 橱窗入库 · WB-061 Hub 骨架 · WB-062 同步(三期) · WB-063 迁移与回退。
+
+commit：（见下）。

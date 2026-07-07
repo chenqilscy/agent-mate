@@ -71,3 +71,28 @@ def post_timeline(token: str, project_id: str, event: dict[str, Any]) -> bool:
         return r.status_code == 200
     except Exception:  # noqa: BLE001 —— 网络任何错都当失败，outbox 下轮再推
         return False
+
+
+def create_project(token: str, project: dict[str, Any]) -> Optional[str]:
+    """在 Hub 新建一个项目（WB-063 存量导入用），返回其 Hub id 或 None。
+    project 只带元数据（name/instruction/loadout），无凭据/工作区文件。"""
+    if not token or not settings.HUB_URL:
+        return None
+    try:
+        r = httpx.post(
+            f"{settings.HUB_URL}/api/projects",
+            headers={"Authorization": f"Bearer {token}"},
+            json=project, timeout=_TIMEOUT,
+        )
+        if r.status_code != 200:
+            return None
+        return r.json().get("id")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def list_catalog(token: str, category: str) -> Optional[list[dict[str, Any]]]:
+    """拉 Hub 侧目录（WB-063 目录下发）。Hub 预埋目录为空时返回 []，本地 builtin 种子仍作离线兜底。"""
+    d = _get(f"/api/catalog/{category}", token)
+    items = d.get("items") if isinstance(d, dict) else None
+    return items if isinstance(items, list) else None

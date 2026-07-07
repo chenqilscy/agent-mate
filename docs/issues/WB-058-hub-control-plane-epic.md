@@ -3,7 +3,7 @@ id: WB-058
 title: WorkBuddy Hub —— local-first 执行 + 云端控制平面重构（总纲/epic）
 severity: P1
 area: backend
-status: open
+status: fixed
 origin: 既有实现
 files:
   - docs/workbuddy-hub-架构设计.md
@@ -53,3 +53,19 @@ P1（方向级）：这是产品身份级重构（local-first → 「本地执�
 
 - 总纲 issue 的「完成」= 全部子 issue（WB-059～063）关闭，且各自「验证」小节通过。
 - 阶段可增量交付：P0（WB-059/060）先在本地库跑通、独立验证，不依赖 Hub 上线。
+
+## 处理记录（2026-07-07）—— epic 全部完成
+
+五个子 issue 全部落地并验证并提交：
+
+| 子 issue | 内容 | commit |
+|---|---|---|
+| [WB-059](WB-059-catalog-definitions-to-db.md) | 真定义入库（内置人格/连接器注册表 → DB，运行时读库） | `b04c4a2` |
+| [WB-060](WB-060-catalog-showcase-to-db.md) | 橱窗目录入库（`catalog.ts` → DB + API + 前端 `catalogStore`） | `58581e6` |
+| [WB-061](WB-061-hub-service-skeleton.md) | Hub 服务骨架（独立同仓 `hub/`：账号/组织/项目/成员/邀请 + 鉴权） | `ea7a920` |
+| [WB-062](WB-062-local-hub-sync-protocol.md) | 本地 ⇄ Hub 同步三期（鉴权桥 / 下行 pull / 上行 outbox） | `6d60ef8`·`ac2da4e`·`e9a8317` |
+| [WB-063](WB-063-hub-migration-and-local-fallback.md) | 迁移与 local-first 回退（存量导入 / LOCAL↔Hub 映射 / 离线全功能） | 本批 |
+
+架构落地：local-first 执行内核不变，`hub/` 作控制平面权威源；本地 backend 作 Hub 客户端（`HUB_URL`
+空 = 纯本地零变化，不可达回退本地）。全程守住铁律：**LLM 凭据 / 沙箱工作区文件绝不上云**；时间线上报默认关。
+后续（非本 epic）：更深实时协作、Hub 目录运营的完整 Admin（已预埋 capability）、Hub SaaS 托管与签名（用户基建）。

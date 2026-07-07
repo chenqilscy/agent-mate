@@ -304,6 +304,23 @@ def init_db() -> None:
             hub_token TEXT NOT NULL,
             updated_at REAL NOT NULL
         );
+
+        -- 存量导入映射（WB-063）：本地资源 → 其在 Hub 的 id，保证「重复导入不产生重复数据」。
+        CREATE TABLE IF NOT EXISTS hub_imports (
+            local_id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            hub_id TEXT NOT NULL,
+            hub_account_id TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+
+        -- LOCAL_USER_ID ↔ Hub 账号 的绑定（WB-063）：记住本机存量数据导入到了哪个 Hub 账号。
+        CREATE TABLE IF NOT EXISTS hub_link (
+            local_user_id TEXT PRIMARY KEY,
+            hub_account_id TEXT NOT NULL,
+            hub_account_name TEXT NOT NULL DEFAULT '',
+            linked_at REAL NOT NULL
+        );
         """
     )
     conn.commit()
@@ -628,6 +645,37 @@ def mark_outbox_synced(outbox_id: str) -> None:
 def bump_outbox_tries(outbox_id: str) -> None:
     get_conn().execute("UPDATE outbox SET tries=tries+1 WHERE id=?", (outbox_id,))
     get_conn().commit()
+
+
+# ---- 存量导入 + LOCAL↔Hub 绑定（WB-063）--------------------------------
+
+def record_import(local_id: str, kind: str, hub_id: str, hub_account_id: str) -> None:
+    get_conn().execute(
+        "INSERT OR REPLACE INTO hub_imports (local_id,kind,hub_id,hub_account_id,created_at) "
+        "VALUES (?,?,?,?,?)",
+        (local_id, kind, hub_id, hub_account_id, time.time()),
+    )
+    get_conn().commit()
+
+
+def get_import(local_id: str) -> Optional[dict]:
+    r = get_conn().execute("SELECT * FROM hub_imports WHERE local_id=?", (local_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def set_hub_link(local_user_id: str, hub_account_id: str, hub_account_name: str = "") -> None:
+    get_conn().execute(
+        "INSERT INTO hub_link (local_user_id,hub_account_id,hub_account_name,linked_at) VALUES (?,?,?,?) "
+        "ON CONFLICT(local_user_id) DO UPDATE SET hub_account_id=excluded.hub_account_id, "
+        "hub_account_name=excluded.hub_account_name, linked_at=excluded.linked_at",
+        (local_user_id, hub_account_id, hub_account_name, time.time()),
+    )
+    get_conn().commit()
+
+
+def get_hub_link(local_user_id: str) -> Optional[dict]:
+    r = get_conn().execute("SELECT * FROM hub_link WHERE local_user_id=?", (local_user_id,)).fetchone()
+    return dict(r) if r else None
 
 
 # ---- sessions -----------------------------------------------------------

@@ -12,6 +12,7 @@ from __future__ import annotations
 import hub_client
 from config import settings
 from storage import db
+from storage.models import LOCAL_USER_ID
 
 
 def pull(token: str) -> dict:
@@ -74,3 +75,33 @@ def flush_outbox(limit: int = 50) -> dict:
         else:
             db.bump_outbox_tries(item["id"])
     return {"pushed": pushed, "pending": len(pending) - pushed}
+
+
+# ---- 存量导入（WB-063）--------------------------------------------------
+
+def import_local_to_hub(token: str, account: dict) -> dict:
+    """首次登录 Hub 时，把本机存量数据（LOCAL_USER 的本地原生项目）上行到 Hub（架构设计 §8）。
+    **幂等**：已导入的（hub_imports 有记录）跳过 → 「重复导入不产生重复数据」。记 LOCAL_USER↔Hub 绑定。
+    只上行控制平面元数据（项目名/指令/loadout），绝不含凭据/工作区文件（铁律 4/11）。"""
+    if not settings.hub_enabled:
+        return {"hub": False, "imported": 0, "skipped": 0}
+    aid = account.get("id")
+    if not aid:
+        return {"hub": True, "imported": 0, "skipped": 0}
+    db.set_hub_link(LOCAL_USER_ID, str(aid), str(account.get("name", "")))
+    imported, skipped = 0, 0
+    for p in db.list_projects(LOCAL_USER_ID):
+        if p.origin != "local":
+            continue  # 不导入已是 Hub 镜像的项目
+        if db.get_import(p.id):
+            skipped += 1
+            continue  # 幂等：已导入
+        hub_id = hub_client.create_project(token, {
+            "name": p.name, "instruction": p.instruction,
+            "connectors": p.connectors, "experts": p.experts, "skills": p.skills,
+        })
+        if hub_id:
+            db.record_import(p.id, "project", hub_id, str(aid))
+            imported += 1
+        # 失败不记 → 下次可重试
+    return {"hub": True, "imported": imported, "skipped": skipped}
