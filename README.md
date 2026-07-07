@@ -81,6 +81,27 @@ Open http://localhost:5173. Without a key, chat streams a friendly "LLM not
 configured" error (the full SSE pipeline still runs); with a key you get real
 token-by-token streaming.
 
+### With WorkBuddy Hub (optional 3-tier)
+
+The two commands above run WorkBuddy **local-first** (no cloud). To also run the
+control plane — [`hub/`](hub/), the authoritative source for accounts / orgs /
+projects / members and the shared catalog (including the periodic SkillHub mirror,
+WB-069) — start all three tiers:
+
+```
+Browser (:5173) ──/api──▶ backend (:8000) ──HUB_URL──▶ Hub (:8100)
+```
+
+```powershell
+./run-stack.ps1     # Hub :8100 + backend :8000 (Hub-connected) + frontend :5173
+```
+
+`run-stack.ps1` launches each tier in its own window and skips any port already
+listening. It points the backend at the Hub via `HUB_URL=http://127.0.0.1:8100`
+(also settable in `backend/.env`). Remove that line for pure-local: every feature
+still works offline — the skills page just serves its static/local catalog instead
+of the Hub mirror.
+
 ### Example `.env` (DeepSeek)
 
 ```
