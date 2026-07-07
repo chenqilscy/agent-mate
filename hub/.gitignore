@@ -1,0 +1,6 @@
+# Hub 本地库与缓存（不入库）
+hub.db
+hub.db-*
+__pycache__/
+*.pyc
+.env
