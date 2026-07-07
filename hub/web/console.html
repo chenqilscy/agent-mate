@@ -284,11 +284,11 @@ function catTab(c,label){ return `<button data-c="${c}" class="${CATVIEW===c?'ac
 async function catFlat(category){ try{ const {items}=await api("GET","/catalog/"+category); return items.map(it=>it.data).filter(x=>typeof x==="string"); }catch(e){ return []; } }
 async function catalogView(m){
   m.innerHTML = `<h1>目录运营中心</h1><div class="sub">维护下发给客户端的内置目录，客户端 pull 后覆盖本地（离线回落本地 builtin 兜底）</div>
-    <div class="tabs">${catTab("experts","专家")}${catTab("teams","专家团")}${catTab("connectors","连接器")}${catTab("raw","高级 JSON")}</div>
+    <div class="tabs">${catTab("experts","专家")}${catTab("teams","专家团")}${catTab("connectors","连接器")}${catTab("skills","技能")}${catTab("skillhub","SkillHub")}${catTab("raw","高级 JSON")}</div>
     <div id="cat-body" class="muted">加载中…</div>`;
   m.querySelectorAll(".tabs button").forEach(b=> b.onclick=()=>{ CATVIEW=b.dataset.c; catalogView(m); });
   const body = document.getElementById("cat-body");
-  ({experts:expertsCat, teams:teamsCat, connectors:connectorsCat, raw:rawCat}[CATVIEW]||rawCat)(body);
+  ({experts:expertsCat, teams:teamsCat, connectors:connectorsCat, skills:skillsCat, skillhub:skillhubCat, raw:rawCat}[CATVIEW]||rawCat)(body);
 }
 
 // 专家目录（EXP_GRID 元组：[icon,name,subtitle,badge,intro,tags[],category]）
@@ -440,6 +440,55 @@ async function connectorsCat(body){
     F("cn-list").querySelectorAll("[data-tog]").forEach(b=> b.onclick=async()=>{ const [id,en]=b.dataset.tog.split(":"); try{ await api("PATCH","/catalog/item/"+id,{enabled:!!+en}); connectorsCat(body);}catch(e){F("cn-err").textContent=e.message;} });
     F("cn-list").querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); connectorsCat(body);}catch(e){F("cn-err").textContent=e.message;} });
   }catch(e){ F("cn-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+}
+
+// 技能目录（WB-084）：SK_GRID 三元组 [icon,name,desc]。
+async function skillsCat(body){
+  body.innerHTML = `<div class="card"><h3 id="sk-h">新增技能</h3><input type="hidden" id="sk-id">
+      <div class="grid2"><div class="field"><label>图标 emoji</label><input id="sk-icon" placeholder="🧩"></div><div class="field"><label>名称</label><input id="sk-name"></div></div>
+      <div class="field"><label>简介</label><textarea id="sk-desc"></textarea></div>
+      <div class="row"><input id="sk-sort" type="number" value="0" style="width:80px"><span class="muted" style="font-size:12px">排序</span><div class="grow"></div><button class="ghost" id="sk-clear">清空</button><button id="sk-save">保存</button></div>
+      <div class="err" id="sk-err"></div></div>
+    <div id="sk-list" class="muted">加载中…</div>`;
+  const F=id=>document.getElementById(id);
+  function fill(it){ const d=it?it.data:[]; F("sk-id").value=it?it.id:""; F("sk-icon").value=d[0]||""; F("sk-name").value=d[1]||""; F("sk-desc").value=d[2]||""; F("sk-sort").value=it?it.sort:0; F("sk-h").textContent=it?"编辑技能":"新增技能"; }
+  F("sk-clear").onclick=()=>fill(null);
+  F("sk-save").onclick=async()=>{ F("sk-err").textContent=""; const data=[F("sk-icon").value.trim(),F("sk-name").value.trim(),F("sk-desc").value.trim()]; if(!data[1]){F("sk-err").textContent="名称必填";return;} const id=F("sk-id").value,sort=Number(F("sk-sort").value)||0; try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"SK_GRID",data,sort}); skillsCat(body);}catch(e){F("sk-err").textContent=e.message;} };
+  try{ const {items}=await api("GET","/catalog/SK_GRID?all=true");
+    F("sk-list").innerHTML=items.length? items.map(it=>{const d=it.data||[]; return `<div class="list-item"><span style="font-size:20px">${esc(d[0]||"🧩")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d[1]||"?")} ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d[2]||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`;}).join(""):'<div class="muted">还没有技能目录项</div>';
+    F("sk-list").querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>{fill(items.find(x=>x.id===b.dataset.ed));window.scrollTo(0,0);});
+    F("sk-list").querySelectorAll("[data-tog]").forEach(b=>b.onclick=async()=>{const[id,en]=b.dataset.tog.split(":");try{await api("PATCH","/catalog/item/"+id,{enabled:!!+en});skillsCat(body);}catch(e){F("sk-err").textContent=e.message;}});
+    F("sk-list").querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{try{await api("DELETE","/catalog/item/"+b.dataset.del);skillsCat(body);}catch(e){F("sk-err").textContent=e.message;}});
+  }catch(e){F("sk-list").innerHTML=`<div class="err">${esc(e.message)}</div>`;}
+}
+
+// SkillHub（WB-084）：浏览镜像（category 'skill'，369 条）+ 分类过滤 + 实时搜索（CLI 代理）+ 加入精选（SKILLHUB_FEATURED）+ 手动同步。
+let SH_Q="", SH_CAT="";
+async function skillhubCat(body){
+  body.innerHTML = `
+    <div class="card"><div class="row"><button id="sh-sync">手动同步 SkillHub</button><span class="muted" id="sh-msg" style="font-size:12.5px"></span></div>
+      <div class="row" style="margin-top:10px"><input id="sh-q" placeholder="搜索 SkillHub（实时，走 CLI）" value="${esc(SH_Q)}"><button class="line" id="sh-search">搜索</button><button class="ghost" id="sh-clearq">清空</button></div>
+      <div id="sh-cats" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div></div>
+    <div id="sh-list" class="muted">加载中…</div>`;
+  const F=id=>document.getElementById(id);
+  F("sh-sync").onclick=async()=>{ F("sh-msg").textContent="同步中…（跑 CLI，稍候）"; try{ const r=await api("POST","/catalog/skills/sync"); F("sh-msg").textContent="已同步："+(r.inserted!=null?(r.inserted+" 条"):JSON.stringify(r)); skillhubCat(body);}catch(e){F("sh-msg").textContent=e.message;} };
+  F("sh-search").onclick=()=>{ SH_Q=F("sh-q").value.trim(); SH_CAT=""; skillhubCat(body); };
+  F("sh-q").onkeydown=(e)=>{ if(e.key==="Enter"){ SH_Q=F("sh-q").value.trim(); SH_CAT=""; skillhubCat(body); } };
+  F("sh-clearq").onclick=()=>{ SH_Q=""; SH_CAT=""; skillhubCat(body); };
+  let featBySlug={};
+  try{ const {items}=await api("GET","/catalog/SKILLHUB_FEATURED?all=true"); items.forEach(it=>{ if(it.data&&it.data.slug) featBySlug[it.data.slug]=it.id; }); }catch(e){}
+  try{ const {items}=await api("GET","/catalog/skill-category?all=true"); const tax=(items[0]&&items[0].data&&items[0].data.items)||[];
+    F("sh-cats").innerHTML = SH_Q? "" : [`<button class="line" data-cat="" style="${SH_CAT?'':'background:var(--chip)'}">全部</button>`].concat(tax.map(c=>`<button class="line" data-cat="${esc(c.key)}" style="${SH_CAT===c.key?'background:var(--chip)':''}">${esc(c.name)} ${c.count||""}</button>`)).join("");
+    F("sh-cats").querySelectorAll("[data-cat]").forEach(b=> b.onclick=()=>{ SH_CAT=b.dataset.cat; SH_Q=""; skillhubCat(body); });
+  }catch(e){}
+  try{
+    let skills, note="";
+    if(SH_Q){ const r=await api("GET","/catalog/skills/search?q="+encodeURIComponent(SH_Q)+"&limit=30"); skills=(r.results||[]).map(d=>({data:d})); if(!r.cli) note='<div class="muted">SkillHub CLI 不可用，无法实时搜索（客户端会回退本地兜底）</div>'; }
+    else { const {items}=await api("GET","/catalog/skill?all=true"); skills=items.filter(it=> !SH_CAT || (it.data&&it.data.skillhub_category===SH_CAT)); }
+    F("sh-list").innerHTML = note || (skills.length? skills.slice(0,60).map(it=>{ const d=it.data||{}; const fid=featBySlug[d.slug]; return `<div class="list-item"><div style="flex:1;min-width:0"><div class="t">${esc(d.name||d.slug||"?")} ${d.skillhub_category_name?`<span class="pill">${esc(d.skillhub_category_name)}</span>`:""} ${d.stars?`<span class="muted" style="font-size:11px">★${d.stars}</span>`:""}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.description||"")}</div></div><button class="${fid?'ghost':'line'}" data-feat="${esc(d.slug||"")}">${fid?"取消精选":"加入精选"}</button></div>`; }).join("") : '<div class="muted">无结果</div>');
+    F("sh-list").querySelectorAll("[data-feat]").forEach(b=> b.onclick=async()=>{ const slug=b.dataset.feat, fid=featBySlug[slug]; try{ if(fid) await api("DELETE","/catalog/item/"+fid); else { const sk=skills.find(x=>x.data.slug===slug); await api("POST","/catalog",{category:"SKILLHUB_FEATURED",data:sk.data,kind:"featured"}); } skillhubCat(body);}catch(e){F("sh-msg").textContent=e.message;} });
+    F("sh-msg").textContent = `${featBySlug&&Object.keys(featBySlug).length||0} 个已精选`;
+  }catch(e){ F("sh-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 
 // 高级 JSON（保留裸目录项编辑，供特殊类别 / 兜底）
