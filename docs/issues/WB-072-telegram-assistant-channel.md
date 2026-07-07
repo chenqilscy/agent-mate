@@ -131,4 +131,4 @@ P2：这是原型里承诺、方案里排期但从未落地的一整个一级视
     `POST /say {text:"…"}` 驱动真实 DeepSeek，返回「从 App 发送测试成功 ✅」并写入同一共享会话。
   - 未跑：浏览器明暗双主题实时截图（Playwright profile 被占用无法接管）；复用的均为既有主题安全 class
     （ast-conn/ac-chip/ov-center/MessageList），未引入暗色会翻车的硬编码色，仅加主题无关 emoji 状态点。
-- commit：（Slice 2 尚未提交）
+- commit：be89d38（Slice 2）
