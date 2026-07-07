@@ -96,7 +96,7 @@
 | [WB-077](WB-077-assistant-settings-panel.md) | ✅ | P2 | frontend | 助理设置面板 —— 齿轮点开的真配置（名字/人格/模型/开关/绑定/token 存 DB，write-only 不回传前端） |
 | [WB-078](WB-078-buddywebmgr-epic.md) | ⬜ | P1 | frontend | BuddyWebMgr —— Hub 控制台升级为完整 Web 管理门户（总纲/epic；设计见 docs/buddywebmgr-管理门户设计.md） |
 | [WB-079](WB-079-buddywebmgr-rename-nav.md) | ✅ | P2 | frontend | BuddyWebMgr 品牌更名 + 导航重构（门户骨架；仅 Web 品牌层，不动 hub/·HUB_URL 内部标识） |
-| [WB-080](WB-080-portal-project-config.md) | ⬜ | P2 | frontend | 门户项目管理面 —— 配置编辑（指令 + 连接器/专家/技能 picker，读目录、写 PATCH /projects） |
+| [WB-080](WB-080-portal-project-config.md) | ✅ | P2 | frontend | 门户项目管理面 —— 配置编辑（指令 + 连接器/专家/技能 picker，读目录、写 PATCH /projects） |
 | [WB-081](WB-081-hub-work-items-sync.md) | ⬜ | P2 | backend | 团队计划/任务 —— Hub work_items 模型 + 路由 + 本地⇄Hub 同步 + 门户看板（epic 内最重，殿后） |
 | [WB-082](WB-082-catalog-experts-teams-crud.md) | ⬜ | P2 | frontend | 目录运营中心框架 + 专家/专家团 类型化 CRUD（替裸 JSON，客户端 pull 下发） |
 | [WB-083](WB-083-catalog-connectors-crud.md) | ⬜ | P2 | frontend | 目录运营中心 —— 连接器 类型化 CRUD（launch spec 编辑器；secret_env 仅变量名） |

@@ -160,6 +160,7 @@ async function projectsView(m){
 async function projectDetail(m){
   const pid = CUR.id;
   m.innerHTML = `<button class="line" id="back">← 返回项目</button><h1 id="pd-name" style="margin-top:10px">项目</h1>
+    <div class="card" id="pd-cfg"><h3>配置</h3><div class="muted">加载中…</div></div>
     <div class="grid2">
       <div>
         <div class="card"><h3>成员</h3><div id="pd-members" class="muted">…</div>
@@ -176,8 +177,7 @@ async function projectDetail(m){
       </div>
     </div>`;
   document.getElementById("back").onclick=()=>{ CUR=null; render(); };
-  // load project meta
-  try{ const p = await api("GET","/projects/"+pid); document.getElementById("pd-name").textContent = p.name; }catch(e){}
+  loadConfig(pid);
   loadMembers(pid); loadPresence(pid); loadComments(pid); loadTimeline(pid);
   document.getElementById("pd-addbtn").onclick = async ()=>{
     try{ await api("POST",`/projects/${pid}/members`,{name:document.getElementById("pd-add").value.trim(), role:document.getElementById("pd-role").value}); document.getElementById("pd-add").value=""; loadMembers(pid); }
@@ -192,6 +192,48 @@ async function projectDetail(m){
     try{ await api("POST",`/projects/${pid}/comments`,{body:b.value.trim()}); b.value=""; document.getElementById("pd-cerr").textContent=""; loadComments(pid); loadTimeline(pid); }
     catch(e){ document.getElementById("pd-cerr").textContent=e.message; }
   };
+}
+// 项目配置编辑（WB-080）：指令 + 连接器/专家/技能（读目录作建议、写 PATCH /projects）。
+// connectors/experts/skills 是名字数组；datalist 从 Hub 目录相应类别取建议，也允许自由输入
+// （名字须与本地 backend 内置定义一致才真生效，目录空时靠自由输入兜底）。
+const CFG_CATS = { connectors:"NP_CONNS", experts:"EXP_GRID", skills:"SK_GRID" };
+async function catalogNames(category){
+  try{ const {items} = await api("GET","/catalog/"+category);
+    return items.map(it=>{ const d=it.data; return Array.isArray(d)?(d[1]||d[0]):((d&&d.name)||""); }).filter(Boolean);
+  }catch(e){ return []; }
+}
+async function loadConfig(pid){
+  const box = document.getElementById("pd-cfg");
+  let p; try{ p = await api("GET","/projects/"+pid); }catch(e){ box.innerHTML = `<h3>配置</h3><div class="err">${esc(e.message)}</div>`; return; }
+  document.getElementById("pd-name").textContent = p.name;
+  const ro = p.role === "Viewer";
+  const cur = { connectors:[...(p.connectors||[])], experts:[...(p.experts||[])], skills:[...(p.skills||[])] };
+  const opts = {}; for(const k in CFG_CATS){ opts[k] = await catalogNames(CFG_CATS[k]); }
+  const chipEd = (key,label)=>`<div class="field"><label>${label}</label>
+      <div id="cfg-${key}-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+      ${ro?"":`<div class="row"><input id="cfg-${key}-in" list="cfg-${key}-dl" placeholder="输入名称或从建议选…"><button class="line" data-add="${key}">添加</button></div>
+      <datalist id="cfg-${key}-dl">${opts[key].map(n=>`<option value="${esc(n)}"></option>`).join("")}</datalist>`}</div>`;
+  box.innerHTML = `<h3>配置 ${ro?'<span class="pill">只读</span>':''}</h3>
+    <div class="field"><label>指令</label><textarea id="cfg-instr" ${ro?"disabled":""}>${esc(p.instruction||"")}</textarea></div>
+    ${chipEd("connectors","连接器")}${chipEd("experts","专家")}${chipEd("skills","技能")}
+    <div class="err" id="cfg-err"></div>${ro?"":'<button id="cfg-save">保存配置</button>'}`;
+  function renderChips(){
+    for(const key in cur){
+      document.getElementById(`cfg-${key}-chips`).innerHTML = cur[key].length
+        ? cur[key].map((n,i)=>`<span class="pill" style="display:inline-flex;gap:5px;align-items:center">${esc(n)}${ro?"":`<span data-rm="${key}:${i}" style="cursor:pointer">×</span>`}</span>`).join("")
+        : '<span class="muted" style="font-size:12px">未配置</span>';
+    }
+    if(!ro) box.querySelectorAll("[data-rm]").forEach(x=> x.onclick=()=>{ const [k,i]=x.dataset.rm.split(":"); cur[k].splice(+i,1); renderChips(); });
+  }
+  renderChips();
+  if(!ro){
+    box.querySelectorAll("[data-add]").forEach(b=> b.onclick=()=>{ const k=b.dataset.add, inp=document.getElementById(`cfg-${k}-in`), v=inp.value.trim(); if(v && !cur[k].includes(v)){ cur[k].push(v); renderChips(); } inp.value=""; inp.focus(); });
+    document.getElementById("cfg-save").onclick = async ()=>{
+      document.getElementById("cfg-err").textContent="";
+      try{ await api("PATCH","/projects/"+pid,{ instruction:document.getElementById("cfg-instr").value, connectors:cur.connectors, experts:cur.experts, skills:cur.skills }); loadConfig(pid); }
+      catch(e){ document.getElementById("cfg-err").textContent=e.message; }
+    };
+  }
 }
 async function loadMembers(pid){
   try{ const {members} = await api("GET",`/projects/${pid}/members`);
