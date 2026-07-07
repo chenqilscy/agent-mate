@@ -12,6 +12,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import db
+import skillhub_client
+import skillhub_sync
 from auth import CurrentAccount
 from models import Account
 
@@ -21,6 +23,28 @@ router = APIRouter(prefix="/api", tags=["catalog"])
 def _require_admin(account: Account) -> None:
     if not account.is_platform_admin:
         raise HTTPException(403, "platform admin only")
+
+
+# ── SkillHub 目录镜像 + 查询代理（WB-069）──────────────────────────────────
+# 定时镜像的浏览目录仍走上面的 GET /api/catalog（category='skill' + 'skill-category' 骨架）。
+# 这里加：管理员手动触发同步；实时查询统一经 Hub 代理（跑 CLI search）。
+
+
+@router.post("/catalog/skills/sync")
+def sync_skillhub(account: Account = CurrentAccount) -> dict:
+    """手动触发一次 SkillHub 目录镜像同步（平台管理员）。返回条数/分类分布统计。"""
+    _require_admin(account)
+    return skillhub_sync.sync_once()
+
+
+@router.get("/catalog/skills/search")
+def search_skillhub(q: str = "", limit: int = 12, account: Account = CurrentAccount) -> dict:
+    """Hub 统一查询代理：实时查 SkillHub（CLI search + 短缓存）。
+
+    CLI 不可用/失败 → 空结果 + cli=false，客户端据此回退本地 backend 直连（离线兜底）。
+    """
+    return {"query": q, "results": skillhub_client.search(q, limit),
+            "cli": skillhub_client.cli_available()}
 
 
 @router.get("/catalog")

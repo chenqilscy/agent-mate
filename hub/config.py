@@ -21,5 +21,16 @@ class Settings:
     # 邀请码有效期（秒）；0 = 永不过期。
     INVITE_TTL: int = int(os.getenv("HUB_INVITE_TTL", "0"))
 
+    # SkillHub 目录镜像（WB-069）：Hub 复用本机 skillhub CLI 抓取，定时同步进 catalog。
+    SKILLHUB_CLI: Path = Path(
+        os.getenv("SKILLHUB_CLI", str(Path.home() / ".skillhub" / "skills_store_cli.py"))
+    )
+    # CLI 子进程 cwd（search/rankings 不落盘，仅需一个可写目录，放仓库外避免污染）。
+    SKILLHUB_WORK_DIR: Path = Path(
+        os.getenv("SKILLHUB_WORK_DIR", str(Path.home() / ".workbuddy" / "hub-skillhub"))
+    )
+    # 定时同步间隔（秒）；0 = 关闭后台循环（仍可管理员手动触发）。默认 12h。
+    SKILLHUB_SYNC_INTERVAL: int = int(os.getenv("SKILLHUB_SYNC_INTERVAL", str(12 * 3600)))
+
 
 settings = Settings()

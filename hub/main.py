@@ -7,7 +7,9 @@
 """
 from __future__ import annotations
 
+import asyncio
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 # 扁平 import（同 backend）：无论从何处启动，都把 hub/ 放进模块搜索路径。
@@ -21,12 +23,32 @@ from fastapi.responses import HTMLResponse  # noqa: E402
 _CONSOLE = Path(__file__).resolve().parent / "web" / "console.html"
 
 import db  # noqa: E402
+import skillhub_client  # noqa: E402
+import skillhub_sync  # noqa: E402
 from config import settings  # noqa: E402
 from routers import auth, catalog, comments, invites, notifications, orgs, projects, timeline  # noqa: E402
 
 db.init_db()
 
-app = FastAPI(title="WorkBuddy Hub API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启动后台 SkillHub 目录镜像同步循环（WB-069）；无 CLI / 间隔=0 时不启。"""
+    task = None
+    if settings.SKILLHUB_SYNC_INTERVAL > 0 and skillhub_client.cli_available():
+        task = asyncio.create_task(skillhub_sync.run_periodic())
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+
+app = FastAPI(title="WorkBuddy Hub API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=False,
     allow_methods=["*"], allow_headers=["*"],
