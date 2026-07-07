@@ -55,6 +55,21 @@ export const api = {
   // 未接 Hub → 后端无害返回 {hub:false}；用于登录后刷新 Hub SkillHub 镜像目录等。
   hubPull: () => send<{ hub: boolean; catalog?: number }>('POST', '/hub/pull'),
 
+  // 前端接 Hub 协作（WB-067 Slice 2）：都经本地 backend 代理转发到 Hub；未接 Hub → {hub:false}/空。
+  hubStatus: () => get<{ enabled: boolean; linked: { account_id: string; name: string } | null }>('/hub/status'),
+  hubLogin: (name: string, password: string, register = false) =>
+    send<{ token: string; account: { id: string; name: string; is_platform_admin?: boolean } }>('POST', '/hub/login', { name, password, register }),
+  hubImport: () => send<{ hub: boolean; imported: number; skipped: number }>('POST', '/hub/import'),
+  hubComments: (pid: string) =>
+    get<{ hub: boolean; comments: { id: string; author_name: string; body: string; created_at: number }[] }>(`/hub/projects/${pid}/comments`),
+  hubPostComment: (pid: string, body: string) =>
+    send<{ id: string; mentioned?: number }>('POST', `/hub/projects/${pid}/comments`, { body }),
+  hubPresence: (pid: string) =>
+    get<{ hub: boolean; presence: { account_id: string; name: string; role: string; online: boolean; last_seen: number }[] }>(`/hub/projects/${pid}/presence`),
+  hubNotifications: () =>
+    get<{ hub: boolean; notifications: { id: string; title: string; body: string; created_at: number; read: number }[]; unread: number }>('/hub/notifications'),
+  hubMarkNotifs: (ids?: string[]) => send<{ ok: boolean }>('POST', '/hub/notifications/read', ids ? { ids } : {}),
+
   listSessions: (space?: string) =>
     get<{ sessions: SessionInfo[] }>(`/sessions${space ? `?space=${encodeURIComponent(space)}` : ''}`),
 

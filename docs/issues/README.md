@@ -83,7 +83,7 @@
 | [WB-063](WB-063-hub-migration-and-local-fallback.md) | ✅ | P2 | backend | 迁移与 local-first 回退 —— 存量导入 Hub、目录权威切 Hub 下发、离线/未登录回退 |
 | [WB-065](WB-065-deeper-collab-comments-mentions-presence.md) | ✅ | P2 | backend | 更深协作 —— 评论 / @提及 / 在线状态（分层：v1 REST+轮询，实时作增强） |
 | [WB-066](WB-066-hub-catalog-admin-downlink.md) | ✅ | P2 | backend | Hub 目录运营 Admin + 下发覆盖 —— 激活已预埋的 catalog capability |
-| [WB-067](WB-067-app-frontend-hub-surface.md) | 🟡 | P2 | frontend | App 前端接 Hub —— 协作面板(评论/在线/通知) + 连接/导入入口（SkillHub 目录已由 WB-070 接） |
+| [WB-067](WB-067-app-frontend-hub-surface.md) | ✅ | P2 | frontend | App 前端接 Hub —— 协作面板(评论/在线/通知) + 连接/导入入口（SkillHub 目录已由 WB-070 接） |
 | [WB-068](WB-068-hub-web-console.md) | ✅ | P2 | backend | Hub web 管理控制台 —— Hub 自带的 web UI（账号/项目/成员/邀请/目录 Admin/通知） |
 | [WB-069](WB-069-hub-skillhub-catalog-sync.md) | ✅ | P2 | backend | Hub 定时镜像 SkillHub 目录（按分类）+ Hub 统一查询代理（复用 CLI；榜单∪去重；本地降级兜底） |
 | [WB-070](WB-070-frontend-hub-skillhub-catalog.md) | ✅ | P2 | frontend | 前端接入 Hub SkillHub 镜像目录 + 搜索代理（触发下行 pull + catalogStore 承载 skill 类 + ExpertsView 改读 + 搜索接线） |
