@@ -83,6 +83,7 @@
 | [WB-063](WB-063-hub-migration-and-local-fallback.md) | ✅ | P2 | backend | 迁移与 local-first 回退 —— 存量导入 Hub、目录权威切 Hub 下发、离线/未登录回退 |
 | [WB-065](WB-065-deeper-collab-comments-mentions-presence.md) | ✅ | P2 | backend | 更深协作 —— 评论 / @提及 / 在线状态（分层：v1 REST+轮询，实时作增强） |
 | [WB-066](WB-066-hub-catalog-admin-downlink.md) | ✅ | P2 | backend | Hub 目录运营 Admin + 下发覆盖 —— 激活已预埋的 catalog capability |
+| [WB-068](WB-068-hub-web-console.md) | ✅ | P2 | backend | Hub web 管理控制台 —— Hub 自带的 web UI（账号/项目/成员/邀请/目录 Admin/通知） |
 
 ## 来源
 

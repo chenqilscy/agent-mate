@@ -16,6 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import uvicorn  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import HTMLResponse  # noqa: E402
+
+_CONSOLE = Path(__file__).resolve().parent / "web" / "console.html"
 
 import db  # noqa: E402
 from config import settings  # noqa: E402
@@ -28,6 +31,15 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=False,
     allow_methods=["*"], allow_headers=["*"],
 )
+
+
+@app.get("/", response_class=HTMLResponse)
+def console() -> str:
+    """Hub 自带的 web 管理控制台（WB-068）——单文件、同源调 /api，无构建管线。"""
+    try:
+        return _CONSOLE.read_text(encoding="utf-8")
+    except OSError:
+        return "<h1>WorkBuddy Hub</h1><p>console.html missing</p>"
 
 
 @app.get("/api/health")
