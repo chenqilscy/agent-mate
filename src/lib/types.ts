@@ -215,6 +215,25 @@ export interface CreateAutomationInput {
   enabled?: boolean
 }
 
+// SkillHub 商店卡（WB-070）：搜索/浏览的目录条目。
+// - Hub 查询代理/镜像 → 富字段（下载/星/图标/分类齐全）；
+// - 本地 CLI 搜索兜底 → 仅 slug/name/description/version（其余可选、缺省）。
+export interface SkillCard {
+  slug: string
+  name: string
+  description: string
+  version?: string
+  category?: string
+  downloads?: number
+  installs?: number
+  stars?: number
+  iconUrl?: string
+  tags?: string[]
+  verified?: boolean
+  skillhub_category?: string
+  skillhub_category_name?: string
+}
+
 // SkillHub 已安装技能（WB-055）——磁盘扫描结果。key = 技能目录名。
 export interface InstalledSkill {
   key: string

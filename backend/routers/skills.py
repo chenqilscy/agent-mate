@@ -5,12 +5,17 @@ skillhub CLI 下载解压（agent/skills_store.py）。清单/详情来自真实
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
+import hub_client
 from agent import skills_store
 
 router = APIRouter(prefix="/api", tags=["skills"])
+
+
+def _bearer(authorization: str) -> str:
+    return authorization[7:].strip() if authorization[:7].lower() == "bearer " else ""
 
 
 class InstallBody(BaseModel):
@@ -28,8 +33,13 @@ def list_installed() -> dict:
 
 
 @router.get("/skills/search")
-def search_skills(q: str = "", limit: int = 8) -> dict:
-    return {"results": skills_store.search(q, limit)}
+def search_skills(q: str = "", limit: int = 8, authorization: str = Header(default="")) -> dict:
+    # WB-070：优先经 Hub 查询代理（富字段：下载/星/图标），未接/不可达/空 → 回退本地 CLI 搜索（离线兜底）。
+    if q.strip() and hub_client.hub_enabled():
+        proxied = hub_client.search_skillhub(_bearer(authorization), q, limit)
+        if proxied:
+            return {"results": proxied, "source": "hub"}
+    return {"results": skills_store.search(q, limit), "source": "local"}
 
 
 @router.get("/skills/rankings")

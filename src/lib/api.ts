@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, InstalledSkill, Me, ModelOption, ProjectInfo, ProjectMember, SessionInfo, SkillDetail, WorkAttachment, WorkItem, WorkStatus } from './types'
+import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, InstalledSkill, Me, ModelOption, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -51,6 +51,10 @@ export const api = {
   // 橱窗目录（WB-060）：原 data/catalog.ts 静态商品卡，现由后端供给。按 export 名分组的对象。
   getCatalog: () => get<Record<string, unknown>>('/catalog'),
 
+  // 触发本地 backend 从 Hub 下行 pull（项目/成员/目录镜像，WB-062/066/070）。
+  // 未接 Hub → 后端无害返回 {hub:false}；用于登录后刷新 Hub SkillHub 镜像目录等。
+  hubPull: () => send<{ hub: boolean; catalog?: number }>('POST', '/hub/pull'),
+
   listSessions: (space?: string) =>
     get<{ sessions: SessionInfo[] }>(`/sessions${space ? `?space=${encodeURIComponent(space)}` : ''}`),
 
@@ -96,6 +100,9 @@ export const api = {
   // SkillHub 技能 · 真实安装/发现/管理（WB-055）。清单来自 ~/.workbuddy/skills 磁盘扫描，
   // 安装走真实 skillhub CLI 下载解压。key = 技能目录名。
   listSkills: () => get<{ skills: InstalledSkill[]; cli: boolean }>('/skills'),
+  // SkillHub 实时搜索（WB-070）：本地 backend 优先经 Hub 查询代理（富字段），未接/不可达 → 回退本地 CLI。
+  searchSkills: (q: string, limit = 12) =>
+    get<{ results: SkillCard[]; source?: string }>(`/skills/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   skillDetail: (key: string) => get<{ skill: SkillDetail }>(`/skills/${encodeURIComponent(key)}`),
   // 安装前预览：未安装也能看 SKILL.md（后端临时下载，不落盘）。
   skillPreview: (q: { slug?: string; name?: string }) =>

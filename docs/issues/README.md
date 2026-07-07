@@ -85,6 +85,7 @@
 | [WB-066](WB-066-hub-catalog-admin-downlink.md) | ✅ | P2 | backend | Hub 目录运营 Admin + 下发覆盖 —— 激活已预埋的 catalog capability |
 | [WB-068](WB-068-hub-web-console.md) | ✅ | P2 | backend | Hub web 管理控制台 —— Hub 自带的 web UI（账号/项目/成员/邀请/目录 Admin/通知） |
 | [WB-069](WB-069-hub-skillhub-catalog-sync.md) | ✅ | P2 | backend | Hub 定时镜像 SkillHub 目录（按分类）+ Hub 统一查询代理（复用 CLI；榜单∪去重；本地降级兜底） |
+| [WB-070](WB-070-frontend-hub-skillhub-catalog.md) | ✅ | P2 | frontend | 前端接入 Hub SkillHub 镜像目录 + 搜索代理（触发下行 pull + catalogStore 承载 skill 类 + ExpertsView 改读 + 搜索接线） |
 
 ## 来源
 

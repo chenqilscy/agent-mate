@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import urllib.parse
 from typing import Any, Optional
 
 import httpx
@@ -104,3 +105,11 @@ def list_all_catalog(token: str) -> Optional[list[dict[str, Any]]]:
     d = _get("/api/catalog", token)
     items = d.get("items") if isinstance(d, dict) else None
     return items if isinstance(items, list) else None
+
+
+def search_skillhub(token: str, q: str, limit: int = 12) -> Optional[list[dict[str, Any]]]:
+    """经 Hub 查询代理实时搜 SkillHub（WB-070）。None = 未接/不可达/无结果 → 调用方回退本地。"""
+    qs = urllib.parse.urlencode({"q": q, "limit": limit})
+    d = _get(f"/api/catalog/skills/search?{qs}", token)
+    res = d.get("results") if isinstance(d, dict) else None
+    return res if isinstance(res, list) and res else None
