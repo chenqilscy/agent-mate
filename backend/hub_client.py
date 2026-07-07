@@ -45,6 +45,55 @@ def verify_token(token: str) -> Optional[dict[str, Any]]:
     return acct if isinstance(acct, dict) else None
 
 
+def _post(path: str, token: str, body: Optional[dict] = None) -> Optional[Any]:
+    """带 token POST Hub 的 `path`，返回解析后的 JSON 或 None（guarded，从不抛）。"""
+    if not settings.HUB_URL:
+        return None
+    try:
+        r = httpx.post(
+            f"{settings.HUB_URL}{path}",
+            headers=({"Authorization": f"Bearer {token}"} if token else {}),
+            json=body or {}, timeout=_TIMEOUT,
+        )
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+# ---- 前端接 Hub 的代理（WB-067）：本地 backend 转发 Hub 协作/登录，前端只连本地 ----
+
+def hub_login(name: str, password: str, register: bool = False) -> Optional[dict[str, Any]]:
+    """代理登录/注册到 Hub → {token, account}，或 None（未接/失败）。登录本身不带 token。"""
+    return _post("/api/auth/register" if register else "/api/auth/login", "", {"name": name, "password": password})
+
+
+def list_comments(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
+    d = _get(f"/api/projects/{project_id}/comments", token)
+    c = d.get("comments") if isinstance(d, dict) else None
+    return c if isinstance(c, list) else None
+
+
+def post_comment(token: str, project_id: str, body: str) -> Optional[dict[str, Any]]:
+    return _post(f"/api/projects/{project_id}/comments", token, {"body": body})
+
+
+def list_presence(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
+    d = _get(f"/api/projects/{project_id}/presence", token)
+    p = d.get("presence") if isinstance(d, dict) else None
+    return p if isinstance(p, list) else None
+
+
+def hub_notifications(token: str) -> Optional[dict[str, Any]]:
+    d = _get("/api/notifications", token)
+    return d if isinstance(d, dict) else None
+
+
+def mark_hub_notifications(token: str, ids: Optional[list[str]] = None) -> bool:
+    return _post("/api/notifications/read", token, {"ids": ids} if ids else {}) is not None
+
+
 def list_projects(token: str) -> Optional[list[dict[str, Any]]]:
     """该账号在 Hub 的项目（owner + 成员），或 None（未接/不可达）。WB-062 Phase 2 下行 pull。"""
     d = _get("/api/projects", token)

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel
 
 import hub_client
 import hub_sync
@@ -50,3 +51,69 @@ def hub_status() -> dict:
         "enabled": hub_client.hub_enabled(),
         "linked": {"account_id": link["hub_account_id"], "name": link["hub_account_name"]} if link else None,
     }
+
+
+# ---- 前端接 Hub 的代理路由（WB-067）：前端只连本地 :8000，这里转发到 Hub。全部 guarded。----
+
+class HubLoginBody(BaseModel):
+    name: str
+    password: str
+    register: bool = False
+
+
+@router.post("/hub/login")
+def hub_login(body: HubLoginBody) -> dict:
+    """代理登录/注册到 Hub。前端拿到返回的 token 后存为自己的 token，即以 Hub 账号身份操作。"""
+    if not hub_client.hub_enabled():
+        raise HTTPException(400, "hub not configured")
+    res = hub_client.hub_login((body.name or "").strip(), body.password, body.register)
+    if not res or not res.get("token"):
+        raise HTTPException(401, "hub 登录失败（账号密码错误或 Hub 不可达）")
+    return res
+
+
+@router.get("/hub/projects/{project_id}/comments")
+def hub_comments(project_id: str, authorization: str = Header(default="")) -> dict:
+    if not hub_client.hub_enabled():
+        return {"hub": False, "comments": []}
+    return {"hub": True, "comments": hub_client.list_comments(_bearer(authorization), project_id) or []}
+
+
+class CommentBody(BaseModel):
+    body: str
+
+
+@router.post("/hub/projects/{project_id}/comments")
+def hub_post_comment(project_id: str, body: CommentBody, authorization: str = Header(default="")) -> dict:
+    if not hub_client.hub_enabled():
+        raise HTTPException(400, "hub not configured")
+    c = hub_client.post_comment(_bearer(authorization), project_id, (body.body or "").strip())
+    if not c:
+        raise HTTPException(400, "评论失败（无权限或 Hub 不可达）")
+    return c
+
+
+@router.get("/hub/projects/{project_id}/presence")
+def hub_presence(project_id: str, authorization: str = Header(default="")) -> dict:
+    if not hub_client.hub_enabled():
+        return {"hub": False, "presence": []}
+    return {"hub": True, "presence": hub_client.list_presence(_bearer(authorization), project_id) or []}
+
+
+@router.get("/hub/notifications")
+def hub_notifications(authorization: str = Header(default="")) -> dict:
+    if not hub_client.hub_enabled():
+        return {"hub": False, "notifications": [], "unread": 0}
+    d = hub_client.hub_notifications(_bearer(authorization)) or {}
+    return {"hub": True, "notifications": d.get("notifications", []), "unread": d.get("unread", 0)}
+
+
+class MarkBody(BaseModel):
+    ids: list[str] | None = None
+
+
+@router.post("/hub/notifications/read")
+def hub_mark_read(body: MarkBody, authorization: str = Header(default="")) -> dict:
+    if not hub_client.hub_enabled():
+        return {"ok": False}
+    return {"ok": hub_client.mark_hub_notifications(_bearer(authorization), body.ids)}
