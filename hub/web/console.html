@@ -284,11 +284,11 @@ function catTab(c,label){ return `<button data-c="${c}" class="${CATVIEW===c?'ac
 async function catFlat(category){ try{ const {items}=await api("GET","/catalog/"+category); return items.map(it=>it.data).filter(x=>typeof x==="string"); }catch(e){ return []; } }
 async function catalogView(m){
   m.innerHTML = `<h1>目录运营中心</h1><div class="sub">维护下发给客户端的内置目录，客户端 pull 后覆盖本地（离线回落本地 builtin 兜底）</div>
-    <div class="tabs">${catTab("experts","专家")}${catTab("teams","专家团")}${catTab("raw","高级 JSON")}</div>
+    <div class="tabs">${catTab("experts","专家")}${catTab("teams","专家团")}${catTab("connectors","连接器")}${catTab("raw","高级 JSON")}</div>
     <div id="cat-body" class="muted">加载中…</div>`;
   m.querySelectorAll(".tabs button").forEach(b=> b.onclick=()=>{ CATVIEW=b.dataset.c; catalogView(m); });
   const body = document.getElementById("cat-body");
-  ({experts:expertsCat, teams:teamsCat, raw:rawCat}[CATVIEW]||rawCat)(body);
+  ({experts:expertsCat, teams:teamsCat, connectors:connectorsCat, raw:rawCat}[CATVIEW]||rawCat)(body);
 }
 
 // 专家目录（EXP_GRID 元组：[icon,name,subtitle,badge,intro,tags[],category]）
@@ -366,6 +366,80 @@ async function teamsCat(body){
     F("tm-list").querySelectorAll("[data-tog]").forEach(b=> b.onclick=async()=>{ const [id,en]=b.dataset.tog.split(":"); try{ await api("PATCH","/catalog/item/"+id,{enabled:!!+en}); teamsCat(body);}catch(e){F("tm-err").textContent=e.message;} });
     F("tm-list").querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); teamsCat(body);}catch(e){F("tm-err").textContent=e.message;} });
   }catch(e){ F("tm-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+}
+
+// 连接器目录（WB-083）：每条 = 权威定义对象 {icon,name,desc,status,launch}，存 category CONN_DEFS。
+// launch spec 编辑器：内置(builtin_server) 或 第三方 stdio(command/args/secret_env 仅变量名/requires)。
+// 注：App 侧「浏览显示 + 真执行」消费 Hub 连接器定义需 pull 映射（CONN_DEFS→NP_CONNS/本地 catalog_connectors），属后续。
+const BUILTIN_SERVERS = ["notes","clock","search","telegram","kdocs"];
+async function connectorsCat(body){
+  body.innerHTML = `
+    <div class="card"><h3 id="cn-h">新增连接器</h3><input type="hidden" id="cn-id">
+      <div class="grid2">
+        <div class="field"><label>图标 emoji</label><input id="cn-icon" placeholder="🔗"></div>
+        <div class="field"><label>名称</label><input id="cn-name"></div>
+      </div>
+      <div class="field"><label>简介</label><textarea id="cn-desc"></textarea></div>
+      <div class="grid2">
+        <div class="field"><label>状态</label><select id="cn-status"><option value="rdy">rdy 内置即用</option><option value="tok">tok 需凭据/CLI</option></select></div>
+        <div class="field"><label>启动类型</label><select id="cn-type"><option value="builtin">内置 builtin_server</option><option value="stdio">第三方 stdio</option></select></div>
+      </div>
+      <div id="cn-builtin">
+        <div class="field"><label>builtin_server</label><input id="cn-bsrv" list="cn-bsrv-dl" placeholder="notes / clock / search / telegram / kdocs"><datalist id="cn-bsrv-dl">${BUILTIN_SERVERS.map(s=>`<option value="${s}"></option>`).join("")}</datalist></div>
+        <div class="grid2"><div class="field"><label>requires（环境变量名，逗号分隔，可空）</label><input id="cn-breq" placeholder="TELEGRAM_BOT_TOKEN"></div>
+          <div class="field"><label>requires_bin（依赖命令，逗号分隔，可空）</label><input id="cn-bbin" placeholder="kdocs-cli"></div></div>
+      </div>
+      <div id="cn-stdio" style="display:none">
+        <div class="field"><label>command</label><input id="cn-cmd" placeholder="npx"></div>
+        <div class="field"><label>args（每行一个）</label><textarea id="cn-args" placeholder="-y&#10;@modelcontextprotocol/server-github"></textarea></div>
+        <div class="field"><label>secret_env（每行「子进程变量名=来源环境变量名」，仅变量名、绝不填值）</label><textarea id="cn-senv" placeholder="GITHUB_PERSONAL_ACCESS_TOKEN=GITHUB_TOKEN"></textarea></div>
+        <div class="field"><label>requires（环境变量名，逗号分隔）</label><input id="cn-sreq" placeholder="GITHUB_TOKEN"></div>
+      </div>
+      <div class="row"><input id="cn-sort" type="number" value="0" style="width:80px"><span class="muted" style="font-size:12px">排序</span><div class="grow"></div><button class="ghost" id="cn-clear">清空</button><button id="cn-save">保存</button></div>
+      <div class="err" id="cn-err"></div></div>
+    <div id="cn-list" class="muted">加载中…</div>`;
+  const F = id=>document.getElementById(id);
+  const csv = s => s.split(",").map(x=>x.trim()).filter(Boolean);
+  const lines = s => s.split("\n").map(x=>x.trim()).filter(Boolean);
+  const setType = t=>{ F("cn-builtin").style.display = t==="builtin"?"":"none"; F("cn-stdio").style.display = t==="stdio"?"":"none"; };
+  F("cn-type").onchange = ()=> setType(F("cn-type").value);
+  function fill(it){
+    const d = it? it.data : {}, L = (d&&d.launch) || {};
+    F("cn-id").value = it? it.id : "";
+    F("cn-icon").value=d.icon||""; F("cn-name").value=d.name||""; F("cn-desc").value=d.desc||""; F("cn-status").value=d.status||"rdy";
+    const isStdio = !!L.command;
+    F("cn-type").value = isStdio?"stdio":"builtin"; setType(F("cn-type").value);
+    F("cn-bsrv").value=L.builtin_server||""; F("cn-breq").value=(!isStdio?(L.requires||[]):[]).join(", "); F("cn-bbin").value=(L.requires_bin||[]).join(", ");
+    F("cn-cmd").value=L.command||""; F("cn-args").value=(L.args||[]).join("\n"); F("cn-senv").value=Object.entries(L.secret_env||{}).map(([k,v])=>`${k}=${v}`).join("\n"); F("cn-sreq").value=(isStdio?(L.requires||[]):[]).join(", ");
+    F("cn-sort").value = it? it.sort : 0; F("cn-h").textContent = it? "编辑连接器":"新增连接器";
+  }
+  F("cn-clear").onclick=()=>fill(null);
+  F("cn-save").onclick = async ()=>{
+    F("cn-err").textContent="";
+    const name=F("cn-name").value.trim(); if(!name){ F("cn-err").textContent="名称必填"; return; }
+    let launch;
+    if(F("cn-type").value==="builtin"){
+      launch={ builtin_server:F("cn-bsrv").value.trim(), builtin:true };
+      if(!launch.builtin_server){ F("cn-err").textContent="内置需填 builtin_server"; return; }
+      const rq=csv(F("cn-breq").value), rb=csv(F("cn-bbin").value); if(rq.length)launch.requires=rq; if(rb.length)launch.requires_bin=rb;
+    } else {
+      launch={ command:F("cn-cmd").value.trim(), args:lines(F("cn-args").value) };
+      if(!launch.command){ F("cn-err").textContent="第三方需填 command"; return; }
+      const senv={}; lines(F("cn-senv").value).forEach(l=>{ const i=l.indexOf("="); if(i>0) senv[l.slice(0,i).trim()]=l.slice(i+1).trim(); });
+      if(Object.keys(senv).length) launch.secret_env=senv;
+      const rq=csv(F("cn-sreq").value); if(rq.length) launch.requires=rq;
+    }
+    const data={ icon:F("cn-icon").value.trim(), name, desc:F("cn-desc").value.trim(), status:F("cn-status").value, launch };
+    const id=F("cn-id").value, sort=Number(F("cn-sort").value)||0;
+    try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"CONN_DEFS",data,sort}); connectorsCat(body); }
+    catch(e){ F("cn-err").textContent=e.message; }
+  };
+  try{ const {items} = await api("GET","/catalog/CONN_DEFS?all=true");
+    F("cn-list").innerHTML = items.length? items.map(it=>{ const d=it.data||{}, L=d.launch||{}; const lsum=L.builtin_server?("内置 · "+L.builtin_server):(L.command?("stdio · "+L.command+" "+((L.args||[]).join(" "))):"—"); return `<div class="list-item"><span style="font-size:20px">${esc(d.icon||"🔗")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d.name||"?")} <span class="pill">${esc(d.status||"")}</span> ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(lsum)}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`; }).join("") : '<div class="muted">还没有连接器目录项</div>';
+    F("cn-list").querySelectorAll("[data-ed]").forEach(b=> b.onclick=()=>{ fill(items.find(x=>x.id===b.dataset.ed)); window.scrollTo(0,0); });
+    F("cn-list").querySelectorAll("[data-tog]").forEach(b=> b.onclick=async()=>{ const [id,en]=b.dataset.tog.split(":"); try{ await api("PATCH","/catalog/item/"+id,{enabled:!!+en}); connectorsCat(body);}catch(e){F("cn-err").textContent=e.message;} });
+    F("cn-list").querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); connectorsCat(body);}catch(e){F("cn-err").textContent=e.message;} });
+  }catch(e){ F("cn-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 
 // 高级 JSON（保留裸目录项编辑，供特殊类别 / 兜底）
