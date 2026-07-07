@@ -277,24 +277,114 @@ async function notifsView(m){
   }catch(e){ document.getElementById("n-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 
-// ---------- catalog admin ----------
+// ---------- 目录运营中心（WB-082 框架 + 专家/专家团；WB-083 连接器；WB-084 技能+SkillHub）----------
+// 维护下发给客户端的内置目录（catalog_items），客户端 pull 后覆盖本地、离线回落本地 builtin 兜底。
+let CATVIEW = "experts";
+function catTab(c,label){ return `<button data-c="${c}" class="${CATVIEW===c?'active':''}">${label}</button>`; }
+async function catFlat(category){ try{ const {items}=await api("GET","/catalog/"+category); return items.map(it=>it.data).filter(x=>typeof x==="string"); }catch(e){ return []; } }
 async function catalogView(m){
-  m.innerHTML = `<h1>目录 Admin</h1><div class="sub">运营 builtin 目录，客户端 pull 后反映（本地兜底）</div>
-    <div class="card"><h3>新增目录项</h3>
-      <div class="field"><label>分类 category（如 EXP_GRID / CONNS / AUTO）</label><input id="c-cat" placeholder="EXP_GRID"></div>
-      <div class="field"><label>data（JSON：数组卡如 ["🆕","名称",...] 或对象）</label><textarea id="c-data" placeholder='["🆕","Hub 专家","平台出品","","介绍",["标签"],"技术工程"]'></textarea></div>
-      <div class="row"><input id="c-sort" type="number" value="0" style="width:90px" placeholder="sort"><button id="c-add">新增</button></div>
+  m.innerHTML = `<h1>目录运营中心</h1><div class="sub">维护下发给客户端的内置目录，客户端 pull 后覆盖本地（离线回落本地 builtin 兜底）</div>
+    <div class="tabs">${catTab("experts","专家")}${catTab("teams","专家团")}${catTab("raw","高级 JSON")}</div>
+    <div id="cat-body" class="muted">加载中…</div>`;
+  m.querySelectorAll(".tabs button").forEach(b=> b.onclick=()=>{ CATVIEW=b.dataset.c; catalogView(m); });
+  const body = document.getElementById("cat-body");
+  ({experts:expertsCat, teams:teamsCat, raw:rawCat}[CATVIEW]||rawCat)(body);
+}
+
+// 专家目录（EXP_GRID 元组：[icon,name,subtitle,badge,intro,tags[],category]）
+async function expertsCat(body){
+  const cats = await catFlat("EXP_CATS");
+  body.innerHTML = `
+    <div class="card"><h3 id="ex-h">新增专家</h3><input type="hidden" id="ex-id">
+      <div class="grid2">
+        <div class="field"><label>图标 emoji</label><input id="ex-icon" placeholder="🚀"></div>
+        <div class="field"><label>名称</label><input id="ex-name"></div>
+        <div class="field"><label>副标题 / 作者</label><input id="ex-sub"></div>
+        <div class="field"><label>徽标（如 Beta，可空）</label><input id="ex-badge"></div>
+      </div>
+      <div class="field"><label>简介</label><textarea id="ex-intro"></textarea></div>
+      <div class="grid2">
+        <div class="field"><label>标签（逗号分隔）</label><input id="ex-tags"></div>
+        <div class="field"><label>分类</label><input id="ex-cat" list="ex-cats-dl"><datalist id="ex-cats-dl">${cats.map(c=>`<option value="${esc(c)}"></option>`).join("")}</datalist></div>
+      </div>
+      <div class="row"><input id="ex-sort" type="number" value="0" style="width:80px"><span class="muted" style="font-size:12px">排序</span><div class="grow"></div><button class="ghost" id="ex-clear">清空</button><button id="ex-save">保存</button></div>
+      <div class="err" id="ex-err"></div></div>
+    <div id="ex-list" class="muted">加载中…</div>`;
+  const F = id=>document.getElementById(id);
+  function fill(it){ const d=it?it.data:[]; F("ex-id").value=it?it.id:""; F("ex-icon").value=d[0]||""; F("ex-name").value=d[1]||""; F("ex-sub").value=d[2]||""; F("ex-badge").value=d[3]||""; F("ex-intro").value=d[4]||""; F("ex-tags").value=(d[5]||[]).join(", "); F("ex-cat").value=d[6]||""; F("ex-sort").value=it?it.sort:0; F("ex-h").textContent=it?"编辑专家":"新增专家"; }
+  F("ex-clear").onclick=()=>fill(null);
+  F("ex-save").onclick = async ()=>{
+    F("ex-err").textContent="";
+    const data=[F("ex-icon").value.trim(),F("ex-name").value.trim(),F("ex-sub").value.trim(),F("ex-badge").value.trim(),F("ex-intro").value.trim(),F("ex-tags").value.split(",").map(s=>s.trim()).filter(Boolean),F("ex-cat").value.trim()];
+    if(!data[1]){ F("ex-err").textContent="名称必填"; return; }
+    const id=F("ex-id").value, sort=Number(F("ex-sort").value)||0;
+    try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"EXP_GRID",data,sort}); expertsCat(body); }
+    catch(e){ F("ex-err").textContent=e.message; }
+  };
+  try{ const {items} = await api("GET","/catalog/EXP_GRID?all=true");
+    F("ex-list").innerHTML = items.length? items.map(it=>{ const d=it.data||[]; return `<div class="list-item"><span style="font-size:20px">${esc(d[0]||"🧑")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d[1]||"?")} ${d[3]?`<span class="pill">${esc(d[3])}</span>`:""} ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d[4]||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`; }).join("") : '<div class="muted">还没有专家目录项</div>';
+    F("ex-list").querySelectorAll("[data-ed]").forEach(b=> b.onclick=()=>{ fill(items.find(x=>x.id===b.dataset.ed)); window.scrollTo(0,0); });
+    F("ex-list").querySelectorAll("[data-tog]").forEach(b=> b.onclick=async()=>{ const [id,en]=b.dataset.tog.split(":"); try{ await api("PATCH","/catalog/item/"+id,{enabled:!!+en}); expertsCat(body);}catch(e){F("ex-err").textContent=e.message;} });
+    F("ex-list").querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); expertsCat(body);}catch(e){F("ex-err").textContent=e.message;} });
+  }catch(e){ F("ex-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+}
+
+// 专家团目录（EXP_TEAMS 对象：{icon,name,source,category,intro,strengths[],members[{role,name,lead}],prompts[],tags[]}）
+async function teamsCat(body){
+  body.innerHTML = `
+    <div class="card"><h3 id="tm-h">新增专家团</h3><input type="hidden" id="tm-id">
+      <div class="grid2">
+        <div class="field"><label>图标 emoji</label><input id="tm-icon" placeholder="🎨"></div>
+        <div class="field"><label>名称</label><input id="tm-name"></div>
+        <div class="field"><label>来源 source</label><input id="tm-source" placeholder="平台出品"></div>
+        <div class="field"><label>分类</label><input id="tm-cat"></div>
+      </div>
+      <div class="field"><label>简介</label><textarea id="tm-intro"></textarea></div>
+      <div class="field"><label>擅长 strengths（逗号分隔，也用作 tags）</label><input id="tm-strengths"></div>
+      <div class="field"><label>成员（每行一位「角色,姓名」，第一行为 lead）</label><textarea id="tm-members" placeholder="创意总监,司远&#10;文案专家,笔澜"></textarea></div>
+      <div class="field"><label>示例提问（每行一条）</label><textarea id="tm-prompts"></textarea></div>
+      <div class="row"><input id="tm-sort" type="number" value="0" style="width:80px"><span class="muted" style="font-size:12px">排序</span><div class="grow"></div><button class="ghost" id="tm-clear">清空</button><button id="tm-save">保存</button></div>
+      <div class="err" id="tm-err"></div></div>
+    <div id="tm-list" class="muted">加载中…</div>`;
+  const F = id=>document.getElementById(id);
+  function fill(it){ const d=it?it.data:{}; F("tm-id").value=it?it.id:""; F("tm-icon").value=d.icon||""; F("tm-name").value=d.name||""; F("tm-source").value=d.source||""; F("tm-cat").value=d.category||""; F("tm-intro").value=d.intro||""; F("tm-strengths").value=(d.strengths||[]).join(", "); F("tm-members").value=(d.members||[]).map(mb=>`${mb.role||""},${mb.name||""}`).join("\n"); F("tm-prompts").value=(d.prompts||[]).join("\n"); F("tm-sort").value=it?it.sort:0; F("tm-h").textContent=it?"编辑专家团":"新增专家团"; }
+  F("tm-clear").onclick=()=>fill(null);
+  F("tm-save").onclick = async ()=>{
+    F("tm-err").textContent="";
+    const strengths=F("tm-strengths").value.split(",").map(s=>s.trim()).filter(Boolean);
+    const members=F("tm-members").value.split("\n").map(s=>s.trim()).filter(Boolean).map((line,i)=>{ const p=line.split(","); const mb={role:(p[0]||"").trim(),name:(p[1]||"").trim()}; if(i===0)mb.lead=true; return mb; });
+    const prompts=F("tm-prompts").value.split("\n").map(s=>s.trim()).filter(Boolean);
+    const data={ icon:F("tm-icon").value.trim(), name:F("tm-name").value.trim(), source:F("tm-source").value.trim(), category:F("tm-cat").value.trim(), intro:F("tm-intro").value.trim(), strengths, members, prompts, tags:strengths };
+    if(!data.name){ F("tm-err").textContent="名称必填"; return; }
+    const id=F("tm-id").value, sort=Number(F("tm-sort").value)||0;
+    try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"EXP_TEAMS",data,sort}); teamsCat(body); }
+    catch(e){ F("tm-err").textContent=e.message; }
+  };
+  try{ const {items} = await api("GET","/catalog/EXP_TEAMS?all=true");
+    F("tm-list").innerHTML = items.length? items.map(it=>{ const d=it.data||{}; return `<div class="list-item"><span style="font-size:20px">${esc(d.icon||"👥")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d.name||"?")} <span class="pill">${(d.members||[]).length} 人</span> ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.intro||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`; }).join("") : '<div class="muted">还没有专家团目录项</div>';
+    F("tm-list").querySelectorAll("[data-ed]").forEach(b=> b.onclick=()=>{ fill(items.find(x=>x.id===b.dataset.ed)); window.scrollTo(0,0); });
+    F("tm-list").querySelectorAll("[data-tog]").forEach(b=> b.onclick=async()=>{ const [id,en]=b.dataset.tog.split(":"); try{ await api("PATCH","/catalog/item/"+id,{enabled:!!+en}); teamsCat(body);}catch(e){F("tm-err").textContent=e.message;} });
+    F("tm-list").querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); teamsCat(body);}catch(e){F("tm-err").textContent=e.message;} });
+  }catch(e){ F("tm-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+}
+
+// 高级 JSON（保留裸目录项编辑，供特殊类别 / 兜底）
+async function rawCat(body){
+  body.innerHTML = `<div class="card"><h3>新增目录项（裸 JSON）</h3>
+      <div class="field"><label>分类 category（如 AUTO / PROJ_TPL / INSP）</label><input id="c-cat" placeholder="AUTO"></div>
+      <div class="field"><label>data（JSON：数组或对象）</label><textarea id="c-data" placeholder='["🆕","名称",...]'></textarea></div>
+      <div class="row"><input id="c-sort" type="number" value="0" style="width:90px"><span class="muted" style="font-size:12px">排序</span><div class="grow"></div><button id="c-add">新增</button></div>
       <div class="err" id="c-err"></div></div>
     <div id="c-list" class="muted">加载中…</div>`;
   document.getElementById("c-add").onclick = async ()=>{
     document.getElementById("c-err").textContent="";
     let data; try{ data = JSON.parse(document.getElementById("c-data").value); }catch(e){ document.getElementById("c-err").textContent="data 不是合法 JSON"; return; }
-    try{ await api("POST","/catalog",{category:document.getElementById("c-cat").value.trim(), data, sort:Number(document.getElementById("c-sort").value)||0}); catalogView(m); }
+    try{ await api("POST","/catalog",{category:document.getElementById("c-cat").value.trim(), data, sort:Number(document.getElementById("c-sort").value)||0}); rawCat(body); }
     catch(e){ document.getElementById("c-err").textContent=e.message; }
   };
-  try{ const {items} = await api("GET","/catalog");
-    document.getElementById("c-list").innerHTML = items.length? items.map(it=>`<div class="list-item"><div style="flex:1;min-width:0"><div class="t">${esc(it.category)} <span class="pill">sort ${it.sort}</span></div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(JSON.stringify(it.data))}</div></div><button class="danger" data-del="${it.id}">删除</button></div>`).join("") : '<div class="muted">Hub 目录为空（客户端将回落本地 builtin 兜底）</div>';
-    m.querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); catalogView(m);}catch(e){document.getElementById("c-err").textContent=e.message;} });
+  try{ const {items} = await api("GET","/catalog?all=true");
+    document.getElementById("c-list").innerHTML = items.length? items.map(it=>`<div class="list-item"><div style="flex:1;min-width:0"><div class="t">${esc(it.category)} <span class="pill">sort ${it.sort}</span>${it.enabled?"":' <span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(JSON.stringify(it.data))}</div></div><button class="danger" data-del="${it.id}">删除</button></div>`).join("") : '<div class="muted">Hub 目录为空（客户端将回落本地 builtin 兜底）</div>';
+    body.querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); rawCat(body);}catch(e){document.getElementById("c-err").textContent=e.message;} });
   }catch(e){ document.getElementById("c-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 

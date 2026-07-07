@@ -504,16 +504,19 @@ def mark_invite_accepted(invite_id: str, account_id: str) -> None:
 # Hub 侧目录同构表：builtin 由运营下发、org 由团队管理员维护。WB-061 只建表 + 最小读写，
 # 完整下发/同步是 P3（WB-063）。
 
-def list_catalog_items(category: str, scope: Optional[str] = None) -> list[dict]:
+def list_catalog_items(category: str, scope: Optional[str] = None,
+                       include_disabled: bool = False) -> list[dict]:
+    """某 category 目录项。默认只返回 enabled（客户端下行）；`include_disabled` 时返回全部
+    并带 `enabled` 标志——供 BuddyWebMgr 管理门户列出/切换停用项（WB-082）。"""
+    where = ["category=?"]
+    params: list[Any] = [category]
     if scope:
-        rows = get_conn().execute(
-            "SELECT * FROM catalog_items WHERE category=? AND scope=? AND enabled=1 ORDER BY sort",
-            (category, scope),
-        ).fetchall()
-    else:
-        rows = get_conn().execute(
-            "SELECT * FROM catalog_items WHERE category=? AND enabled=1 ORDER BY sort", (category,)
-        ).fetchall()
+        where.append("scope=?"); params.append(scope)
+    if not include_disabled:
+        where.append("enabled=1")
+    rows = get_conn().execute(
+        f"SELECT * FROM catalog_items WHERE {' AND '.join(where)} ORDER BY sort", params
+    ).fetchall()
     out: list[dict] = []
     for r in rows:
         try:
@@ -523,6 +526,7 @@ def list_catalog_items(category: str, scope: Optional[str] = None) -> list[dict]
         out.append({
             "id": r["id"], "category": r["category"], "scope": r["scope"], "org_id": r["org_id"],
             "kind": r["kind"], "data": data, "sort": r["sort"], "version": r["version"],
+            "enabled": bool(r["enabled"]),
         })
     return out
 
@@ -605,10 +609,12 @@ def replace_skillhub_mirror(rows: list[dict]) -> dict:
     return {"deleted": deleted, "inserted": inserted}
 
 
-def list_all_catalog_items(scope: str = "builtin") -> list[dict]:
-    """某 scope 下所有 enabled 目录项（跨 category），供客户端一次性下行（WB-066）。"""
+def list_all_catalog_items(scope: str = "builtin", include_disabled: bool = False) -> list[dict]:
+    """某 scope 下所有目录项（跨 category）。默认只 enabled（客户端一次性下行，WB-066）；
+    `include_disabled` 时返回全部并带 `enabled`——供门户高级 JSON 视图（WB-082）。"""
+    where = "scope=?" if include_disabled else "scope=? AND enabled=1"
     rows = get_conn().execute(
-        "SELECT * FROM catalog_items WHERE scope=? AND enabled=1 ORDER BY category, sort", (scope,)
+        f"SELECT * FROM catalog_items WHERE {where} ORDER BY category, sort", (scope,)
     ).fetchall()
     out: list[dict] = []
     for r in rows:
@@ -617,7 +623,7 @@ def list_all_catalog_items(scope: str = "builtin") -> list[dict]:
         except (json.JSONDecodeError, TypeError):
             data = {}
         out.append({"id": r["id"], "category": r["category"], "kind": r["kind"], "data": data,
-                    "sort": r["sort"], "version": r["version"]})
+                    "sort": r["sort"], "version": r["version"], "enabled": bool(r["enabled"])})
     return out
 
 

@@ -48,14 +48,18 @@ def search_skillhub(q: str = "", limit: int = 12, account: Account = CurrentAcco
 
 
 @router.get("/catalog")
-def list_all_catalog(account: Account = CurrentAccount) -> dict:
-    """所有 builtin 目录项（跨 category），供客户端一次性下行覆盖本地。"""
-    return {"items": db.list_all_catalog_items(scope="builtin")}
+def list_all_catalog(all: bool = False, account: Account = CurrentAccount) -> dict:
+    """所有 builtin 目录项（跨 category），供客户端一次性下行覆盖本地。
+    `?all=true`（仅平台管理员）连停用项一并返回，供门户高级 JSON 视图。"""
+    inc = all and account.is_platform_admin
+    return {"items": db.list_all_catalog_items(scope="builtin", include_disabled=inc)}
 
 
 @router.get("/catalog/{category}")
-def list_catalog(category: str, account: Account = CurrentAccount) -> dict:
-    return {"category": category, "items": db.list_catalog_items(category, scope="builtin")}
+def list_catalog(category: str, all: bool = False, account: Account = CurrentAccount) -> dict:
+    """某 category 目录项。`?all=true`（仅平台管理员）含停用项 + `enabled` 标志，供门户 CRUD 列表。"""
+    inc = all and account.is_platform_admin
+    return {"category": category, "items": db.list_catalog_items(category, scope="builtin", include_disabled=inc)}
 
 
 class CatalogItemBody(BaseModel):
