@@ -81,6 +81,7 @@
 | [WB-061](WB-061-hub-service-skeleton.md) | ✅ | P1 | backend | Hub 服务骨架 —— 独立中心服务：账号/组织/项目/成员/邀请权威源 + 鉴权签发 |
 | [WB-062](WB-062-local-hub-sync-protocol.md) | ✅ | P1 | backend | 本地 ⇄ Hub 同步协议 —— 下行拉取(身份/项目/成员/目录) + 上行 outbox 回传(执行产出) |
 | [WB-063](WB-063-hub-migration-and-local-fallback.md) | ✅ | P2 | backend | 迁移与 local-first 回退 —— 存量导入 Hub、目录权威切 Hub 下发、离线/未登录回退 |
+| [WB-065](WB-065-deeper-collab-comments-mentions-presence.md) | ✅ | P2 | backend | 更深协作 —— 评论 / @提及 / 在线状态（分层：v1 REST+轮询，实时作增强） |
 | [WB-066](WB-066-hub-catalog-admin-downlink.md) | ✅ | P2 | backend | Hub 目录运营 Admin + 下发覆盖 —— 激活已预埋的 catalog capability |
 
 ## 来源

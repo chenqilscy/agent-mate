@@ -23,6 +23,7 @@ def current_account(authorization: str = Header(default="")) -> Account:
     acc = db.get_account(aid) if aid else None
     if acc is None:
         raise HTTPException(status_code=401, detail="unauthorized")
+    db.touch_last_seen(acc.id)  # WB-065 在线状态心跳：每个 authed 请求刷新 last_seen
     return acc
 
 

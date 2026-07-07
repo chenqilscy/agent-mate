@@ -51,7 +51,8 @@ def init_db() -> None:
             plan TEXT NOT NULL DEFAULT '体验版',
             password_hash TEXT NOT NULL,
             created_at REAL NOT NULL,
-            is_platform_admin INTEGER NOT NULL DEFAULT 0
+            is_platform_admin INTEGER NOT NULL DEFAULT 0,
+            last_seen REAL NOT NULL DEFAULT 0
         );
 
         -- Hub 签发的 Bearer token（本地 backend 作为客户端持有并回传）。
@@ -149,13 +150,41 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_timeline_project ON timeline_events(project_id, created_at DESC);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_timeline_ext ON timeline_events(project_id, ext_id);
+
+        -- 项目评论（WB-065）：团队协作讨论，access-gated。append-only。
+        CREATE TABLE IF NOT EXISTS comments (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            author_id TEXT NOT NULL,
+            author_name TEXT NOT NULL DEFAULT '',
+            body TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_comments_project ON comments(project_id, created_at);
+
+        -- Hub 通知（WB-065）：@提及等事件，一行一收件人。
+        CREATE TABLE IF NOT EXISTS hub_notifications (
+            id TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            body TEXT NOT NULL DEFAULT '',
+            project_id TEXT,
+            actor_name TEXT,
+            read INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_hub_notifs_account ON hub_notifications(account_id, created_at DESC);
         """
     )
     get_conn().commit()
-    # 幂等补列（老库）：accounts.is_platform_admin（WB-066）。
-    if "is_platform_admin" not in {r["name"] for r in get_conn().execute("PRAGMA table_info(accounts)").fetchall()}:
+    # 幂等补列（老库）：accounts.is_platform_admin（WB-066）、last_seen（WB-065 在线状态）。
+    have_acct = {r["name"] for r in get_conn().execute("PRAGMA table_info(accounts)").fetchall()}
+    if "is_platform_admin" not in have_acct:
         get_conn().execute("ALTER TABLE accounts ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0")
-        get_conn().commit()
+    if "last_seen" not in have_acct:
+        get_conn().execute("ALTER TABLE accounts ADD COLUMN last_seen REAL NOT NULL DEFAULT 0")
+    get_conn().commit()
 
 
 # ---- password / tokens --------------------------------------------------
@@ -591,3 +620,77 @@ def list_timeline(project_id: str, limit: int = 100) -> list[dict]:
         (project_id, limit),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---- 更深协作：评论 / 通知 / 在线状态（WB-065）--------------------------
+
+def touch_last_seen(account_id: str) -> None:
+    get_conn().execute("UPDATE accounts SET last_seen=? WHERE id=?", (time.time(), account_id))
+    get_conn().commit()
+
+
+def add_comment(*, project_id: str, author_id: str, author_name: str, body: str) -> dict:
+    cid = new_uuid()
+    now = time.time()
+    get_conn().execute(
+        "INSERT INTO comments (id,project_id,author_id,author_name,body,created_at) VALUES (?,?,?,?,?,?)",
+        (cid, project_id, author_id, author_name, body, now),
+    )
+    get_conn().commit()
+    return {"id": cid, "project_id": project_id, "author_id": author_id,
+            "author_name": author_name, "body": body, "created_at": now}
+
+
+def list_comments(project_id: str, limit: int = 200) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM comments WHERE project_id=? ORDER BY created_at ASC LIMIT ?", (project_id, limit)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_notification(*, account_id: str, kind: str, title: str, body: str = "",
+                     project_id: Optional[str] = None, actor_name: Optional[str] = None) -> None:
+    get_conn().execute(
+        "INSERT INTO hub_notifications (id,account_id,kind,title,body,project_id,actor_name,read,created_at) "
+        "VALUES (?,?,?,?,?,?,?,0,?)",
+        (new_uuid(), account_id, kind, title, body, project_id, actor_name, time.time()),
+    )
+    get_conn().commit()
+
+
+def list_notifications(account_id: str, limit: int = 50) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM hub_notifications WHERE account_id=? ORDER BY created_at DESC LIMIT ?",
+        (account_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def unread_notification_count(account_id: str) -> int:
+    return get_conn().execute(
+        "SELECT COUNT(*) FROM hub_notifications WHERE account_id=? AND read=0", (account_id,)
+    ).fetchone()[0]
+
+
+def mark_notifications_read(account_id: str, ids: Optional[list[str]] = None) -> None:
+    conn = get_conn()
+    if ids:
+        ph = ",".join("?" * len(ids))
+        conn.execute(f"UPDATE hub_notifications SET read=1 WHERE account_id=? AND id IN ({ph})", (account_id, *ids))
+    else:
+        conn.execute("UPDATE hub_notifications SET read=1 WHERE account_id=?", (account_id,))
+    conn.commit()
+
+
+_ONLINE_WINDOW = 120  # 秒：last_seen 在此窗口内算 online（客户端每请求刷新 + 轮询）
+
+
+def list_presence(project_id: str) -> list[dict]:
+    """项目成员 + last_seen + online（近 _ONLINE_WINDOW 秒活跃）。"""
+    now = time.time()
+    out: list[dict] = []
+    for m in list_project_members(project_id):
+        r = get_conn().execute("SELECT last_seen FROM accounts WHERE id=?", (m["account_id"],)).fetchone()
+        ls = r["last_seen"] if r else 0
+        out.append({**m, "last_seen": ls, "online": bool(ls) and (now - ls) < _ONLINE_WINDOW})
+    return out
