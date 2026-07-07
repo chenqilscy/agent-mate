@@ -21,7 +21,7 @@ from agent import events
 from agent.experts import persona_for
 from agent.llm import LLMError, stream_chat
 from agent.mcp_client import call_mcp, mcp_schema, open_connectors
-from agent.sandbox import current_root, project_root, use_root
+from agent.sandbox import current_root, use_root, workspace_root
 from agent.skills import skill_def
 from agent.tools import ASK_USER_SCHEMA, base_tools, run_tool, set_work_context, work_item_tools
 from config import settings
@@ -184,6 +184,7 @@ async def run_chat(
     connectors: list[str] | None = None,
     refs: list[dict] | None = None,
     system_extra: str | None = None,
+    workspace: str | None = None,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
 
@@ -201,8 +202,9 @@ async def run_chat(
         system_prompt += "\n\n# 助理设定\n" + system_extra.strip()
 
     # Per-project workspace (§11.2): this run's tools operate in the project's own
-    # checkout (or the shared default for ad-hoc chats).
-    use_root(project_root(session.project_id))
+    # checkout (or the shared default for ad-hoc chats). WB-087: an assistant may
+    # override this (dedicated / project:<id>) via the `workspace` spec.
+    use_root(workspace_root(workspace, session.project_id))
     # Work-item tools (WB-030) act on THIS project's plan items as this owner.
     set_work_context(session.project_id, user.id)
 

@@ -32,6 +32,22 @@ def project_root(project_id: str | None) -> Path:
     return DEFAULT_ROOT
 
 
+def assistant_root(assistant_id: str) -> Path:
+    """助理专属工作空间（WB-087）：`workspace/assistants/<id>/`。"""
+    return WORKSPACE_BASE / "assistants" / assistant_id
+
+
+def workspace_root(spec: str | None, project_id: str | None = None) -> Path:
+    """按助理 workspace 规格解析根（WB-087）：
+    `default`/None→默认；`project:<id>`→该项目根；`dedicated:<assistant_id>`→助理专属根。
+    project_id 作为 `dedicated`/`default` 之外的回退（会话本身带的项目）。"""
+    if spec and spec.startswith("project:"):
+        return project_root(spec.split(":", 1)[1])
+    if spec and spec.startswith("dedicated:"):
+        return assistant_root(spec.split(":", 1)[1])
+    return project_root(project_id)
+
+
 def use_root(root: Path) -> None:
     """Set the active workspace root for this request/task (creates it)."""
     root.mkdir(parents=True, exist_ok=True)

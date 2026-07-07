@@ -363,6 +363,52 @@ def init_db() -> None:
             enabled INTEGER,
             updated_at REAL NOT NULL
         );
+
+        -- 多助理（WB-086/087）：每个助理一套独立能力配置 + 一条共享会话。
+        -- mode: exec(执行,全工具) / plan(计划,只读+ask_user) / ask(问答,无工具)——权限映射（设计 §4）。
+        -- workspace: default / project:<id> / dedicated（专属 workspace/assistants/<id>/）。
+        CREATE TABLE IF NOT EXISTS assistants (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            avatar TEXT,
+            instruction TEXT,
+            model TEXT,
+            mode TEXT NOT NULL DEFAULT 'exec',
+            workspace TEXT NOT NULL DEFAULT 'default',
+            experts TEXT NOT NULL DEFAULT '[]',
+            skills TEXT NOT NULL DEFAULT '[]',
+            connectors TEXT NOT NULL DEFAULT '[]',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            session_id TEXT,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_assistants_owner ON assistants(owner_id, created_at);
+
+        -- 渠道（WB-086/087）：属于某助理，类型相关 config（Telegram: bot_token 存这里，backend-only、
+        -- write-only、绝不回传前端）。update_offset = 该 bot 各自的长轮询游标（多 bot 各自续拉）。
+        CREATE TABLE IF NOT EXISTS channels (
+            id TEXT PRIMARY KEY,
+            assistant_id TEXT NOT NULL,
+            type TEXT NOT NULL,
+            config TEXT NOT NULL DEFAULT '{}',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            update_offset INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_channels_assistant ON channels(assistant_id);
+
+        -- 渠道 chat ⇄ 会话映射（WB-087，泛化自 channel_sessions）：按 channel_id 键，
+        -- 因不同 bot 的私聊 chat_id 会相同（= 用户 id），必须按渠道区分。存在绑定 = 已授权。
+        CREATE TABLE IF NOT EXISTS channel_chat_sessions (
+            channel_id TEXT NOT NULL,
+            chat_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            PRIMARY KEY (channel_id, chat_id)
+        );
         """
     )
     conn.commit()
@@ -370,6 +416,7 @@ def init_db() -> None:
     _ensure_local_user()
     _seed_catalog()
     _seed_showcase()
+    _migrate_assistants()
 
 
 def _migrate_columns() -> None:
@@ -1559,6 +1606,222 @@ def set_channel_offset(channel: str, offset: int) -> None:
         (channel, int(offset), time.time()),
     )
     get_conn().commit()
+
+
+# ---- assistants + channels (WB-086/087) --------------------------------
+
+_ASSIST_LOADOUT = ("experts", "skills", "connectors")
+
+
+def _row_to_assistant(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    for k in _ASSIST_LOADOUT:
+        d[k] = json.loads(d.get(k) or "[]")
+    d["enabled"] = bool(d.get("enabled"))
+    return d
+
+
+def create_assistant(
+    *, owner_id: str, name: str, avatar: Optional[str] = None, instruction: Optional[str] = None,
+    model: Optional[str] = None, mode: str = "exec", workspace: str = "default",
+    experts: Optional[list] = None, skills: Optional[list] = None, connectors: Optional[list] = None,
+    enabled: bool = True, session_id: Optional[str] = None,
+) -> dict:
+    now = time.time()
+    aid = new_uuid()
+    get_conn().execute(
+        """INSERT INTO assistants
+           (id,owner_id,name,avatar,instruction,model,mode,workspace,experts,skills,connectors,enabled,session_id,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (aid, owner_id, name[:60], avatar, instruction, model, mode, workspace,
+         json.dumps(experts or []), json.dumps(skills or []), json.dumps(connectors or []),
+         1 if enabled else 0, session_id, now, now),
+    )
+    get_conn().commit()
+    return get_assistant(aid)  # type: ignore[return-value]
+
+
+def get_assistant(assistant_id: str) -> Optional[dict]:
+    row = get_conn().execute("SELECT * FROM assistants WHERE id=?", (assistant_id,)).fetchone()
+    return _row_to_assistant(row) if row else None
+
+
+def list_assistants(owner_id: Optional[str] = None) -> list[dict]:
+    if owner_id is not None:
+        rows = get_conn().execute(
+            "SELECT * FROM assistants WHERE owner_id=? ORDER BY created_at", (owner_id,)
+        ).fetchall()
+    else:
+        rows = get_conn().execute("SELECT * FROM assistants ORDER BY created_at").fetchall()
+    return [_row_to_assistant(r) for r in rows]
+
+
+def update_assistant(assistant_id: str, **patch) -> Optional[dict]:
+    allowed = ("name", "avatar", "instruction", "model", "mode", "workspace",
+               "experts", "skills", "connectors", "enabled", "session_id")
+    if get_assistant(assistant_id) is None:
+        return None
+    sets, vals = [], []
+    for k, v in patch.items():
+        if k not in allowed or v is None:
+            continue
+        if k in _ASSIST_LOADOUT:
+            v = json.dumps(v)
+        elif k == "enabled":
+            v = 1 if v else 0
+        sets.append(f"{k}=?")
+        vals.append(v)
+    if sets:
+        sets.append("updated_at=?")
+        vals.append(time.time())
+        vals.append(assistant_id)
+        get_conn().execute(f"UPDATE assistants SET {','.join(sets)} WHERE id=?", vals)
+        get_conn().commit()
+    return get_assistant(assistant_id)
+
+
+def delete_assistant(assistant_id: str) -> None:
+    # 连带删其渠道与 chat 绑定；会话/transcript 保留（便于回看历史）。
+    conn = get_conn()
+    for ch in list_channels(assistant_id):
+        conn.execute("DELETE FROM channel_chat_sessions WHERE channel_id=?", (ch["id"],))
+    conn.execute("DELETE FROM channels WHERE assistant_id=?", (assistant_id,))
+    conn.execute("DELETE FROM assistants WHERE id=?", (assistant_id,))
+    conn.commit()
+
+
+def _row_to_channel(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    d["config"] = json.loads(d.get("config") or "{}")
+    d["enabled"] = bool(d.get("enabled"))
+    return d
+
+
+def create_channel(*, assistant_id: str, type: str, config: Optional[dict] = None, enabled: bool = True) -> dict:
+    cid = new_uuid()
+    get_conn().execute(
+        "INSERT INTO channels (id,assistant_id,type,config,enabled,update_offset,created_at) VALUES (?,?,?,?,?,0,?)",
+        (cid, assistant_id, type, json.dumps(config or {}), 1 if enabled else 0, time.time()),
+    )
+    get_conn().commit()
+    return get_channel(cid)  # type: ignore[return-value]
+
+
+def get_channel(channel_id: str) -> Optional[dict]:
+    row = get_conn().execute("SELECT * FROM channels WHERE id=?", (channel_id,)).fetchone()
+    return _row_to_channel(row) if row else None
+
+
+def list_channels(assistant_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM channels WHERE assistant_id=? ORDER BY created_at", (assistant_id,)
+    ).fetchall()
+    return [_row_to_channel(r) for r in rows]
+
+
+def list_all_channels() -> list[dict]:
+    return [_row_to_channel(r) for r in get_conn().execute("SELECT * FROM channels ORDER BY created_at").fetchall()]
+
+
+def update_channel(channel_id: str, *, config: Optional[dict] = None, enabled: Optional[bool] = None) -> Optional[dict]:
+    cur = get_channel(channel_id)
+    if cur is None:
+        return None
+    sets, vals = [], []
+    if config is not None:
+        merged = {**cur["config"], **config}  # 合并，避免只改 enabled 时抹掉 token
+        sets.append("config=?")
+        vals.append(json.dumps(merged))
+    if enabled is not None:
+        sets.append("enabled=?")
+        vals.append(1 if enabled else 0)
+    if sets:
+        vals.append(channel_id)
+        get_conn().execute(f"UPDATE channels SET {','.join(sets)} WHERE id=?", vals)
+        get_conn().commit()
+    return get_channel(channel_id)
+
+
+def delete_channel(channel_id: str) -> None:
+    conn = get_conn()
+    conn.execute("DELETE FROM channel_chat_sessions WHERE channel_id=?", (channel_id,))
+    conn.execute("DELETE FROM channels WHERE id=?", (channel_id,))
+    conn.commit()
+
+
+def set_channel_update_offset(channel_id: str, offset: int) -> None:
+    get_conn().execute("UPDATE channels SET update_offset=? WHERE id=?", (int(offset), channel_id))
+    get_conn().commit()
+
+
+def get_chat_session(channel_id: str, chat_id: str) -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT * FROM channel_chat_sessions WHERE channel_id=? AND chat_id=?", (channel_id, str(chat_id))
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def first_chat_binding(channel_id: str) -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT * FROM channel_chat_sessions WHERE channel_id=? ORDER BY created_at LIMIT 1", (channel_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def bind_chat(channel_id: str, chat_id: str, session_id: str, owner_id: str) -> None:
+    get_conn().execute(
+        "INSERT OR REPLACE INTO channel_chat_sessions (channel_id,chat_id,session_id,owner_id,created_at) VALUES (?,?,?,?,?)",
+        (channel_id, str(chat_id), session_id, owner_id, time.time()),
+    )
+    get_conn().commit()
+
+
+def clear_channel_chats(channel_id: str) -> None:
+    get_conn().execute("DELETE FROM channel_chat_sessions WHERE channel_id=?", (channel_id,))
+    get_conn().commit()
+
+
+def _migrate_assistants() -> None:
+    """WB-087 §6：把 WB-077 单助理（assistant_settings + channel_sessions）非破坏迁移为
+    一条默认助理 + 一条 Telegram 渠道。仅当 assistants 为空且检测到旧配置/凭据时执行一次。"""
+    conn = get_conn()
+    if conn.execute("SELECT 1 FROM assistants LIMIT 1").fetchone():
+        return  # 已有助理 → 迁移过或用户已新建，跳过
+    old_row = conn.execute(
+        "SELECT * FROM assistant_settings WHERE owner_id=?", (LOCAL_USER_ID,)
+    ).fetchone()
+    old = dict(old_row) if old_row else {}
+    token = (old.get("bot_token") or "").strip() or settings.TELEGRAM_BOT_TOKEN
+    if not token and not old:
+        return  # 全新用户、无任何旧配置/凭据 → 不建默认助理（零变化，用户自己新建）
+    sess = conn.execute(
+        "SELECT id FROM sessions WHERE owner_id=? AND kind='assistant' ORDER BY created_at LIMIT 1",
+        (LOCAL_USER_ID,),
+    ).fetchone()
+    enabled = old.get("enabled")
+    enabled = bool(enabled) if enabled is not None else settings.TELEGRAM_ASSISTANT
+    a = create_assistant(
+        owner_id=LOCAL_USER_ID,
+        name=(old.get("name") or "").strip() or "WorkBuddy 助理",
+        instruction=(old.get("persona") or "").strip() or None,
+        model=(old.get("model") or "").strip() or None,
+        session_id=sess["id"] if sess else None,
+    )
+    ch = create_channel(
+        assistant_id=a["id"], type="telegram",
+        config={"bot_token": token, "chat_id": settings.TELEGRAM_CHAT_ID.strip()},
+        enabled=bool(token) and enabled,
+    )
+    for r in conn.execute("SELECT * FROM channel_sessions WHERE channel='telegram'").fetchall():
+        r = dict(r)
+        conn.execute(
+            "INSERT OR REPLACE INTO channel_chat_sessions (channel_id,chat_id,session_id,owner_id,created_at) VALUES (?,?,?,?,?)",
+            (ch["id"], r["chat_id"], r["session_id"], r["owner_id"], r["created_at"]),
+        )
+    off = conn.execute("SELECT update_offset FROM channel_state WHERE channel='telegram'").fetchone()
+    if off:
+        conn.execute("UPDATE channels SET update_offset=? WHERE id=?", (int(off["update_offset"]), ch["id"]))
+    conn.commit()
 
 
 # ---- automations --------------------------------------------------------

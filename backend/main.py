@@ -32,7 +32,7 @@ from fastapi.responses import JSONResponse
 
 from agent import scheduler
 from auth.middleware import AuthMiddleware
-from channels import telegram_bridge
+from channels import manager as channel_manager
 from config import FROZEN, settings
 from routers import auth, automations, catalog, channels, chat, experts, files, hub, kdocs, me, models, notifications, projects, sessions, skills, work_items
 from storage import db
@@ -108,15 +108,15 @@ async def _stop_scheduler() -> None:
 
 
 @app.on_event("startup")
-async def _start_telegram() -> None:
-    # 助理外部渠道（WB-072/077）：refresh 应用 DB 助理设置（token/开关，优先于 .env）并按
-    # effective 启停桥接。默认关 —— 无 token 或未开时零变化，纯本地不受影响。
-    await telegram_bridge.refresh()
+async def _start_channels() -> None:
+    # 助理外部渠道（WB-072/077/086·087）：渠道管理器按 DB 里「启用且类型可用」的渠道起 poller
+    # （多助理·多 bot）。无渠道/无 token → 零 poller，纯本地不受影响。
+    await channel_manager.refresh()
 
 
 @app.on_event("shutdown")
-async def _stop_telegram() -> None:
-    await telegram_bridge.stop()
+async def _stop_channels() -> None:
+    await channel_manager.stop()
 
 
 @app.get("/api/health")

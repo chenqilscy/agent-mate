@@ -103,7 +103,7 @@
 | [WB-084](WB-084-catalog-skills-skillhub.md) | ✅ | P2 | fullstack | 目录运营中心 —— 技能 + SkillHub（浏览/搜索/上架/手动同步；接已就绪的 WB-069 后端） |
 | [WB-085](WB-085-assistant-page-toolbar-real.md) | ✅ | P2 | frontend | 助理页顶栏按钮接真实 transcript —— 对话内搜索/分享导出/历史提问（去掉 toast 占位，复用 ChatView） |
 | [WB-086](WB-086-multi-assistant-multi-channel-epic.md) | ⬜ | P1 | fullstack | 多助理·多渠道 —— 助理子系统重构（总纲/epic；设计见 docs/workbuddy-助理-架构设计.md；子片 WB-087~090） |
-| [WB-087](WB-087-multi-assistant-backend-model.md) | 🟡 | P1 | backend | 多助理 S1 —— 后端模型(assistants/channels) + CRUD + 多 bot 渠道管理器 + run_chat 接 workspace/mode + 迁移 |
+| [WB-087](WB-087-multi-assistant-backend-model.md) | ✅ | P1 | backend | 多助理 S1 —— 后端模型(assistants/channels) + CRUD + 多 bot 渠道管理器 + run_chat 接 workspace/mode + 迁移 |
 
 ## 来源
 
