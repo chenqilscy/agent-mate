@@ -321,6 +321,17 @@ def init_db() -> None:
             hub_account_name TEXT NOT NULL DEFAULT '',
             linked_at REAL NOT NULL
         );
+
+        -- Hub 目录下发镜像（WB-066）：客户端从 Hub 拉的目录项，覆盖本地 showcase 分类；
+        -- Hub 空/离线 → 本地 builtin 种子作兜底（架构 §5「Hub 下发 + 本地 override」）。
+        CREATE TABLE IF NOT EXISTS catalog_downlink (
+            id TEXT PRIMARY KEY,
+            category TEXT NOT NULL,
+            data TEXT NOT NULL,
+            sort INTEGER NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_catalog_downlink_cat ON catalog_downlink(category, sort);
         """
     )
     conn.commit()
@@ -1143,6 +1154,7 @@ def showcase_all() -> dict[str, Any]:
         "SELECT kind, data, is_scalar FROM catalog_showcase WHERE enabled=1 ORDER BY kind, sort"
     ).fetchall()
     out: dict[str, Any] = {}
+    scalar_kinds: set[str] = set()
     for r in rows:
         try:
             val = json.loads(r["data"])
@@ -1150,8 +1162,40 @@ def showcase_all() -> dict[str, Any]:
             continue
         if r["is_scalar"]:
             out[r["kind"]] = val
+            scalar_kinds.add(r["kind"])
         else:
             out.setdefault(r["kind"], []).append(val)
+    # WB-066: Hub 目录下发覆盖本地（仅数组类分类）；无下发/离线 → 本地兜底。scalar 分类 skeleton 不覆盖。
+    for cat, items in downlink_by_category().items():
+        if cat not in scalar_kinds:
+            out[cat] = items
+    return out
+
+
+def replace_all_downlink(items: list[dict]) -> None:
+    """幂等重置 Hub 目录下发镜像：清空后按 Hub 返回全量重建（Hub 侧删除随之消失）。
+    items = [{category, data, sort}, ...]（WB-066）。"""
+    conn = get_conn()
+    conn.execute("DELETE FROM catalog_downlink")
+    now = time.time()
+    conn.executemany(
+        "INSERT INTO catalog_downlink (id,category,data,sort,updated_at) VALUES (?,?,?,?,?)",
+        [(new_uuid(), str(it.get("category", "")), json.dumps(it.get("data"), ensure_ascii=False),
+          int(it.get("sort", 0)), now) for it in items],
+    )
+    conn.commit()
+
+
+def downlink_by_category() -> dict[str, list]:
+    rows = get_conn().execute(
+        "SELECT category, data FROM catalog_downlink ORDER BY category, sort"
+    ).fetchall()
+    out: dict[str, list] = {}
+    for r in rows:
+        try:
+            out.setdefault(r["category"], []).append(json.loads(r["data"]))
+        except (json.JSONDecodeError, TypeError):
+            continue
     return out
 
 

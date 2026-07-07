@@ -96,3 +96,11 @@ def list_catalog(token: str, category: str) -> Optional[list[dict[str, Any]]]:
     d = _get(f"/api/catalog/{category}", token)
     items = d.get("items") if isinstance(d, dict) else None
     return items if isinstance(items, list) else None
+
+
+def list_all_catalog(token: str) -> Optional[list[dict[str, Any]]]:
+    """一次拉 Hub 全量 builtin 目录（跨 category），供本地下发覆盖（WB-066）。
+    None = 不可达（本地保留上次下发）；[] = Hub 空（本地回落 builtin 兜底）。"""
+    d = _get("/api/catalog", token)
+    items = d.get("items") if isinstance(d, dict) else None
+    return items if isinstance(items, list) else None

@@ -50,7 +50,8 @@ def init_db() -> None:
             email TEXT NOT NULL DEFAULT '',
             plan TEXT NOT NULL DEFAULT '体验版',
             password_hash TEXT NOT NULL,
-            created_at REAL NOT NULL
+            created_at REAL NOT NULL,
+            is_platform_admin INTEGER NOT NULL DEFAULT 0
         );
 
         -- Hub 签发的 Bearer token（本地 backend 作为客户端持有并回传）。
@@ -151,6 +152,10 @@ def init_db() -> None:
         """
     )
     get_conn().commit()
+    # 幂等补列（老库）：accounts.is_platform_admin（WB-066）。
+    if "is_platform_admin" not in {r["name"] for r in get_conn().execute("PRAGMA table_info(accounts)").fetchall()}:
+        get_conn().execute("ALTER TABLE accounts ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0")
+        get_conn().commit()
 
 
 # ---- password / tokens --------------------------------------------------
@@ -195,14 +200,21 @@ def delete_token(token: str) -> None:
 # ---- accounts -----------------------------------------------------------
 
 def _row_to_account(r: sqlite3.Row) -> Account:
-    return Account(id=r["id"], name=r["name"], email=r["email"], plan=r["plan"], created_at=r["created_at"])
+    keys = r.keys()
+    return Account(
+        id=r["id"], name=r["name"], email=r["email"], plan=r["plan"], created_at=r["created_at"],
+        is_platform_admin=bool(r["is_platform_admin"]) if "is_platform_admin" in keys else False,
+    )
 
 
 def create_account(*, name: str, password: str, email: str = "", plan: str = "体验版") -> Account:
-    a = Account(id=new_uuid(), name=name[:60], email=email[:120], plan=plan, created_at=time.time())
+    # 首个注册账号自举为平台管理员（WB-066：可维护 builtin 目录下发）。
+    first = get_conn().execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0
+    a = Account(id=new_uuid(), name=name[:60], email=email[:120], plan=plan, created_at=time.time(),
+                is_platform_admin=first)
     get_conn().execute(
-        "INSERT INTO accounts (id,name,email,plan,password_hash,created_at) VALUES (?,?,?,?,?,?)",
-        (a.id, a.name, a.email, a.plan, hash_password(password), a.created_at),
+        "INSERT INTO accounts (id,name,email,plan,password_hash,created_at,is_platform_admin) VALUES (?,?,?,?,?,?,?)",
+        (a.id, a.name, a.email, a.plan, hash_password(password), a.created_at, int(a.is_platform_admin)),
     )
     get_conn().commit()
     return a
@@ -499,6 +511,59 @@ def create_catalog_item(
     )
     get_conn().commit()
     return iid
+
+
+def get_catalog_item(item_id: str) -> Optional[dict]:
+    r = get_conn().execute("SELECT * FROM catalog_items WHERE id=?", (item_id,)).fetchone()
+    if not r:
+        return None
+    d = dict(r)
+    try:
+        d["data"] = json.loads(r["data"])
+    except (json.JSONDecodeError, TypeError):
+        d["data"] = {}
+    return d
+
+
+def update_catalog_item(item_id: str, *, data: Any = None, sort: Optional[int] = None,
+                        enabled: Optional[bool] = None) -> bool:
+    sets, vals = [], []
+    if data is not None:
+        sets.append("data=?"); vals.append(json.dumps(data, ensure_ascii=False))
+    if sort is not None:
+        sets.append("sort=?"); vals.append(sort)
+    if enabled is not None:
+        sets.append("enabled=?"); vals.append(1 if enabled else 0)
+    if not sets:
+        return False
+    sets.append("version=version+1")
+    sets.append("updated_at=?"); vals.append(time.time())
+    vals.append(item_id)
+    cur = get_conn().execute(f"UPDATE catalog_items SET {', '.join(sets)} WHERE id=?", vals)
+    get_conn().commit()
+    return cur.rowcount > 0
+
+
+def delete_catalog_item(item_id: str) -> bool:
+    cur = get_conn().execute("DELETE FROM catalog_items WHERE id=?", (item_id,))
+    get_conn().commit()
+    return cur.rowcount > 0
+
+
+def list_all_catalog_items(scope: str = "builtin") -> list[dict]:
+    """某 scope 下所有 enabled 目录项（跨 category），供客户端一次性下行（WB-066）。"""
+    rows = get_conn().execute(
+        "SELECT * FROM catalog_items WHERE scope=? AND enabled=1 ORDER BY category, sort", (scope,)
+    ).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        try:
+            data = json.loads(r["data"])
+        except (json.JSONDecodeError, TypeError):
+            data = {}
+        out.append({"id": r["id"], "category": r["category"], "kind": r["kind"], "data": data,
+                    "sort": r["sort"], "version": r["version"]})
+    return out
 
 
 # ---- 团队时间线（WB-062 Phase 3）----------------------------------------

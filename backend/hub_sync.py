@@ -105,3 +105,17 @@ def import_local_to_hub(token: str, account: dict) -> dict:
             imported += 1
         # 失败不记 → 下次可重试
     return {"hub": True, "imported": imported, "skipped": skipped}
+
+
+# ---- 目录下发（WB-066）--------------------------------------------------
+
+def pull_catalog(token: str) -> dict:
+    """从 Hub 拉全量 builtin 目录，幂等镜像进本地 catalog_downlink（覆盖本地 showcase 分类）。
+    Hub 不可达 → 保留上次下发（不清空）；Hub 空 → 清空 → 本地 builtin 兜底。"""
+    if not settings.hub_enabled:
+        return {"downlinked": 0, "reachable": False}
+    items = hub_client.list_all_catalog(token)
+    if items is None:  # 不可达：保留上次下发，别清成空
+        return {"downlinked": 0, "reachable": False}
+    db.replace_all_downlink(items)
+    return {"downlinked": len(items), "reachable": True}

@@ -23,10 +23,11 @@ def _bearer(authorization: str) -> str:
 def hub_pull(authorization: str = Header(default="")) -> dict:
     if not hub_client.hub_enabled():
         return {"hub": False, "synced": 0, "projects": []}
-    token = authorization[7:].strip() if authorization[:7].lower() == "bearer " else ""
+    token = _bearer(authorization)
     result = hub_sync.pull(token)                 # 下行：拉项目/成员镜像
     flushed = hub_sync.flush_outbox()             # 上行：顺手补推 outbox（同步路由=线程池）
-    return {"hub": True, **result, "flushed": flushed.get("pushed", 0)}
+    catalog = hub_sync.pull_catalog(token)        # 下行：拉 Hub 目录覆盖本地（WB-066）
+    return {"hub": True, **result, "flushed": flushed.get("pushed", 0), "catalog": catalog.get("downlinked", 0)}
 
 
 @router.post("/hub/import")
