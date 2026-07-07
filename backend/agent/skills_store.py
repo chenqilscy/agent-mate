@@ -322,6 +322,82 @@ def resolve_slug(query: str) -> str | None:
     return str(results[0].get("slug", "")).strip() or None
 
 
+# ── skillhub.cn 实时目录来源（WB-064）──────────────────────────────────────
+# 真实排行接口，供「分层」方案里 skillhub.cn 实时那一层用；WB-060 的 Hub-DB
+# 目录层可消费本函数/端点做整合+离线兜底。清单来自 skillhub 站点，非模拟。
+_VALID_RANK_TYPES = {"all", "hot", "featured", "newest", "recommended", "trending", "paid"}
+_RANKINGS_TTL = 300.0  # 秒；排行变化慢，短缓存降低对站点的压力
+_rankings_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+
+
+def _to_int(v: Any) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalize_card(x: dict[str, Any]) -> dict[str, Any]:
+    """把 rankings/search 的一条归一化成前端可直接渲染的商品卡。"""
+    return {
+        "slug": str(x.get("slug") or "").strip(),
+        "name": str(x.get("name") or "").strip(),
+        "description": str(x.get("description_zh") or x.get("description") or "").strip(),
+        "version": str(x.get("version") or "").strip(),
+        "category": str(x.get("category") or "").strip(),
+        "subCategories": x.get("subCategories") or [],
+        "downloads": _to_int(x.get("downloads")),
+        "installs": _to_int(x.get("installs")),
+        "stars": _to_int(x.get("stars")),
+        "score": x.get("score"),
+        "iconUrl": str(x.get("iconUrl") or "").strip(),
+        "tags": x.get("tags") or [],
+        "verified": bool(x.get("verified")),
+        "source": str(x.get("source") or "skillhub").strip(),
+    }
+
+
+def rankings(rtype: str = "featured", category: str = "", limit: int = 0) -> list[dict[str, Any]]:
+    """实时排行目录：skillhub CLI `skill rankings --type <rtype>`，归一化 + 标记本地已安装。
+    站点不可达/超时时回退到上次缓存（有则），否则空列表。"""
+    rtype = (rtype or "featured").strip().lower()
+    if rtype not in _VALID_RANK_TYPES:
+        rtype = "featured"
+    cached = _rankings_cache.get(rtype)
+    if cached and (time.time() - cached[0]) < _RANKINGS_TTL:
+        items = cached[1]
+    elif not cli_available():
+        items = cached[1] if cached else []
+    else:
+        items = cached[1] if cached else []
+        try:
+            cp = _run_cli(["skill", "rankings", "--type", rtype], timeout=30)
+            d = json.loads((cp.stdout or "").strip())
+            raw = d.get("skills") if isinstance(d, dict) else (d if isinstance(d, list) else [])
+            if isinstance(raw, list):
+                items = [_normalize_card(x) for x in raw if isinstance(x, dict) and x.get("slug")]
+                _rankings_cache[rtype] = (time.time(), items)
+        except (subprocess.TimeoutExpired, OSError, ValueError):
+            pass  # 保留上次缓存（items 已置为 cached）
+
+    # 标记本地已安装（让前端在实时卡上显示已装态）
+    inst = scan()
+    inst_keys = {s["slug"] for s in inst} | {s["name"] for s in inst}
+    cat = category.strip().lower()
+    out: list[dict[str, Any]] = []
+    for it in items:
+        if cat:
+            hay = " ".join([
+                str(it.get("category", "")),
+                " ".join(str(x) for x in (it.get("subCategories") or [])),
+                " ".join(str(x) for x in (it.get("tags") or [])),
+            ]).lower()
+            if cat not in hay:
+                continue
+        out.append({**it, "installed": it["slug"] in inst_keys or it["name"] in inst_keys})
+    return out[:limit] if limit and limit > 0 else out
+
+
 def install(slug: str, display_name: str = "") -> dict[str, Any]:
     """真正安装：跑 CLI 下载解压进 SKILLS_DIR/<slug>/。成功返回 {ok, skill}。"""
     slug = (slug or "").strip()

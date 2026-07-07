@@ -32,6 +32,13 @@ def search_skills(q: str = "", limit: int = 8) -> dict:
     return {"results": skills_store.search(q, limit)}
 
 
+@router.get("/skills/rankings")
+def skills_rankings(type: str = "featured", category: str = "", limit: int = 0) -> dict:
+    # skillhub.cn 实时目录（WB-064）：featured/hot/recommended/newest/trending/all/paid。
+    # 供「分层」方案里 skillhub.cn 实时那一层用；WB-060 的 Hub-DB 目录层可消费此端点做整合+兜底。
+    return {"type": type, "skills": skills_store.rankings(type, category, limit)}
+
+
 @router.get("/skills/preview")
 def preview_skill(slug: str = "", name: str = "") -> dict:
     # 安装前预览：未安装的技能也能看 SKILL.md（临时下载，不落 ~/.workbuddy/skills）。
