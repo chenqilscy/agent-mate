@@ -10,11 +10,13 @@ import { ConnectorDetailModal } from '../components/connector/ConnectorDetailMod
 import { SkillDetail, type SkillTarget } from '../components/skill/SkillDetail'
 import { api } from '../lib/api'
 import type { InstalledSkill } from '../lib/types'
+// 橱窗数据（专家/专家团/连接器/技能选择器）改从 catalogStore 取（WB-060，DB 供给+静态兜底）。
+// SKILLHUB_*（技能商店浏览列表）仍从 data/catalog.ts 直取——WB-064 负责其实时数据源，避免撞车。
 import {
-  CONN_META, CONNS, EXP_CATS, EXP_GRID, EXP_SCENES, EXP_TEAMS, INSTALLED, SK_CATS, SK_GRID,
   SKILLHUB_CATS, SKILLHUB_FEATURED, SKILLHUB_GRID, SKILLHUB_KITS,
   type ExpertTeam,
 } from '../data/catalog'
+import { useCatalog, useCatalogStore } from '../stores/catalogStore'
 
 type Hub = 'experts' | 'skills' | 'connectors'
 
@@ -61,6 +63,7 @@ function ExpertsPane() {
   const [sub, setSub] = useState<'专家' | '专家团'>('专家')
   const [cat, setCat] = useState('全部')
   const [detail, setDetail] = useState<Detail | null>(null)
+  const { EXP_GRID, EXP_TEAMS, EXP_SCENES, EXP_CATS } = useCatalog()
 
   const experts = EXP_GRID.filter(([, , , , , , c]) => cat === '全部' || c === cat)
   const teams = EXP_TEAMS.filter((t) => cat === '全部' || t.category === cat)
@@ -233,7 +236,7 @@ function editSkill(name: string) {
 
 // 展示名 → 图标/底色（后端已安装技能没有图标，取静态目录里的配色，命不中则用首字母中性块）。
 function skillTile(name: string): { icon: string; color: string } {
-  const inst = INSTALLED.find((x) => x[2] === name)
+  const inst = useCatalogStore.getState().INSTALLED.find((x) => x[2] === name)
   if (inst) return { icon: inst[0], color: inst[1] }
   const g = SKILLHUB_GRID.find((x) => x[2] === name)
   if (g) return { icon: g[0], color: g[1] }
@@ -375,6 +378,7 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
 // 推荐（保留原简版目录卡）。
 function RecoView() {
   const [cat, setCat] = useState('全部')
+  const { SK_CATS, SK_GRID } = useCatalog()
   return (
     <>
       <div className="cats">
@@ -488,6 +492,7 @@ function ConnAddBtn({ on, onToggle }: { on: boolean; onToggle: (e: MouseEvent) =
 
 function ConnectorsPane() {
   const [detail, setDetail] = useState<[string, string, string] | null>(null)
+  const { CONNS, CONN_META } = useCatalog()
   const connectors = useLoadoutStore((s) => s.connectors)
   // OAuth 连接器（当前仅金山文档）的实时连接态，卡片上以「● 已连接」展示。
   const [authed, setAuthed] = useState<Record<string, boolean>>({})

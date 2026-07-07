@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { toast } from '../stores/toastStore'
-import { INSP, INSP_CATS } from '../data/catalog'
+import { useCatalog } from '../stores/catalogStore'
 
 export function InspireView() {
   const [cat, setCat] = useState('全部')
   const [faved, setFaved] = useState<Set<number>>(new Set())
+  const { INSP, INSP_CATS } = useCatalog()
 
   const toggleFav = (i: number) => {
     setFaved((prev) => {

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { NEEDS_TOKEN_CONNECTORS, NP_CONNS, NP_EXPERTS, NP_TPLS, READY_CONNECTORS, SK_GRID } from '../../data/catalog'
+import { useCatalog, useCatalogStore } from '../../stores/catalogStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
@@ -8,9 +8,10 @@ import type { ProjectInfo } from '../../lib/types'
 type Kind = 'conn' | 'exp' | 'skill'
 
 function iconOf(kind: Kind, name: string): string {
-  if (kind === 'conn') return NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
-  if (kind === 'exp') return NP_EXPERTS.find((e) => e[1] === name)?.[0] ?? '🧑'
-  return SK_GRID.find((s) => s[1] === name)?.[0] ?? '🧩'
+  const cat = useCatalogStore.getState()
+  if (kind === 'conn') return cat.NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
+  if (kind === 'exp') return cat.NP_EXPERTS.find((e) => e[1] === name)?.[0] ?? '🧑'
+  return cat.SK_GRID.find((s) => s[1] === name)?.[0] ?? '🧩'
 }
 
 // The new-project flow (spec 4.2): name + instruction (with template presets) +
@@ -29,6 +30,7 @@ export function NewProjectModal({ open, onClose, onCreated }: {
   const [tplOpen, setTplOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const tplRef = useRef<HTMLButtonElement>(null)
+  const { NP_TPLS } = useCatalog()
 
   if (!open) return null
 
@@ -151,6 +153,7 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
   onClose: () => void
 }) {
   const [q, setQ] = useState('')
+  const { NP_CONNS, NP_EXPERTS, SK_GRID, READY_CONNECTORS, NEEDS_TOKEN_CONNECTORS } = useCatalog()
   const title = { conn: '添加连接器', exp: '选择专家', skill: '选择技能' }[kind]
 
   const match = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase())

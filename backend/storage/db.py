@@ -20,10 +20,18 @@ import sqlite3
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Optional
 
 from config import settings
 from storage.catalog_seed import BUILTIN_CONNECTORS, BUILTIN_EXPERTS
+
+# 橱窗目录种子源（WB-060）：由 catalog.ts 导出的静态商品卡，逐字迁进本文件同级 JSON，
+# 首次启动 seed 进 catalog_showcase 表。放这里而非硬编码在 .py，正是「数据不写死在代码」。
+_SHOWCASE_JSON = Path(__file__).resolve().parent / "catalog_showcase.json"
+# SkillHub 商店浏览列表（SKILLHUB_*）不入库——WB-064 会改成实时 rankings/search，与本处重叠，
+# 由那条 issue 负责其数据源；这里刻意跳过、留纯净面给它。前端仍从 catalog.ts 直取这几项。
+_SHOWCASE_SKIP = {"SKILLHUB_GRID", "SKILLHUB_FEATURED", "SKILLHUB_KITS", "SKILLHUB_CATS"}
 from storage.models import (
     LOCAL_USER_ID,
     LOCAL_USER_NAME,
@@ -258,12 +266,29 @@ def init_db() -> None:
             updated_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_catalog_connectors_name ON catalog_connectors(name);
+
+        -- 橱窗目录（WB-060）：catalog.ts 的静态商品卡迁到此表，前端改从 /api/catalog 取（静态兜底仍在）。
+        -- 通用承载：数组类导出每元素一行（可按行上/下架 enabled、改 sort）；对象类导出（QUICK/CONN_META）
+        -- is_scalar=1 单行整存。data = 该元素/对象的 JSON，逐字对齐迁移前。功能定义(专家人格/连接器 spec)
+        -- 在 catalog_experts/catalog_connectors(WB-059)，此表只装纯浏览卡——职责分离。
+        CREATE TABLE IF NOT EXISTS catalog_showcase (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            sort INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            data TEXT NOT NULL,
+            is_scalar INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_catalog_showcase_kind ON catalog_showcase(kind, sort);
         """
     )
     conn.commit()
     _migrate_columns()
     _ensure_local_user()
     _seed_catalog()
+    _seed_showcase()
 
 
 def _migrate_columns() -> None:
@@ -353,6 +378,34 @@ def _seed_catalog() -> None:
             (new_uuid(), "builtin", None, name, c.get("icon", ""), c.get("description", ""),
              c.get("status", "rdy"), json.dumps(c.get("launch", {}), ensure_ascii=False),
              1, i, now, now),
+        )
+    conn.commit()
+
+
+def _seed_showcase() -> None:
+    """首次启动把 catalog.ts 导出的橱窗商品卡种进 catalog_showcase（WB-060）。
+    数组类导出 → 每元素一行（可按行上/下架、改 sort）；对象类导出（QUICK/CONN_META）→ 单行整存。
+    幂等：按 kind 查重，某 kind 已有行则跳过（保留用户改动）。种子源 catalog_showcase.json。"""
+    conn = get_conn()
+    try:
+        data = json.loads(_SHOWCASE_JSON.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return  # 种子文件缺失/损坏不阻断启动（前端橱窗有静态兜底）
+    now = time.time()
+    for kind, value in data.items():
+        if kind in _SHOWCASE_SKIP:
+            continue  # SkillHub 商店列表交给 WB-064
+        if conn.execute("SELECT 1 FROM catalog_showcase WHERE kind=? LIMIT 1", (kind,)).fetchone():
+            continue
+        if isinstance(value, list):
+            rows = [(new_uuid(), kind, i, 1, json.dumps(el, ensure_ascii=False), 0, now, now)
+                    for i, el in enumerate(value)]
+        else:  # dict/scalar → 单行整存
+            rows = [(new_uuid(), kind, 0, 1, json.dumps(value, ensure_ascii=False), 1, now, now)]
+        conn.executemany(
+            "INSERT INTO catalog_showcase (id,kind,sort,enabled,data,is_scalar,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            rows,
         )
     conn.commit()
 
@@ -882,6 +935,28 @@ def list_catalog_connectors(scope: Optional[str] = None) -> list[CatalogConnecto
             "SELECT * FROM catalog_connectors WHERE enabled=1 ORDER BY sort, name"
         ).fetchall()
     return [_row_to_catalog_connector(r) for r in rows]
+
+
+# ---- catalog: 橱窗目录（WB-060）----------------------------------------
+# catalog.ts 的静态商品卡入库；前端 catalogStore 消费 showcase_all()，替代静态 import。
+
+def showcase_all() -> dict[str, Any]:
+    """所有橱窗目录，按 export 名（kind）分组：数组类 → enabled 行按 sort 还原成列表；
+    对象类（is_scalar）→ 该行整个对象。逐字对齐迁移前的 catalog.ts 各导出。"""
+    rows = get_conn().execute(
+        "SELECT kind, data, is_scalar FROM catalog_showcase WHERE enabled=1 ORDER BY kind, sort"
+    ).fetchall()
+    out: dict[str, Any] = {}
+    for r in rows:
+        try:
+            val = json.loads(r["data"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if r["is_scalar"]:
+            out[r["kind"]] = val
+        else:
+            out.setdefault(r["kind"], []).append(val)
+    return out
 
 
 # ---- project membership / roles (M7 C2) --------------------------------

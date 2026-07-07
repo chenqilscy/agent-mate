@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { CONN_META, type ConnMeta } from '../../data/catalog'
+import { type ConnMeta } from '../../data/catalog'
+import { useCatalog } from '../../stores/catalogStore'
 import { api } from '../../lib/api'
 import { useLoadoutStore } from '../../stores/loadoutStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -35,6 +36,7 @@ export function ConnectorDetailModal(
 ) {
   const [showTools, setShowTools] = useState(false)
   const added = useLoadoutStore((s) => s.connectors.includes(name))
+  const { CONN_META } = useCatalog()
   const meta: ConnMeta | undefined = CONN_META[name]
   const intro = meta?.fullDesc || desc
   const isOAuth = !!meta?.oauth

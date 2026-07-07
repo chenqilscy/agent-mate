@@ -3,7 +3,7 @@ id: WB-060
 title: 橱窗目录入库 —— catalog.ts 静态商品卡迁到 DB + API，前端改从接口取
 severity: P2
 area: frontend
-status: open
+status: fixed
 origin: 既有实现
 files:
   - src/data/catalog.ts:1
@@ -48,3 +48,29 @@ P2（择机）：纯展示、不阻断功能，但为 Hub 目录（[WB-058](WB-0
   - 真接入项（如金山文档 `CONN_META`、已安装技能、内置连接器）行为不变。
 - 后端未连时前端不白屏（兜底/骨架生效）。
 - 在库里上/下架或改排序一条橱窗项（不改前端），刷新后反映。
+
+## 处理记录（2026-07-07）
+
+### 设计取舍
+- 用**一张通用 `catalog_showcase` 表**（`kind` + `sort` + `enabled` + `data`(JSON) + `is_scalar`）承载全部橱窗导出：数组类每元素一行（可按行上/下架、改 sort），对象类（QUICK/CONN_META）`is_scalar=1` 单行整存。比把 25 个异形元组硬映射到 typed 列更稳、逐字一致、天然支持「按行运营」；与 WB-059 的**功能表**（catalog_experts/connectors）职责分离（功能定义 vs 纯浏览卡）。
+- 种子源：用已装的 `tsc` 把 `src/data/catalog.ts` 逐字转出 `backend/storage/catalog_showcase.json`（免手抄近 400 行、保证逐字一致）。
+- **与 WB-064 协调**：SkillHub 商店浏览列表（`SKILLHUB_GRID/FEATURED/KITS/CATS`）**不入库、不改写其消费视图**——WB-064 要把它换成实时 rankings/search，避免撞车；`catalog.ts` 整体保留作静态兜底，`ExpertsView` 的 SkillHub 面仍从 `catalog.ts` 直取。
+
+### 改动
+- 后端：
+  - `storage/catalog_showcase.json`（新，种子源）；`storage/db.py`：`catalog_showcase` 表 + `_seed_showcase`（幂等 by kind，`_SHOWCASE_SKIP` 跳过 SKILLHUB_*）+ `showcase_all()` DAO；`routers/catalog.py`（新）`GET /api/catalog`；`main.py` 挂载。
+- 前端：
+  - `lib/api.ts`：`getCatalog()`。`stores/catalogStore.ts`（新）：以 `catalog.ts` 为静态兜底初值 + 启动 `load()` 从 API 覆盖（zustand 响应式；READY/NEEDS 数组→Set）；导出 `useCatalog()` hook。
+  - 9 个消费点改从 store：组件列表渲染用 `useCatalog()`（HomeView/InspireView/ProjectsView/AutomationView/ConnectorDetailModal/ExpertsView 的 ExpertsPane·RecoView·ConnectorsPane/NewProjectModal 的外层与 **PickerOverlay**）；模块级/装饰性图标查找用 `useCatalogStore.getState()`（ProjectHomeView.iconOf、Composer.iconOf、AutomationView.iconOf、NewProjectModal.iconFor、ExpertsView.skillTile）。`ExpertsView` 保留 `SKILLHUB_*` 从 `catalog.ts` 直取。
+
+### 验证
+- `py_compile` 全过；隔离库 smoke：20 kinds 与 JSON 源**逐字一致**、幂等、按行 disable/改 sort 均生效、SKILLHUB_* 已跳过。
+- `npx tsc --noEmit` 通过；`npx vite build` 通过。
+- 硬重启 :8000，`GET /api/catalog` 200（20 kinds、无 SKILLHUB_*、CONN_META 为对象、READY_CONNECTORS 为数组）。
+- Playwright（**明暗双主题**）：专家页精选场景（EXP_SCENES×6）/分类（EXP_CATS×15）/专家网格、项目页模板（PROJ_TPL×5）、新建项目弹窗均渲染**逐字一致**、暗色可读；`/api/catalog` 200、store 已 hydrate；除 favicon 404 外无 console 错误。
+- **驱动 UI 抓到并修复一个真 bug**：`NewProjectModal` 的 `PickerOverlay` 是独立组件、漏挂 `useCatalog()` → 打开连接器选择器时 `NP_CONNS is not defined` 崩溃。**注意：`tsc` 未报此错（增量缓存漏检），靠浏览器实测发现**。修后连接器选择器 0 错误、`内置/需配置` 徽标正确（`READY_CONNECTORS.has()`/`NEEDS_TOKEN_CONNECTORS.has()` Set 路径生效）。
+- edit-row：删除库中 SKILLHUB_* 行后 `/api/catalog` 立即反映（20 kinds）。
+
+注：真库（gitignored）曾被并发会话的后端重启用本 issue mid-flight 的 no-skip 种子灌入 SKILLHUB_* 行，已手动清除，与 `_SHOWCASE_SKIP` 最终状态一致。
+
+commit：未提交（待用户确认；共享工作树，提交需按 hunk 暂存，排除 WB-064 的 skills_store.py/routers/skills.py 及 main.py 里非我 hunk）。

@@ -77,7 +77,7 @@
 | [WB-057](WB-057-skill-detail-preview-before-install.md) | ✅ | P2 | backend | 技能详情支持"安装前预览"（从 SkillHub 拉取，而非仅本地磁盘） |
 | [WB-058](WB-058-hub-control-plane-epic.md) | ⬜ | P1 | backend | WorkBuddy Hub —— local-first 执行 + 云端控制平面重构（总纲/epic） |
 | [WB-059](WB-059-catalog-definitions-to-db.md) | ✅ | P2 | backend | 目录「真定义」入库 —— 内置专家人格 + 连接器启动注册表 从硬编码迁到 DB |
-| [WB-060](WB-060-catalog-showcase-to-db.md) | ⬜ | P2 | frontend | 橱窗目录入库 —— catalog.ts 静态商品卡迁到 DB + API，前端改从接口取 |
+| [WB-060](WB-060-catalog-showcase-to-db.md) | ✅ | P2 | frontend | 橱窗目录入库 —— catalog.ts 静态商品卡迁到 DB + API，前端改从接口取 |
 | [WB-061](WB-061-hub-service-skeleton.md) | ⬜ | P1 | backend | Hub 服务骨架 —— 独立中心服务：账号/组织/项目/成员/邀请权威源 + 鉴权签发 |
 | [WB-062](WB-062-local-hub-sync-protocol.md) | ⬜ | P1 | backend | 本地 ⇄ Hub 同步协议 —— 下行拉取(身份/项目/成员/目录) + 上行 outbox 回传(执行产出) |
 | [WB-063](WB-063-hub-migration-and-local-fallback.md) | ⬜ | P2 | backend | 迁移与 local-first 回退 —— 存量导入 Hub、目录权威切 Hub 下发、离线/未登录回退 |

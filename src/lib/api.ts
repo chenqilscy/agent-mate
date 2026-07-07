@@ -48,6 +48,9 @@ export const api = {
 
   models: () => get<{ default: string; effective: string; models: ModelOption[] }>('/models'),
 
+  // 橱窗目录（WB-060）：原 data/catalog.ts 静态商品卡，现由后端供给。按 export 名分组的对象。
+  getCatalog: () => get<Record<string, unknown>>('/catalog'),
+
   listSessions: (space?: string) =>
     get<{ sessions: SessionInfo[] }>(`/sessions${space ? `?space=${encodeURIComponent(space)}` : ''}`),
 

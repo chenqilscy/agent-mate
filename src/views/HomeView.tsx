@@ -3,7 +3,7 @@ import { Composer } from '../components/composer/Composer'
 import { useChatStore } from '../stores/chatStore'
 import { useUIStore } from '../stores/uiStore'
 import { toast } from '../stores/toastStore'
-import { QUICK } from '../data/catalog'
+import { useCatalog } from '../stores/catalogStore'
 
 const SCENES: [string, string, string][] = [
   ['day', '🔥', '日常办公'],
@@ -16,6 +16,7 @@ export function HomeView() {
   const startDraft = useChatStore((s) => s.startDraft)
   const send = useChatStore((s) => s.send)
   const setView = useUIStore((s) => s.setView)
+  const { QUICK } = useCatalog()
 
   const launch = (text: string) => {
     startDraft(text.length > 26 ? text.slice(0, 26) + '…' : text)

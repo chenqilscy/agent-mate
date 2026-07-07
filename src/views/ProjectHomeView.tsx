@@ -12,16 +12,17 @@ import { KanbanBoard, TaskList } from '../components/project/ProjectWork'
 import { AssetsManager } from '../components/project/AssetsManager'
 import { MembersModal } from '../components/project/MembersModal'
 import { useWorkItemStore } from '../stores/workItemStore'
-import { NP_CONNS, NP_EXPERTS, SK_GRID } from '../data/catalog'
+import { useCatalogStore } from '../stores/catalogStore'
 
 type Tab = '动态' | '计划' | '任务' | '资产'
 type Kind = 'conn' | 'exp' | 'skill'
 const FIELD: Record<Kind, 'connectors' | 'experts' | 'skills'> = { conn: 'connectors', exp: 'experts', skill: 'skills' }
 
 function iconOf(kind: Kind, name: string): string {
-  if (kind === 'conn') return NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
-  if (kind === 'exp') return NP_EXPERTS.find((e) => e[1] === name)?.[0] ?? '🧑'
-  return SK_GRID.find((s) => s[1] === name)?.[0] ?? '🧩'
+  const cat = useCatalogStore.getState()
+  if (kind === 'conn') return cat.NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
+  if (kind === 'exp') return cat.NP_EXPERTS.find((e) => e[1] === name)?.[0] ?? '🧑'
+  return cat.SK_GRID.find((s) => s[1] === name)?.[0] ?? '🧩'
 }
 
 const IC_ADD = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>

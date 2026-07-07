@@ -3,7 +3,7 @@ import { toast } from '../stores/toastStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useUIStore } from '../stores/uiStore'
 import { NewProjectModal } from '../components/project/NewProjectModal'
-import { PROJ_TPL } from '../data/catalog'
+import { useCatalog } from '../stores/catalogStore'
 import type { ProjectInfo } from '../lib/types'
 
 // A shared project (M7 C2) carries the caller's role; owned projects show no badge.
@@ -15,6 +15,7 @@ export function ProjectsView() {
   const setActive = useProjectStore((s) => s.setActive)
   const setView = useUIStore((s) => s.setView)
   const [modalOpen, setModalOpen] = useState(false)
+  const { PROJ_TPL } = useCatalog()
 
   useEffect(() => { load() }, [load])
 

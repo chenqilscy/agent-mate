@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AUTO } from '../data/catalog'
+import { useCatalog, useCatalogStore } from '../stores/catalogStore'
 import { api } from '../lib/api'
 import { activate } from '../lib/a11y'
 import { IcChevronDown } from '../lib/icons'
@@ -17,7 +17,7 @@ const IC_ADD = (
 )
 
 function iconOf(name: string): string {
-  return AUTO.find((a) => a[1] === name)?.[0] ?? '⏰'
+  return useCatalogStore.getState().AUTO.find((a) => a[1] === name)?.[0] ?? '⏰'
 }
 
 function triggerLabel(a: Automation): string {
@@ -60,6 +60,7 @@ type EditState = { auto?: Automation; prefill?: Partial<CreateAutomationInput> }
 export function AutomationView() {
   const items = useAutomationStore((s) => s.items)
   const load = useAutomationStore((s) => s.load)
+  const { AUTO } = useCatalog()
   const toggle = useAutomationStore((s) => s.toggle)
   const remove = useAutomationStore((s) => s.remove)
   const runNow = useAutomationStore((s) => s.runNow)

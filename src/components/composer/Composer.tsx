@@ -10,7 +10,7 @@ import { CtxPopover } from './CtxPopover'
 import { PlusMenu, type PlusActions } from './PlusMenu'
 import { PickerOverlay } from '../project/NewProjectModal'
 import { RefPicker } from './RefPicker'
-import { NP_CONNS, NP_EXPERTS, SK_GRID } from '../../data/catalog'
+import { useCatalogStore } from '../../stores/catalogStore'
 import { IcPlus, IcClose, IcSend, IcChevronDown, IcMic, IcShield } from '../../lib/icons'
 
 // Attach limits — kept in step with the backend ref caps in backend/agent/runtime.py
@@ -83,9 +83,10 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
   }
 
   const iconOf = (kind: 'exp' | 'skill' | 'conn', name: string): string => {
-    if (kind === 'conn') return NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
-    if (kind === 'exp') return NP_EXPERTS.find((x) => x[1] === name)?.[0] ?? '🧑'
-    return SK_GRID.find((s) => s[1] === name)?.[0] ?? '🧩'
+    const cat = useCatalogStore.getState()
+    if (kind === 'conn') return cat.NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
+    if (kind === 'exp') return cat.NP_EXPERTS.find((x) => x[1] === name)?.[0] ?? '🧑'
+    return cat.SK_GRID.find((s) => s[1] === name)?.[0] ?? '🧩'
   }
 
   const grow = () => {
