@@ -175,6 +175,20 @@ def init_db() -> None:
             created_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_hub_notifs_account ON hub_notifications(account_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS work_items (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'todo',
+            source TEXT NOT NULL DEFAULT '手动',
+            assignee TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            sort INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, status, sort);
         """
     )
     get_conn().commit()
@@ -625,6 +639,57 @@ def list_all_catalog_items(scope: str = "builtin", include_disabled: bool = Fals
         out.append({"id": r["id"], "category": r["category"], "kind": r["kind"], "data": data,
                     "sort": r["sort"], "version": r["version"], "enabled": bool(r["enabled"])})
     return out
+
+
+# ---- 团队计划/任务 work_items（WB-081）---------------------------------
+
+def create_work_item(*, project_id: str, title: str, status: str = "todo",
+                     source: str = "手动", assignee: str = "", description: str = "") -> dict:
+    wid = new_uuid(); now = time.time()
+    mx = get_conn().execute(
+        "SELECT COALESCE(MAX(sort),0) FROM work_items WHERE project_id=? AND status=?",
+        (project_id, status),
+    ).fetchone()[0]
+    get_conn().execute(
+        "INSERT INTO work_items (id,project_id,title,status,source,assignee,description,sort,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (wid, project_id, title, status, source, assignee, description, mx + 1, now, now),
+    )
+    get_conn().commit()
+    return get_work_item(wid)  # type: ignore[return-value]
+
+
+def list_work_items(project_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM work_items WHERE project_id=? ORDER BY status, sort", (project_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_work_item(wid: str) -> Optional[dict]:
+    r = get_conn().execute("SELECT * FROM work_items WHERE id=?", (wid,)).fetchone()
+    return dict(r) if r else None
+
+
+def update_work_item(wid: str, **fields: Any) -> Optional[dict]:
+    allowed = {"title", "status", "source", "assignee", "description", "sort"}
+    sets, vals = [], []
+    for k, v in fields.items():
+        if k in allowed and v is not None:
+            sets.append(f"{k}=?"); vals.append(v)
+    if not sets:
+        return get_work_item(wid)
+    sets.append("updated_at=?"); vals.append(time.time())
+    vals.append(wid)
+    cur = get_conn().execute(f"UPDATE work_items SET {', '.join(sets)} WHERE id=?", vals)
+    get_conn().commit()
+    return get_work_item(wid) if cur.rowcount else None
+
+
+def delete_work_item(wid: str) -> bool:
+    cur = get_conn().execute("DELETE FROM work_items WHERE id=?", (wid,))
+    get_conn().commit()
+    return cur.rowcount > 0
 
 
 # ---- 团队时间线（WB-062 Phase 3）----------------------------------------

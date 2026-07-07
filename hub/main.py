@@ -26,7 +26,7 @@ import db  # noqa: E402
 import skillhub_client  # noqa: E402
 import skillhub_sync  # noqa: E402
 from config import settings  # noqa: E402
-from routers import auth, catalog, comments, invites, notifications, orgs, projects, timeline  # noqa: E402
+from routers import auth, catalog, comments, invites, notifications, orgs, projects, timeline, work_items  # noqa: E402
 
 db.init_db()
 
@@ -77,6 +77,7 @@ app.include_router(catalog.router)
 app.include_router(timeline.router)
 app.include_router(comments.router)
 app.include_router(notifications.router)
+app.include_router(work_items.router)
 
 
 if __name__ == "__main__":

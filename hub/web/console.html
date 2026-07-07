@@ -161,6 +161,7 @@ async function projectDetail(m){
   const pid = CUR.id;
   m.innerHTML = `<button class="line" id="back">← 返回项目</button><h1 id="pd-name" style="margin-top:10px">项目</h1>
     <div class="card" id="pd-cfg"><h3>配置</h3><div class="muted">加载中…</div></div>
+    <div class="card" id="pd-work"><h3>计划 / 任务</h3><div class="muted">加载中…</div></div>
     <div class="grid2">
       <div>
         <div class="card"><h3>成员</h3><div id="pd-members" class="muted">…</div>
@@ -197,6 +198,7 @@ async function projectDetail(m){
 // connectors/experts/skills 是名字数组；datalist 从 Hub 目录相应类别取建议，也允许自由输入
 // （名字须与本地 backend 内置定义一致才真生效，目录空时靠自由输入兜底）。
 const CFG_CATS = { connectors:"NP_CONNS", experts:"EXP_GRID", skills:"SK_GRID" };
+const WI_COLS = [["todo","待办"],["doing","进行中"],["paused","暂停"],["done","完成"]];
 async function catalogNames(category){
   try{ const {items} = await api("GET","/catalog/"+category);
     return items.map(it=>{ const d=it.data; return Array.isArray(d)?(d[1]||d[0]):((d&&d.name)||""); }).filter(Boolean);
@@ -226,6 +228,7 @@ async function loadConfig(pid){
     if(!ro) box.querySelectorAll("[data-rm]").forEach(x=> x.onclick=()=>{ const [k,i]=x.dataset.rm.split(":"); cur[k].splice(+i,1); renderChips(); });
   }
   renderChips();
+  loadWorkItems(pid, ro);
   if(!ro){
     box.querySelectorAll("[data-add]").forEach(b=> b.onclick=()=>{ const k=b.dataset.add, inp=document.getElementById(`cfg-${k}-in`), v=inp.value.trim(); if(v && !cur[k].includes(v)){ cur[k].push(v); renderChips(); } inp.value=""; inp.focus(); });
     document.getElementById("cfg-save").onclick = async ()=>{
@@ -233,6 +236,31 @@ async function loadConfig(pid){
       try{ await api("PATCH","/projects/"+pid,{ instruction:document.getElementById("cfg-instr").value, connectors:cur.connectors, experts:cur.experts, skills:cur.skills }); loadConfig(pid); }
       catch(e){ document.getElementById("cfg-err").textContent=e.message; }
     };
+  }
+}
+// 团队计划/任务看板（WB-081）：4 列（待办/进行中/暂停/完成），新增 + 移动状态（select）+ 删除。Viewer 只读。
+async function loadWorkItems(pid, ro){
+  const box = document.getElementById("pd-work");
+  let items;
+  try{ items = (await api("GET","/projects/"+pid+"/work-items")).items || []; }
+  catch(e){ box.innerHTML = `<h3>计划 / 任务</h3><div class="err">${esc(e.message)}</div>`; return; }
+  const byStatus = s => items.filter(x=>x.status===s);
+  box.innerHTML = `<h3>计划 / 任务 <span class="pill">${items.length}</span></h3>
+    ${ro?"":`<div class="row" style="margin-bottom:10px"><input id="wi-new" placeholder="新增待办任务…"><button id="wi-add">添加</button></div>`}
+    <div class="err" id="wi-err"></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      ${WI_COLS.map(([s,label])=>`<div><div class="muted" style="font-size:12px;margin-bottom:6px">${label} · ${byStatus(s).length}</div><div id="wi-col-${s}" style="display:flex;flex-direction:column;gap:6px"></div></div>`).join("")}
+    </div>`;
+  WI_COLS.forEach(([s])=>{
+    document.getElementById("wi-col-"+s).innerHTML = byStatus(s).map(it=>`<div class="list-item" style="display:block;padding:8px 10px"><div style="font-size:13px">${esc(it.title)}</div><div class="row" style="margin-top:5px;gap:5px">${ro?`<span class="pill">${esc(it.source||"")}</span>`:`<select data-mv="${it.id}" style="padding:3px 6px;font-size:12px;width:auto">${WI_COLS.map(([cs,cl])=>`<option value="${cs}" ${cs===it.status?"selected":""}>${cl}</option>`).join("")}</select><div class="grow"></div><button class="danger" data-del="${it.id}" style="padding:2px 8px">删除</button>`}</div></div>`).join("") || '<div class="muted" style="font-size:12px">—</div>';
+  });
+  if(!ro){
+    const E = document.getElementById("wi-err");
+    const add = async ()=>{ const inp=document.getElementById("wi-new"), t=inp.value.trim(); if(!t) return; E.textContent=""; try{ await api("POST","/projects/"+pid+"/work-items",{title:t}); inp.value=""; loadWorkItems(pid,ro);}catch(e){E.textContent=e.message;} };
+    document.getElementById("wi-add").onclick = add;
+    document.getElementById("wi-new").onkeydown = e=>{ if(e.key==="Enter") add(); };
+    box.querySelectorAll("[data-mv]").forEach(sel=> sel.onchange=async()=>{ E.textContent=""; try{ await api("PATCH","/projects/"+pid+"/work-items/"+sel.dataset.mv,{status:sel.value}); loadWorkItems(pid,ro);}catch(e){E.textContent=e.message;} });
+    box.querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ E.textContent=""; try{ await api("DELETE","/projects/"+pid+"/work-items/"+b.dataset.del); loadWorkItems(pid,ro);}catch(e){E.textContent=e.message;} });
   }
 }
 async function loadMembers(pid){
