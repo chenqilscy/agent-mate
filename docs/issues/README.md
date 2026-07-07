@@ -89,6 +89,9 @@
 | [WB-070](WB-070-frontend-hub-skillhub-catalog.md) | ✅ | P2 | frontend | 前端接入 Hub SkillHub 镜像目录 + 搜索代理（触发下行 pull + catalogStore 承载 skill 类 + ExpertsView 改读 + 搜索接线） |
 | [WB-071](WB-071-local-skill-browse-real-fallback.md) | ✅ | P2 | frontend | 未接 Hub 时技能浏览用真实 rankings 兜底，替掉静态假数据（铁律#1；仅 api.ts + catalogStore.ts） |
 | [WB-072](WB-072-telegram-assistant-channel.md) | ✅ | P2 | backend | 助理外部渠道（一）—— Telegram 长轮询桥接：收发消息驱动真实 agent（白名单+/start 配对，默认关） |
+| [WB-073](WB-073-hub-status-linked-ignores-token.md) | ✅ | P1 | backend | /api/hub/status 的 linked 判定忽略当前 Hub token，登录后讨论 UI 不解锁（WB-067 真机 E2E 发现） |
+| [WB-074](WB-074-presence-never-seen-epoch.md) | ✅ | P3 | frontend | 讨论面板在线状态：从未上线的成员显示「最后活跃 20641 天前」（WB-067 真机 E2E 发现） |
+| [WB-075](WB-075-linked-hub-modal-unreachable.md) | ✅ | P2 | frontend | 已连接 Hub 后无入口打开连接弹窗，导入/通知/断开成死代码 —— 加「管理」入口（WB-067 真机 E2E 发现） |
 
 ## 来源
 

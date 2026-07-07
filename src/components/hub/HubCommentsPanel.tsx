@@ -81,10 +81,15 @@ export function HubCommentsPanel({ projectId }: { projectId: string }) {
 
   return (
     <div>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+        <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>🟢 已连接 Hub · {linked?.name}</span>
+        <button className="btn-line" style={{ marginLeft: 'auto', marginTop: 0, height: 28, padding: '0 12px' }} onClick={() => setConnectOpen(true)}>管理</button>
+      </div>
+
       {presence.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
           {presence.map((m) => (
-            <span key={m.account_id} title={m.online ? '在线' : `最后活跃 ${ago(m.last_seen)}`}
+            <span key={m.account_id} title={m.online ? '在线' : m.last_seen ? `最后活跃 ${ago(m.last_seen)}` : '从未上线'}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, border: '1px solid var(--border)', fontSize: 12.5, opacity: m.online ? 1 : 0.6 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.online ? '#2FBE6E' : 'var(--text-3)' }} />
               {m.name}
@@ -112,6 +117,8 @@ export function HubCommentsPanel({ projectId }: { projectId: string }) {
           </div>
         ))
       )}
+
+      {connectOpen && <HubConnectModal onClose={() => { setConnectOpen(false); void refreshStatus() }} />}
     </div>
   )
 }

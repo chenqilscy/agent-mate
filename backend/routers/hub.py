@@ -43,14 +43,24 @@ def hub_import(authorization: str = Header(default="")) -> dict:
 
 
 @router.get("/hub/status")
-def hub_status() -> dict:
-    """本地是否已接 Hub、是否已绑定某 Hub 账号（前端据此显示同步/导入入口）。
-    未接 Hub → enabled False，纯本地照旧——前端不应因此禁用任何本地功能。"""
-    link = db.get_hub_link(LOCAL_USER_ID)
-    return {
-        "enabled": hub_client.hub_enabled(),
-        "linked": {"account_id": link["hub_account_id"], "name": link["hub_account_name"]} if link else None,
-    }
+def hub_status(authorization: str = Header(default="")) -> dict:
+    """本地是否已接 Hub、当前是否已以某 Hub 账号连接（前端据此显示同步/导入入口 + 解锁协作 UI）。
+    未接 Hub → enabled False，纯本地照旧——前端不应因此禁用任何本地功能。
+
+    linked 判定（WB-073）：连接模型 = 登录即以 Hub 账号身份操作（app token = Hub token），故先看
+    **当前请求携带的 token** 能否在 Hub 校验通过；命中即已连接。再兜底 LOCAL_USER 的迁移绑定
+    （`hub_link`，导入本地项目时才写）——两者任一即视为已连接。"""
+    enabled = hub_client.hub_enabled()
+    linked = None
+    if enabled:
+        acct = hub_client.verify_token(_bearer(authorization))
+        if acct:
+            linked = {"account_id": acct.get("id", ""), "name": acct.get("name", "")}
+    if linked is None:
+        link = db.get_hub_link(LOCAL_USER_ID)
+        if link:
+            linked = {"account_id": link["hub_account_id"], "name": link["hub_account_name"]}
+    return {"enabled": enabled, "linked": linked}
 
 
 # ---- 前端接 Hub 的代理路由（WB-067）：前端只连本地 :8000，这里转发到 Hub。全部 guarded。----
