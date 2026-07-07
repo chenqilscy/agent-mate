@@ -3,7 +3,7 @@ id: WB-062
 title: 本地 ⇄ Hub 同步协议 —— 下行拉取(身份/项目/成员/目录) + 上行 outbox 回传(执行产出)
 severity: P1
 area: backend
-status: open
+status: in-progress
 origin: 既有实现
 files:
   - docs/workbuddy-hub-架构设计.md
@@ -44,3 +44,22 @@ P1：#2 协作真正跑通的关键一环。依赖 WB-061（对端就绪）。
 - 断网执行 → 恢复网络 → outbox 自动补传、无重复、无丢失。
 - 抓包/日志确认同步 payload **不含**任何凭据/密钥/工作区文件内容。
 - 关闭团队时间线上报开关后，执行产出不再上行。
+
+## 实现分期与进度
+
+分三期，每期可独立交付、离线优先：
+
+### Phase 1 —— 鉴权桥 + Hub 客户端（✅ 完成并验证，2026-07-07）
+本地 backend 能识别 Hub 签发的 token，安全非破坏、离线全保。
+- `backend/config.py`：`HUB_URL`（空 = 未接 Hub = 纯本地）+ `HUB_TIMELINE_UPLOAD`（Phase 3 上报开关，默认关）+ `hub_enabled`。
+- `backend/hub_client.py`（新）：`verify_token(token)`→account｜None，**guarded、从不抛**（未接/不可达/非 200 → None）。
+- `backend/storage/db.py`：`upsert_external_user`（Hub 账号镜像进本地 users，无口令）+ `cache_token`（已校验 token 缓存进 auth_tokens，后续走本地）。
+- `backend/auth/deps.py`：`resolve_via_hub`（本地未命中 → 问 Hub → 镜像+缓存）；`resolve_token_to_user_id` 保持纯本地。
+- `backend/auth/middleware.py`：本地缓存命中即返回；未命中且已接 Hub → **`anyio.to_thread` 把阻塞的 Hub 校验丢工作线程**（不占事件循环，WB-002）。无 token / 未接 Hub → 回退 `LOCAL_USER_ID`。
+- 验证：py_compile；隔离 backend + live hub E2E **14 项全过**（离线守卫、Hub token 校验+镜像+缓存+幂等、坏 token 回退、本地 token 路径不变）。**HUB_URL 空 = 零行为变化**，现有单机/离线照旧。
+
+### Phase 2 —— 下行 pull（项目/成员镜像）⬜ 待做
+projects 表加 `origin`('local'|'hub')；拉 Hub `/api/projects` + `/members` 镜像进本地（origin='hub' 只读）；WB-050 访问校验读镜像成员表。登录时 + 定时增量。
+
+### Phase 3 —— 上行 outbox（执行产出回传）+ Hub 接收端点 ⬜ 待做
+outbox 表；run 完成入队；后台 worker 推 Hub；Hub 侧加接收端点（team timeline 只读镜像）。凭据/工作区文件绝不进 payload；上报默认关（`HUB_TIMELINE_UPLOAD`，隐私）。

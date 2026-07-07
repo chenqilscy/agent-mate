@@ -483,6 +483,29 @@ def delete_token(token: str) -> None:
     get_conn().commit()
 
 
+# ---- Hub 账号镜像（WB-062）----------------------------------------------
+# 本地 backend 把 Hub 校验过的账号镜像进 users（无本地口令），让所有 owner-scoped 代码
+# 无改动地认它；已校验的 Hub token 缓存进 auth_tokens，后续请求走本地、不再打 Hub。
+
+def upsert_external_user(user_id: str, name: str, plan: str = "体验版") -> None:
+    """把 Hub 账号镜像进本地 users（幂等 upsert，无 password_hash）。id = Hub account id。"""
+    get_conn().execute(
+        "INSERT INTO users (id,name,role,plan) VALUES (?,?,?,?) "
+        "ON CONFLICT(id) DO UPDATE SET name=excluded.name, plan=excluded.plan",
+        (user_id, ((name or "").strip()[:60] or user_id[:8]), Role.OWNER.value, plan),
+    )
+    get_conn().commit()
+
+
+def cache_token(token: str, user_id: str) -> None:
+    """缓存已校验的 Hub token → account 映射（后续请求本地命中，不再校验 Hub）。"""
+    get_conn().execute(
+        "INSERT OR IGNORE INTO auth_tokens (token,user_id,created_at) VALUES (?,?,?)",
+        (token, user_id, time.time()),
+    )
+    get_conn().commit()
+
+
 # ---- sessions -----------------------------------------------------------
 
 def create_session(

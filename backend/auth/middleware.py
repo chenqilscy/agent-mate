@@ -4,10 +4,17 @@ contextvar that `current_user()` reads.
 Pure ASGI (not BaseHTTPMiddleware) so it never wraps the response in an anyio
 cancel scope — that wrapper crashes SSE endpoints which spawn nested task groups
 (learned the hard way with the request-size middleware, A2).
+
+Hub 桥（WB-062）：本地缓存未命中且已接 Hub 时，把 token 交给 Hub 校验。那是**阻塞的网络调用**，
+所以丢进工作线程（anyio.to_thread），绝不在事件循环里跑（WB-002）。未接 Hub / 无 token →
+零额外开销，纯本地照旧。
 """
 from __future__ import annotations
 
-from auth.deps import resolve_token_to_user_id, set_current_user_id
+import anyio
+
+import hub_client
+from auth.deps import resolve_token_to_user_id, resolve_via_hub, set_current_user_id
 
 
 class AuthMiddleware:
@@ -23,5 +30,9 @@ class AuthMiddleware:
                     if val[:7].lower() == "bearer ":
                         token = val[7:].strip()
                     break
-            set_current_user_id(resolve_token_to_user_id(token))
+            uid = resolve_token_to_user_id(token)  # 本地缓存，同步、快
+            if uid is None and token and hub_client.hub_enabled():
+                # 未命中且已接 Hub：阻塞的 Hub 校验丢到工作线程，不占事件循环。
+                uid = await anyio.to_thread.run_sync(resolve_via_hub, token)
+            set_current_user_id(uid)
         await self.app(scope, receive, send)
