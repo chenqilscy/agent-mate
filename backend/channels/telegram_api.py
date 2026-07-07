@@ -21,8 +21,18 @@ MAX_TEXT = 4096
 _CONNECT_TIMEOUT = 15.0
 
 
+# DB 里配置的 token（WB-077）由桥接在启动/改配置时灌进来，优先于 .env。放这里而不 import db，
+# 是为了保持本模块依赖极简（只 os+httpx），与「独立 stdio 子进程」形态的 MCP 连接器解耦。
+_token_override: Optional[str] = None
+
+
+def set_token_override(tok: Optional[str]) -> None:
+    global _token_override
+    _token_override = (tok or "").strip() or None
+
+
 def token() -> str:
-    return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    return (_token_override or os.environ.get("TELEGRAM_BOT_TOKEN", "")).strip()
 
 
 def default_chat() -> str:

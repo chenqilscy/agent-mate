@@ -109,10 +109,9 @@ async def _stop_scheduler() -> None:
 
 @app.on_event("startup")
 async def _start_telegram() -> None:
-    # 助理外部渠道（WB-072）：仅当配了 bot token 且显式开了开关才起长轮询桥接。
-    # 默认关 —— 纯本地/未配置时零变化。
-    if settings.telegram_assistant_enabled:
-        await telegram_bridge.start()
+    # 助理外部渠道（WB-072/077）：refresh 应用 DB 助理设置（token/开关，优先于 .env）并按
+    # effective 启停桥接。默认关 —— 无 token 或未开时零变化，纯本地不受影响。
+    await telegram_bridge.refresh()
 
 
 @app.on_event("shutdown")

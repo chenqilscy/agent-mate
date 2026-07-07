@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Composer } from '../components/composer/Composer'
 import { MessageList } from '../components/chat/MessageList'
+import { AssistantSettingsModal } from '../components/channel/AssistantSettingsModal'
 import { IcSearch, IcShare, IcHistory, IcPanel, IcGear } from '../lib/icons'
 import { api, type TelegramChannel } from '../lib/api'
 import type { ChatMessage } from '../lib/types'
@@ -14,6 +15,7 @@ export function AssistantView() {
   const [ch, setCh] = useState<TelegramChannel | null>(null)
   const [sending, setSending] = useState(false)
   const [pending, setPending] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
 
@@ -85,12 +87,7 @@ export function AssistantView() {
           ? { dot: '🟡', label: '连接中…' }
           : { dot: '🟡', label: '已配置（未开启）' }
 
-  const onGear = () => {
-    if (!ch?.configured) { toast('在 backend/.env 配置 TELEGRAM_BOT_TOKEN 并设 TELEGRAM_ASSISTANT=1，重启后端'); return }
-    toast(ch.bound_chat_id
-      ? `已绑定 Telegram chat：${ch.bound_chat_id}`
-      : `在 Telegram 给 ${ch.bot_username ? '@' + ch.bot_username : 'bot'} 发 /start 完成配对`)
-  }
+  const onGear = () => setSettingsOpen(true) // 助理设置面板（WB-077）
 
   return (
     <section className="view active split" data-view="assistant">
@@ -113,7 +110,7 @@ export function AssistantView() {
             <div className="ov-center" style={{ paddingTop: 100 }}>
               <span style={{ fontSize: 34 }}>📡</span>
               助理外部渠道未连接
-              <small>在 <b>backend/.env</b> 配置 TELEGRAM_BOT_TOKEN，并设 TELEGRAM_ASSISTANT=1，重启后端；
+              <small>点右上角 <b>⚙️</b> 打开助理设置，填入 bot token 并启用；
                 再在 Telegram 给你的 bot 发 /start，即可随时从手机与助理对话。</small>
             </div>
           ) : ch && display.length === 0 ? (
@@ -130,10 +127,19 @@ export function AssistantView() {
         <div className="chat-foot">
           {ch?.configured
             ? <Composer variant="chat" streaming={sending} onSend={onSend} autoFocus />
-            : <div className="disc">配置并开启 Telegram 渠道后，即可在此与助理对话</div>}
+            : <div className="disc">点右上角 ⚙️ 配置并开启助理后，即可在此与助理对话</div>}
           <div className="disc">内容由 AI 生成，请核实重要信息</div>
         </div>
       </div>
+
+      {settingsOpen && ch && (
+        <AssistantSettingsModal
+          open
+          ch={ch}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(updated) => setCh(updated)}
+        />
+      )}
     </section>
   )
 }

@@ -351,6 +351,18 @@ def init_db() -> None:
             update_offset INTEGER NOT NULL DEFAULT 0,
             updated_at REAL NOT NULL
         );
+
+        -- 助理设置（WB-077）：单助理的页面内配置。bot_token 存这里（用户显式决定；DB 已被
+        -- .gitignore，永不提交、绝不回传前端），.env 作回退。enabled 为 NULL 时回退 env 开关。
+        CREATE TABLE IF NOT EXISTS assistant_settings (
+            owner_id TEXT PRIMARY KEY,
+            bot_token TEXT,
+            name TEXT,
+            persona TEXT,
+            model TEXT,
+            enabled INTEGER,
+            updated_at REAL NOT NULL
+        );
         """
     )
     conn.commit()
@@ -1491,6 +1503,12 @@ def first_channel_binding(channel: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
+def clear_channel_bindings(channel: str) -> None:
+    """解绑某渠道的所有 chat 绑定（WB-077 解绑/重新配对）。会话本身不动。"""
+    get_conn().execute("DELETE FROM channel_sessions WHERE channel=?", (channel,))
+    get_conn().commit()
+
+
 def bind_channel(channel: str, chat_id: str, session_id: str, owner_id: str) -> None:
     get_conn().execute(
         """INSERT OR REPLACE INTO channel_sessions (channel,chat_id,session_id,owner_id,created_at)
@@ -1498,6 +1516,34 @@ def bind_channel(channel: str, chat_id: str, session_id: str, owner_id: str) -> 
         (channel, str(chat_id), session_id, owner_id, time.time()),
     )
     get_conn().commit()
+
+
+def get_assistant_settings(owner_id: str) -> Optional[dict]:
+    """助理设置行（WB-077），未设过则 None。含 bot_token（仅后端用，绝不回传前端）。"""
+    row = get_conn().execute(
+        "SELECT * FROM assistant_settings WHERE owner_id=?", (owner_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_assistant_settings(owner_id: str, **fields) -> dict:
+    """部分字段合并写入（只覆盖显式传入的键；None 值也会被忽略以免抹掉已有配置）。
+    合法字段：bot_token / name / persona / model / enabled。"""
+    allowed = ("bot_token", "name", "persona", "model", "enabled")
+    cur = get_assistant_settings(owner_id) or {}
+    merged = {k: cur.get(k) for k in allowed}
+    for k, v in fields.items():
+        if k in allowed and v is not None:
+            merged[k] = v
+    get_conn().execute(
+        """INSERT OR REPLACE INTO assistant_settings
+           (owner_id, bot_token, name, persona, model, enabled, updated_at)
+           VALUES (?,?,?,?,?,?,?)""",
+        (owner_id, merged["bot_token"], merged["name"], merged["persona"],
+         merged["model"], merged["enabled"], time.time()),
+    )
+    get_conn().commit()
+    return get_assistant_settings(owner_id) or {}
 
 
 def get_channel_offset(channel: str) -> Optional[int]:

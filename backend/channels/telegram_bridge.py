@@ -9,7 +9,8 @@ Local-first：后端跑在 localhost，收不到 Telegram webhook 回调（没�
 助手回复发回。
 
 安全：白名单 + /start 配对。只有绑定的那个 chat 能驱动 agent（它能读写工作区沙箱、跑命令）。
-默认关：仅当 TELEGRAM_BOT_TOKEN 已配 **且** TELEGRAM_ASSISTANT=1 时才由 main.py 启动。
+默认关：需有 token（DB 助理设置或 .env）且开关开着才启动（见 effective_enabled）。配置可在
+助理设置面板里改（WB-077），改完经 refresh() 即时启停，无需改 .env / 重启。
 """
 from __future__ import annotations
 
@@ -82,6 +83,24 @@ def _is_start(text: str) -> bool:
     return t == "/start" or t.startswith("/start@") or t.startswith("/start ")
 
 
+def _persona_text() -> Optional[str]:
+    """由助理设置（WB-077）拼出注入 run_chat 的人格文本：名字 + 风格。"""
+    cfg = db.get_assistant_settings(_owner_id()) or {}
+    name = (cfg.get("name") or "").strip()
+    persona = (cfg.get("persona") or "").strip()
+    parts = []
+    if name:
+        parts.append(f"你的名字叫「{name}」，用户就这样称呼你，回答时以此自称。")
+    if persona:
+        parts.append(persona)
+    return "\n".join(parts) or None
+
+
+def _model() -> Optional[str]:
+    cfg = db.get_assistant_settings(_owner_id()) or {}
+    return (cfg.get("model") or "").strip() or None
+
+
 async def _run_agent(session_id: str, text: str) -> str:
     """在既有会话里 headless 驱动一轮 agent，返回本轮新产生的助手回复文本。"""
     user = db.get_user(_owner_id())
@@ -92,7 +111,9 @@ async def _run_agent(session_id: str, text: str) -> str:
     before = {m.id for m in db.list_messages(session_id)}
 
     async def _drive() -> None:
-        async for _ in runtime.run_chat(session, user, text):
+        async for _ in runtime.run_chat(
+            session, user, text, model=_model(), system_extra=_persona_text()
+        ):
             pass
 
     try:
@@ -205,21 +226,69 @@ async def _bot_username() -> Optional[str]:
     return None
 
 
+def effective_enabled() -> bool:
+    """是否应运行桥接：有 token（DB 或 .env）且开关开着（DB.enabled 优先，NULL 回退 env）。"""
+    cfg = db.get_assistant_settings(_owner_id()) or {}
+    tok = (cfg.get("bot_token") or "").strip() or settings.TELEGRAM_BOT_TOKEN
+    if not tok:
+        return False
+    en = cfg.get("enabled")
+    if en is not None:
+        return bool(en)
+    return settings.TELEGRAM_ASSISTANT
+
+
+def _apply_config() -> None:
+    """把 DB 配置应用到运行态：token override（DB 优先于 .env）+ 作废 getMe 缓存。"""
+    cfg = db.get_assistant_settings(_owner_id()) or {}
+    tg.set_token_override(cfg.get("bot_token"))
+    _bot_cache["username"] = None
+    _bot_cache["at"] = 0.0
+
+
+def get_config() -> dict:
+    """助理设置给前端（**绝不含 token 值**，只回 has_token 布尔）。"""
+    cfg = db.get_assistant_settings(_owner_id()) or {}
+    return {
+        "name": cfg.get("name") or "",
+        "persona": cfg.get("persona") or "",
+        "model": cfg.get("model") or "",
+        "enabled_override": cfg.get("enabled"),  # None = 跟随 .env 开关
+    }
+
+
 async def status() -> dict:
-    """渠道状态给前端助理页。不创建会话（仅打开视图不该冒出空会话）。"""
+    """渠道状态 + 助理配置给前端。不创建会话（仅打开视图不该冒出空会话）。"""
+    _apply_config()  # 保证 token()/enabled 反映最新 DB 配置（如另一进程刚改过）
     configured = bool(tg.token())
-    enabled = settings.telegram_assistant_enabled
+    enabled = effective_enabled()
     binding = db.first_channel_binding(CHANNEL)
     session = db.get_assistant_session(_owner_id())
     uname = await _bot_username() if configured else None
+    running = _task is not None and not _task.done()
     return {
         "configured": configured,
         "enabled": enabled,
+        "running": running,
         "connected": bool(enabled and uname),
         "bot_username": uname,
         "bound_chat_id": binding["chat_id"] if binding else None,
         "session_id": session.id if session else None,
+        **get_config(),
     }
+
+
+async def set_config(patch: dict) -> dict:
+    """写入助理设置并按新配置刷新桥接（改 token/开关即时生效，免改 .env/重启）。"""
+    db.upsert_assistant_settings(_owner_id(), **patch)
+    await refresh()
+    return await status()
+
+
+def unbind() -> None:
+    """解绑 Telegram chat（下一个 /start 重新配对）；保留助理会话与 transcript。"""
+    db.clear_channel_bindings(CHANNEL)
+    log.info("Telegram 助理已解绑，等待重新 /start 配对")
 
 
 async def say(text: str) -> dict:
@@ -236,6 +305,15 @@ async def start() -> None:
     global _task
     if _task is None or _task.done():
         _task = asyncio.create_task(_loop())
+
+
+async def refresh() -> None:
+    """应用 DB 配置并按 effective 启停桥接：干净重启（换 token 后重新 getMe/deleteWebhook）。
+    startup 与每次改配置后调用。"""
+    _apply_config()
+    await stop()
+    if effective_enabled():
+        await start()
 
 
 async def stop() -> None:

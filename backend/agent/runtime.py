@@ -183,6 +183,7 @@ async def run_chat(
     skills: list[str] | None = None,
     connectors: list[str] | None = None,
     refs: list[dict] | None = None,
+    system_extra: str | None = None,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
 
@@ -195,6 +196,9 @@ async def run_chat(
     system_prompt = PLAN_SYSTEM_PROMPT if plan else SYSTEM_PROMPT
     if ask:
         system_prompt += "\n\n# 仅问答模式\n只回答用户的问题，不要调用任何工具、不执行任何操作。"
+    # 助理人格注入（WB-077）：外部渠道助理可在设置面板里定名字/风格，这里附加到系统提示。
+    if system_extra and system_extra.strip():
+        system_prompt += "\n\n# 助理设定\n" + system_extra.strip()
 
     # Per-project workspace (§11.2): this run's tools operate in the project's own
     # checkout (or the shared default for ad-hoc chats).
