@@ -132,6 +132,22 @@ def init_db() -> None:
             updated_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_catalog_items_cat ON catalog_items(category, scope, sort);
+
+        -- 团队时间线（WB-062 Phase 3）：本地执行产出上行的只读镜像（append-only）。
+        -- 只存元数据 + 可选摘要，绝不含凭据 / 工作区文件。(project_id, ext_id) 唯一 → 重复上报去重。
+        CREATE TABLE IF NOT EXISTS timeline_events (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            actor_name TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL DEFAULT 'session',
+            title TEXT NOT NULL DEFAULT '',
+            summary TEXT NOT NULL DEFAULT '',
+            ext_id TEXT,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_timeline_project ON timeline_events(project_id, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_timeline_ext ON timeline_events(project_id, ext_id);
         """
     )
     get_conn().commit()
@@ -483,3 +499,30 @@ def create_catalog_item(
     )
     get_conn().commit()
     return iid
+
+
+# ---- 团队时间线（WB-062 Phase 3）----------------------------------------
+
+def add_timeline_event(
+    *, project_id: str, actor_id: str, actor_name: str = "", kind: str = "session",
+    title: str = "", summary: str = "", ext_id: Optional[str] = None,
+) -> bool:
+    """append 一条时间线事件，(project_id, ext_id) 去重。返回是否**新插入**（重复上报 → False）。"""
+    cur = get_conn().execute(
+        "INSERT OR IGNORE INTO timeline_events "
+        "(id,project_id,actor_id,actor_name,kind,title,summary,ext_id,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (new_uuid(), project_id, actor_id, actor_name[:60], kind, title[:200], summary[:2000],
+         ext_id, time.time()),
+    )
+    get_conn().commit()
+    return cur.rowcount > 0
+
+
+def list_timeline(project_id: str, limit: int = 100) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT id,project_id,actor_id,actor_name,kind,title,summary,ext_id,created_at "
+        "FROM timeline_events WHERE project_id=? ORDER BY created_at DESC LIMIT ?",
+        (project_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]

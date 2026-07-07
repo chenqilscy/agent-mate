@@ -3,7 +3,7 @@ id: WB-062
 title: 本地 ⇄ Hub 同步协议 —— 下行拉取(身份/项目/成员/目录) + 上行 outbox 回传(执行产出)
 severity: P1
 area: backend
-status: in-progress
+status: fixed
 origin: 既有实现
 files:
   - docs/workbuddy-hub-架构设计.md
@@ -67,5 +67,15 @@ P1：#2 协作真正跑通的关键一环。依赖 WB-061（对端就绪）。
 - **访问控制不改**：Hub 项目/成员落进**同一批** `projects`/`project_members` 表，owner/成员按 Hub 侧 id 对齐（与鉴权桥镜像的账号 id 一致），故 WB-050 的 `project_access_role` 自动认镜像项目。
 - 验证：py_compile；隔离 backend × live hub **两账号 E2E 15 项全过**（A 建共享项目+邀 B→B pull 到 origin='hub' 镜像+得 Member 访问；A-only 项目不泄漏给 B；access 读镜像；幂等无重复；owner/成员名解析；镜像 payload 无凭据字段）；origin 迁移在真库副本安全（6 项目原样、全 origin='local'）。
 
-### Phase 3 —— 上行 outbox（执行产出回传）+ Hub 接收端点 ⬜ 待做
-outbox 表；run 完成入队；后台 worker 推 Hub；Hub 侧加接收端点（team timeline 只读镜像）。凭据/工作区文件绝不进 payload；上报默认关（`HUB_TIMELINE_UPLOAD`，隐私）。
+### Phase 3 —— 上行 outbox（执行产出回传）+ Hub 接收端点（✅ 完成并验证，2026-07-07）
+- **Hub 侧**：`hub/db.py` `timeline_events` 表（(project_id, ext_id) 唯一 → 去重）+ `add_timeline_event`/`list_timeline`；`hub/routers/timeline.py` `POST/GET /api/projects/{id}/timeline`（access-gated：非成员既不能上报也不能读）；`main.py` 挂载。只存元数据 + 短摘要。
+- **本地侧**：`outbox` 表（幂等入队 + synced/tries）+ `hub_identities`(user→Hub token) 表；`auth/deps.resolve_via_hub` 顺手 `set_hub_identity`（供后台 worker 以本人身份推）；`hub_client.post_timeline`；`hub_sync.enqueue_timeline_event`（**仅 Hub 镜像项目 + 开了上报开关才入队；只放 title/summary/ext_id，无正文/凭据**）+ `flush_outbox`（用各 actor 的 Hub token 推，成功标 synced、失败留待下轮）。
+- **触发**：项目会话完成 → `routers/chat.py` 入队（guarded，非致命）；`routers/hub.py` 的 `/hub/pull` 顺手 flush；`agent/scheduler.py` 每 20s 后台 flush（`asyncio.to_thread` offload，不占事件循环）——断网恢复自动补传。
+- **隐私**：`HUB_TIMELINE_UPLOAD` 默认**关**（执行产出默认不上云）；payload 无 LLM 凭据/连接器 secret/工作区文件（铁律 4/11）。
+- 验证：py_compile（两端）；隔离 backend × live hub E2E **16 项全过**——身份存储、上报开关门控入队、离线留 pending/在线补推、**队友 B 读到 A 的时间线事件（动态署名）**、payload 无凭据字段、(project,ext_id) 去重、非成员 404。
+
+## 处理记录（2026-07-07）
+
+WB-062 分三期全部完成并验证（本地 backend 接 Hub：鉴权桥 → 下行 pull → 上行 outbox）。铁律对齐：
+`HUB_URL` 空 = 纯本地零变化；Hub 不可达一律回退本地；同步 payload 绝不含凭据/工作区文件；团队时间线上报默认关。
+详见上「实现分期与进度」三节。commit：Phase 1 `6d60ef8` · Phase 2 `ac2da4e` · Phase 3（见下）。

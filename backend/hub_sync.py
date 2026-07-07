@@ -10,6 +10,7 @@ Hub 项目落本地 `projects`(origin='hub')，成员落 `project_members`——
 from __future__ import annotations
 
 import hub_client
+from config import settings
 from storage import db
 
 
@@ -32,3 +33,44 @@ def pull(token: str) -> dict:
         db.replace_hub_project_members(pid, members)
         synced.append(pid)
     return {"synced": len(synced), "projects": synced}
+
+
+# ---- 上行 outbox（WB-062 Phase 3）--------------------------------------
+
+def enqueue_timeline_event(*, session, actor_id: str, actor_name: str = "") -> bool:
+    """项目会话完成时把一条时间线事件入 outbox。仅当：已接 Hub + 开了上报开关 + 该会话属于一个
+    Hub 镜像项目。返回是否入队。**只放元数据 + 短标题**——绝不含正文/凭据/工作区文件（隐私，铁律 4）。"""
+    if not settings.hub_enabled or not settings.HUB_TIMELINE_UPLOAD:
+        return False
+    if not getattr(session, "project_id", None):
+        return False
+    proj = db.get_project(session.project_id)
+    if not proj or proj.origin != "hub":
+        return False  # 只回传 Hub 镜像项目的执行（本地私有项目不上云）
+    db.enqueue_outbox(
+        kind="timeline", actor_id=actor_id, project_id=session.project_id,
+        payload={"kind": "session", "title": (session.title or "")[:200], "summary": "", "ext_id": session.id},
+    )
+    return True
+
+
+def flush_outbox(limit: int = 50) -> dict:
+    """后台补推：把 pending outbox 推给 Hub（用各 actor 缓存的 Hub token）。成功标 synced，
+    失败留待下轮（断线/离线自动补推）。未接 Hub → 直接返回。"""
+    if not settings.hub_enabled:
+        return {"pushed": 0, "pending": 0}
+    pending = db.list_pending_outbox(limit)
+    pushed = 0
+    for item in pending:
+        token = db.get_hub_identity(item["actor_id"])
+        if not token:
+            db.bump_outbox_tries(item["id"])  # 该 actor 尚无 Hub token，暂留
+            continue
+        ok = hub_client.post_timeline(token, item["project_id"], item["payload"]) \
+            if item["kind"] == "timeline" else False
+        if ok:
+            db.mark_outbox_synced(item["id"])
+            pushed += 1
+        else:
+            db.bump_outbox_tries(item["id"])
+    return {"pushed": pushed, "pending": len(pending) - pushed}

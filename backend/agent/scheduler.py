@@ -15,7 +15,9 @@ import asyncio
 import time
 from typing import Optional
 
+import hub_sync
 from agent import runtime
+from config import settings
 from storage import db
 from storage.models import Automation, LOCAL_USER_ID
 
@@ -78,6 +80,12 @@ async def _loop() -> None:
                 db.mark_automation_run(auto.id, next_run_at=nxt)
                 asyncio.create_task(_fire_guarded(auto))
         except Exception:  # noqa: BLE001 — never let a scan error stop the loop
+            pass
+        # WB-062 Phase 3: 后台补推 outbox（断网恢复 → 自动补传）。阻塞的 Hub 推送丢线程，不占事件循环。
+        try:
+            if settings.hub_enabled:
+                await asyncio.to_thread(hub_sync.flush_outbox)
+        except Exception:  # noqa: BLE001 — 推送失败绝不拖垮调度循环
             pass
         await asyncio.sleep(SCAN_SECONDS)
 

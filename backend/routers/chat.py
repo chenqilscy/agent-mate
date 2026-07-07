@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+import hub_sync
 from agent import events, runtime
 from auth.deps import current_user
 from storage import db
@@ -80,6 +81,12 @@ async def chat(body: ChatBody):
             refs=body.refs,
         ):
             yield chunk
+        # WB-062 Phase 3: 项目会话完成 → 入 outbox 回传团队时间线（guarded：仅 Hub 镜像项目 +
+        # 开了上报开关才入队；非致命，绝不影响本次回复）。
+        try:
+            hub_sync.enqueue_timeline_event(session=session, actor_id=user.id, actor_name=user.name)
+        except Exception:  # noqa: BLE001
+            pass
 
     return StreamingResponse(
         event_stream(), media_type="text/event-stream", headers=SSE_HEADERS

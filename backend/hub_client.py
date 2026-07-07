@@ -55,3 +55,19 @@ def list_project_members(token: str, project_id: str) -> Optional[list[dict[str,
     d = _get(f"/api/projects/{project_id}/members", token)
     mem = d.get("members") if isinstance(d, dict) else None
     return mem if isinstance(mem, list) else None
+
+
+def post_timeline(token: str, project_id: str, event: dict[str, Any]) -> bool:
+    """把一条时间线事件推给 Hub（WB-062 Phase 3）。成功(200) → True；未接/不可达/非 200 → False
+    （outbox 保留待补推）。event 只含元数据（title/summary/ext_id），绝无凭据/工作区文件。"""
+    if not token or not settings.HUB_URL:
+        return False
+    try:
+        r = httpx.post(
+            f"{settings.HUB_URL}/api/projects/{project_id}/timeline",
+            headers={"Authorization": f"Bearer {token}"},
+            json=event, timeout=_TIMEOUT,
+        )
+        return r.status_code == 200
+    except Exception:  # noqa: BLE001 —— 网络任何错都当失败，outbox 下轮再推
+        return False

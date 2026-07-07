@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 import db  # noqa: E402
 from config import settings  # noqa: E402
-from routers import auth, catalog, invites, orgs, projects  # noqa: E402
+from routers import auth, catalog, invites, orgs, projects, timeline  # noqa: E402
 
 db.init_db()
 
@@ -40,6 +40,7 @@ app.include_router(orgs.router)
 app.include_router(projects.router)
 app.include_router(invites.router)
 app.include_router(catalog.router)
+app.include_router(timeline.router)
 
 
 if __name__ == "__main__":

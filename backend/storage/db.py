@@ -283,6 +283,27 @@ def init_db() -> None:
             updated_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_catalog_showcase_kind ON catalog_showcase(kind, sort);
+
+        -- 上行同步 outbox（WB-062 Phase 3）：执行产出先落本地，再由后台 worker 推 Hub；
+        -- 确认后 synced=1；断线/离线自动补推。绝不放凭据/工作区文件进 payload（铁律 4/11）。
+        CREATE TABLE IF NOT EXISTS outbox (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            synced INTEGER NOT NULL DEFAULT 0,
+            tries INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox(synced, created_at);
+
+        -- 本地 user（= Hub account id）→ 其 Hub token，供后台 outbox worker 以本人身份推送。
+        CREATE TABLE IF NOT EXISTS hub_identities (
+            user_id TEXT PRIMARY KEY,
+            hub_token TEXT NOT NULL,
+            updated_at REAL NOT NULL
+        );
         """
     )
     conn.commit()
@@ -556,6 +577,57 @@ def replace_hub_project_members(project_id: str, members: list[dict]) -> None:
             (project_id, aid, role.value, time.time()),
         )
     conn.commit()
+
+
+# ---- Hub 上行 outbox + 身份（WB-062 Phase 3）----------------------------
+
+def set_hub_identity(user_id: str, hub_token: str) -> None:
+    """记住某账号的 Hub token，供后台 outbox worker 以本人身份推送。幂等 upsert。"""
+    get_conn().execute(
+        "INSERT INTO hub_identities (user_id,hub_token,updated_at) VALUES (?,?,?) "
+        "ON CONFLICT(user_id) DO UPDATE SET hub_token=excluded.hub_token, updated_at=excluded.updated_at",
+        (user_id, hub_token, time.time()),
+    )
+    get_conn().commit()
+
+
+def get_hub_identity(user_id: str) -> Optional[str]:
+    r = get_conn().execute("SELECT hub_token FROM hub_identities WHERE user_id=?", (user_id,)).fetchone()
+    return r["hub_token"] if r else None
+
+
+def enqueue_outbox(*, kind: str, actor_id: str, project_id: str, payload: dict) -> None:
+    get_conn().execute(
+        "INSERT INTO outbox (id,kind,actor_id,project_id,payload,synced,tries,created_at) "
+        "VALUES (?,?,?,?,?,0,0,?)",
+        (new_uuid(), kind, actor_id, project_id, json.dumps(payload, ensure_ascii=False), time.time()),
+    )
+    get_conn().commit()
+
+
+def list_pending_outbox(limit: int = 50) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM outbox WHERE synced=0 ORDER BY created_at ASC LIMIT ?", (limit,)
+    ).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["payload"] = json.loads(r["payload"])
+        except (json.JSONDecodeError, TypeError):
+            d["payload"] = {}
+        out.append(d)
+    return out
+
+
+def mark_outbox_synced(outbox_id: str) -> None:
+    get_conn().execute("UPDATE outbox SET synced=1 WHERE id=?", (outbox_id,))
+    get_conn().commit()
+
+
+def bump_outbox_tries(outbox_id: str) -> None:
+    get_conn().execute("UPDATE outbox SET tries=tries+1 WHERE id=?", (outbox_id,))
+    get_conn().commit()
 
 
 # ---- sessions -----------------------------------------------------------

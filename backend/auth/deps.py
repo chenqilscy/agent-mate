@@ -35,6 +35,7 @@ def resolve_via_hub(token: str) -> str | None:
     aid = str(acct["id"])
     db.upsert_external_user(aid, str(acct.get("name", "")), str(acct.get("plan", "体验版")))
     db.cache_token(token, aid)
+    db.set_hub_identity(aid, token)  # 记住 Hub token，供后台 outbox worker 以本人身份推送（Phase 3）
     return aid
 
 
