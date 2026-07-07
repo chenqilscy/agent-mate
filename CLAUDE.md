@@ -13,11 +13,13 @@ Local-first：后端跑在用户本机 localhost，浏览器（`:5173` 代理 `/
 进度：M0–M5 + §11 项目工作台 A–D 已完成并验证；Tauri 2 桌面外壳（路线 A：外壳/sidecar/安装包/托盘·更新脚手架）已落地；
 能力补全（路线 B：自动化 + 内置/第三方 MCP 连接器 + 更多真实技能工具）已落地；
 **M7 协作 C1–C4**（真账户鉴权 / 项目成员·角色·邀请 / 队友执行只读可见+动态署名 / 消息中心真事件）已完成并验证（共享后端即 Hub）。
-**WorkBuddy Hub 重构（local-first 执行 + 云端控制平面，epic WB-058，见 [`docs/workbuddy-hub-架构设计.md`](docs/workbuddy-hub-架构设计.md)）进行中**：
+**WorkBuddy Hub 重构（local-first 执行 + 云端控制平面，epic WB-058，见 [`docs/workbuddy-hub-架构设计.md`](docs/workbuddy-hub-架构设计.md)）已完成并验证**：
 WB-059 目录真定义入库（内置人格/连接器注册表 → DB，运行时读库）、WB-060 橱窗目录入库（`catalog.ts` → DB + API + 前端 `catalogStore`）、
-WB-061 Hub 服务骨架（独立同仓 [`hub/`](hub/)：账号/组织/项目/成员·角色/邀请权威源 + 鉴权签发，FastAPI + SQLite，可单独启动 :8100）均已完成并验证并提交；
-WB-062 本地⇄Hub 同步、WB-063 迁移与 local-first 回退待做。
-未做：更深协作（评论 / @提及 / 在线状态，需实时通道）；Tauri 打包的自动更新端点与代码签名（需用户基建/证书）；Hub 同步与迁移（WB-062/063）。
+WB-061 Hub 服务骨架（独立同仓 [`hub/`](hub/)：账号/组织/项目/成员·角色/邀请权威源 + 鉴权签发，FastAPI + SQLite，可单独启动 :8100）、
+WB-062 本地⇄Hub 同步三期（鉴权桥 / 下行 pull 项目·成员镜像 / 上行 outbox 回传团队时间线）、
+WB-063 迁移与 local-first 回退（存量导入 Hub、LOCAL_USER↔Hub 映射、离线/未登录纯本地全功能）——**全部落地**。
+本地 backend 作 Hub 客户端：`HUB_URL` 空 = 纯本地零变化，Hub 不可达一律回退本地；LLM 凭据/沙箱文件绝不上云、时间线上报默认关。
+未做：更深协作（评论 / @提及 / 在线状态，需实时通道）；Hub 目录运营的完整 Admin（已预埋 capability）与 SaaS 托管/代码签名（需用户基建/证书）。
 
 ## 铁律（不可妥协）
 
