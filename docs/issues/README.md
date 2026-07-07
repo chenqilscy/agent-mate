@@ -92,6 +92,7 @@
 | [WB-073](WB-073-hub-status-linked-ignores-token.md) | ✅ | P1 | backend | /api/hub/status 的 linked 判定忽略当前 Hub token，登录后讨论 UI 不解锁（WB-067 真机 E2E 发现） |
 | [WB-074](WB-074-presence-never-seen-epoch.md) | ✅ | P3 | frontend | 讨论面板在线状态：从未上线的成员显示「最后活跃 20641 天前」（WB-067 真机 E2E 发现） |
 | [WB-075](WB-075-linked-hub-modal-unreachable.md) | ✅ | P2 | frontend | 已连接 Hub 后无入口打开连接弹窗，导入/通知/断开成死代码 —— 加「管理」入口（WB-067 真机 E2E 发现） |
+| [WB-076](WB-076-global-hub-connect-entry.md) | ✅ | P2 | frontend | 连接 Hub 入口只在项目讨论面板内，零项目新用户无法首次连接 —— 账号菜单加全局入口（WB-067 复盘） |
 
 ## 来源
 

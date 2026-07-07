@@ -10,6 +10,8 @@ import type { ProjectInfo, SessionInfo, ViewId } from '../../lib/types'
 import { activate } from '../../lib/a11y'
 import { LoginModal } from '../auth/LoginModal'
 import { MessageCenter } from './MessageCenter'
+import { HubConnectModal } from '../hub/HubConnectModal'
+import { useHubStore } from '../../stores/hubStore'
 import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
 
 const NAV: { id: ViewId; label: string; icon: ReactNode; sub?: string; cls?: string }[] = [
@@ -62,12 +64,19 @@ export function Sidebar() {
   const me = useAuthStore((s) => s.me)
   const loggedIn = useAuthStore((s) => s.loggedIn)
   const logout = useAuthStore((s) => s.logout)
+  // Hub 连接是全局态（账号级），入口放账号菜单——无项目也能首次连接（WB-076）。
+  const hubEnabled = useHubStore((s) => s.enabled)
+  const hubLinked = useHubStore((s) => s.linked)
+  const hubChecked = useHubStore((s) => s.checked)
+  const refreshHub = useHubStore((s) => s.refreshStatus)
+  const [hubOpen, setHubOpen] = useState(false)
   const [loginOpen, setLoginOpen] = useState(false)
   const unread = useNotificationStore((s) => s.unread)
   const loadNotifs = useNotificationStore((s) => s.load)
   const [msgOpen, setMsgOpen] = useState(false)
 
   useEffect(() => { loadProjects() }, [loadProjects])
+  useEffect(() => { if (!hubChecked) void refreshHub() }, [hubChecked, refreshHub])
   // Message center (M7 C4): load on mount + poll lightly so the bell badge stays
   // live even while the center is closed.
   useEffect(() => {
@@ -436,6 +445,12 @@ export function Sidebar() {
           <div className="pf-row" onClick={() => { toast('帮助与反馈'); setProfileOpen(false) }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 115 1c0 1.5-2.5 2-2.5 3.5M12 17h.01" /></svg>帮助与反馈
           </div>
+          {hubEnabled && (
+            <div className="pf-row" onClick={() => { setProfileOpen(false); setHubOpen(true) }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 17H7A5 5 0 017 7h2M15 7h2a5 5 0 010 10h-2M8 12h8" /></svg>
+              {hubLinked ? `已连接 Hub · ${hubLinked.name}` : '连接 Hub'}
+            </div>
+          )}
           <div className="pf-div" />
           {loggedIn ? (
             <div className="pf-row" onClick={() => { setProfileOpen(false); void logout() }}>
@@ -451,6 +466,7 @@ export function Sidebar() {
 
       {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
       {msgOpen && <MessageCenter onClose={() => setMsgOpen(false)} />}
+      {hubOpen && <HubConnectModal onClose={() => { setHubOpen(false); void refreshHub() }} />}
     </aside>
   )
 }
