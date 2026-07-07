@@ -61,6 +61,9 @@ class Settings:
     # TELEGRAM_CHAT_ID is an optional default target for send_message.
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    # 助理外部渠道（WB-072）：Telegram 长轮询桥接的开关。默认关——仅有连接器 token 不会
+    # 自动起后台桥接；须显式置 1 才让 bot 收到的消息驱动本机 agent（安全 + local-first 零变化）。
+    TELEGRAM_ASSISTANT: bool = os.getenv("TELEGRAM_ASSISTANT", "0").strip().lower() in ("1", "true", "yes")
     # 金山文档 connector (built-in mcp_servers/kdocs.py, shells out to kdocs-cli,
     # read at call time). A WPS 云文档 token; the CLI can also use its own keychain.
     KDOCS_TOKEN: str = os.getenv("KDOCS_TOKEN", "").strip()
@@ -102,6 +105,11 @@ class Settings:
     @property
     def hub_enabled(self) -> bool:
         return bool(self.HUB_URL)
+
+    @property
+    def telegram_assistant_enabled(self) -> bool:
+        # 需同时有 bot token 且显式开开关，才启动 Telegram 助理桥接（WB-072）。
+        return bool(self.TELEGRAM_BOT_TOKEN) and self.TELEGRAM_ASSISTANT
 
 
 settings = Settings()

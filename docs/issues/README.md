@@ -88,6 +88,7 @@
 | [WB-069](WB-069-hub-skillhub-catalog-sync.md) | ✅ | P2 | backend | Hub 定时镜像 SkillHub 目录（按分类）+ Hub 统一查询代理（复用 CLI；榜单∪去重；本地降级兜底） |
 | [WB-070](WB-070-frontend-hub-skillhub-catalog.md) | ✅ | P2 | frontend | 前端接入 Hub SkillHub 镜像目录 + 搜索代理（触发下行 pull + catalogStore 承载 skill 类 + ExpertsView 改读 + 搜索接线） |
 | [WB-071](WB-071-local-skill-browse-real-fallback.md) | ✅ | P2 | frontend | 未接 Hub 时技能浏览用真实 rankings 兜底，替掉静态假数据（铁律#1；仅 api.ts + catalogStore.ts） |
+| [WB-072](WB-072-telegram-assistant-channel.md) | ✅ | P2 | backend | 助理外部渠道（一）—— Telegram 长轮询桥接：收发消息驱动真实 agent（白名单+/start 配对，默认关） |
 
 ## 来源
 

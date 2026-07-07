@@ -332,6 +332,25 @@ def init_db() -> None:
             updated_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_catalog_downlink_cat ON catalog_downlink(category, sort);
+
+        -- 外部渠道 ⇄ 会话映射（WB-072）：一个外部会话（如某个 Telegram chat）绑定到
+        -- 一个长期 WorkBuddy 会话，续聊不断线。同时充当白名单：存在绑定 = 已授权。
+        CREATE TABLE IF NOT EXISTS channel_sessions (
+            channel TEXT NOT NULL,
+            chat_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            PRIMARY KEY (channel, chat_id)
+        );
+
+        -- 渠道游标（WB-072）：长轮询已处理到的 update 偏移量，重启后从此续拉，
+        -- 不重复驱动 agent（先进则 at-most-once：宁可漏也不重复执行副作用）。
+        CREATE TABLE IF NOT EXISTS channel_state (
+            channel TEXT PRIMARY KEY,
+            update_offset INTEGER NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL
+        );
         """
     )
     conn.commit()
@@ -1440,6 +1459,50 @@ def list_messages(session_id: str) -> list[Message]:
             )
         )
     return out
+
+
+# ---- channels (WB-072) --------------------------------------------------
+
+def get_channel_session(channel: str, chat_id: str) -> Optional[dict]:
+    """某渠道某 chat 已绑定的会话行（含 session_id / owner_id），未绑定则 None。"""
+    row = get_conn().execute(
+        "SELECT * FROM channel_sessions WHERE channel=? AND chat_id=?",
+        (channel, str(chat_id)),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def first_channel_binding(channel: str) -> Optional[dict]:
+    """该渠道最早的一条绑定（单主人策略下即「已配对的主人」），无则 None。"""
+    row = get_conn().execute(
+        "SELECT * FROM channel_sessions WHERE channel=? ORDER BY created_at ASC LIMIT 1",
+        (channel,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def bind_channel(channel: str, chat_id: str, session_id: str, owner_id: str) -> None:
+    get_conn().execute(
+        """INSERT OR REPLACE INTO channel_sessions (channel,chat_id,session_id,owner_id,created_at)
+           VALUES (?,?,?,?,?)""",
+        (channel, str(chat_id), session_id, owner_id, time.time()),
+    )
+    get_conn().commit()
+
+
+def get_channel_offset(channel: str) -> Optional[int]:
+    row = get_conn().execute(
+        "SELECT update_offset FROM channel_state WHERE channel=?", (channel,)
+    ).fetchone()
+    return int(row["update_offset"]) if row else None
+
+
+def set_channel_offset(channel: str, offset: int) -> None:
+    get_conn().execute(
+        "INSERT OR REPLACE INTO channel_state (channel,update_offset,updated_at) VALUES (?,?,?)",
+        (channel, int(offset), time.time()),
+    )
+    get_conn().commit()
 
 
 # ---- automations --------------------------------------------------------

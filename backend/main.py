@@ -32,6 +32,7 @@ from fastapi.responses import JSONResponse
 
 from agent import scheduler
 from auth.middleware import AuthMiddleware
+from channels import telegram_bridge
 from config import FROZEN, settings
 from routers import auth, automations, catalog, chat, experts, files, hub, kdocs, me, models, notifications, projects, sessions, skills, work_items
 from storage import db
@@ -104,6 +105,19 @@ async def _start_scheduler() -> None:
 @app.on_event("shutdown")
 async def _stop_scheduler() -> None:
     await scheduler.stop()
+
+
+@app.on_event("startup")
+async def _start_telegram() -> None:
+    # 助理外部渠道（WB-072）：仅当配了 bot token 且显式开了开关才起长轮询桥接。
+    # 默认关 —— 纯本地/未配置时零变化。
+    if settings.telegram_assistant_enabled:
+        await telegram_bridge.start()
+
+
+@app.on_event("shutdown")
+async def _stop_telegram() -> None:
+    await telegram_bridge.stop()
 
 
 @app.get("/api/health")
