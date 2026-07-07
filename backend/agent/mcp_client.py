@@ -32,14 +32,6 @@ _BACKEND = Path(__file__).resolve().parent.parent
 _SERVERS = _BACKEND / "mcp_servers"
 
 
-def _local(server: str) -> dict[str, Any]:
-    """A built-in local FastMCP server. It runs IN-PROCESS via MCP's in-memory
-    transport (no subprocess), so it works identically in dev and in a PyInstaller
-    bundle — a spawned subprocess held open inside the SSE stream wedges a frozen
-    build (A2.1), an in-process server doesn't."""
-    return {"builtin_server": server, "builtin": True}
-
-
 def _builtin_fastmcp(server: str):
     """The FastMCP instance for a built-in server (imported lazily)."""
     if server == "notes":
@@ -59,42 +51,26 @@ def _builtin_fastmcp(server: str):
         return mcp
     return None
 
-# Connector name → how to launch its MCP server.
-#
-# Built-in (local) connectors ship as small FastMCP servers under mcp_servers/
-# and work out of the box — zero external deps or credentials. Third-party
-# connectors (GitHub / …) declare `secret_env` (host env var → subprocess env
-# var) so their credential is forwarded ONLY to that connector's process — never
-# `os.environ` wholesale (WB-011) — and `requires` so a run without the token is
-# skipped with a clear reason instead of a silent failure.
-CONNECTORS: dict[str, dict[str, Any]] = {
-    # ── built-in, no setup ──
-    "本地便签": _local("notes"),
-    "时间助手": _local("clock"),
-    "工作区检索": _local("search"),
-    # ── built-in, but needs a token in backend/.env ──
-    # A built-in FastMCP server (runs in-process, no Node/npx) that still gates on
-    # a credential via `requires`, so a run without the token is skipped with a
-    # clear reason instead of failing opaquely at call time.
-    "Telegram": {"builtin_server": "telegram", "builtin": True, "requires": ["TELEGRAM_BOT_TOKEN"]},
-    # 金山文档 (WPS 云文档): a built-in FastMCP server that shells out to the
-    # separately-installed `kdocs-cli`. Auth is the WPS OAuth「连接」flow
-    # (routers/kdocs.py → `kdocs-cli auth login` → keychain), so we gate on the CLI
-    # being installed, not on an env token. The bridge still honours an optional
-    # KDOCS_TOKEN (passed via --token) but doesn't require it.
-    "金山文档": {"builtin_server": "kdocs", "builtin": True, "requires_bin": ["kdocs-cli"]},
-    # ── third-party, needs a token in backend/.env ──
-    "GitHub": {
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-github"],
-        "secret_env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "GITHUB_TOKEN"},
-        "requires": ["GITHUB_TOKEN"],
-    },
-}
+# Connector definitions live in the DB now (catalog_connectors, WB-059) — the old
+# hardcoded CONNECTORS dict was migrated there and seeded on first start
+# (storage/catalog_seed.py). Same launch-spec shape, now data not code:
+#   built-in (local)  → {"builtin_server": "<name>", "builtin": True[, "requires":[...], "requires_bin":[...]]}
+#       ships as a small FastMCP server under mcp_servers/ and runs IN-PROCESS via
+#       MCP's in-memory transport (no subprocess) — works identically in dev and in
+#       a PyInstaller bundle (a subprocess held open inside the SSE stream wedges a
+#       frozen build, A2.1; an in-process server doesn't).
+#   third-party stdio → {"command","args","secret_env","requires"[,"requires_bin"]}
+#       `secret_env` forwards ONLY that connector's credential to its own process —
+#       never `os.environ` wholesale (WB-011); `requires` skips a run missing the
+#       token with a clear reason instead of a silent failure.
+def connector_specs() -> dict[str, dict[str, Any]]:
+    """连接器名 → 启动 spec，读自 DB（enabled 行）。替代原硬编码的 CONNECTORS 字典。"""
+    from storage import db  # 局部 import：避免 storage.db ↔ agent.* 的模块级循环依赖
+    return db.connector_specs()
 
 
 def is_connector(name: str) -> bool:
-    return name in CONNECTORS
+    return name in connector_specs()
 
 
 # Only these (harmless, needed-to-launch) host env vars are forwarded to a
@@ -162,6 +138,7 @@ async def open_connectors(
     stack = AsyncExitStack()
     tools: list[McpTool] = []
     skipped: list[dict[str, str]] = []
+    specs = connector_specs()  # name → launch spec, from DB (WB-059)
 
     def _collect(name: str, idx: int, session: ClientSession, listed: Any) -> None:
         for t in listed.tools:
@@ -178,7 +155,7 @@ async def open_connectors(
             )
 
     for idx, name in enumerate(names):
-        spec = CONNECTORS.get(name)
+        spec = specs.get(name)
         if not spec:
             skipped.append({"name": name, "reason": "未内置该连接器"})
             continue

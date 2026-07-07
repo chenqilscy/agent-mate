@@ -94,6 +94,54 @@ class Expert:
 
 
 @dataclass
+class CatalogExpert:
+    """目录里的专家定义（WB-059）。scope='builtin' 为内置人格（persona 真注入、functional=True）；
+    scope='org'/'user' 及 functional=False 的纯橱窗卡留给后续目录归并（WB-060）。"""
+    id: str
+    scope: str  # "builtin" | "org" | "user"
+    owner_id: Optional[str]  # None for builtin; org_id / user_id 归属
+    slug: str
+    name: str
+    subtitle: str
+    avatar: str
+    intro: str
+    persona: str  # 注入系统提示的人格指令（真影响回答）
+    tags: list[str]
+    category: str
+    badge: str
+    source: str
+    functional: bool  # persona 是否真注入生效（真定义 vs 纯橱窗卡）
+    enabled: bool
+    sort: int
+    created_at: float
+    updated_at: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class CatalogConnector:
+    """目录里的连接器定义（WB-059）。launch = 启动 spec（builtin_server / command+args /
+    secret_env / requires / requires_bin），运行时据此 spawn/接入 MCP。凭据仍只在 backend/.env。"""
+    id: str
+    scope: str  # "builtin" | "org" | "user"
+    owner_id: Optional[str]
+    name: str  # 连接器名，即 loadout/项目里引用的 key（如 "本地便签"）
+    icon: str
+    description: str
+    status: str  # "rdy" 内置即用 | "tok" 需凭据/CLI | "catalog" 未接入橱窗卡
+    launch: dict[str, Any]  # 启动 spec（存 JSON）
+    enabled: bool
+    sort: int
+    created_at: float
+    updated_at: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class WorkItem:
     id: str
     project_id: str

@@ -23,10 +23,13 @@ import uuid
 from typing import Any, Optional
 
 from config import settings
+from storage.catalog_seed import BUILTIN_CONNECTORS, BUILTIN_EXPERTS
 from storage.models import (
     LOCAL_USER_ID,
     LOCAL_USER_NAME,
     Automation,
+    CatalogConnector,
+    CatalogExpert,
     Expert,
     Message,
     Project,
@@ -213,11 +216,54 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_notifications_user
             ON notifications(user_id, created_at DESC);
+
+        -- 目录：专家定义（WB-059）。内置人格从硬编码迁到此表（scope='builtin'），
+        -- 运行时读库注入。scope/functional/owner_id 为后续 org/user 与橱窗卡（WB-060）预埋。
+        CREATE TABLE IF NOT EXISTS catalog_experts (
+            id TEXT PRIMARY KEY,
+            scope TEXT NOT NULL DEFAULT 'builtin',
+            owner_id TEXT,
+            slug TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL,
+            subtitle TEXT NOT NULL DEFAULT '',
+            avatar TEXT NOT NULL DEFAULT '🧑',
+            intro TEXT NOT NULL DEFAULT '',
+            persona TEXT NOT NULL DEFAULT '',
+            tags TEXT NOT NULL DEFAULT '[]',
+            category TEXT NOT NULL DEFAULT '',
+            badge TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
+            functional INTEGER NOT NULL DEFAULT 1,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            sort INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_catalog_experts_name ON catalog_experts(name);
+
+        -- 目录：连接器定义（WB-059）。连接器启动注册表从硬编码迁到此表。
+        -- launch = 启动 spec（JSON）；运行时读库解析 spawn/接入 MCP。凭据仍只在 backend/.env。
+        CREATE TABLE IF NOT EXISTS catalog_connectors (
+            id TEXT PRIMARY KEY,
+            scope TEXT NOT NULL DEFAULT 'builtin',
+            owner_id TEXT,
+            name TEXT NOT NULL,
+            icon TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'rdy',
+            launch TEXT NOT NULL DEFAULT '{}',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            sort INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_catalog_connectors_name ON catalog_connectors(name);
         """
     )
     conn.commit()
     _migrate_columns()
     _ensure_local_user()
+    _seed_catalog()
 
 
 def _migrate_columns() -> None:
@@ -271,6 +317,44 @@ def _ensure_local_user() -> None:
             (LOCAL_USER_ID, LOCAL_USER_NAME, Role.OWNER.value, "体验版"),
         )
         conn.commit()
+
+
+def _seed_catalog() -> None:
+    """首次启动把内置专家人格 / 连接器注册表种进目录表（WB-059）。幂等：按 (scope='builtin', name)
+    查重，缺失才插——已存在的（含用户改过的）不覆盖。种子源见 storage/catalog_seed.py。"""
+    conn = get_conn()
+    now = time.time()
+    for i, e in enumerate(BUILTIN_EXPERTS):
+        name = e["name"]
+        exists = conn.execute(
+            "SELECT 1 FROM catalog_experts WHERE scope='builtin' AND name=?", (name,)
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO catalog_experts
+               (id,scope,owner_id,slug,name,subtitle,avatar,intro,persona,tags,category,badge,source,
+                functional,enabled,sort,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (new_uuid(), "builtin", None, name, name, "", "🧑", "", e["persona"],
+             "[]", "", "", "内置", 1, 1, i, now, now),
+        )
+    for i, c in enumerate(BUILTIN_CONNECTORS):
+        name = c["name"]
+        exists = conn.execute(
+            "SELECT 1 FROM catalog_connectors WHERE scope='builtin' AND name=?", (name,)
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO catalog_connectors
+               (id,scope,owner_id,name,icon,description,status,launch,enabled,sort,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (new_uuid(), "builtin", None, name, c.get("icon", ""), c.get("description", ""),
+             c.get("status", "rdy"), json.dumps(c.get("launch", {}), ensure_ascii=False),
+             1, i, now, now),
+        )
+    conn.commit()
 
 
 # ---- users --------------------------------------------------------------
@@ -718,6 +802,86 @@ def delete_expert(expert_id: str, owner_id: str) -> bool:
     )
     get_conn().commit()
     return cur.rowcount > 0
+
+
+# ---- catalog: 目录定义（WB-059）----------------------------------------
+# 内置专家人格 + 连接器启动注册表从硬编码迁到 catalog_experts / catalog_connectors。
+# 运行时读库：persona_for → builtin_persona；mcp_client → connector_specs。
+
+def _row_to_catalog_expert(r: sqlite3.Row) -> CatalogExpert:
+    return CatalogExpert(
+        id=r["id"], scope=r["scope"], owner_id=r["owner_id"], slug=r["slug"], name=r["name"],
+        subtitle=r["subtitle"], avatar=r["avatar"], intro=r["intro"], persona=r["persona"],
+        tags=json.loads(r["tags"]) if r["tags"] else [], category=r["category"], badge=r["badge"],
+        source=r["source"], functional=bool(r["functional"]), enabled=bool(r["enabled"]),
+        sort=r["sort"], created_at=r["created_at"], updated_at=r["updated_at"],
+    )
+
+
+def builtin_persona(name: str) -> Optional[str]:
+    """某个专家名对应的内置/目录人格（真注入用）。命中 enabled 且 functional 的目录专家，
+    优先 builtin scope；无则 None（调用方回退通用人格）。替代原 EXPERTS 静态字典查表。"""
+    row = get_conn().execute(
+        "SELECT persona FROM catalog_experts "
+        "WHERE name=? AND functional=1 AND enabled=1 AND persona<>'' "
+        "ORDER BY (scope<>'builtin'), sort LIMIT 1",
+        (name,),
+    ).fetchone()
+    return row["persona"] if row else None
+
+
+def list_catalog_experts(scope: Optional[str] = None, functional: Optional[bool] = None) -> list[CatalogExpert]:
+    sql = "SELECT * FROM catalog_experts WHERE enabled=1"
+    vals: list[Any] = []
+    if scope is not None:
+        sql += " AND scope=?"; vals.append(scope)
+    if functional is not None:
+        sql += " AND functional=?"; vals.append(1 if functional else 0)
+    sql += " ORDER BY sort, name"
+    rows = get_conn().execute(sql, vals).fetchall()
+    return [_row_to_catalog_expert(r) for r in rows]
+
+
+def _row_to_catalog_connector(r: sqlite3.Row) -> CatalogConnector:
+    try:
+        launch = json.loads(r["launch"]) if r["launch"] else {}
+    except (json.JSONDecodeError, TypeError):
+        launch = {}
+    return CatalogConnector(
+        id=r["id"], scope=r["scope"], owner_id=r["owner_id"], name=r["name"], icon=r["icon"],
+        description=r["description"], status=r["status"], launch=launch if isinstance(launch, dict) else {},
+        enabled=bool(r["enabled"]), sort=r["sort"], created_at=r["created_at"], updated_at=r["updated_at"],
+    )
+
+
+def connector_specs() -> dict[str, dict[str, Any]]:
+    """连接器名 → 启动 spec（enabled 行），替代 mcp_client 里原硬编码的 CONNECTORS 字典。
+    同名多行时以 sort 靠前者为准（builtin 种子 sort 小、稳定生效）。"""
+    rows = get_conn().execute(
+        "SELECT name, launch FROM catalog_connectors WHERE enabled=1 ORDER BY sort"
+    ).fetchall()
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        if r["name"] in out:
+            continue
+        try:
+            spec = json.loads(r["launch"]) if r["launch"] else {}
+        except (json.JSONDecodeError, TypeError):
+            spec = {}
+        out[r["name"]] = spec if isinstance(spec, dict) else {}
+    return out
+
+
+def list_catalog_connectors(scope: Optional[str] = None) -> list[CatalogConnector]:
+    if scope is not None:
+        rows = get_conn().execute(
+            "SELECT * FROM catalog_connectors WHERE enabled=1 AND scope=? ORDER BY sort, name", (scope,)
+        ).fetchall()
+    else:
+        rows = get_conn().execute(
+            "SELECT * FROM catalog_connectors WHERE enabled=1 ORDER BY sort, name"
+        ).fetchall()
+    return [_row_to_catalog_connector(r) for r in rows]
 
 
 # ---- project membership / roles (M7 C2) --------------------------------

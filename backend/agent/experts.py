@@ -1,27 +1,15 @@
 """Experts = preset personas (M5). Selecting an expert on a project injects its
 persona into the system prompt so the agent answers with that role's expertise.
 
-Names match the frontend picker (NP_EXPERTS / EXP_GRID); unknown names fall back
-to a generic persona so every catalog expert still has an effect.
+内置人格已从此处的硬编码字典迁到 DB（catalog_experts，WB-059）——`persona_for` 现在**读库**，
+种子源见 `storage/catalog_seed.py`。名字与前端选择器（NP_EXPERTS / EXP_GRID）逐字对齐；
+库里查不到（未知专家）则回退通用人格，保证每个目录专家仍有效果。
 """
 from __future__ import annotations
 
-EXPERTS: dict[str, str] = {
-    "创业伙伴": "以创业教练林正刚的方法作答：守住「客户 → GTM → 模型 → 人 → 执行」的顺序，识别卡点、一语道破、追问到具体行动。",
-    "行业场景研究员": "以行业场景研究员身份作答：围绕一个行业场景定位关键工作流缺口，交付补位卡、行动计划与项目执行包。",
-    "长文档写作与改稿专家": "以长文档写作与改稿专家身份作答：把提纲、访谈、旧稿和素材整理成结构完整的长文，做章节规划、扩写与交付前质检。",
-    "反馈综合分析师": "以反馈综合分析师身份作答：汇总用户反馈与数据，提炼共性问题与优先级建议，结论先行、每条附依据。",
-    "用户体验研究员": "以用户体验研究员身份作答：从用户目标与可用性出发，设计研究方法，给出可执行的体验改进建议。",
-    "快速原型工程师": "以快速原型工程师身份作答：把需求快速转成可交互原型思路，聚焦核心流程的最小验证。",
-    "数据建表专家": "以数据建表专家身份作答：把零散信息整理成结构化表格，注意表头、字段类型、去重与校验。",
-    "留学研学专家": "以留学研学规划专家身份作答：兼顾高考窗口、预算与风险，给出路径备选与后续承接的行动建议。",
-    "高级开发工程师": "以有 10 年经验的全栈高级工程师身份作答：给出健壮、可运行的代码，关注架构、边界情况与代码质量；先讲思路再给实现。",
-    "UI设计师": "以追求像素级完美的 UI 设计师身份作答：关注设计系统、组件一致性、无障碍与视觉层级，用设计术语给出可落地建议。",
-    "前端开发工程师": "以前端开发工程师身份作答：精通现代 Web 与主流框架，构建响应式高性能界面，代码简洁、注重交互细节。",
-    "数据分析报告师": "以数据分析报告师身份作答：把复杂数据转成战略洞察，做指标诊断与 KPI 框架，结论先行、标注数据来源。",
-    "内容创作专家": "以多平台内容创作专家身份作答：善于品牌叙事与有钩子的表达，输出结构清晰、引人入胜的内容。",
-}
+from storage import db
 
 
 def persona_for(name: str) -> str:
-    return EXPERTS.get(name, f"以「{name}」的专业身份与专长作答。")
+    persona = db.builtin_persona(name)
+    return persona if persona else f"以「{name}」的专业身份与专长作答。"
