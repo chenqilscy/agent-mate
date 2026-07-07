@@ -57,11 +57,11 @@ app.add_middleware(
 
 @app.get("/", response_class=HTMLResponse)
 def console() -> str:
-    """Hub 自带的 web 管理控制台（WB-068）——单文件、同源调 /api，无构建管线。"""
+    """BuddyWebMgr —— Hub 自带的 web 管理门户（WB-068/078）：单文件、同源调 /api，无构建管线。"""
     try:
         return _CONSOLE.read_text(encoding="utf-8")
     except OSError:
-        return "<h1>WorkBuddy Hub</h1><p>console.html missing</p>"
+        return "<h1>BuddyWebMgr</h1><p>console.html missing</p>"
 
 
 @app.get("/api/health")
