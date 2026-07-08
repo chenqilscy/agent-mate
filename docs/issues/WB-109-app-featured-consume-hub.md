@@ -43,4 +43,6 @@ mgr 加入精选 → App pull 后精选区显示这些技能 + 真图标；取�
   `FeaturedSkills` 从 `catalogStore.skillFeatured`（非空）取对象、否则回退静态元组，「换一换」按池长轮换。
 - **验证**：tsc + vite build 过；**数据链路 E2E**：起隔离 backend :8003(HUB_URL→隔离 Hub :8100，有 1 条精选 `summarize`)→ pull → 本地
   `GET /api/catalog` **surface `SKILLHUB_FEATURED`=1 个对象（带 iconUrl）** → App catalogStore 即得 skillFeatured。
-- **未做**：App 精选区的**界面级实时渲染**（需 vite→自定 backend 代理 + Playwright，当前 vite 硬编 :8000、并发占 :8000 真库 + Playwright 浏览器争用）——渲染逻辑 tsc 验、自包含、数据链路已实测；界面级留待有干净环境时补。
+- **界面级实测（补齐）**：临时 vite（自定 config 代理 /api→隔离 backend :8003，跑 :5199，不碰并发 :8000/:5173）+ Playwright：
+  App「专家·技能·连接器 → 技能」的**精选技能区显示 `Summarize`（Hub 下发的精选）+ 真实图标 `<img>`（橙色 starburst，非 emoji）+「知识管理」徽标 + 描述 + 安装按钮**。
+  完整链路跑通：mgr 加入精选 → Hub SKILLHUB_FEATURED → 本地 pull → /api/catalog → catalogStore.skillFeatured → 精选区真图标渲染。用完删临时 config/截图、停临时进程。
