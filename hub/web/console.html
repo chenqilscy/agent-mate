@@ -38,7 +38,7 @@
   .dot { width:8px; height:8px; border-radius:50%; background:#4b5568; display:inline-block; }
   .dot.on { background:var(--brand); box-shadow:0 0 0 3px rgba(22,179,122,.2); }
   .pill { font-size:11px; padding:2px 8px; border-radius:999px; background:var(--chip); color:var(--dim); }
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .grid2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; }
   .cmt { padding:9px 12px; border-radius:9px; background:var(--panel2); border:1px solid var(--line); margin-bottom:7px; }
   .cmt .who { font-weight:600; font-size:12.5px; } .cmt .when { color:var(--dim); font-size:11px; }
   .err { color:var(--danger); font-size:12.5px; min-height:16px; }
@@ -249,7 +249,7 @@ async function loadWorkItems(pid, ro){
   box.innerHTML = `<h3>计划 / 任务 <span class="pill">${items.length}</span></h3>
     ${ro?"":`<div class="row" style="margin-bottom:10px"><input id="wi-new" placeholder="新增待办任务…"><button id="wi-add">添加</button></div>`}
     <div class="err" id="wi-err"></div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
       ${WI_COLS.map(([s,label])=>`<div><div class="muted" style="font-size:12px;margin-bottom:6px">${label} · ${byStatus(s).length}</div><div id="wi-col-${s}" style="display:flex;flex-direction:column;gap:6px"></div></div>`).join("")}
     </div>`;
   WI_COLS.forEach(([s])=>{
@@ -503,7 +503,7 @@ async function skillhubCat(body){
   body.innerHTML = `
     <div class="card"><div class="row"><button id="sh-sync">手动同步 SkillHub</button><span class="muted" id="sh-msg" style="font-size:12.5px"></span></div>
       <div class="row" style="margin-top:10px"><input id="sh-q" placeholder="搜索 SkillHub（实时，走 CLI）" value="${esc(SH_Q)}"><button class="line" id="sh-search">搜索</button><button class="ghost" id="sh-clearq">清空</button></div></div>
-    <div style="display:grid;grid-template-columns:180px 1fr;gap:14px;align-items:start">
+    <div style="display:grid;grid-template-columns:180px minmax(0,1fr);gap:14px;align-items:start">
       <div class="card">
         <div class="muted" style="font-size:11px;margin-bottom:6px">发布来源</div>
         <div id="sh-src" style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">${[["","全部"],["skillhub","SkillHub"],["clawhub","ClawHub"]].map(([v,l])=>sideBtn(v,l,SH_SRC)).join("")}</div>
