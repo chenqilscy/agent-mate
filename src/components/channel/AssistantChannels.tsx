@@ -12,7 +12,8 @@ function ChannelForm({ assistantId, channel, onClose, onSaved }: {
   onSaved: () => void
 }) {
   const editing = !!channel
-  const [token, setToken] = useState('')
+  const [token, setToken] = useState(channel?.token ?? '')  // WB-093：预填真实 token（本机可见）
+  const [showToken, setShowToken] = useState(false)
   const [chatId, setChatId] = useState(channel?.chat_id ?? '')
   const [enabled, setEnabled] = useState(channel?.enabled ?? true)
   const [busy, setBusy] = useState(false)
@@ -43,9 +44,11 @@ function ChannelForm({ assistantId, channel, onClose, onSaved }: {
             <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
             启用（收到消息即用本助理处理）
           </label>
-          <div className="np-lbl">Bot Token<small className="asst-hint">{editing && channel?.has_token ? '已配置 · 留空不改' : '@BotFather 获取'}</small></div>
-          <input className="np-input" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} maxLength={200}
-                 placeholder={editing && channel?.has_token ? '已配置 · 留空则保持不变' : '粘贴 bot token'} />
+          <div className="np-lbl">Bot Token<small className="asst-hint">@BotFather 获取 · 仅存本机</small></div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="np-input" style={{ flex: 1 }} type={showToken ? 'text' : 'password'} autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} maxLength={200} placeholder="粘贴 bot token" />
+            <button className="asst-addchip" type="button" onClick={() => setShowToken((v) => !v)}>{showToken ? '隐藏' : '显示'}</button>
+          </div>
           <div className="np-lbl">白名单 chat_id<small className="asst-hint">留空则第一个 /start 的人配对</small></div>
           <input className="np-input" value={chatId} onChange={(e) => setChatId(e.target.value)} maxLength={64} placeholder="如你的 Telegram user id（可留空）" />
         </div>

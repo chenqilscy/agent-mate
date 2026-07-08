@@ -246,7 +246,8 @@ async def _bot_username(token: str) -> Optional[str]:
 
 
 def channel_public(ch: dict) -> dict:
-    """渠道对外结构：**绝不含 token 值**，只 has_token；含运行态与绑定 chat。"""
+    """渠道对外结构，含运行态与绑定 chat。WB-093（用户显式决定）：token 在**本机**设置 UI 可见——
+    后端只绑 localhost、DB 已 gitignore，token 不出本机；LLM API Key 不在此列（仍严格不进前端）。"""
     return {
         "id": ch["id"],
         "assistant_id": ch["assistant_id"],
@@ -254,6 +255,7 @@ def channel_public(ch: dict) -> dict:
         "enabled": ch["enabled"],
         "running": _is_running(ch["id"]),
         "has_token": bool(_tg_token(ch)),
+        "token": _tg_token(ch) if ch["type"] == "telegram" else "",
         "chat_id": (ch.get("config", {}).get("chat_id") or "") if ch["type"] == "telegram" else "",
         "bound_chat_id": (db.first_chat_binding(ch["id"]) or {}).get("chat_id"),
     }

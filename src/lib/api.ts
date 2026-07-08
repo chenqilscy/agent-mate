@@ -273,6 +273,7 @@ export interface AssistantChannel {
   enabled: boolean
   running: boolean
   has_token: boolean
+  token: string              // WB-093：本机可见的原始 token（local-first，仅本机设置 UI）
   chat_id: string            // 白名单固定 chat（telegram）
   bound_chat_id: string | null
 }
