@@ -48,6 +48,65 @@
   .tabs { display:flex; gap:6px; margin-bottom:12px; } .tabs button { background:var(--chip); color:var(--dim); font-weight:500; }
   .tabs button.active { background:var(--brand); color:#fff; }
   code { background:var(--chip); padding:2px 6px; border-radius:5px; }
+  /* 技能浏览橱窗（WB-102）：对齐主应用 App 的技能页（精选/推荐·SkillHub·套件/富卡★⬇/详情），套 console 暗色 token。sg- 前缀防撞并发改动 */
+  .sg-sectitle { font-size:14px; font-weight:700; margin:22px 0 12px; }
+  .sg-grid { display:grid; gap:14px; }
+  .sg-g4 { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .sg-g2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  @media (max-width:1080px){ .sg-g4 { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  .sg-blank { padding:44px 0; text-align:center; color:var(--dim); font-size:13.5px; }
+  .sg-click { cursor:pointer; }
+  .sg-flexright { display:flex; align-items:center; justify-content:space-between; }
+  .sg-rt { font-size:12px; color:var(--dim); cursor:pointer; -webkit-user-select:none; user-select:none; }
+  .sg-rt:hover { color:var(--brand); }
+  .sg-seg { display:flex; gap:20px; align-items:baseline; margin:22px 0 2px; }
+  .sg-seg-item { font-size:15px; font-weight:700; color:var(--dim); cursor:pointer; }
+  .sg-seg-item.active { color:var(--ink); }
+  .sg-cathead { display:flex; align-items:flex-start; gap:12px; margin:14px 0 6px; }
+  .sg-cats { flex:1; display:flex; gap:7px; flex-wrap:wrap; }
+  .sg-cat { padding:5px 12px; border-radius:20px; font-size:12px; color:var(--dim); cursor:pointer; background:var(--chip); }
+  .sg-cat:hover { color:var(--ink); }
+  .sg-cat.active { background:var(--brand); color:#fff; }
+  .sg-cathead-r { flex-shrink:0; margin-top:4px; }
+  .sg-link { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--dim); text-decoration:none; white-space:nowrap; }
+  .sg-link:hover { color:var(--brand); }
+  .sg-fcard { position:relative; display:flex; flex-direction:column; border:1px solid var(--line); border-radius:14px; padding:15px 16px; background:var(--panel); transition:.15s; overflow:hidden; }
+  .sg-fcard:hover { border-color:var(--brand); }
+  .sg-fbadge { position:absolute; top:0; right:0; font-size:10.5px; font-weight:600; color:var(--brand); background:rgba(22,179,122,.16); padding:3px 10px; border-bottom-left-radius:10px; }
+  .sg-fh { display:flex; align-items:center; gap:11px; }
+  .sg-fic { width:38px; height:38px; border-radius:10px; background:var(--chip); display:grid; place-items:center; font-size:20px; flex-shrink:0; overflow:hidden; }
+  .sg-fn { flex:1; min-width:0; font-size:14px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sg-fd { font-size:11.8px; color:var(--dim); line-height:1.55; margin-top:10px; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .sg-hcard { display:flex; flex-direction:column; border:1px solid var(--line); border-radius:13px; padding:14px; background:var(--panel); transition:.15s; }
+  .sg-hcard:hover { border-color:var(--brand); }
+  .sg-hh { display:flex; align-items:center; gap:10px; }
+  .sg-hic { width:34px; height:34px; border-radius:9px; display:grid; place-items:center; font-size:14px; font-weight:800; color:#fff; flex-shrink:0; overflow:hidden; }
+  .sg-hn { flex:1; min-width:0; font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sg-hd { flex:1; font-size:11.8px; color:var(--dim); line-height:1.55; margin-top:10px; min-height:52px; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .sg-hfoot { display:flex; align-items:center; gap:14px; margin-top:12px; }
+  .sg-hstat { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--dim); }
+  .sg-scard { border:1px solid var(--line); border-radius:13px; padding:14px; background:var(--panel); display:flex; gap:12px; transition:.15s; }
+  .sg-scard:hover { border-color:var(--brand); }
+  .sg-sic { width:38px; height:38px; border-radius:10px; background:var(--chip); display:grid; place-items:center; font-size:19px; flex-shrink:0; }
+  .sg-sn { font-size:13px; font-weight:700; }
+  .sg-sd { font-size:11.5px; color:var(--dim); line-height:1.5; margin-top:4px; }
+  .sg-kit { display:flex; align-items:center; gap:12px; border:1px solid var(--line); border-radius:13px; padding:14px; background:var(--panel); }
+  .sg-kic { width:42px; height:42px; border-radius:11px; display:grid; place-items:center; font-size:22px; color:#fff; flex-shrink:0; }
+  .sg-kn { font-size:13.5px; font-weight:700; }
+  .sg-kcount { font-size:11px; font-weight:600; color:var(--dim); }
+  .sg-kd { font-size:11.5px; color:var(--dim); line-height:1.5; margin-top:4px; }
+  .sg-overlay { position:fixed; inset:0; background:rgba(6,10,18,.62); display:grid; place-items:center; z-index:60; padding:20px; }
+  .sg-modal { width:480px; max-width:100%; max-height:88vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:14px; }
+  .sg-mh { display:flex; align-items:flex-start; gap:12px; padding:18px 18px 12px; }
+  .sg-mic { width:50px; height:50px; border-radius:12px; display:grid; place-items:center; font-size:26px; color:#fff; flex-shrink:0; overflow:hidden; }
+  .sg-mtitle { font-size:18px; font-weight:800; }
+  .sg-mtags { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-top:7px; }
+  .sg-mx { background:transparent; color:var(--dim); font-size:22px; line-height:1; padding:2px 8px; flex-shrink:0; }
+  .sg-mbody { padding:6px 18px 16px; }
+  .sg-msec { font-size:12px; color:var(--dim); font-weight:600; margin:14px 0 6px; }
+  .sg-mdesc { font-size:13px; line-height:1.7; color:var(--ink); }
+  .sg-mfoot { display:flex; align-items:center; gap:10px; padding:12px 18px; border-top:1px solid var(--line); }
+  .sg-mlink { font-size:12.5px; font-weight:600; color:var(--brand); text-decoration:none; white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -471,8 +530,23 @@ async function connectorsCat(body){
   }catch(e){ F("cn-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 
-// 技能目录（WB-084）：SK_GRID 三元组 [icon,name,desc]。
+// 技能（WB-102）：子切换「浏览橱窗 | 目录管理」。浏览橱窗 = App 同款整页技能
+// （精选+换一换 / 推荐·SkillHub·套件 / 分类 chips / 富卡★⬇ / 只读详情 / 实时搜索），读同一 Hub 目录数据；
+// 目录管理 = 原 SK_GRID CRUD。Hub 门户无本地技能后端，install/我安装的/SKILL.md 不搬（不做假动作，铁律#1）。
+let SKILLSUB = "gallery";   // gallery 浏览橱窗 / manage 目录管理
 async function skillsCat(body){
+  body.innerHTML = `
+    <div class="tabs" style="margin-bottom:14px">
+      <button data-ss="gallery" class="${SKILLSUB==='gallery'?'active':''}">浏览橱窗</button>
+      <button data-ss="manage" class="${SKILLSUB==='manage'?'active':''}">目录管理</button>
+    </div>
+    <div id="sk-sub"></div>`;
+  body.querySelectorAll("[data-ss]").forEach(b=> b.onclick=()=>{ SKILLSUB=b.dataset.ss; skillsCat(body); });
+  (SKILLSUB==="manage"? skillsManage : skillsGallery)(document.getElementById("sk-sub"));
+}
+
+// 目录管理（原 WB-084 CRUD）：SK_GRID 三元组 [icon,name,desc]。
+async function skillsManage(body){
   body.innerHTML = `<div class="card"><h3 id="sk-h">新增技能</h3><input type="hidden" id="sk-id">
       <div class="grid2"><div class="field"><label>图标 emoji</label><input id="sk-icon" placeholder="🧩"></div><div class="field"><label>名称</label><input id="sk-name"></div></div>
       <div class="field"><label>简介</label><textarea id="sk-desc"></textarea></div>
@@ -482,13 +556,168 @@ async function skillsCat(body){
   const F=id=>document.getElementById(id);
   function fill(it){ const d=it?it.data:[]; F("sk-id").value=it?it.id:""; F("sk-icon").value=d[0]||""; F("sk-name").value=d[1]||""; F("sk-desc").value=d[2]||""; F("sk-sort").value=it?it.sort:0; F("sk-h").textContent=it?"编辑技能":"新增技能"; }
   F("sk-clear").onclick=()=>fill(null);
-  F("sk-save").onclick=async()=>{ F("sk-err").textContent=""; const data=[F("sk-icon").value.trim(),F("sk-name").value.trim(),F("sk-desc").value.trim()]; if(!data[1]){F("sk-err").textContent="名称必填";return;} const id=F("sk-id").value,sort=Number(F("sk-sort").value)||0; try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"SK_GRID",data,sort}); skillsCat(body);}catch(e){F("sk-err").textContent=e.message;} };
+  F("sk-save").onclick=async()=>{ F("sk-err").textContent=""; const data=[F("sk-icon").value.trim(),F("sk-name").value.trim(),F("sk-desc").value.trim()]; if(!data[1]){F("sk-err").textContent="名称必填";return;} const id=F("sk-id").value,sort=Number(F("sk-sort").value)||0; try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"SK_GRID",data,sort}); skillsManage(body);}catch(e){F("sk-err").textContent=e.message;} };
   try{ const {items}=await api("GET","/catalog/SK_GRID?all=true");
     F("sk-list").innerHTML=items.length? items.map(it=>{const d=it.data||[]; return `<div class="list-item"><span style="font-size:20px">${esc(d[0]||"🧩")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d[1]||"?")} ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d[2]||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`;}).join(""):'<div class="muted">还没有技能目录项</div>';
     F("sk-list").querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>{fill(items.find(x=>x.id===b.dataset.ed));window.scrollTo(0,0);});
-    F("sk-list").querySelectorAll("[data-tog]").forEach(b=>b.onclick=async()=>{const[id,en]=b.dataset.tog.split(":");try{await api("PATCH","/catalog/item/"+id,{enabled:!!+en});skillsCat(body);}catch(e){F("sk-err").textContent=e.message;}});
-    F("sk-list").querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{try{await api("DELETE","/catalog/item/"+b.dataset.del);skillsCat(body);}catch(e){F("sk-err").textContent=e.message;}});
+    F("sk-list").querySelectorAll("[data-tog]").forEach(b=>b.onclick=async()=>{const[id,en]=b.dataset.tog.split(":");try{await api("PATCH","/catalog/item/"+id,{enabled:!!+en});skillsManage(body);}catch(e){F("sk-err").textContent=e.message;}});
+    F("sk-list").querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{try{await api("DELETE","/catalog/item/"+b.dataset.del);skillsManage(body);}catch(e){F("sk-err").textContent=e.message;}});
   }catch(e){F("sk-list").innerHTML=`<div class="err">${esc(e.message)}</div>`;}
+}
+
+// ── 浏览橱窗静态兜底（Hub 目录空/未同步时；接 Hub 后用真数据覆盖，与 App local-first 一致）──
+const SG_FEATURED = [
+  ["☁️","#2E7DF6","腾讯微云","管理腾讯微云网盘文件（列表、上传、下载、删除、分享）。"],
+  ["✅","#16B37A","腾讯问卷","腾讯问卷操作（创建、修改、逻辑设置、统计）。"],
+  ["🐧","#0EA5E9","鹅厂辟谣助手","面向腾讯相关传闻的辟谣辅助 Skill，结合内部参考与实时联网核查，给出结论、事实依据和防诈提醒。"],
+  ["🗺️","#4C6FFF","腾讯地图·地图助手","腾讯位置服务出品的地图助手 Skill。一句话调用腾讯地图全套能力：旅游攻略、POI 搜索、路线规划。","旅游规划"],
+  ["📊","#EF4444","ppt-generator-skill","智能 PPT 生成助手，根据主题、行业、风格自动生成漂亮的 PPT 文件。"],
+  ["📈","#1E6FFF","腾讯自选股·金融数据","实时查询股票（A股/港股/美股）、ETF、指数、板块、期货、外汇、可转债的 K 线与技术指标。","金融数据"],
+  ["📝","#F59E0B","文章去AI味工具","去除文本中的 AI 写作痕迹，让文字读起来更像人类写作，支持润色、改写、降 AI 味。"],
+  ["🐟","#EF4444","番茄小说写作助手","专为番茄小说平台优化的分章节创作助手，支持悬疑/言情/奇幻/科幻/历史等题材。","长篇创作"],
+];
+const SG_CATS = ["全部","办公效率","内容创作","开发编程","数据分析","设计多媒体","AI Agent","知识管理","商业运营","教育学习","行业专业","IT运维与安全","生活服务"];
+const SG_GRID = [
+  ["W","#4C6FFF","web-tools-guide","调用 web_search / web_fetch / browser / opencli 前必读，含 web 工具的错误处理规程。","174k",109,"开发编程"],
+  ["腾","#1E6FFF","腾讯文档 TENCENT DOCS","腾讯文档（docs.qq.com）在线文档平台，创建、编辑、管理文档的首选 skill。","131k",183,"办公效率"],
+  ["I","#6B7280","ima-skills","ima skills，支持写笔记、知识库的读取、写入和检索，随时记录、调用。","94k",347,"知识管理"],
+  ["K","#16B37A","kdocs skill","操作金山文档（WPS 云文档 / Kdocs）的官方 Skill，覆盖云端新建、读取、编辑、搜索、分享。","37k",66,"办公效率"],
+  ["文","#F59E0B","文章去AI味工具","去除文本中的 AI 写作痕迹，让文字读起来更像人类写作。","27k",180,"内容创作"],
+  ["P","#EF4444","ppt-generator-skill","智能 PPT 生成助手，根据主题、行业、风格自动生成漂亮的 PPT 文件。","23k",91,"设计多媒体"],
+  ["海","#F97316","海报设计skill","海报、视觉设计、品牌视觉、排版系统、极简风格设计美学与商业海报制作。","10k",55,"设计多媒体"],
+  ["股","#17181C","股票价值投资分析系统","A股和港股价值投资分析系统，护城河分析、财务健康检查、DCF 估值、管理层评估。","18k",98,"数据分析"],
+  ["A","#14B8A6","AnySearch","实时搜索引擎：网页搜索、垂直领域搜索、并行批量搜索与 URL 内容提取。","18k",41,"AI Agent"],
+  ["产","#17181C","产品经理综合技能（PM Master）","需求分析、PRD 编写、竞品分析、BRD、MRD、用户故事、原型设计、功能设计一站式。","9k",63,"商业运营"],
+  ["S","#16B37A","SkillScan","SkillScan 自动检测已安装和新添加 skill 中的安全风险，在造成损害前提示。","2.0k",1,"IT运维与安全"],
+  ["☁️","#2E7DF6","腾讯微云","管理腾讯微云网盘文件（列表、上传、下载、删除、分享），生成分享链接。","8k",22,"生活服务"],
+];
+const SG_KITS = [
+  ["🏢","#1E6FFF","腾讯云运维套件","Lighthouse / CVM / COS / EdgeOne / TIONE 等腾讯云运维与诊断技能一键装齐。",8],
+  ["✍️","#F59E0B","内容创作套件","PPT 生成、文章去 AI 味、抖音文案提取、海报设计、小说写作一站式。",6],
+  ["📊","#17181C","金融投研套件","腾讯自选股、股票价值投资、金融数据查询，覆盖行情到估值。",5],
+  ["🛡️","#EF4444","安全防护套件","SkillScan、Skill Vetter、敏感信息脱敏、渗透测试，安装前后全程护航。",4],
+];
+let SG_SEG="skillhub", SG_CAT="全部", SG_FEAToff=0, SG_Q="", SG_LAST=[];
+
+function sgDl(v){ if(typeof v==="string") return v; v=v||0; return v>=10000?(v/10000).toFixed(1)+"万":(v>=1000?Math.round(v/1000)+"k":String(v)); }
+function sgFcard(f,i){
+  const ic = f.iconUrl ? `<span class="sg-fic"><img src="${esc(f.iconUrl)}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='🧩'"></span>` : `<span class="sg-fic">${esc(f.icon)}</span>`;
+  return `<div class="sg-fcard sg-click" data-fi="${i}">${f.badge?`<span class="sg-fbadge">${esc(f.badge)}</span>`:""}
+    <div class="sg-fh">${ic}<div class="sg-fn" title="${esc(f.name)}">${esc(f.name)}</div></div>
+    <div class="sg-fd">${esc(f.desc)}</div></div>`;
+}
+function sgHcard(c,i){
+  const ic = c.iconUrl ? `<span class="sg-hic"><img src="${esc(c.iconUrl)}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='🧩'"></span>` : `<span class="sg-hic" style="background:${esc(c.color||'#6B7280')}">${esc(c.label||(String(c.name||'?').trim()[0]||'?').toUpperCase())}</span>`;
+  const cat = c.skillhub_category_name ? `<span class="sg-hstat" style="margin-left:auto">${esc(c.skillhub_category_name)}</span>` : "";
+  return `<div class="sg-hcard sg-click" data-hi="${i}">
+    <div class="sg-hh">${ic}<div class="sg-hn" title="${esc(c.name||c.slug||'?')}">${esc(c.name||c.slug||"?")}</div></div>
+    <div class="sg-hd">${esc(c.description||"")}</div>
+    <div class="sg-hfoot"><span class="sg-hstat">⬇ ${sgDl(c.downloads)}</span><span class="sg-hstat">★ ${c.stars||0}</span>${cat}</div></div>`;
+}
+function sgScard(t){ return `<div class="sg-scard"><span class="sg-sic">${esc(t[0]||"🧩")}</span><div style="flex:1;min-width:0"><div class="sg-sn">${esc(t[1]||"?")}</div><div class="sg-sd">${esc(t[2]||"")}</div></div></div>`; }
+function sgKit(t){ return `<div class="sg-kit"><span class="sg-kic" style="background:${esc(t[1])}">${esc(t[0])}</span><div style="flex:1;min-width:0"><div class="sg-kn">${esc(t[2])} <span class="sg-kcount">· ${t[4]} 个技能</span></div><div class="sg-kd">${esc(t[3])}</div></div></div>`; }
+function sgCathead(chips){
+  return `<div class="sg-cathead"><div class="sg-cats">${chips.map(c=>`<div class="sg-cat ${SG_CAT===c?'active':''}" data-cat="${esc(c)}">${esc(c)}</div>`).join("")}</div>
+    <div class="sg-cathead-r"><a class="sg-link" href="https://skillhub.cn" target="_blank" rel="noopener">skillhub.cn ↗</a></div></div>`;
+}
+
+async function skillsGallery(sub){
+  sub.innerHTML = `<div style="margin-bottom:14px"><input id="sg-q" placeholder="搜索技能（实时，走 CLI）" value="${esc(SG_Q)}" style="max-width:320px"></div>
+    <div id="sg-main" class="muted">加载中…</div>`;
+  const qin=document.getElementById("sg-q");
+  qin.onkeydown=e=>{ if(e.key==="Enter"){ SG_Q=qin.value.trim(); skillsGallery(sub); } };
+  const main=document.getElementById("sg-main");
+  if(SG_Q) sgSearch(main); else sgBrowse(main);
+}
+function sgBrowse(main){
+  main.className="";
+  main.innerHTML = `<div id="sg-feat"></div>
+    <div class="sg-seg">
+      <div class="sg-seg-item ${SG_SEG==='reco'?'active':''}" data-seg="reco">推荐</div>
+      <div class="sg-seg-item ${SG_SEG==='skillhub'?'active':''}" data-seg="skillhub">SkillHub</div>
+      <div class="sg-seg-item ${SG_SEG==='kit'?'active':''}" data-seg="kit">套件</div>
+    </div>
+    <div id="sg-segbody"></div>`;
+  main.querySelectorAll("[data-seg]").forEach(b=> b.onclick=()=>{ SG_SEG=b.dataset.seg; SG_CAT="全部"; sgBrowse(main); });
+  sgFeatured(document.getElementById("sg-feat"));
+  const sb=document.getElementById("sg-segbody");
+  if(SG_SEG==="reco") sgReco(sb); else if(SG_SEG==="kit") sgKits(sb); else sgSkillhub(sb);
+}
+async function sgFeatured(el){
+  let feats=[];
+  try{ const {items}=await api("GET","/catalog/SKILLHUB_FEATURED"); feats=(items||[]).map(it=>{ const d=it.data||{}; return { iconUrl:d.iconUrl||"", icon:(String(d.name||d.slug||"?").trim()[0]||"?").toUpperCase(), name:d.name||d.slug||"?", desc:d.description||"", badge:d.skillhub_category_name||"", card:d }; }); }catch(e){}
+  if(!feats.length) feats = SG_FEATURED.map(t=>({ iconUrl:"", icon:t[0], name:t[2], desc:t[3], badge:t[4]||"", card:{name:t[2],description:t[3],icon:t[0],color:t[1]} }));
+  const n=Math.min(4,feats.length);
+  const items=Array.from({length:n},(_,i)=>feats[(SG_FEAToff+i)%feats.length]);
+  el.innerHTML=`<div class="sg-flexright" style="margin:6px 0 12px"><div class="sg-sectitle" style="margin:0">精选技能</div>
+      <div class="sg-rt" id="sg-refresh">↻ 换一换</div></div>
+    <div class="sg-grid sg-g4">${items.map((f,i)=>sgFcard(f,i)).join("")}</div>`;
+  document.getElementById("sg-refresh").onclick=()=>{ SG_FEAToff=(SG_FEAToff+n)%feats.length; sgFeatured(el); };
+  el.querySelectorAll("[data-fi]").forEach(c=> c.onclick=()=> sgDetail(items[+c.dataset.fi].card));
+}
+async function sgReco(sb){
+  sb.innerHTML=`<div id="sg-reco" class="muted" style="margin-top:14px">加载中…</div>`;
+  let list=[];
+  try{ const {items}=await api("GET","/catalog/SK_GRID"); list=(items||[]).map(it=>it.data).filter(d=>Array.isArray(d)); }catch(e){}
+  const el=document.getElementById("sg-reco"); el.className="";
+  el.innerHTML = list.length? `<div class="sg-grid sg-g4">${list.map(sgScard).join("")}</div>` : '<div class="sg-blank">暂无推荐技能</div>';
+}
+function sgKits(sb){ sb.innerHTML=`<div class="sg-grid sg-g2" style="margin-top:14px">${SG_KITS.map(sgKit).join("")}</div>`; }
+async function sgSkillhub(sb){
+  sb.innerHTML=`<div id="sg-cathead"></div><div id="sg-hublist" class="muted" style="margin-top:4px">加载中…</div>`;
+  let mirror=[], cats=[];
+  try{ const {items}=await api("GET","/catalog/skill"); mirror=(items||[]).map(it=>it.data).filter(Boolean); }catch(e){}
+  try{ const {items}=await api("GET","/catalog/skill-category"); cats=(items&&items[0]&&items[0].data&&items[0].data.items)||[]; }catch(e){}
+  const head=document.getElementById("sg-cathead"), list=document.getElementById("sg-hublist");
+  let chips, cards;
+  if(mirror.length){
+    chips=["全部",...cats.filter(c=>c.count>0).map(c=>c.name)];
+    cards=mirror.filter(c=> SG_CAT==="全部" || c.skillhub_category_name===SG_CAT);
+  } else {
+    chips=SG_CATS;
+    cards=SG_GRID.filter(t=> SG_CAT==="全部" || t[6]===SG_CAT).map(t=>({label:t[0],color:t[1],name:t[2],description:t[3],downloads:t[4],stars:t[5],skillhub_category_name:t[6]}));
+  }
+  head.innerHTML=sgCathead(chips);
+  head.querySelectorAll("[data-cat]").forEach(b=> b.onclick=()=>{ SG_CAT=b.dataset.cat; sgSkillhub(sb); });
+  list.className="";
+  list.innerHTML = cards.length? `<div class="sg-grid sg-g4">${cards.map((c,i)=>sgHcard(c,i)).join("")}</div>` : '<div class="sg-blank">该分类下暂无技能</div>';
+  SG_LAST=cards; list.querySelectorAll("[data-hi]").forEach(c=> c.onclick=()=> sgDetail(SG_LAST[+c.dataset.hi]));
+}
+async function sgSearch(main){
+  main.className="";
+  main.innerHTML=`<div class="sg-sectitle" style="margin:6px 0 12px">搜索「${esc(SG_Q)}」</div><div id="sg-sr" class="muted">搜索中…</div>`;
+  const el=document.getElementById("sg-sr");
+  try{ const r=await api("GET","/catalog/skills/search?q="+encodeURIComponent(SG_Q)+"&limit=40");
+    if(r && r.cli===false){ el.className=""; el.innerHTML='<div class="sg-blank">SkillHub CLI 不可用，无法实时搜索</div>'; return; }
+    const results=(r&&r.results)||[]; el.className="";
+    el.innerHTML = results.length? `<div class="sg-grid sg-g4">${results.map((c,i)=>sgHcard(c,i)).join("")}</div>` : '<div class="sg-blank">没有找到相关技能</div>';
+    SG_LAST=results; el.querySelectorAll("[data-hi]").forEach(c=> c.onclick=()=> sgDetail(SG_LAST[+c.dataset.hi]));
+  }catch(e){ el.className=""; el.innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+}
+function sgDetail(c){
+  if(!c) return;
+  const badges=[c.skillhub_category_name, c.source?shSrc(c.source):""].filter(Boolean);
+  const ic = c.iconUrl ? `<span class="sg-mic"><img src="${esc(c.iconUrl)}" style="width:100%;height:100%;object-fit:cover"></span>` : `<span class="sg-mic" style="background:${esc(c.color||'#2E7DF6')}">${esc(c.icon||c.label||(String(c.name||'?').trim()[0]||'?').toUpperCase())}</span>`;
+  const stats=[];
+  if(c.stars!=null) stats.push(`<span class="sg-hstat">★ ${c.stars||0}</span>`);
+  if(c.downloads!=null) stats.push(`<span class="sg-hstat">⬇ ${sgDl(c.downloads)}</span>`);
+  const ov=document.createElement("div"); ov.className="sg-overlay";
+  ov.innerHTML=`<div class="sg-modal" role="dialog" aria-modal="true" aria-label="${esc(c.name||"技能")}">
+    <div class="sg-mh">${ic}<div style="flex:1;min-width:0"><div class="sg-mtitle">${esc(c.name||c.slug||"?")}</div>
+      <div class="sg-mtags">${badges.map(b=>`<span class="pill">${esc(b)}</span>`).join("")}${stats.join("")}</div></div>
+      <button class="sg-mx" aria-label="关闭">×</button></div>
+    <div class="sg-mbody"><div class="sg-msec" style="margin-top:0">能力介绍</div>
+      <div class="sg-mdesc">${esc(c.description||"（无简介）")}</div>
+      ${(c.tags&&c.tags.length)?`<div class="sg-msec">标签</div><div class="sg-mtags">${c.tags.map(t=>`<span class="pill">${esc(t)}</span>`).join("")}</div>`:""}
+    </div>
+    <div class="sg-mfoot"><span class="muted" style="font-size:12px">Hub 门户为浏览视图；安装/试用在 WorkBuddy 客户端</span><div class="grow"></div><a class="sg-mlink" href="https://skillhub.cn" target="_blank" rel="noopener">skillhub.cn ↗</a></div>
+  </div>`;
+  document.body.appendChild(ov);
+  const close=()=>{ ov.remove(); document.removeEventListener("keydown",onkey); };
+  function onkey(e){ if(e.key==="Escape") close(); }
+  ov.onmousedown=e=>{ if(e.target===ov) close(); };
+  ov.querySelector(".sg-mx").onclick=close;
+  document.addEventListener("keydown",onkey);
 }
 
 // SkillHub（WB-084 + WB-092 向真站对齐）：左筛选（发布来源/排序/场景）+ 右富卡片（图标/来源/★/⬇）。
