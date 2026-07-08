@@ -313,15 +313,18 @@ function SkillHubCard({ item, onOpenDetail }: { item: (typeof SKILLHUB_GRID)[num
   )
 }
 
-// 精选技能大卡（顶部）。
-function FeaturedCard({ item, onOpenDetail }: { item: (typeof SKILLHUB_FEATURED)[number]; onOpenDetail: (target: SkillTarget) => void }) {
-  const [icon, , name, desc, badge] = item
+// 精选技能大卡（顶部）。归一形态：静态元组与 Hub 精选对象都规约成 FeaturedItem（WB-109）。
+type FeaturedItem = { iconUrl?: string; icon: string; name: string; desc: string; badge?: string }
+function FeaturedCard({ item, onOpenDetail }: { item: FeaturedItem; onOpenDetail: (target: SkillTarget) => void }) {
+  const { iconUrl, icon, name, desc, badge } = item
   const inst = useSkillStore((s) => matchSkill(s.installed, name))
   return (
     <div className="fcard clickable" onClick={() => onOpenDetail(inst ? { key: inst.key } : { name })}>
       {badge && <span className="fc-badge">{badge}</span>}
       <div className="fc-h">
-        <span className="fc-ic">{icon}</span>
+        {iconUrl
+          ? <img className="fc-ic" src={iconUrl} alt="" style={{ objectFit: 'cover' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+          : <span className="fc-ic">{icon}</span>}
         <div className="fc-n" title={name}>{name}</div>
         {inst ? <InstalledCtl skill={inst} /> : <InstallBtn name={name} />}
       </div>
@@ -333,18 +336,23 @@ function FeaturedCard({ item, onOpenDetail }: { item: (typeof SKILLHUB_FEATURED)
 // 精选技能区（4 个一屏，「换一换」轮换池）。
 function FeaturedSkills({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) => void }) {
   const [off, setOff] = useState(0)
-  const n = Math.min(4, SKILLHUB_FEATURED.length)
-  const items = Array.from({ length: n }, (_, i) => SKILLHUB_FEATURED[(off + i) % SKILLHUB_FEATURED.length])
+  const hubFeat = useCatalogStore((s) => s.skillFeatured)
+  // WB-109：有 Hub 下发的精选（mgr「加入精选」）→ 用它（对象 + 真图标），否则回退静态元组。
+  const pool: FeaturedItem[] = hubFeat.length > 0
+    ? hubFeat.map((c) => ({ iconUrl: c.iconUrl, icon: (String(c.name || c.slug || '?').trim()[0] || '?').toUpperCase(), name: c.name || c.slug || '', desc: c.description || '', badge: c.skillhub_category_name || '' }))
+    : SKILLHUB_FEATURED.map(([icon, , name, desc, badge]) => ({ icon, name, desc, badge }))
+  const n = Math.min(4, pool.length)
+  const items = Array.from({ length: n }, (_, i) => pool[(off + i) % pool.length])
   return (
     <>
       <div className="flex-right" style={{ marginTop: 2 }}>
         <div className="sec-title">精选技能</div>
-        <div className="rt" onClick={() => { setOff((o) => (o + n) % SKILLHUB_FEATURED.length); toast('已换一批') }}>
+        <div className="rt" onClick={() => { setOff((o) => (o + n) % pool.length); toast('已换一批') }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 019-9 9 9 0 016 2.3L21 8M21 12a9 9 0 01-9 9 9 9 0 01-6-2.3L3 16" /></svg>换一换
         </div>
       </div>
       <div className="card-grid g4">
-        {items.map((it) => <FeaturedCard key={it[2]} item={it} onOpenDetail={onOpenDetail} />)}
+        {items.map((it) => <FeaturedCard key={it.name} item={it} onOpenDetail={onOpenDetail} />)}
       </div>
     </>
   )

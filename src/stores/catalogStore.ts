@@ -47,6 +47,8 @@ interface CatalogState extends Catalog {
   // WB-070：Hub 镜像的 SkillHub 商店（已连 Hub 并下行 pull 后有值）。空 = 未接 Hub → 前端回退静态 SKILLHUB_*。
   skillMirror: SkillCard[]
   skillCats: SkillCat[]
+  // WB-109：Hub SKILLHUB_FEATURED 精选（mgr「加入精选」下发的对象）。空 = 无下发 → 精选区回退静态元组。
+  skillFeatured: SkillCard[]
   load: () => Promise<void>
 }
 
@@ -55,6 +57,7 @@ export const useCatalogStore = create<CatalogState>((set) => ({
   loaded: false,
   skillMirror: [],
   skillCats: [],
+  skillFeatured: [],
   load: async () => {
     try {
       const raw = (await api.getCatalog()) as Record<string, unknown>
@@ -68,7 +71,9 @@ export const useCatalogStore = create<CatalogState>((set) => ({
       const mirror = Array.isArray(raw['skill']) ? (raw['skill'] as SkillCard[]) : []
       const taxRow = Array.isArray(raw['skill-category']) ? (raw['skill-category'] as Array<{ items?: SkillCat[] }>)[0] : undefined
       const cats = taxRow && Array.isArray(taxRow.items) ? taxRow.items : []
-      set({ ...(next as Partial<CatalogState>), skillMirror: mirror, skillCats: cats, loaded: true })
+      // WB-109：Hub 下发的精选（mgr「加入精选」写的完整技能对象；无下发则该键缺席 → 空）。
+      const featured = Array.isArray(raw['SKILLHUB_FEATURED']) ? (raw['SKILLHUB_FEATURED'] as SkillCard[]) : []
+      set({ ...(next as Partial<CatalogState>), skillMirror: mirror, skillCats: cats, skillFeatured: featured, loaded: true })
     } catch {
       set({ loaded: true }) // 后端未连：保留静态兜底，不白屏
     }

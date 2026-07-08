@@ -115,8 +115,13 @@
 | [WB-097](WB-097-channel-typemenu-clipped.md) | ✅ | P2 | ui | 助理「新增渠道」类型菜单被滚动容器裁切 —— 改用 Popover（fixed 定位不裁切，复用 .pop-item） |
 | [WB-098](WB-098-email-self-reply-loop.md) | ✅ | P1 | backend | 邮件渠道自我回复循环 —— 回信打 X-WorkBuddy-Assistant 头，收信跳过自己回信（防邮件风暴） |
 | [WB-099](WB-099-console-grid-overflow.md) | ✅ | P3 | ui | BuddyWebMgr SkillHub 页横向溢出 —— grid 1fr→minmax(0,1fr)（SkillHub/看板/grid2 同修） |
+| [WB-100](WB-100-console-experts-showroom.md) | ✅ | P2 | frontend | BuddyWebMgr 专家/专家团升级为 App 同款浏览橱窗（精选场景+子标签+分类+富卡片+详情弹窗；替裸 CRUD，管理动作进弹窗；纯 vanilla 无后端改） |
 | [WB-101](WB-101-console-connector-gallery.md) | ✅ | P3 | ui | BuddyWebMgr 连接器补「浏览橱窗」—— 目录管理旁加 App 风格双列卡片橱窗（读同一 CONN_DEFS，cg- 前缀防撞并发） |
 | [WB-102](WB-102-console-skill-gallery.md) | ✅ | P2 | frontend | BuddyWebMgr 技能补「浏览橱窗」（整页技能）—— 精选+换一换/推荐·SkillHub·套件/分类/富卡★⬇/详情/搜索，读同一目录数据，sg- 前缀防撞并发 |
+| [WB-103](WB-103-professional-pm-epic.md) | 🟡 | P1 | fullstack | BuddyWebMgr 专业项目管理 + App 数据打通（总纲/epic）—— 完整 PM(负责人/优先级/截止/标签/子任务/里程碑/活动流/列表·看板·甘特) + 本地⇄Hub 打通；子任务 WB-104~108 |
+| [WB-104](WB-104-hub-pm-data-model.md) | ✅ | P1 | backend | Hub 专业 PM 数据模型 + 迁移 —— work_items 增 priority/due/start/labels/parent_id/milestone_id + 新表 milestones/work_item_activity（非破坏 ALTER，CRUD 扩展） |
+| [WB-105](WB-105-hub-pm-api.md) | ✅ | P1 | backend | Hub 专业 PM API —— work_items 全字段+子任务+活动流端点 + milestones CRUD 路由；assignee/priority 宽松校验保护同步（TestClient 冒烟 20 项全过） |
+| [WB-109](WB-109-app-featured-consume-hub.md) | ✅ | P3 | frontend | App 精选技能区消费 Hub SKILLHUB_FEATURED —— 打通 mgr「加入精选」→ App（渲染真图标，回退静态兜底；纯前端，数据链路 E2E 实测） |
 
 ## 来源
 
