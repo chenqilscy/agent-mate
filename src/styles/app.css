@@ -1200,7 +1200,3 @@ body.dark .wb-date { color-scheme: dark; }
 .asst-addchip { font-size: 12px; color: var(--brand-600); background: transparent; border: 1px dashed var(--border); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
 .asst-addchip.danger { color: #E5484D; border-style: solid; }
 .asst-ch { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px; }
-.asst-typemenu { position: absolute; bottom: calc(100% + 6px); left: 0; background: var(--chip); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: var(--shadow-md); z-index: 20; min-width: 180px; }
-.asst-typemenu button { display: block; width: 100%; text-align: left; padding: 8px 10px; font-size: 13px; background: transparent; border: 0; border-radius: 8px; color: var(--text); cursor: pointer; }
-.asst-typemenu button:hover:not(:disabled) { background: var(--brand-soft); }
-.asst-typemenu button:disabled { color: var(--text-3); cursor: not-allowed; }

@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, type Assistant, type AssistantChannel, type ChannelType } from '../../lib/api'
+import { Popover } from '../ui/Popover'
 import { toast } from '../../stores/toastStore'
 
 // 助理渠道管理（WB-088/096）。类型化：Telegram + 邮件 可用，其它类型「敬请期待」占位（不造假）。
@@ -143,6 +144,7 @@ export function AssistantChannels({ assistant, onChanged }: {
   const [types, setTypes] = useState<ChannelType[]>([])
   const [form, setForm] = useState<{ type: string; channel: AssistantChannel | null } | null>(null)
   const [typePick, setTypePick] = useState(false)
+  const typeAnchor = useRef<HTMLElement | null>(null)
 
   useEffect(() => { api.channelTypes().then((r) => setTypes(r.types)).catch(() => {}) }, [])
 
@@ -189,19 +191,17 @@ export function AssistantChannels({ assistant, onChanged }: {
         )
       })}
 
-      <div style={{ marginTop: 12, position: 'relative', display: 'inline-block' }}>
-        <button className="btn-dark" onClick={() => setTypePick((v) => !v)}>＋ 新增渠道</button>
-        {typePick && (
-          <div className="asst-typemenu">
-            {types.map((t) => (
-              <button key={t.type} disabled={!t.available}
-                      onClick={() => { setTypePick(false); if (t.available) setForm({ type: t.type, channel: null }) }}>
-                {t.label}{t.available ? '' : ' · 敬请期待'}
-              </button>
-            ))}
-          </div>
-        )}
+      <div style={{ marginTop: 12 }}>
+        <button className="btn-dark" onClick={(e) => { typeAnchor.current = e.currentTarget; setTypePick((v) => !v) }}>＋ 新增渠道</button>
       </div>
+      <Popover open={typePick} anchor={typeAnchor.current} dir="down" onClose={() => setTypePick(false)} minWidth={180}>
+        {types.map((t) => (
+          <div key={t.type} className={`pop-item ${t.available ? '' : 'pop-empty'}`.trim()}
+               onClick={() => { if (t.available) { setTypePick(false); setForm({ type: t.type, channel: null }) } }}>
+            {t.label}{t.available ? '' : ' · 敬请期待'}
+          </div>
+        ))}
+      </Popover>
 
       {form && form.type === 'telegram' && (
         <TelegramForm assistantId={assistant.id} channel={form.channel} onClose={() => setForm(null)} onSaved={onChanged} />
