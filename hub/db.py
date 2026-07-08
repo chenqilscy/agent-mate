@@ -189,6 +189,12 @@ def init_db() -> None:
             updated_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, status, sort);
+
+        CREATE TABLE IF NOT EXISTS settings (
+            k TEXT PRIMARY KEY,
+            v TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL DEFAULT 0
+        );
         """
     )
     get_conn().commit()
@@ -639,6 +645,28 @@ def list_all_catalog_items(scope: str = "builtin", include_disabled: bool = Fals
         out.append({"id": r["id"], "category": r["category"], "kind": r["kind"], "data": data,
                     "sort": r["sort"], "version": r["version"], "enabled": bool(r["enabled"])})
     return out
+
+
+# ---- 平台设置 settings（WB-095）：服务端凭据/配置的 k-v 存储 -------------
+
+def get_setting(k: str) -> Optional[str]:
+    r = get_conn().execute("SELECT v FROM settings WHERE k=?", (k,)).fetchone()
+    return r["v"] if r else None
+
+
+def set_setting(k: str, v: str) -> None:
+    get_conn().execute(
+        "INSERT INTO settings (k,v,updated_at) VALUES (?,?,?) "
+        "ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=excluded.updated_at",
+        (k, v, time.time()),
+    )
+    get_conn().commit()
+
+
+def delete_setting(k: str) -> bool:
+    cur = get_conn().execute("DELETE FROM settings WHERE k=?", (k,))
+    get_conn().commit()
+    return cur.rowcount > 0
 
 
 # ---- 团队计划/任务 work_items（WB-081）---------------------------------

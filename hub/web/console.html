@@ -97,7 +97,7 @@ function render(){
     </div>
     <div class="wrap">
       <div class="nav">
-        ${navBtn("projects","项目")}${ME.is_platform_admin?navBtn("catalog","目录运营中心"):""}${navBtn("orgs","组织")}${navBtn("notifs","通知")}
+        ${navBtn("projects","项目")}${ME.is_platform_admin?navBtn("catalog","目录运营中心"):""}${navBtn("orgs","组织")}${navBtn("notifs","通知")}${ME.is_platform_admin?navBtn("settings","设置"):""}
       </div>
       <div class="main" id="main"></div>
     </div>`;
@@ -108,6 +108,7 @@ function render(){
   else if(VIEW==="orgs") orgsView(m);
   else if(VIEW==="notifs") notifsView(m);
   else if(VIEW==="catalog") catalogView(m);
+  else if(VIEW==="settings") settingsView(m);
 }
 function navBtn(v,label){ return `<button data-v="${v}" class="${VIEW===v?'active':''}">${label}</button>`; }
 
@@ -494,7 +495,7 @@ async function skillsCat(body){
 // 排序/来源只用镜像已有字段（source·score·downloads·stars·installs）；「需 API Key 筛选、近期飙升/最近上新」
 // SkillHub 榜单 feed 不提供该数据，诚实不做（见 WB-092）。搜索走 CLI 代理。
 let SH_Q="", SH_CAT="", SH_SRC="", SH_SORT="score";
-const SH_SORTS=[["score","推荐精选"],["downloads","下载量"],["stars","收藏量"],["installs","安装量"]];
+const SH_SORTS=[["score","推荐精选"],["downloads","下载量"],["stars","收藏量"],["installs","安装量"],["created_at","最近上新"]];
 function shNum(n){ n=n||0; return n>=10000? (n/10000).toFixed(1)+"万" : String(n); }
 function shSrc(s){ return s==="clawhub"?"ClawHub":(s==="enterprise"?"企业":(s==="community"?"社区":(s||""))); }
 async function skillhubCat(body){
@@ -563,6 +564,26 @@ async function rawCat(body){
     document.getElementById("c-list").innerHTML = items.length? items.map(it=>`<div class="list-item"><div style="flex:1;min-width:0"><div class="t">${esc(it.category)} <span class="pill">sort ${it.sort}</span>${it.enabled?"":' <span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(JSON.stringify(it.data))}</div></div><button class="danger" data-del="${it.id}">删除</button></div>`).join("") : '<div class="muted">Hub 目录为空（客户端将回落本地 builtin 兜底）</div>';
     body.querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); rawCat(body);}catch(e){document.getElementById("c-err").textContent=e.message;} });
   }catch(e){ document.getElementById("c-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+}
+
+// ---------- 设置（WB-095）：平台管理员维护 SkillHub API key ----------
+async function settingsView(m){
+  m.innerHTML = `<h1>设置</h1><div class="sub">平台服务端凭据 / 配置</div>
+    <div class="card"><h3>SkillHub API Key</h3>
+      <div id="sk-status" class="muted" style="margin-bottom:10px">加载中…</div>
+      <div class="field"><label>API Key（skh_ 个人 / sk-ent- 企业）</label><input id="sk-key" placeholder="skh_… 或 sk-ent-…"></div>
+      <div class="err" id="sk-err"></div>
+      <div class="row"><button id="sk-save">保存</button><button class="danger" id="sk-clear">清除</button></div>
+      <div class="muted" style="font-size:12px;margin-top:10px">存于 Hub 服务端（仅打码回显、绝不回传全 key）。读公开目录本不需要 key；配了则取数带 Bearer（可解锁 paid / 企业私有 registry）。</div>
+    </div>`;
+  async function load(){
+    try{ const s=(await api("GET","/settings")).skillhub_api_key;
+      document.getElementById("sk-status").innerHTML = s.configured? `已配置 · <code>${esc(s.hint)}</code>${s.kind?` · ${esc(s.kind)}`:""}` : "未配置";
+    }catch(e){ document.getElementById("sk-status").innerHTML=`<span class="err">${esc(e.message)}</span>`; }
+  }
+  document.getElementById("sk-save").onclick=async()=>{ const k=document.getElementById("sk-key").value.trim(); document.getElementById("sk-err").textContent=""; if(!k){document.getElementById("sk-err").textContent="请输入 key";return;} try{ await api("PUT","/settings/skillhub-key",{key:k}); document.getElementById("sk-key").value=""; load(); }catch(e){document.getElementById("sk-err").textContent=e.message;} };
+  document.getElementById("sk-clear").onclick=async()=>{ try{ await api("DELETE","/settings/skillhub-key"); load(); }catch(e){document.getElementById("sk-err").textContent=e.message;} };
+  load();
 }
 
 boot();

@@ -3,7 +3,7 @@ id: WB-094
 title: SkillHub 取数从 CLI 子进程改为直连 HTTP（去 CLI 依赖 + 拿到发布时间）
 severity: P3
 area: backend
-status: open
+status: fixed
 origin: 用户「后期考虑不用 CLI，改 API 方式」+ API key 调研
 files:
   - hub/skillhub_client.py
@@ -36,3 +36,11 @@ Hub 当前 SkillHub **rankings（镜像同步）走 CLI 子进程**（`skill ran
 ## 验证
 
 去掉 CLI 后 rankings/search 仍出全量目录；镜像项带 `created_at`；无 CLI 环境也能同步；企业 key（若配）拉到私有 skills。
+
+## 处理记录（2026-07-08）
+
+`hub/skillhub_client.py`：`rankings_all()` 改为**优先直连 6 个 `showcase/*` HTTP 端点**（`_http_rankings`，配了 key 带 Bearer），
+失败回退 CLI（旧逻辑改名 `_cli_rankings`）；`_normalize_card` 保留 `created_at`/`updated_at`；`_http_search` 也带 key。
+**验证**：隔离 Hub 手动同步 → HTTP 取数成功、`inserted:333`（332 skills + taxonomy），**332/332 镜像项均带 created_at**；无需 CLI。
+**注**：HTTP 得 332 vs CLI 369，差的 ~37 是 `paid` showcase（HTTP 匿名/社区 key 返回空；企业 key 或另端点待验）——公开目录主体完整。
+配合 [WB-095](WB-095-skillhub-api-key-setting.md)（key 存储）+ [WB-092](WB-092-skillhub-tab-parity.md)（有 created_at 后加「最近上新」排序）。

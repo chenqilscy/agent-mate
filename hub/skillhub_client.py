@@ -36,7 +36,23 @@ def _cli_env() -> dict[str, str]:
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     env["SKILLHUB_SKIP_SELF_UPGRADE"] = "true"  # 服务端不做交互式自升级
+    # SkillHub 自己的凭据注入 SkillHub CLI（仅给它，不透传 os.environ；铁律#4/WB-011，WB-095）。
+    key = _stored_key()
+    if key:
+        env["SKILLHUB_API_KEY" if key.startswith("sk-ent-") else "SKILLHUB_TOKEN"] = key
     return env
+
+
+def _stored_key() -> str:
+    """SkillHub API key（WB-095）：优先 Hub 库里的平台设置，env 兜底。skh_ 个人 / sk-ent- 企业。"""
+    try:
+        import db  # 延迟导入避免 import 期耦合
+        v = db.get_setting("skillhub_api_key")
+        if v:
+            return v.strip()
+    except Exception:  # noqa: BLE001 —— 库不可用不阻断取数
+        pass
+    return (os.getenv("SKILLHUB_TOKEN") or os.getenv("SKILLHUB_API_KEY") or "").strip()
 
 
 def cli_available() -> bool:
@@ -81,11 +97,61 @@ def _normalize_card(x: dict[str, Any]) -> dict[str, Any]:
         "tags": x.get("tags") or [],
         "verified": bool(x.get("verified")),
         "source": str(x.get("source") or "skillhub").strip(),
+        # 发布/更新时间（ms epoch）——HTTP showcase/search 带，CLI 无。支撑「最近上新」排序（WB-092/094）。
+        "created_at": _to_int(x.get("created_at") or x.get("createdAt")),
+        "updated_at": _to_int(x.get("updated_at") or x.get("updatedAt")),
     }
 
 
+_API_BASE = os.getenv("SKILLHUB_API_BASE", "https://api.skillhub.cn").rstrip("/")
+_SHOWCASE = ("hot", "featured", "newest", "recommended", "trending", "paid")
+
+
+def _http_json(url: str, key: str = "", timeout: int = 15) -> Any:
+    headers = {"User-Agent": "workbuddy-hub/0.1", "Accept": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _http_rankings() -> list[dict[str, Any]]:
+    """直连 6 个 `showcase/*` 端点（WB-094）→ 展平去重归一化（含 created_at）。全空则抛，由上层回退 CLI。
+
+    配了 API key（WB-095）则带 Bearer——可解锁 paid showcase / 企业条目。
+    """
+    key = _stored_key()
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for name in _SHOWCASE:
+        try:
+            d = _http_json(f"{_API_BASE}/api/v1/showcase/{name}?limit=500", key)
+        except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+            continue  # 单个 showcase 失败不影响其它
+        skills = (d.get("skills") or d.get("featured_paid_skills") or []) if isinstance(d, dict) else []
+        for x in skills:
+            if not isinstance(x, dict):
+                continue
+            slug = str(x.get("slug") or "").strip()
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            out.append(_normalize_card(x))
+    if not out:
+        raise ValueError("showcase HTTP 全空")
+    return out
+
+
 def rankings_all() -> list[dict[str, Any]]:
-    """跑 `skill rankings --type all` → 展平 6 榜单、按 slug 去重、归一化。失败返回 []。
+    """镜像目录：优先直连 HTTP showcase（无需 CLI、带 created_at，WB-094），失败回退 CLI。"""
+    try:
+        return _http_rankings()
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return _cli_rankings()
+
+
+def _cli_rankings() -> list[dict[str, Any]]:
+    """回退：跑 `skill rankings --type all` → 展平 6 榜单、按 slug 去重、归一化。失败返回 []。
 
     形态：`{"rankings": {hot|featured|newest|recommended|trending: {section,skills,total},
     paid: {featured_merchants, featured_paid_skills}}}`。paid 用 `featured_paid_skills` 键。
@@ -130,12 +196,7 @@ _UA = "workbuddy-hub/0.1"
 def _http_search(q: str, limit: int) -> list[dict[str, Any]]:
     """直连 `/api/v1/search`（富字段：下载/星/图标/分类齐全）。失败抛异常，由 search() 兜底。"""
     params = urllib.parse.urlencode({"q": q, "limit": max(1, int(limit))})
-    req = urllib.request.Request(
-        f"{_SEARCH_URL}?{params}",
-        headers={"User-Agent": _UA, "Accept": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        raw = json.loads(resp.read().decode("utf-8"))
+    raw = _http_json(f"{_SEARCH_URL}?{params}", _stored_key(), timeout=10)
     results = raw.get("results") if isinstance(raw, dict) else (raw if isinstance(raw, list) else [])
     if not isinstance(results, list):
         return []
