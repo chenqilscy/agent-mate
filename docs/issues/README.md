@@ -111,6 +111,7 @@
 | [WB-093](WB-093-assistant-token-visible-env-cleanup.md) | ✅ | P2 | fullstack | 助理渠道 token 本机可见（撤销 write-only）+ 移除 .env Telegram 配置 + 铁律#4 同步（用户显式决定，local-first） |
 | [WB-094](WB-094-skillhub-cli-to-http.md) | ✅ | P3 | backend | SkillHub 取数 CLI→直连 HTTP（showcase/search 公开无需 key；拿到 created_at 补「最近上新」；企业 key 可选拉私有 registry） |
 | [WB-095](WB-095-skillhub-api-key-setting.md) | ✅ | P3 | fullstack | BuddyWebMgr 设置页保存 SkillHub API key（Hub 服务端存储/打码回显/注入取数；skh_ 个人·sk-ent- 企业） |
+| [WB-096](WB-096-email-channel.md) | ✅ | P2 | fullstack | 助理邮件渠道 —— IMAP 收 + SMTP 发（多渠道新类型，白名单+暗号，接入多助理，复用 ChannelManager） |
 
 ## 来源
 

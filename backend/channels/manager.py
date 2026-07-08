@@ -15,6 +15,7 @@ import time
 from typing import Optional
 
 from agent import runtime
+from channels import email_api
 from channels import telegram_api as tg
 from storage import db
 from storage.models import LOCAL_USER_ID
@@ -22,6 +23,7 @@ from storage.models import LOCAL_USER_ID
 log = logging.getLogger("workbuddy.channels")
 
 POLL_TIMEOUT = 30
+EMAIL_POLL = 45       # 邮件轮询间隔（秒）
 RUN_TIMEOUT = 300
 _BACKOFF = 5
 
@@ -33,9 +35,9 @@ _bot_cache: dict[str, tuple[float, Optional[str]]] = {}  # token -> (at, usernam
 # 渠道类型注册表：决定前端「新增渠道」能选什么、每类型可用与否（不造假——只 Telegram available）。
 CHANNEL_TYPES = [
     {"type": "telegram", "label": "Telegram", "available": True},
+    {"type": "email", "label": "邮件", "available": True},
     {"type": "wecom", "label": "企业微信", "available": False},
     {"type": "whatsapp", "label": "WhatsApp", "available": False},
-    {"type": "email", "label": "邮件", "available": False},
 ]
 
 
@@ -189,13 +191,100 @@ async def _tg_poll_loop(ch_id: str) -> None:
             await asyncio.sleep(_BACKOFF)
 
 
+# ---- Email 渠道：鉴权 + 路由 + 轮询（WB-096）---------------------------
+
+def _authorize_email(ch: dict, from_addr: str, subject: str, body: str) -> Optional[str]:
+    """按发件人白名单 + 可选暗号鉴权，返回会话 id（必要时配对绑定）；无权返回 None。
+    邮件 From 可伪造 → 白名单是弱保护，暗号（subject/body 含 secret）加固。"""
+    cfg = ch.get("config", {})
+    secret = (cfg.get("secret") or "").strip()
+    if secret and secret not in (subject or "") and secret not in (body or ""):
+        return None  # 设了暗号但没带 → 忽略
+    from_addr = (from_addr or "").strip().lower()
+    if not from_addr:
+        return None
+    existing = db.get_chat_session(ch["id"], from_addr)
+    if existing:
+        return existing["session_id"]
+    allow = [x.strip().lower() for x in (cfg.get("allow_from") or "").split(",") if x.strip()]
+    if allow:
+        if from_addr not in allow:
+            return None
+    else:
+        if db.first_chat_binding(ch["id"]) is not None:
+            return None  # 无白名单 → 首个发件人配对锁定
+    a = db.get_assistant(ch["assistant_id"])
+    if a is None:
+        return None
+    session_id = ensure_assistant_session(a)
+    db.bind_chat(ch["id"], from_addr, session_id, a["owner_id"])
+    log.info("邮件渠道 %s 绑定 %s → session=%s", ch["id"], from_addr, session_id)
+    return session_id
+
+
+async def _handle_email(ch_id: str, mail: dict) -> None:
+    ch = db.get_channel(ch_id)
+    if ch is None:
+        return
+    frm, subject, body = mail.get("from", ""), mail.get("subject", ""), mail.get("body", "")
+    session_id = _authorize_email(ch, frm, subject, body)
+    if session_id is None:
+        log.info("邮件渠道 %s 忽略未授权/无暗号发件人 %s", ch_id, frm)
+        return
+    text = (f"【邮件主题】{subject}\n\n{body}" if subject else body).strip()
+    if not text:
+        return
+    key = f"{ch_id}:{frm}"
+    if key in _busy:
+        return
+    _busy.add(key)
+    try:
+        a = db.get_assistant(ch["assistant_id"])
+        reply = await _run_agent(a, session_id, text) if a else "（助理不存在）"
+        ok, info = await asyncio.to_thread(
+            email_api.send_reply, ch["config"], frm, subject, reply, mail.get("message_id", "")
+        )
+        if not ok:
+            log.warning("邮件渠道 %s 回信失败：%s", ch_id, info)
+    finally:
+        _busy.discard(key)
+
+
+async def _email_poll_loop(ch_id: str) -> None:
+    ch = db.get_channel(ch_id)
+    if ch is None:
+        return
+    ok, info = await asyncio.to_thread(email_api.verify, ch["config"])
+    log.info("邮件渠道 %s 启动（%s）：%s", ch_id, (ch["config"].get("username") or ""), info)
+    while True:
+        try:
+            ch = db.get_channel(ch_id)  # 每轮取最新 config
+            if ch is None:
+                return
+            mails = await asyncio.to_thread(email_api.fetch_unseen, ch["config"])
+            for mail in mails:
+                await _handle_email(ch_id, mail)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("邮件渠道 %s 轮询异常", ch_id)
+        await asyncio.sleep(EMAIL_POLL)
+
+
 # ---- poller 协调 --------------------------------------------------------
 
 def _channel_should_run(ch: dict) -> bool:
-    if not ch.get("enabled") or ch["type"] != "telegram" or not _tg_token(ch):
+    if not ch.get("enabled"):
         return False
     a = db.get_assistant(ch["assistant_id"])
-    return bool(a and a.get("enabled"))
+    if not (a and a.get("enabled")):
+        return False
+    if ch["type"] == "telegram":
+        return bool(_tg_token(ch))
+    if ch["type"] == "email":
+        c = ch.get("config", {})
+        return bool((c.get("imap_host") or "").strip() and (c.get("username") or "").strip() and c.get("password"))
+    return False
 
 
 def _is_running(ch_id: str) -> bool:
@@ -214,16 +303,31 @@ async def _stop_poller(ch_id: str) -> None:
             pass
 
 
+def _run_signature(ch: dict) -> str:
+    """运行签名：变了就重启 poller（换 token / 换邮箱配置）。"""
+    if ch["type"] == "telegram":
+        return "tg:" + _tg_token(ch)
+    if ch["type"] == "email":
+        c = ch.get("config", {})
+        return "em:" + "|".join(str(c.get(k, "")) for k in ("imap_host", "imap_port", "smtp_host", "smtp_port", "username", "password"))
+    return ""
+
+
+def _make_loop(ch: dict):
+    return _email_poll_loop(ch["id"]) if ch["type"] == "email" else _tg_poll_loop(ch["id"])
+
+
 async def refresh() -> None:
-    """协调 poller 集合与 DB 期望态：启新、停删、换 token 重启。启动 + 每次配置变更后调。"""
-    want: dict[str, str] = {ch["id"]: _tg_token(ch) for ch in db.list_all_channels() if _channel_should_run(ch)}
+    """协调 poller 集合与 DB 期望态：启新、停删、配置变更重启。启动 + 每次配置变更后调。"""
+    channels = {ch["id"]: ch for ch in db.list_all_channels() if _channel_should_run(ch)}
+    want = {cid: _run_signature(ch) for cid, ch in channels.items()}
     for cid in list(_pollers.keys()):
         if cid not in want or not _is_running(cid) or _running_token.get(cid) != want.get(cid):
             await _stop_poller(cid)
-    for cid, tok in want.items():
+    for cid, sig in want.items():
         if not _is_running(cid):
-            _running_token[cid] = tok
-            _pollers[cid] = asyncio.create_task(_tg_poll_loop(cid))
+            _running_token[cid] = sig
+            _pollers[cid] = asyncio.create_task(_make_loop(channels[cid]))
 
 
 async def stop() -> None:
@@ -254,9 +358,11 @@ def channel_public(ch: dict) -> dict:
         "type": ch["type"],
         "enabled": ch["enabled"],
         "running": _is_running(ch["id"]),
-        "has_token": bool(_tg_token(ch)),
+        "has_token": bool(_tg_token(ch)) if ch["type"] == "telegram" else bool((ch.get("config", {}).get("username") or "").strip()),
         "token": _tg_token(ch) if ch["type"] == "telegram" else "",
         "chat_id": (ch.get("config", {}).get("chat_id") or "") if ch["type"] == "telegram" else "",
+        # 邮件渠道：回 config（本机可见，含账号/密码——延续 WB-093 本机可见）；telegram 不用 config 字段。
+        "config": ch.get("config", {}) if ch["type"] == "email" else {},
         "bound_chat_id": (db.first_chat_binding(ch["id"]) or {}).get("chat_id"),
     }
 

@@ -275,6 +275,7 @@ export interface AssistantChannel {
   has_token: boolean
   token: string              // WB-093：本机可见的原始 token（local-first，仅本机设置 UI）
   chat_id: string            // 白名单固定 chat（telegram）
+  config: Record<string, string> // WB-096：邮件渠道配置（host/port/账号/密码/白名单/暗号，本机可见）
   bound_chat_id: string | null
 }
 export interface Assistant {
