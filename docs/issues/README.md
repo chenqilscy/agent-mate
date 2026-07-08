@@ -109,6 +109,7 @@
 | [WB-091](WB-091-local-hub-work-items-sync.md) | ✅ | P3 | backend | 本地 App ⇄ Hub work_items 双向同步（WB-081 二期；hub-origin 项目 work-items 读代理+镜像/写代理，前端零改，离线兜底） |
 | [WB-092](WB-092-skillhub-tab-parity.md) | ✅ | P3 | frontend | BuddyWebMgr SkillHub 页向真站对齐（左筛选：发布来源/排序/场景 + 富卡片图标/来源/★/⬇；api-key 与飙升排序无数据诚实不做） |
 | [WB-093](WB-093-assistant-token-visible-env-cleanup.md) | ✅ | P2 | fullstack | 助理渠道 token 本机可见（撤销 write-only）+ 移除 .env Telegram 配置 + 铁律#4 同步（用户显式决定，local-first） |
+| [WB-094](WB-094-skillhub-cli-to-http.md) | ⬜ | P3 | backend | SkillHub 取数 CLI→直连 HTTP（showcase/search 公开无需 key；拿到 created_at 补「最近上新」；企业 key 可选拉私有 registry） |
 
 ## 来源
 
