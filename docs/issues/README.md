@@ -113,6 +113,7 @@
 | [WB-095](WB-095-skillhub-api-key-setting.md) | ✅ | P3 | fullstack | BuddyWebMgr 设置页保存 SkillHub API key（Hub 服务端存储/打码回显/注入取数；skh_ 个人·sk-ent- 企业） |
 | [WB-096](WB-096-email-channel.md) | ✅ | P2 | fullstack | 助理邮件渠道 —— IMAP 收 + SMTP 发（多渠道新类型，白名单+暗号，接入多助理，复用 ChannelManager） |
 | [WB-097](WB-097-channel-typemenu-clipped.md) | ✅ | P2 | ui | 助理「新增渠道」类型菜单被滚动容器裁切 —— 改用 Popover（fixed 定位不裁切，复用 .pop-item） |
+| [WB-098](WB-098-email-self-reply-loop.md) | ✅ | P1 | backend | 邮件渠道自我回复循环 —— 回信打 X-WorkBuddy-Assistant 头，收信跳过自己回信（防邮件风暴） |
 
 ## 来源
 

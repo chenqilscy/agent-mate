@@ -113,6 +113,10 @@ def fetch_unseen(config: dict) -> list[dict]:
             if typ != "OK" or not msg_data or not msg_data[0]:
                 continue
             msg = email.message_from_bytes(msg_data[0][1])
+            # 跳过助手自己发出的回信（WB-098）：白名单含账号自己时，回信落回收件箱会被当新邮件
+            # 反复处理 → 自我回复循环。发信打了 X-WorkBuddy-Assistant 头，这里据此跳过。
+            if msg.get("X-WorkBuddy-Assistant"):
+                continue
             frm = parseaddr(msg.get("From", ""))[1].strip().lower()
             subject = _decode(msg.get("Subject", ""))
             body = _strip_quoted(_plain_body(msg))[:_MAX_BODY]
@@ -135,6 +139,7 @@ def send_reply(config: dict, to: str, subject: str, body: str, in_reply_to: str 
     msg = MIMEText(body or "（空）", "plain", "utf-8")
     msg["From"] = user
     msg["To"] = to
+    msg["X-WorkBuddy-Assistant"] = "1"  # 标记：收信时据此跳过助手自己的回信，防自我回复循环（WB-098）
     subj = subject or ""
     msg["Subject"] = subj if subj.lower().startswith("re:") else f"Re: {subj}" if subj else "Re:"
     if in_reply_to:
