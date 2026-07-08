@@ -48,6 +48,32 @@
   .tabs { display:flex; gap:6px; margin-bottom:12px; } .tabs button { background:var(--chip); color:var(--dim); font-weight:500; }
   .tabs button.active { background:var(--brand); color:#fff; }
   code { background:var(--chip); padding:2px 6px; border-radius:5px; }
+  /* 连接器浏览橱窗（WB-101）：对齐主应用 App 的 .conn 卡片布局，套 console 暗色 token。cg- 前缀防撞并发改动 */
+  .cg-bar { margin-bottom:14px; }
+  .cg-search { max-width:280px; }
+  .cg-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; }
+  .cg-card { display:flex; gap:12px; align-items:flex-start; padding:15px 16px; border:1px solid var(--line); border-radius:13px; background:var(--panel); cursor:pointer; transition:.15s; }
+  .cg-card:hover { border-color:var(--brand); box-shadow:0 2px 10px rgba(0,0,0,.25); }
+  .cg-card:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
+  .cg-ic { width:34px; height:34px; border-radius:9px; background:var(--chip); display:grid; place-items:center; font-size:17px; flex-shrink:0; }
+  .cg-ic-lg { width:50px; height:50px; border-radius:12px; font-size:26px; }
+  .cg-name { font-size:13.5px; font-weight:700; display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+  .cg-desc { font-size:11.8px; color:var(--dim); line-height:1.55; margin-top:4px; }
+  .cg-badge { font-size:10px; font-weight:600; padding:1px 7px; border-radius:20px; }
+  .cg-badge.rdy { background:rgba(22,179,122,.16); color:#37d39b; }
+  .cg-badge.tok { background:rgba(231,163,62,.16); color:#e7a33e; }
+  .cg-badge.off { background:var(--chip); color:var(--dim); }
+  .cg-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:grid; place-items:center; z-index:50; padding:20px; }
+  .cg-modal { width:480px; max-width:100%; max-height:88vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:14px; }
+  .cg-mh { display:flex; gap:12px; align-items:flex-start; padding:18px 18px 12px; border-bottom:1px solid var(--line); }
+  .cg-mname { font-size:18px; font-weight:800; display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+  .cg-mtags { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .cg-x { background:transparent; color:var(--dim); font-size:22px; font-weight:400; padding:0 6px; }
+  .cg-mb { padding:14px 18px; }
+  .cg-sec { font-size:12px; color:var(--dim); font-weight:600; margin:14px 0 6px; }
+  .cg-sec:first-child { margin-top:0; }
+  .cg-mdesc { font-size:13px; line-height:1.7; color:var(--ink); }
+  .cg-mf { display:flex; gap:8px; align-items:center; padding:12px 18px; border-top:1px solid var(--line); }
   /* 技能浏览橱窗（WB-102）：对齐主应用 App 的技能页（精选/推荐·SkillHub·套件/富卡★⬇/详情），套 console 暗色 token。sg- 前缀防撞并发改动 */
   .sg-sectitle { font-size:14px; font-weight:700; margin:22px 0 12px; }
   .sg-grid { display:grid; gap:14px; }
@@ -368,6 +394,8 @@ async function notifsView(m){
 // ---------- 目录运营中心（WB-082 框架 + 专家/专家团；WB-083 连接器；WB-084 技能+SkillHub）----------
 // 维护下发给客户端的内置目录（catalog_items），客户端 pull 后覆盖本地、离线回落本地 builtin 兜底。
 let CATVIEW = "experts";
+let CONNSUB = "gallery";   // 连接器 tab 子视图（WB-101）：gallery 浏览橱窗 / manage 目录管理
+let CONN_EDIT_ID = null;   // 从橱窗详情「编辑此连接器」跳目录管理时，带过去要载入编辑的项 id
 function catTab(c,label){ return `<button data-c="${c}" class="${CATVIEW===c?'active':''}">${label}</button>`; }
 async function catFlat(category){ try{ const {items}=await api("GET","/catalog/"+category); return items.map(it=>it.data).filter(x=>typeof x==="string"); }catch(e){ return []; } }
 async function catalogView(m){
@@ -460,7 +488,71 @@ async function teamsCat(body){
 // launch spec 编辑器：内置(builtin_server) 或 第三方 stdio(command/args/secret_env 仅变量名/requires)。
 // 注：App 侧「浏览显示 + 真执行」消费 Hub 连接器定义需 pull 映射（CONN_DEFS→NP_CONNS/本地 catalog_connectors），属后续。
 const BUILTIN_SERVERS = ["notes","clock","search","telegram","kdocs"];
+
+// 连接器 tab 分发（WB-101）：子切换「浏览橱窗 | 目录管理」，两者读同一份 CONN_DEFS。
 async function connectorsCat(body){
+  body.innerHTML = `
+    <div class="tabs" style="margin-bottom:14px">
+      <button data-cs="gallery" class="${CONNSUB==='gallery'?'active':''}">浏览橱窗</button>
+      <button data-cs="manage" class="${CONNSUB==='manage'?'active':''}">目录管理</button>
+    </div>
+    <div id="cn-sub"></div>`;
+  body.querySelectorAll("[data-cs]").forEach(b=> b.onclick=()=>{ CONNSUB=b.dataset.cs; connectorsCat(body); });
+  (CONNSUB==="manage"? connectorsManage : connectorsGallery)(document.getElementById("cn-sub"));
+}
+
+// 浏览橱窗（WB-101）：对齐主应用 .conn 的双列卡片（icon+名称+rdy/tok 徽章+简介）+ 名称/简介搜索 + 只读详情浮层。
+async function connectorsGallery(sub){
+  sub.innerHTML = `<div class="cg-bar"><input id="cg-q" class="cg-search" placeholder="搜索连接器"></div><div id="cg-grid" class="muted">加载中…</div>`;
+  const grid = document.getElementById("cg-grid");
+  let items = [];
+  try{ const r = await api("GET","/catalog/CONN_DEFS?all=true"); items = r.items||[]; }
+  catch(e){ grid.className=""; grid.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+  const badge = d => d.status==="rdy"?'<span class="cg-badge rdy">内置即用</span>':(d.status==="tok"?'<span class="cg-badge tok">需连接</span>':'');
+  const draw = q => {
+    const kw=(q||"").trim().toLowerCase();
+    const list = items.filter(it=>{ const d=it.data||{}; return !kw || (d.name||"").toLowerCase().includes(kw) || (d.desc||"").toLowerCase().includes(kw); });
+    if(!list.length){ grid.className="muted"; grid.innerHTML = `<div style="padding:18px 0">${items.length?"没有匹配的连接器":"还没有连接器目录项，去「目录管理」新增"}</div>`; return; }
+    grid.className="cg-grid";
+    grid.innerHTML = list.map(it=>{ const d=it.data||{}; const off=it.enabled?"":'<span class="cg-badge off">停用</span>'; return `<div class="cg-card" role="button" tabindex="0" data-id="${esc(it.id)}"><div class="cg-ic">${esc(d.icon||"🔗")}</div><div style="flex:1;min-width:0"><div class="cg-name">${esc(d.name||"?")}${badge(d)}${off}</div><div class="cg-desc">${esc(d.desc||"")}</div></div></div>`; }).join("");
+    grid.querySelectorAll("[data-id]").forEach(c=>{ const open=()=>connectorDetail(items.find(x=>x.id===c.dataset.id)); c.onclick=open; c.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); open(); } }; });
+  };
+  draw("");
+  document.getElementById("cg-q").oninput = e=> draw(e.target.value);
+}
+
+// 只读详情浮层（WB-101）：管理台无会话/loadout/OAuth，不搬 App 的添加会话/去试试/连接授权；
+// 提供「编辑此连接器」跳目录管理并载入该项。
+function connectorDetail(it){
+  if(!it) return;
+  const d=it.data||{}, L=d.launch||{};
+  const lsum = L.builtin_server ? ("内置 · "+L.builtin_server) : (L.command ? ("stdio · "+(L.command+" "+((L.args||[]).join(" "))).trim()) : "—");
+  const badge = d.status==="rdy"?'<span class="cg-badge rdy">内置即用</span>':(d.status==="tok"?'<span class="cg-badge tok">需连接</span>':'');
+  const off = it.enabled?"":'<span class="cg-badge off">停用</span>';
+  const req = L.requires||[];
+  const ov = document.createElement("div"); ov.className="cg-overlay";
+  ov.innerHTML = `<div class="cg-modal" role="dialog" aria-modal="true" aria-label="${esc(d.name||"连接器")}">
+    <div class="cg-mh"><div class="cg-ic cg-ic-lg">${esc(d.icon||"🔗")}</div>
+      <div style="flex:1;min-width:0"><div class="cg-mname">${esc(d.name||"?")}${badge}${off}</div>
+        <div class="cg-mtags"><span class="pill">连接器</span></div></div>
+      <button class="cg-x" aria-label="关闭">×</button></div>
+    <div class="cg-mb">
+      <div class="cg-sec">能力介绍</div><div class="cg-mdesc">${esc(d.desc||"（无简介）")}</div>
+      <div class="cg-sec">启动方式</div><div class="cg-mdesc"><code>${esc(lsum)}</code></div>
+      ${req.length?`<div class="cg-sec">所需凭据（环境变量名）</div><div class="cg-mtags">${req.map(r=>`<span class="pill">${esc(r)}</span>`).join("")}</div>`:""}
+    </div>
+    <div class="cg-mf"><button class="line cg-edit">编辑此连接器</button><div class="grow"></div><button class="cg-close">关闭</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  const close=()=>ov.remove();
+  ov.onmousedown = e=>{ if(e.target===ov) close(); };
+  ov.querySelector(".cg-x").onclick = close;
+  ov.querySelector(".cg-close").onclick = close;
+  ov.querySelector(".cg-edit").onclick = ()=>{ close(); CONN_EDIT_ID=it.id; CONNSUB="manage"; render(); };
+}
+
+// 目录管理（WB-083 原 CRUD，WB-101 从 connectorsCat 抽出为子视图）：每条 = {icon,name,desc,status,launch}。
+async function connectorsManage(body){
   body.innerHTML = `
     <div class="card"><h3 id="cn-h">新增连接器</h3><input type="hidden" id="cn-id">
       <div class="grid2">
@@ -519,14 +611,15 @@ async function connectorsCat(body){
     }
     const data={ icon:F("cn-icon").value.trim(), name, desc:F("cn-desc").value.trim(), status:F("cn-status").value, launch };
     const id=F("cn-id").value, sort=Number(F("cn-sort").value)||0;
-    try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"CONN_DEFS",data,sort}); connectorsCat(body); }
+    try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"CONN_DEFS",data,sort}); connectorsManage(body); }
     catch(e){ F("cn-err").textContent=e.message; }
   };
   try{ const {items} = await api("GET","/catalog/CONN_DEFS?all=true");
     F("cn-list").innerHTML = items.length? items.map(it=>{ const d=it.data||{}, L=d.launch||{}; const lsum=L.builtin_server?("内置 · "+L.builtin_server):(L.command?("stdio · "+L.command+" "+((L.args||[]).join(" "))):"—"); return `<div class="list-item"><span style="font-size:20px">${esc(d.icon||"🔗")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d.name||"?")} <span class="pill">${esc(d.status||"")}</span> ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(lsum)}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`; }).join("") : '<div class="muted">还没有连接器目录项</div>';
     F("cn-list").querySelectorAll("[data-ed]").forEach(b=> b.onclick=()=>{ fill(items.find(x=>x.id===b.dataset.ed)); window.scrollTo(0,0); });
-    F("cn-list").querySelectorAll("[data-tog]").forEach(b=> b.onclick=async()=>{ const [id,en]=b.dataset.tog.split(":"); try{ await api("PATCH","/catalog/item/"+id,{enabled:!!+en}); connectorsCat(body);}catch(e){F("cn-err").textContent=e.message;} });
-    F("cn-list").querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); connectorsCat(body);}catch(e){F("cn-err").textContent=e.message;} });
+    F("cn-list").querySelectorAll("[data-tog]").forEach(b=> b.onclick=async()=>{ const [id,en]=b.dataset.tog.split(":"); try{ await api("PATCH","/catalog/item/"+id,{enabled:!!+en}); connectorsManage(body);}catch(e){F("cn-err").textContent=e.message;} });
+    F("cn-list").querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); connectorsManage(body);}catch(e){F("cn-err").textContent=e.message;} });
+    if(CONN_EDIT_ID){ const it=items.find(x=>x.id===CONN_EDIT_ID); CONN_EDIT_ID=null; if(it){ fill(it); window.scrollTo(0,0); } }  // 橱窗「编辑此连接器」带来的项，自动载入编辑（WB-101）
   }catch(e){ F("cn-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 

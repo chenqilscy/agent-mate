@@ -115,6 +115,7 @@
 | [WB-097](WB-097-channel-typemenu-clipped.md) | ✅ | P2 | ui | 助理「新增渠道」类型菜单被滚动容器裁切 —— 改用 Popover（fixed 定位不裁切，复用 .pop-item） |
 | [WB-098](WB-098-email-self-reply-loop.md) | ✅ | P1 | backend | 邮件渠道自我回复循环 —— 回信打 X-WorkBuddy-Assistant 头，收信跳过自己回信（防邮件风暴） |
 | [WB-099](WB-099-console-grid-overflow.md) | ✅ | P3 | ui | BuddyWebMgr SkillHub 页横向溢出 —— grid 1fr→minmax(0,1fr)（SkillHub/看板/grid2 同修） |
+| [WB-101](WB-101-console-connector-gallery.md) | ✅ | P3 | ui | BuddyWebMgr 连接器补「浏览橱窗」—— 目录管理旁加 App 风格双列卡片橱窗（读同一 CONN_DEFS，cg- 前缀防撞并发） |
 | [WB-102](WB-102-console-skill-gallery.md) | ✅ | P2 | frontend | BuddyWebMgr 技能补「浏览橱窗」（整页技能）—— 精选+换一换/推荐·SkillHub·套件/分类/富卡★⬇/详情/搜索，读同一目录数据，sg- 前缀防撞并发 |
 
 ## 来源
