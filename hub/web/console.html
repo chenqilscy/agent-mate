@@ -490,32 +490,58 @@ async function skillsCat(body){
   }catch(e){F("sk-list").innerHTML=`<div class="err">${esc(e.message)}</div>`;}
 }
 
-// SkillHub（WB-084）：浏览镜像（category 'skill'，369 条）+ 分类过滤 + 实时搜索（CLI 代理）+ 加入精选（SKILLHUB_FEATURED）+ 手动同步。
-let SH_Q="", SH_CAT="";
+// SkillHub（WB-084 + WB-092 向真站对齐）：左筛选（发布来源/排序/场景）+ 右富卡片（图标/来源/★/⬇）。
+// 排序/来源只用镜像已有字段（source·score·downloads·stars·installs）；「需 API Key 筛选、近期飙升/最近上新」
+// SkillHub 榜单 feed 不提供该数据，诚实不做（见 WB-092）。搜索走 CLI 代理。
+let SH_Q="", SH_CAT="", SH_SRC="", SH_SORT="score";
+const SH_SORTS=[["score","推荐精选"],["downloads","下载量"],["stars","收藏量"],["installs","安装量"]];
+function shNum(n){ n=n||0; return n>=10000? (n/10000).toFixed(1)+"万" : String(n); }
+function shSrc(s){ return s==="clawhub"?"ClawHub":(s==="enterprise"?"企业":(s==="community"?"社区":(s||""))); }
 async function skillhubCat(body){
+  const sideBtn=(v,l,cur)=>`<button class="line" data-v="${esc(v)}" style="text-align:left;${cur===v?'background:var(--chip)':''}">${l}</button>`;
   body.innerHTML = `
     <div class="card"><div class="row"><button id="sh-sync">手动同步 SkillHub</button><span class="muted" id="sh-msg" style="font-size:12.5px"></span></div>
-      <div class="row" style="margin-top:10px"><input id="sh-q" placeholder="搜索 SkillHub（实时，走 CLI）" value="${esc(SH_Q)}"><button class="line" id="sh-search">搜索</button><button class="ghost" id="sh-clearq">清空</button></div>
-      <div id="sh-cats" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div></div>
-    <div id="sh-list" class="muted">加载中…</div>`;
+      <div class="row" style="margin-top:10px"><input id="sh-q" placeholder="搜索 SkillHub（实时，走 CLI）" value="${esc(SH_Q)}"><button class="line" id="sh-search">搜索</button><button class="ghost" id="sh-clearq">清空</button></div></div>
+    <div style="display:grid;grid-template-columns:180px 1fr;gap:14px;align-items:start">
+      <div class="card">
+        <div class="muted" style="font-size:11px;margin-bottom:6px">发布来源</div>
+        <div id="sh-src" style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">${[["","全部"],["skillhub","SkillHub"],["clawhub","ClawHub"]].map(([v,l])=>sideBtn(v,l,SH_SRC)).join("")}</div>
+        <div class="muted" style="font-size:11px;margin-bottom:6px">排序方式</div>
+        <div id="sh-sort" style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">${SH_SORTS.map(([v,l])=>sideBtn(v,l,SH_SORT)).join("")}</div>
+        <div class="muted" style="font-size:11px;margin-bottom:6px">场景分类</div>
+        <div id="sh-cats" style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:12px">…</span></div>
+      </div>
+      <div id="sh-list" class="muted">加载中…</div>
+    </div>`;
   const F=id=>document.getElementById(id);
   F("sh-sync").onclick=async()=>{ F("sh-msg").textContent="同步中…（跑 CLI，稍候）"; try{ const r=await api("POST","/catalog/skills/sync"); F("sh-msg").textContent="已同步："+(r.inserted!=null?(r.inserted+" 条"):JSON.stringify(r)); skillhubCat(body);}catch(e){F("sh-msg").textContent=e.message;} };
-  F("sh-search").onclick=()=>{ SH_Q=F("sh-q").value.trim(); SH_CAT=""; skillhubCat(body); };
-  F("sh-q").onkeydown=(e)=>{ if(e.key==="Enter"){ SH_Q=F("sh-q").value.trim(); SH_CAT=""; skillhubCat(body); } };
-  F("sh-clearq").onclick=()=>{ SH_Q=""; SH_CAT=""; skillhubCat(body); };
+  F("sh-search").onclick=()=>{ SH_Q=F("sh-q").value.trim(); skillhubCat(body); };
+  F("sh-q").onkeydown=(e)=>{ if(e.key==="Enter"){ SH_Q=F("sh-q").value.trim(); skillhubCat(body); } };
+  F("sh-clearq").onclick=()=>{ SH_Q=""; skillhubCat(body); };
+  F("sh-src").querySelectorAll("[data-v]").forEach(b=> b.onclick=()=>{ SH_SRC=b.dataset.v; SH_Q=""; skillhubCat(body); });
+  F("sh-sort").querySelectorAll("[data-v]").forEach(b=> b.onclick=()=>{ SH_SORT=b.dataset.v; skillhubCat(body); });
   let featBySlug={};
   try{ const {items}=await api("GET","/catalog/SKILLHUB_FEATURED?all=true"); items.forEach(it=>{ if(it.data&&it.data.slug) featBySlug[it.data.slug]=it.id; }); }catch(e){}
   try{ const {items}=await api("GET","/catalog/skill-category?all=true"); const tax=(items[0]&&items[0].data&&items[0].data.items)||[];
-    F("sh-cats").innerHTML = SH_Q? "" : [`<button class="line" data-cat="" style="${SH_CAT?'':'background:var(--chip)'}">全部</button>`].concat(tax.map(c=>`<button class="line" data-cat="${esc(c.key)}" style="${SH_CAT===c.key?'background:var(--chip)':''}">${esc(c.name)} ${c.count||""}</button>`)).join("");
-    F("sh-cats").querySelectorAll("[data-cat]").forEach(b=> b.onclick=()=>{ SH_CAT=b.dataset.cat; SH_Q=""; skillhubCat(body); });
+    F("sh-cats").innerHTML = [sideBtn("","全部",SH_CAT)].concat(tax.map(c=>`<button class="line" data-cat="${esc(c.key)}" style="text-align:left;${SH_CAT===c.key?'background:var(--chip)':''}">${esc(c.name)} ${c.count||""}</button>`)).join("");
+    F("sh-cats").querySelectorAll("[data-cat],[data-v]").forEach(b=> b.onclick=()=>{ SH_CAT=b.dataset.cat!==undefined?b.dataset.cat:b.dataset.v; SH_Q=""; skillhubCat(body); });
   }catch(e){}
   try{
     let skills, note="";
-    if(SH_Q){ const r=await api("GET","/catalog/skills/search?q="+encodeURIComponent(SH_Q)+"&limit=30"); skills=(r.results||[]).map(d=>({data:d})); if(!r.cli) note='<div class="muted">SkillHub CLI 不可用，无法实时搜索（客户端会回退本地兜底）</div>'; }
-    else { const {items}=await api("GET","/catalog/skill?all=true"); skills=items.filter(it=> !SH_CAT || (it.data&&it.data.skillhub_category===SH_CAT)); }
-    F("sh-list").innerHTML = note || (skills.length? skills.slice(0,60).map(it=>{ const d=it.data||{}; const fid=featBySlug[d.slug]; return `<div class="list-item"><div style="flex:1;min-width:0"><div class="t">${esc(d.name||d.slug||"?")} ${d.skillhub_category_name?`<span class="pill">${esc(d.skillhub_category_name)}</span>`:""} ${d.stars?`<span class="muted" style="font-size:11px">★${d.stars}</span>`:""}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.description||"")}</div></div><button class="${fid?'ghost':'line'}" data-feat="${esc(d.slug||"")}">${fid?"取消精选":"加入精选"}</button></div>`; }).join("") : '<div class="muted">无结果</div>');
+    if(SH_Q){ const r=await api("GET","/catalog/skills/search?q="+encodeURIComponent(SH_Q)+"&limit=40"); skills=(r.results||[]).map(d=>({data:d})); if(!r.cli) note='<div class="muted">SkillHub CLI 不可用，无法实时搜索（客户端会回退本地兜底）</div>'; }
+    else {
+      const {items}=await api("GET","/catalog/skill?all=true");
+      skills=items.filter(it=>{ const d=it.data||{};
+        if(SH_CAT && d.skillhub_category!==SH_CAT) return false;
+        if(SH_SRC==="clawhub" && d.source!=="clawhub") return false;
+        if(SH_SRC==="skillhub" && !(d.source==="community"||d.source==="enterprise")) return false;
+        return true; });
+      skills.sort((a,b)=> (b.data[SH_SORT]||0)-(a.data[SH_SORT]||0));
+    }
+    F("sh-list").innerHTML = note || (skills.length? `<div class="muted" style="font-size:12px;margin-bottom:8px">${skills.length} 个技能${SH_Q?"（搜索）":""}</div>`+skills.slice(0,80).map(it=>{ const d=it.data||{}; const fid=featBySlug[d.slug];
+      return `<div class="list-item">${d.iconUrl?`<img src="${esc(d.iconUrl)}" style="width:36px;height:36px;border-radius:8px;object-fit:cover;background:var(--chip);flex-shrink:0" onerror="this.style.display='none'">`:`<span style="font-size:22px">🧩</span>`}<div style="flex:1;min-width:0"><div class="t">${esc(d.name||d.slug||"?")} ${d.source?`<span class="pill">${esc(shSrc(d.source))}</span>`:""} ${d.skillhub_category_name?`<span class="pill">${esc(d.skillhub_category_name)}</span>`:""} ${d.stars?`<span class="muted" style="font-size:11px">★${d.stars}</span>`:""} ${d.downloads?`<span class="muted" style="font-size:11px">⬇${shNum(d.downloads)}</span>`:""}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.description||"")}</div></div><button class="${fid?'ghost':'line'}" data-feat="${esc(d.slug||"")}">${fid?"取消精选":"加入精选"}</button></div>`; }).join("") : '<div class="muted">无结果</div>');
     F("sh-list").querySelectorAll("[data-feat]").forEach(b=> b.onclick=async()=>{ const slug=b.dataset.feat, fid=featBySlug[slug]; try{ if(fid) await api("DELETE","/catalog/item/"+fid); else { const sk=skills.find(x=>x.data.slug===slug); await api("POST","/catalog",{category:"SKILLHUB_FEATURED",data:sk.data,kind:"featured"}); } skillhubCat(body);}catch(e){F("sh-msg").textContent=e.message;} });
-    F("sh-msg").textContent = `${featBySlug&&Object.keys(featBySlug).length||0} 个已精选`;
+    F("sh-msg").textContent = `${Object.keys(featBySlug).length} 个已精选`;
   }catch(e){ F("sh-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 

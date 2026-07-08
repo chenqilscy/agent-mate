@@ -107,6 +107,7 @@
 | [WB-088](WB-088-multi-assistant-frontend.md) | ✅ | P1 | frontend | 多助理 S2 —— 前端多助理管理 UI（主从：列表/新建/设置/对话/渠道；合并 S3 前端） |
 | [WB-089](WB-089-multi-assistant-consolidate.md) | ✅ | P1 | fullstack | 多助理 S3+S4 收尾 —— 移除兼容层 + 端到端验证 + 关闭 epic WB-086 |
 | [WB-091](WB-091-local-hub-work-items-sync.md) | ✅ | P3 | backend | 本地 App ⇄ Hub work_items 双向同步（WB-081 二期；hub-origin 项目 work-items 读代理+镜像/写代理，前端零改，离线兜底） |
+| [WB-092](WB-092-skillhub-tab-parity.md) | ✅ | P3 | frontend | BuddyWebMgr SkillHub 页向真站对齐（左筛选：发布来源/排序/场景 + 富卡片图标/来源/★/⬇；api-key 与飙升排序无数据诚实不做） |
 
 ## 来源
 
