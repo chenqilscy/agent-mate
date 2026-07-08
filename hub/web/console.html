@@ -133,6 +133,53 @@
   .sg-mdesc { font-size:13px; line-height:1.7; color:var(--ink); }
   .sg-mfoot { display:flex; align-items:center; gap:10px; padding:12px 18px; border-top:1px solid var(--line); }
   .sg-mlink { font-size:12.5px; font-weight:600; color:var(--brand); text-decoration:none; white-space:nowrap; }
+  /* ---- 专家 · 专家团 浏览橱窗（WB-100，App 同款布局，适配控制台 dark token）---- */
+  .sec-title { font-size:14px; font-weight:700; margin:22px 0 12px; }
+  .scene-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; }
+  .scene-card { border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel); cursor:pointer; transition:.15s; }
+  .scene-card:hover { border-color:var(--brand); }
+  .sc-top { height:58px; background:linear-gradient(135deg,rgba(22,179,122,.22),rgba(46,125,246,.22)); display:flex; align-items:flex-end; padding:10px 12px; font-size:14px; font-weight:800; }
+  .sc-list { padding:8px 6px 10px; }
+  .sc-item { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:8px; font-size:12.5px; color:var(--dim); }
+  .sc-item:hover { background:var(--chip); color:var(--ink); }
+  .sc-item .av { width:20px; height:20px; border-radius:6px; background:var(--chip); display:grid; place-items:center; font-size:11px; flex-shrink:0; }
+  .subtabs { display:flex; align-items:center; gap:16px; margin:20px 0 4px; border-bottom:1px solid var(--line); }
+  .subtab { padding:8px 2px; font-size:13.5px; font-weight:600; color:var(--dim); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; }
+  .subtab:hover { color:var(--ink); }
+  .subtab.active { color:var(--ink); border-bottom-color:var(--brand); }
+  .cats { display:flex; gap:7px; flex-wrap:wrap; margin:16px 0; }
+  .cat { padding:5px 12px; border-radius:20px; font-size:12px; color:var(--dim); cursor:pointer; background:var(--chip); }
+  .cat:hover { color:var(--ink); }
+  .cat.active { background:var(--brand); color:#fff; }
+  .card-grid { display:grid; gap:14px; }
+  .card-grid.g4 { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .card-grid.g2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  @media (max-width:1080px){ .card-grid.g4 { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  .ecard { border:1px solid var(--line); border-radius:13px; padding:15px; background:var(--panel); transition:.15s; cursor:pointer; }
+  .ecard:hover { border-color:var(--brand); }
+  .ecard.off { opacity:.55; }
+  .ec-h { display:flex; gap:11px; align-items:flex-start; }
+  .ec-av { width:38px; height:38px; border-radius:10px; background:var(--chip); display:grid; place-items:center; font-size:18px; flex-shrink:0; }
+  .ec-n { font-size:13.5px; font-weight:700; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .ec-n .b { font-size:9.5px; font-weight:700; color:var(--brand); background:rgba(22,179,122,.16); padding:1px 6px; border-radius:6px; }
+  .ec-s { font-size:11px; color:var(--dim); margin-top:2px; }
+  .ec-d { font-size:11.8px; color:var(--dim); line-height:1.55; margin-top:10px; min-height:34px; }
+  .ec-tags { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+  .ec-tag { font-size:10.5px; color:var(--ink); background:var(--chip); padding:2px 8px; border-radius:6px; }
+  .hub-blank { padding:48px 0; text-align:center; color:var(--dim); font-size:13.5px; }
+  /* 详情 / 编辑弹窗（复用 App .np-* 骨架，适配 dark token）*/
+  .np-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:150; padding:20px; }
+  .np-overlay.open { display:flex; }
+  .np-modal { width:520px; max-width:100%; max-height:92vh; background:var(--panel); border:1px solid var(--line); border-radius:16px; display:flex; flex-direction:column; overflow:hidden; }
+  .np-h { display:flex; align-items:center; gap:12px; padding:18px 22px 8px; font-size:16px; font-weight:800; flex-shrink:0; }
+  .np-x { margin-left:auto; width:28px; height:28px; border-radius:8px; background:transparent; color:var(--dim); font-size:19px; line-height:1; display:grid; place-items:center; padding:0; }
+  .np-x:hover { background:var(--chip); }
+  .np-body { padding:6px 22px 12px; overflow-y:auto; }
+  .np-foot { display:flex; align-items:center; gap:10px; padding:14px 22px 18px; border-top:1px solid var(--line); flex-shrink:0; }
+  .pkc-row { display:flex; gap:11px; align-items:flex-start; border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-bottom:8px; background:var(--panel2); }
+  .pkc-row .pi { width:26px; height:26px; border-radius:7px; background:var(--chip); display:grid; place-items:center; font-size:14px; flex-shrink:0; }
+  .pkc-row .pn { font-size:13.5px; font-weight:700; }
+  .pkc-row .pd { font-size:11.8px; color:var(--dim); margin-top:3px; }
 </style>
 </head>
 <body>
@@ -400,88 +447,214 @@ function catTab(c,label){ return `<button data-c="${c}" class="${CATVIEW===c?'ac
 async function catFlat(category){ try{ const {items}=await api("GET","/catalog/"+category); return items.map(it=>it.data).filter(x=>typeof x==="string"); }catch(e){ return []; } }
 async function catalogView(m){
   m.innerHTML = `<h1>目录运营中心</h1><div class="sub">维护下发给客户端的内置目录，客户端 pull 后覆盖本地（离线回落本地 builtin 兜底）</div>
-    <div class="tabs">${catTab("experts","专家")}${catTab("teams","专家团")}${catTab("connectors","连接器")}${catTab("skills","技能")}${catTab("skillhub","SkillHub")}${catTab("raw","高级 JSON")}</div>
+    <div class="tabs">${catTab("experts","专家 · 专家团")}${catTab("connectors","连接器")}${catTab("skills","技能")}${catTab("skillhub","SkillHub")}${catTab("raw","高级 JSON")}</div>
     <div id="cat-body" class="muted">加载中…</div>`;
   m.querySelectorAll(".tabs button").forEach(b=> b.onclick=()=>{ CATVIEW=b.dataset.c; catalogView(m); });
   const body = document.getElementById("cat-body");
-  ({experts:expertsCat, teams:teamsCat, connectors:connectorsCat, skills:skillsCat, skillhub:skillhubCat, raw:rawCat}[CATVIEW]||rawCat)(body);
+  ({experts:expertsCat, connectors:connectorsCat, skills:skillsCat, skillhub:skillhubCat, raw:rawCat}[CATVIEW]||rawCat)(body);
 }
 
-// 专家目录（EXP_GRID 元组：[icon,name,subtitle,badge,intro,tags[],category]）
+// 专家 · 专家团 浏览橱窗（WB-100）：App 同款——精选场景 + 专家/专家团子标签 + 分类筛选 + 富卡片 + 详情弹窗。
+// 数据全来自 Hub 目录（EXP_SCENES/EXP_CATS/EXP_GRID/EXP_TEAMS，?all=true 含停用项）。控制台无对话，「召唤」→ 纯预览；
+// 管理动作（编辑/停用·启用/删除）收进详情弹窗底部，新增/编辑复用表单装进弹窗，全套 CRUD 不丢。
+let EXPSUB = "专家";   // 专家 | 专家团
+let EXPCAT = "全部";
+// 轻量弹窗骨架（复用 .np-* 样式）：返回 overlay，[data-close] / 遮罩点击 / Esc 皆可关。
+function expModal(inner){
+  const ov = document.createElement("div");
+  ov.className = "np-overlay open";
+  ov.innerHTML = `<div class="np-modal" role="dialog" aria-modal="true">${inner}</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener("mousedown", e=>{ if(e.target===ov) expClose(ov); });
+  ov._onKey = e=>{ if(e.key==="Escape") expClose(ov); };
+  document.addEventListener("keydown", ov._onKey);
+  ov.querySelectorAll("[data-close]").forEach(b=> b.onclick=()=>expClose(ov));
+  return ov;
+}
+function expClose(ov){ if(ov._onKey) document.removeEventListener("keydown", ov._onKey); ov.remove(); }
+
 async function expertsCat(body){
-  const cats = await catFlat("EXP_CATS");
+  body.innerHTML = '<div class="muted">加载中…</div>';
+  let scenes=[], cats=[], experts=[], teams=[];
+  try{
+    const [sc, ct, ex, tm] = await Promise.all([
+      api("GET","/catalog/EXP_SCENES").catch(()=>({items:[]})),
+      api("GET","/catalog/EXP_CATS").catch(()=>({items:[]})),
+      api("GET","/catalog/EXP_GRID?all=true").catch(()=>({items:[]})),
+      api("GET","/catalog/EXP_TEAMS?all=true").catch(()=>({items:[]})),
+    ]);
+    scenes = sc.items||[];
+    cats = (ct.items||[]).map(it=>it.data).filter(x=>typeof x==="string");
+    experts = ex.items||[]; teams = tm.items||[];
+  }catch(e){ body.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+  const chips = ["全部", ...cats.filter(c=>c && c!=="全部")];
+  if(!chips.includes(EXPCAT)) EXPCAT = "全部";
+  const fExperts = experts.filter(it=> EXPCAT==="全部" || (it.data&&it.data[6]===EXPCAT));
+  const fTeams = teams.filter(it=> EXPCAT==="全部" || (it.data&&it.data.category===EXPCAT));
+  const list = EXPSUB==="专家" ? fExperts : fTeams;
+
   body.innerHTML = `
-    <div class="card"><h3 id="ex-h">新增专家</h3><input type="hidden" id="ex-id">
-      <div class="grid2">
-        <div class="field"><label>图标 emoji</label><input id="ex-icon" placeholder="🚀"></div>
-        <div class="field"><label>名称</label><input id="ex-name"></div>
-        <div class="field"><label>副标题 / 作者</label><input id="ex-sub"></div>
-        <div class="field"><label>徽标（如 Beta，可空）</label><input id="ex-badge"></div>
-      </div>
-      <div class="field"><label>简介</label><textarea id="ex-intro"></textarea></div>
-      <div class="grid2">
-        <div class="field"><label>标签（逗号分隔）</label><input id="ex-tags"></div>
-        <div class="field"><label>分类</label><input id="ex-cat" list="ex-cats-dl"><datalist id="ex-cats-dl">${cats.map(c=>`<option value="${esc(c)}"></option>`).join("")}</datalist></div>
-      </div>
-      <div class="row"><input id="ex-sort" type="number" value="0" style="width:80px"><span class="muted" style="font-size:12px">排序</span><div class="grow"></div><button class="ghost" id="ex-clear">清空</button><button id="ex-save">保存</button></div>
-      <div class="err" id="ex-err"></div></div>
-    <div id="ex-list" class="muted">加载中…</div>`;
-  const F = id=>document.getElementById(id);
-  function fill(it){ const d=it?it.data:[]; F("ex-id").value=it?it.id:""; F("ex-icon").value=d[0]||""; F("ex-name").value=d[1]||""; F("ex-sub").value=d[2]||""; F("ex-badge").value=d[3]||""; F("ex-intro").value=d[4]||""; F("ex-tags").value=(d[5]||[]).join(", "); F("ex-cat").value=d[6]||""; F("ex-sort").value=it?it.sort:0; F("ex-h").textContent=it?"编辑专家":"新增专家"; }
-  F("ex-clear").onclick=()=>fill(null);
-  F("ex-save").onclick = async ()=>{
-    F("ex-err").textContent="";
-    const data=[F("ex-icon").value.trim(),F("ex-name").value.trim(),F("ex-sub").value.trim(),F("ex-badge").value.trim(),F("ex-intro").value.trim(),F("ex-tags").value.split(",").map(s=>s.trim()).filter(Boolean),F("ex-cat").value.trim()];
-    if(!data[1]){ F("ex-err").textContent="名称必填"; return; }
-    const id=F("ex-id").value, sort=Number(F("ex-sort").value)||0;
-    try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"EXP_GRID",data,sort}); expertsCat(body); }
-    catch(e){ F("ex-err").textContent=e.message; }
-  };
-  try{ const {items} = await api("GET","/catalog/EXP_GRID?all=true");
-    F("ex-list").innerHTML = items.length? items.map(it=>{ const d=it.data||[]; return `<div class="list-item"><span style="font-size:20px">${esc(d[0]||"🧑")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d[1]||"?")} ${d[3]?`<span class="pill">${esc(d[3])}</span>`:""} ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d[4]||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`; }).join("") : '<div class="muted">还没有专家目录项</div>';
-    F("ex-list").querySelectorAll("[data-ed]").forEach(b=> b.onclick=()=>{ fill(items.find(x=>x.id===b.dataset.ed)); window.scrollTo(0,0); });
-    F("ex-list").querySelectorAll("[data-tog]").forEach(b=> b.onclick=async()=>{ const [id,en]=b.dataset.tog.split(":"); try{ await api("PATCH","/catalog/item/"+id,{enabled:!!+en}); expertsCat(body);}catch(e){F("ex-err").textContent=e.message;} });
-    F("ex-list").querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); expertsCat(body);}catch(e){F("ex-err").textContent=e.message;} });
-  }catch(e){ F("ex-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+    ${scenes.length?`<div class="sec-title" style="margin-top:2px">精选场景</div>
+    <div class="scene-grid">${scenes.map((it,i)=>{ const d=it.data||[]; const title=d[0]||"", names=Array.isArray(d[1])?d[1]:[];
+      return `<div class="scene-card" data-scene="${i}"><div class="sc-top">${esc(title)}</div><div class="sc-list">${names.map(n=>`<div class="sc-item"><span class="av">🧑</span>${esc(n)}</div>`).join("")}</div></div>`; }).join("")}</div>`:""}
+    <div class="subtabs">
+      <div class="subtab ${EXPSUB==="专家"?"active":""}" data-sub="专家">专家</div>
+      <div class="subtab ${EXPSUB==="专家团"?"active":""}" data-sub="专家团">专家团</div>
+      <div class="grow"></div>
+      <button id="ex-new">＋ 新增${EXPSUB}</button>
+    </div>
+    <div class="cats">${chips.map(c=>`<div class="cat ${EXPCAT===c?"active":""}" data-cat="${esc(c)}">${esc(c)}</div>`).join("")}</div>
+    <div id="ex-grid"></div>`;
+
+  const grid = document.getElementById("ex-grid");
+  if(!list.length){ grid.innerHTML = `<div class="hub-blank">该分类下暂无${EXPSUB}</div>`; }
+  else if(EXPSUB==="专家"){
+    grid.innerHTML = `<div class="card-grid g4">${list.map(it=>{ const d=it.data||[]; const tags=d[5]||[];
+      return `<div class="ecard ${it.enabled?"":"off"}" data-ex="${it.id}"><div class="ec-h"><div class="ec-av">${esc(d[0]||"🧑")}</div><div style="flex:1;min-width:0"><div class="ec-n">${esc(d[1]||"?")}${d[3]?`<span class="b">${esc(d[3])}</span>`:""}${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="ec-s">${esc(d[2]||"")}</div></div></div><div class="ec-d">${esc(d[4]||"")}</div><div class="ec-tags">${tags.map(t=>`<span class="ec-tag">${esc(t)}</span>`).join("")}</div></div>`; }).join("")}</div>`;
+    grid.querySelectorAll("[data-ex]").forEach(c=> c.onclick=()=> expExpertDetail(body, experts.find(x=>x.id===c.dataset.ex)));
+  } else {
+    grid.innerHTML = `<div class="card-grid g4">${list.map(it=>{ const d=it.data||{}; const tags=d.tags||d.strengths||[];
+      return `<div class="ecard ${it.enabled?"":"off"}" data-tm="${it.id}"><div class="ec-h"><div class="ec-av">${esc(d.icon||"👥")}</div><div style="flex:1;min-width:0"><div class="ec-n">${esc(d.name||"?")}${d.badge?`<span class="b">${esc(d.badge)}</span>`:""}<span class="pill">${(d.members||[]).length} 人</span>${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="ec-s">${esc(d.source||"")}</div></div></div><div class="ec-d">${esc(d.intro||"")}</div><div class="ec-tags">${tags.map(t=>`<span class="ec-tag">${esc(t)}</span>`).join("")}</div></div>`; }).join("")}</div>`;
+    grid.querySelectorAll("[data-tm]").forEach(c=> c.onclick=()=> expTeamDetail(body, teams.find(x=>x.id===c.dataset.tm)));
+  }
+
+  body.querySelectorAll("[data-sub]").forEach(b=> b.onclick=()=>{ EXPSUB=b.dataset.sub; expertsCat(body); });
+  body.querySelectorAll("[data-cat]").forEach(b=> b.onclick=()=>{ EXPCAT=b.dataset.cat; expertsCat(body); });
+  body.querySelectorAll("[data-scene]").forEach(b=> b.onclick=()=>{ EXPSUB="专家团"; EXPCAT="全部"; expertsCat(body); });
+  document.getElementById("ex-new").onclick = ()=> EXPSUB==="专家" ? expExpertEdit(body,null) : expTeamEdit(body,null);
 }
 
-// 专家团目录（EXP_TEAMS 对象：{icon,name,source,category,intro,strengths[],members[{role,name,lead}],prompts[],tags[]}）
-async function teamsCat(body){
-  body.innerHTML = `
-    <div class="card"><h3 id="tm-h">新增专家团</h3><input type="hidden" id="tm-id">
-      <div class="grid2">
-        <div class="field"><label>图标 emoji</label><input id="tm-icon" placeholder="🎨"></div>
-        <div class="field"><label>名称</label><input id="tm-name"></div>
-        <div class="field"><label>来源 source</label><input id="tm-source" placeholder="平台出品"></div>
-        <div class="field"><label>分类</label><input id="tm-cat"></div>
+// 专家详情（纯预览 + 底部管理动作）
+function expExpertDetail(body, it){
+  if(!it) return;
+  const d = it.data||[]; const tags=d[5]||[];
+  const ov = expModal(`
+    <div class="np-h">
+      <div class="ec-av" style="width:50px;height:50px;font-size:26px">${esc(d[0]||"🧑")}</div>
+      <div style="flex:1;min-width:0"><div style="font-size:18px;font-weight:800">${esc(d[1]||"?")}</div>
+        <div class="ec-tags" style="margin-top:6px">${d[2]?`<span class="ec-tag">${esc(d[2])}</span>`:""}${d[6]?`<span class="ec-tag">${esc(d[6])}</span>`:""}${d[3]?`<span class="ec-tag">${esc(d[3])}</span>`:""}${it.enabled?"":'<span class="pill">停用</span>'}</div>
       </div>
-      <div class="field"><label>简介</label><textarea id="tm-intro"></textarea></div>
-      <div class="field"><label>擅长 strengths（逗号分隔，也用作 tags）</label><input id="tm-strengths"></div>
-      <div class="field"><label>成员（每行一位「角色,姓名」，第一行为 lead）</label><textarea id="tm-members" placeholder="创意总监,司远&#10;文案专家,笔澜"></textarea></div>
-      <div class="field"><label>示例提问（每行一条）</label><textarea id="tm-prompts"></textarea></div>
-      <div class="row"><input id="tm-sort" type="number" value="0" style="width:80px"><span class="muted" style="font-size:12px">排序</span><div class="grow"></div><button class="ghost" id="tm-clear">清空</button><button id="tm-save">保存</button></div>
-      <div class="err" id="tm-err"></div></div>
-    <div id="tm-list" class="muted">加载中…</div>`;
-  const F = id=>document.getElementById(id);
-  function fill(it){ const d=it?it.data:{}; F("tm-id").value=it?it.id:""; F("tm-icon").value=d.icon||""; F("tm-name").value=d.name||""; F("tm-source").value=d.source||""; F("tm-cat").value=d.category||""; F("tm-intro").value=d.intro||""; F("tm-strengths").value=(d.strengths||[]).join(", "); F("tm-members").value=(d.members||[]).map(mb=>`${mb.role||""},${mb.name||""}`).join("\n"); F("tm-prompts").value=(d.prompts||[]).join("\n"); F("tm-sort").value=it?it.sort:0; F("tm-h").textContent=it?"编辑专家团":"新增专家团"; }
-  F("tm-clear").onclick=()=>fill(null);
-  F("tm-save").onclick = async ()=>{
-    F("tm-err").textContent="";
-    const strengths=F("tm-strengths").value.split(",").map(s=>s.trim()).filter(Boolean);
-    const members=F("tm-members").value.split("\n").map(s=>s.trim()).filter(Boolean).map((line,i)=>{ const p=line.split(","); const mb={role:(p[0]||"").trim(),name:(p[1]||"").trim()}; if(i===0)mb.lead=true; return mb; });
-    const prompts=F("tm-prompts").value.split("\n").map(s=>s.trim()).filter(Boolean);
-    const data={ icon:F("tm-icon").value.trim(), name:F("tm-name").value.trim(), source:F("tm-source").value.trim(), category:F("tm-cat").value.trim(), intro:F("tm-intro").value.trim(), strengths, members, prompts, tags:strengths };
-    if(!data.name){ F("tm-err").textContent="名称必填"; return; }
-    const id=F("tm-id").value, sort=Number(F("tm-sort").value)||0;
-    try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"EXP_TEAMS",data,sort}); teamsCat(body); }
-    catch(e){ F("tm-err").textContent=e.message; }
+      <button class="np-x" data-close>×</button>
+    </div>
+    <div class="np-body">
+      <div class="sec-title" style="margin:10px 0 8px">能力介绍</div>
+      <div class="ec-d" style="font-size:13.5px;line-height:1.7;min-height:0">${esc(d[4]||"—")}</div>
+      <div class="sec-title" style="margin:18px 0 8px">擅长领域</div>
+      <div class="ec-tags">${tags.length?tags.map(t=>`<span class="ec-tag">${esc(t)}</span>`).join(""):'<span class="muted">—</span>'}</div>
+    </div>
+    <div class="np-foot">
+      <button class="line" data-edit>编辑</button>
+      <button class="line" data-tog>${it.enabled?"停用":"启用"}</button>
+      <div class="grow"></div>
+      <button class="danger" data-del>删除</button>
+      <span class="err" data-err style="min-height:0"></span>
+    </div>`);
+  ov.querySelector("[data-edit]").onclick = ()=>{ expClose(ov); expExpertEdit(body,it); };
+  ov.querySelector("[data-tog]").onclick = async ()=>{ try{ await api("PATCH","/catalog/item/"+it.id,{enabled:!it.enabled}); expClose(ov); expertsCat(body);}catch(e){ ov.querySelector("[data-err]").textContent=e.message; } };
+  ov.querySelector("[data-del]").onclick = async ()=>{ if(!confirm(`删除专家「${d[1]||""}」？`))return; try{ await api("DELETE","/catalog/item/"+it.id); expClose(ov); expertsCat(body);}catch(e){ ov.querySelector("[data-err]").textContent=e.message; } };
+}
+
+// 专家团详情（含成员 + 示例问；纯预览 + 底部管理动作）
+function expTeamDetail(body, it){
+  if(!it) return;
+  const d = it.data||{}; const members=d.members||[], prompts=d.prompts||[], strengths=d.strengths||d.tags||[];
+  const ov = expModal(`
+    <div class="np-h">
+      <div class="ec-av" style="width:50px;height:50px;font-size:26px">${esc(d.icon||"👥")}</div>
+      <div style="flex:1;min-width:0"><div style="font-size:18px;font-weight:800">${esc(d.name||"?")}</div>
+        <div class="ec-tags" style="margin-top:6px">${d.source?`<span class="ec-tag">${esc(d.source)}</span>`:""}${d.category?`<span class="ec-tag">${esc(d.category)}</span>`:""}${d.badge?`<span class="ec-tag">${esc(d.badge)}</span>`:""}${it.enabled?"":'<span class="pill">停用</span>'}</div>
+      </div>
+      <button class="np-x" data-close>×</button>
+    </div>
+    <div class="np-body">
+      <div class="sec-title" style="margin:10px 0 8px">能力介绍</div>
+      <div class="ec-d" style="font-size:13.5px;line-height:1.7;min-height:0">${esc(d.intro||"—")}</div>
+      <div class="sec-title" style="margin:18px 0 8px">擅长领域</div>
+      <div class="ec-tags">${strengths.length?strengths.map(s=>`<span class="ec-tag">${esc(s)}</span>`).join(""):'<span class="muted">—</span>'}</div>
+      ${members.length?`<div class="sec-title" style="margin:18px 0 8px">团队成员 · ${members.length}</div>${members.map(mb=>`<div class="pkc-row"><span class="pi">🧑</span><div style="flex:1;min-width:0"><div class="pn">${esc(mb.role||"")}${mb.lead?'<span class="ec-tag" style="margin-left:6px">⭐ 主理人</span>':""}</div><div class="pd">${esc(mb.name||"")}</div></div></div>`).join("")}`:""}
+      ${prompts.length?`<div class="sec-title" style="margin:18px 0 8px">试试这样问我</div>${prompts.map(p=>`<div class="pkc-row"><div style="flex:1;min-width:0;font-size:13px;color:var(--dim)">“${esc(p)}”</div></div>`).join("")}`:""}
+    </div>
+    <div class="np-foot">
+      <button class="line" data-edit>编辑</button>
+      <button class="line" data-tog>${it.enabled?"停用":"启用"}</button>
+      <div class="grow"></div>
+      <button class="danger" data-del>删除</button>
+      <span class="err" data-err style="min-height:0"></span>
+    </div>`);
+  ov.querySelector("[data-edit]").onclick = ()=>{ expClose(ov); expTeamEdit(body,it); };
+  ov.querySelector("[data-tog]").onclick = async ()=>{ try{ await api("PATCH","/catalog/item/"+it.id,{enabled:!it.enabled}); expClose(ov); expertsCat(body);}catch(e){ ov.querySelector("[data-err]").textContent=e.message; } };
+  ov.querySelector("[data-del]").onclick = async ()=>{ if(!confirm(`删除专家团「${d.name||""}」？`))return; try{ await api("DELETE","/catalog/item/"+it.id); expClose(ov); expertsCat(body);}catch(e){ ov.querySelector("[data-err]").textContent=e.message; } };
+}
+
+// 新增/编辑专家（EXP_GRID 元组）
+function expExpertEdit(body, it){
+  const d = it? (it.data||[]) : [];
+  const ov = expModal(`
+    <div class="np-h"><div style="font-size:16px;font-weight:800">${it?"编辑专家":"新增专家"}</div><button class="np-x" data-close>×</button></div>
+    <div class="np-body">
+      <div class="grid2">
+        <div class="field"><label>图标 emoji</label><input id="exe-icon" placeholder="🚀" value="${esc(d[0]||"")}"></div>
+        <div class="field"><label>名称</label><input id="exe-name" value="${esc(d[1]||"")}"></div>
+        <div class="field"><label>副标题 / 作者</label><input id="exe-sub" value="${esc(d[2]||"")}"></div>
+        <div class="field"><label>徽标（如 Beta，可空）</label><input id="exe-badge" value="${esc(d[3]||"")}"></div>
+      </div>
+      <div class="field"><label>简介</label><textarea id="exe-intro">${esc(d[4]||"")}</textarea></div>
+      <div class="grid2">
+        <div class="field"><label>标签（逗号分隔）</label><input id="exe-tags" value="${esc((d[5]||[]).join(", "))}"></div>
+        <div class="field"><label>分类</label><input id="exe-cat" list="exe-cats-dl" value="${esc(d[6]||"")}"><datalist id="exe-cats-dl"></datalist></div>
+      </div>
+      <div class="row"><input id="exe-sort" type="number" value="${it?it.sort:0}" style="width:80px"><span class="muted" style="font-size:12px">排序</span></div>
+      <div class="err" id="exe-err"></div>
+    </div>
+    <div class="np-foot"><div class="grow"></div><button class="ghost" data-close>取消</button><button id="exe-save">保存</button></div>`);
+  catFlat("EXP_CATS").then(cs=>{ const dl=ov.querySelector("#exe-cats-dl"); if(dl) dl.innerHTML=cs.filter(c=>c!=="全部").map(c=>`<option value="${esc(c)}"></option>`).join(""); });
+  const F = id=> ov.querySelector("#"+id);
+  F("exe-save").onclick = async ()=>{
+    F("exe-err").textContent="";
+    const data=[F("exe-icon").value.trim(),F("exe-name").value.trim(),F("exe-sub").value.trim(),F("exe-badge").value.trim(),F("exe-intro").value.trim(),F("exe-tags").value.split(",").map(s=>s.trim()).filter(Boolean),F("exe-cat").value.trim()];
+    if(!data[1]){ F("exe-err").textContent="名称必填"; return; }
+    const sort=Number(F("exe-sort").value)||0;
+    try{ if(it) await api("PATCH","/catalog/item/"+it.id,{data,sort}); else await api("POST","/catalog",{category:"EXP_GRID",data,sort}); expClose(ov); expertsCat(body); }
+    catch(e){ F("exe-err").textContent=e.message; }
   };
-  try{ const {items} = await api("GET","/catalog/EXP_TEAMS?all=true");
-    F("tm-list").innerHTML = items.length? items.map(it=>{ const d=it.data||{}; return `<div class="list-item"><span style="font-size:20px">${esc(d.icon||"👥")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d.name||"?")} <span class="pill">${(d.members||[]).length} 人</span> ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.intro||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`; }).join("") : '<div class="muted">还没有专家团目录项</div>';
-    F("tm-list").querySelectorAll("[data-ed]").forEach(b=> b.onclick=()=>{ fill(items.find(x=>x.id===b.dataset.ed)); window.scrollTo(0,0); });
-    F("tm-list").querySelectorAll("[data-tog]").forEach(b=> b.onclick=async()=>{ const [id,en]=b.dataset.tog.split(":"); try{ await api("PATCH","/catalog/item/"+id,{enabled:!!+en}); teamsCat(body);}catch(e){F("tm-err").textContent=e.message;} });
-    F("tm-list").querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); teamsCat(body);}catch(e){F("tm-err").textContent=e.message;} });
-  }catch(e){ F("tm-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+}
+
+// 新增/编辑专家团（EXP_TEAMS 对象）
+function expTeamEdit(body, it){
+  const d = it? (it.data||{}) : {};
+  const membersText = (d.members||[]).map(mb=>`${mb.role||""},${mb.name||""}`).join("\n");
+  const ov = expModal(`
+    <div class="np-h"><div style="font-size:16px;font-weight:800">${it?"编辑专家团":"新增专家团"}</div><button class="np-x" data-close>×</button></div>
+    <div class="np-body">
+      <div class="grid2">
+        <div class="field"><label>图标 emoji</label><input id="tme-icon" placeholder="🎨" value="${esc(d.icon||"")}"></div>
+        <div class="field"><label>名称</label><input id="tme-name" value="${esc(d.name||"")}"></div>
+        <div class="field"><label>来源 source</label><input id="tme-source" placeholder="平台出品" value="${esc(d.source||"")}"></div>
+        <div class="field"><label>分类</label><input id="tme-cat" value="${esc(d.category||"")}"></div>
+      </div>
+      <div class="field"><label>徽标（如 特邀专家，可空）</label><input id="tme-badge" value="${esc(d.badge||"")}"></div>
+      <div class="field"><label>简介</label><textarea id="tme-intro">${esc(d.intro||"")}</textarea></div>
+      <div class="field"><label>擅长 strengths（逗号分隔，也用作 tags）</label><input id="tme-strengths" value="${esc((d.strengths||[]).join(", "))}"></div>
+      <div class="field"><label>成员（每行一位「角色,姓名」，第一行为 lead）</label><textarea id="tme-members" placeholder="创意总监,司远&#10;文案专家,笔澜">${esc(membersText)}</textarea></div>
+      <div class="field"><label>示例提问（每行一条）</label><textarea id="tme-prompts">${esc((d.prompts||[]).join("\n"))}</textarea></div>
+      <div class="row"><input id="tme-sort" type="number" value="${it?it.sort:0}" style="width:80px"><span class="muted" style="font-size:12px">排序</span></div>
+      <div class="err" id="tme-err"></div>
+    </div>
+    <div class="np-foot"><div class="grow"></div><button class="ghost" data-close>取消</button><button id="tme-save">保存</button></div>`);
+  const F = id=> ov.querySelector("#"+id);
+  F("tme-save").onclick = async ()=>{
+    F("tme-err").textContent="";
+    const strengths=F("tme-strengths").value.split(",").map(s=>s.trim()).filter(Boolean);
+    const members=F("tme-members").value.split("\n").map(s=>s.trim()).filter(Boolean).map((line,i)=>{ const p=line.split(","); const mb={role:(p[0]||"").trim(),name:(p[1]||"").trim()}; if(i===0)mb.lead=true; return mb; });
+    const prompts=F("tme-prompts").value.split("\n").map(s=>s.trim()).filter(Boolean);
+    const badge=F("tme-badge").value.trim();
+    const data={ icon:F("tme-icon").value.trim(), name:F("tme-name").value.trim(), source:F("tme-source").value.trim(), category:F("tme-cat").value.trim(), intro:F("tme-intro").value.trim(), strengths, members, prompts, tags:strengths };
+    if(badge) data.badge=badge;
+    if(!data.name){ F("tme-err").textContent="名称必填"; return; }
+    const sort=Number(F("tme-sort").value)||0;
+    try{ if(it) await api("PATCH","/catalog/item/"+it.id,{data,sort}); else await api("POST","/catalog",{category:"EXP_TEAMS",data,sort}); expClose(ov); expertsCat(body); }
+    catch(e){ F("tme-err").textContent=e.message; }
+  };
 }
 
 // 连接器目录（WB-083）：每条 = 权威定义对象 {icon,name,desc,status,launch}，存 category CONN_DEFS。
