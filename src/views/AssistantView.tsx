@@ -1,214 +1,161 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Composer } from '../components/composer/Composer'
-import { MessageList } from '../components/chat/MessageList'
-import { ChatSearch } from '../components/chat/ChatSearch'
-import { AssistantSettingsModal } from '../components/channel/AssistantSettingsModal'
-import { Popover } from '../components/ui/Popover'
-import { IcSearch, IcShare, IcHistory, IcPanel, IcGear } from '../lib/icons'
-import { api, type TelegramChannel } from '../lib/api'
+import { useEffect, useRef, useState } from 'react'
+import { AssistantChat } from '../components/channel/AssistantChat'
+import { AssistantSettingsForm } from '../components/channel/AssistantSettingsForm'
+import { AssistantChannels } from '../components/channel/AssistantChannels'
+import { api, type Assistant } from '../lib/api'
 import type { ChatMessage } from '../lib/types'
 import { toast } from '../stores/toastStore'
-import { activate } from '../lib/a11y'
-import { conversationToMarkdown, copyText, downloadText, safeFilename } from '../lib/exportChat'
 
-// Assistant (external-channel) view — WB-072/077/085. The Telegram bridge is the
-// real backend; this view shows the REAL channel status + the REAL assistant
-// transcript (shared with Telegram — same session), drives the SAME assistant from
-// the App, and its toolbar (search / share / history) works on the real transcript
-// by reusing ChatView's components (WB-085). Not configured → setup guidance.
+// 助理（多助理 · 多渠道）主从视图 —— WB-088。左侧助理列表 + 新建，右侧选中助理的
+// 对话 / 设置 / 渠道 三 tab。后端 /api/assistants*（WB-087）。
+type Tab = 'chat' | 'settings' | 'channels'
+
+function statusDot(a: Assistant): string {
+  if (a.channels.some((c) => c.running)) return '#16B37A'
+  if (a.channels.some((c) => c.enabled)) return '#E5A400'
+  return '#9AA0A6'
+}
+
 export function AssistantView() {
-  const [ch, setCh] = useState<TelegramChannel | null>(null)
+  const [assistants, setAssistants] = useState<Assistant[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<Assistant | null>(null)
+  const [tab, setTab] = useState<Tab>('chat')
   const [sending, setSending] = useState(false)
   const [pending, setPending] = useState<string | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [shareOpen, setShareOpen] = useState(false)
-  const shareAnchor = useRef<HTMLElement | null>(null)
-  const [histOpen, setHistOpen] = useState(false)
-  const histAnchor = useRef<HTMLElement | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const stickRef = useRef(true)
+  const selRef = useRef<string | null>(null)
+  selRef.current = selectedId
 
-  const load = async () => {
-    try { setCh(await api.getTelegramChannel()) } catch { /* backend down — keep last */ }
+  const loadList = async (): Promise<Assistant[]> => {
+    try {
+      const { assistants: al } = await api.listAssistants()
+      setAssistants(al)
+      return al
+    } catch { return [] }
+  }
+  const loadDetail = async (id: string) => {
+    try {
+      const a = await api.getAssistant(id)
+      if (selRef.current === id) setDetail(a)
+    } catch { /* ignore */ }
+  }
+  const select = (id: string) => { setSelectedId(id); setDetail(null); setTab('chat'); loadDetail(id) }
+
+  useEffect(() => {
+    loadList().then((al) => { if (al.length && !selRef.current) select(al[0].id) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 轮询：列表状态点 + 选中助理的 transcript（Telegram 侧消息带外到达）。发送中暂停。
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.visibilityState !== 'visible' || sending) return
+      loadList()
+      if (selRef.current && tab === 'chat') loadDetail(selRef.current)
+    }, 4000)
+    return () => clearInterval(t)
+  }, [sending, tab])
+
+  const onCreate = async () => {
+    try {
+      const a = await api.createAssistant({ name: '新助理', avatar: '🤖' })
+      await loadList()
+      select(a.id)
+      setTab('settings')
+      toast('已创建助理，去「设置」完善它')
+    } catch { toast('创建失败') }
   }
 
-  useEffect(() => { load() }, [])
-
-  // Telegram messages arrive out-of-band (from the phone), so poll to reflect them.
-  // Pause while sending (optimistic UI) and when the tab is hidden.
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (!sending && document.visibilityState === 'visible') load()
-    }, 4000)
-    return () => clearInterval(id)
-  }, [sending])
+  const onDelete = async () => {
+    if (!detail) return
+    try {
+      await api.deleteAssistant(detail.id)
+      const al = await loadList()
+      setSelectedId(null); setDetail(null)
+      if (al.length) select(al[0].id)
+      toast('已删除助理')
+    } catch { toast('删除失败') }
+  }
 
   const onSend = async (text: string) => {
-    if (sending) return
-    setPending(text)
-    setSending(true)
+    if (!selectedId || sending) return
+    setPending(text); setSending(true)
     try {
-      await api.telegramSay(text)
-      await load() // reload transcript (now includes this turn + the reply)
-    } catch {
-      toast('发送失败，请重试')
-    } finally {
-      setSending(false)
-      setPending(null)
-    }
+      await api.assistantSay(selectedId, text)
+      await loadDetail(selectedId)
+    } catch { toast('发送失败，请重试') }
+    finally { setSending(false); setPending(null) }
   }
 
-  // Real transcript → ChatMessage[]; while sending, append the optimistic user turn
-  // and a running bot bubble (MessageList renders the typing indicator for it).
-  const base: ChatMessage[] = (ch?.messages ?? []).map((m) => ({
+  const onSavedDetail = (a: Assistant) => { setDetail(a); loadList() }
+
+  // transcript → ChatMessage[]（+ 发送中的乐观占位）
+  const base: ChatMessage[] = (detail?.messages ?? []).map((m) => ({
     id: m.id, role: m.role, content: m.content, trace: [], status: 'done' as const,
   }))
   const display: ChatMessage[] = sending && pending != null
-    ? [
-        ...base,
-        { id: '_pending_u', role: 'user', content: pending, trace: [], status: 'done' as const },
-        { id: '_pending_b', role: 'assistant', content: '', trace: [], status: 'running' as const },
-      ]
+    ? [...base,
+       { id: '_pending_u', role: 'user', content: pending, trace: [], status: 'done' as const },
+       { id: '_pending_b', role: 'assistant', content: '', trace: [], status: 'running' as const }]
     : base
 
-  // 分享 / 历史 都基于真实 transcript（base，不含发送中的乐观占位）。
-  const title = `助理${ch?.bot_username ? ' · @' + ch.bot_username : ''}`
-  const questions = base.filter((m) => m.role === 'user' && m.content.trim())
-
-  const jumpTo = (id: string) => {
-    setHistOpen(false)
-    document.getElementById(`msg-${id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }
-  const openHist = (anchor: HTMLElement) => { histAnchor.current = anchor; setHistOpen((v) => !v) }
-
-  const exportMd = () => conversationToMarkdown(title, base)
-  const onCopy = async () => {
-    setShareOpen(false)
-    if (!base.length) { toast('还没有对话内容'); return }
-    toast((await copyText(exportMd())) ? '已复制为 Markdown' : '复制失败')
-  }
-  const onDownload = () => {
-    setShareOpen(false)
-    if (!base.length) { toast('还没有对话内容'); return }
-    const name = safeFilename(title)
-    downloadText(name, exportMd())
-    toast('已下载 · ' + name)
-  }
-  const openShare = (anchor: HTMLElement) => { shareAnchor.current = anchor; setShareOpen((v) => !v) }
-
-  // ⌘F / Ctrl+F opens 对话内搜索 while the assistant view is on screen.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
-        e.preventDefault()
-        setSearchOpen(true)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
-  useLayoutEffect(() => {
-    const el = scrollRef.current
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight
-  }, [display.length, sending])
-
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const onScroll = () => {
-      stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 80
-    }
-    el.addEventListener('scroll', onScroll)
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [])
-
-  const chip = !ch
-    ? { dot: '⚪', label: '加载中…' }
-    : !ch.configured
-      ? { dot: '⚪', label: '未连接' }
-      : ch.connected
-        ? { dot: '🟢', label: `已连接 @${ch.bot_username}` }
-        : ch.enabled
-          ? { dot: '🟡', label: '连接中…' }
-          : { dot: '🟡', label: '已配置（未开启）' }
-
-  const onGear = () => setSettingsOpen(true) // 助理设置面板（WB-077）
-
   return (
-    <section className="view active split" data-view="assistant">
-      <div className="chat-col">
-        {searchOpen && <ChatSearch containerRef={scrollRef} messages={display} onClose={() => setSearchOpen(false)} />}
-        <div className="chat-head">
-          <div className="ast-conn">
-            已连接：<span className="ac-chip">{chip.dot} {chip.label}</span>
-            <IcGear onClick={onGear} />
+    <section className="view active" data-view="assistant">
+      <div className="asst">
+        <div className="asst-rail">
+          <div className="asst-rail-h">
+            <b>助理</b>
+            <button className="asst-new" onClick={onCreate}>＋ 新建</button>
           </div>
-          <div className="ch-r" style={{ marginLeft: 'auto' }}>
-            <div className={`fic ${searchOpen ? 'on' : ''}`.trim()} data-tip="对话内搜索（⌘F / Ctrl+F）" aria-label="搜索" onClick={() => setSearchOpen((v) => !v)} {...activate(() => setSearchOpen((v) => !v))}><IcSearch /></div>
-            <div className={`fic ${shareOpen ? 'on' : ''}`.trim()} aria-label="分享" data-tip="分享 / 导出对话" onClick={(e) => openShare(e.currentTarget)} {...activate((e) => e && openShare(e.currentTarget))}><IcShare /></div>
-            <div className={`fic ${histOpen ? 'on' : ''}`.trim()} aria-label="历史提问" data-tip="历史提问" onClick={(e) => openHist(e.currentTarget)} {...activate((e) => e && openHist(e.currentTarget))}><IcHistory /></div>
-            <div className="fic" aria-label="产物面板" onClick={() => toast('产物面板')}><IcPanel /></div>
+          <div className="asst-list">
+            {assistants.length === 0 && <div className="asst-empty" style={{ padding: '14px 10px' }}>还没有助理</div>}
+            {assistants.map((a) => (
+              <div key={a.id} className={`asst-item ${a.id === selectedId ? 'on' : ''}`.trim()} onClick={() => select(a.id)}>
+                <span className="asst-av">{a.avatar || '🤖'}</span>
+                <span className="asst-nm">{a.name}</span>
+                <span className="asst-dot" style={{ background: statusDot(a) }} title={a.channels.length ? '' : '未配渠道'} />
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="chat-scroll" ref={scrollRef}>
-          {ch && !ch.configured ? (
-            <div className="ov-center" style={{ paddingTop: 100 }}>
-              <span style={{ fontSize: 34 }}>📡</span>
-              助理外部渠道未连接
-              <small>点右上角 <b>⚙️</b> 打开助理设置，填入 bot token 并启用；
-                再在 Telegram 给你的 bot 发 /start，即可随时从手机与助理对话。</small>
-            </div>
-          ) : ch && display.length === 0 ? (
-            <div className="ov-center" style={{ paddingTop: 100 }}>
-              <span style={{ fontSize: 34 }}>💬</span>
-              还没有对话
-              <small>在 Telegram 给 {ch.bot_username ? '@' + ch.bot_username : 'bot'} 发 /start，或直接在下面和助理开始对话。</small>
+        <div className="asst-main">
+          {!detail ? (
+            <div className="ov-center" style={{ paddingTop: 140 }}>
+              <span style={{ fontSize: 34 }}>🤖</span>
+              {assistants.length === 0 ? '还没有助理' : '选择一个助理'}
+              <small>{assistants.length === 0 ? '点左上「＋ 新建」创建你的第一个助理' : '在左侧选择，或新建一个'}</small>
             </div>
           ) : (
-            <MessageList messages={display} streaming={sending} />
+            <>
+              <div className="asst-tabs">
+                <div className={`asst-tab ${tab === 'chat' ? 'on' : ''}`.trim()} onClick={() => setTab('chat')}>对话</div>
+                <div className={`asst-tab ${tab === 'settings' ? 'on' : ''}`.trim()} onClick={() => setTab('settings')}>设置</div>
+                <div className={`asst-tab ${tab === 'channels' ? 'on' : ''}`.trim()} onClick={() => setTab('channels')}>渠道</div>
+                <div style={{ flex: 1 }} />
+                <button className="asst-del" onClick={onDelete} title="删除助理">删除</button>
+              </div>
+              {tab === 'chat' ? (
+                <AssistantChat
+                  title={detail.name}
+                  messages={display}
+                  sending={sending}
+                  onSend={onSend}
+                  emptyHint={detail.channels.some((c) => c.type === 'telegram' && c.has_token)
+                    ? '在下面对话，或在 Telegram 给这个助理的 bot 发消息。'
+                    : '在下面直接对话，或去「渠道」接入 Telegram。'}
+                />
+              ) : (
+                <div className="asst-pane">
+                  {tab === 'settings'
+                    ? <AssistantSettingsForm assistant={detail} onSaved={onSavedDetail} />
+                    : <AssistantChannels assistant={detail} onChanged={() => loadDetail(detail.id)} />}
+                </div>
+              )}
+            </>
           )}
         </div>
-
-        <div className="chat-foot">
-          {ch?.configured
-            ? <Composer variant="chat" streaming={sending} onSend={onSend} autoFocus />
-            : <div className="disc">点右上角 ⚙️ 配置并开启助理后，即可在此与助理对话</div>}
-          <div className="disc">内容由 AI 生成，请核实重要信息</div>
-        </div>
       </div>
-
-      <Popover open={shareOpen} anchor={shareAnchor.current} dir="down" onClose={() => setShareOpen(false)} minWidth={176}>
-        <div className="pop-item" {...activate(onCopy)} onClick={onCopy}>
-          <span className="pi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 012-2h10" /></svg></span>
-          复制为 Markdown
-        </div>
-        <div className="pop-item" {...activate(onDownload)} onClick={onDownload}>
-          <span className="pi-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 11l5 5 5-5M5 21h14" /></svg></span>
-          下载 .md 文件
-        </div>
-      </Popover>
-
-      <Popover open={histOpen} anchor={histAnchor.current} dir="down" onClose={() => setHistOpen(false)} minWidth={240}>
-        <div className="pop-h">历史提问（{questions.length}）</div>
-        {questions.length === 0 && <div className="pop-item pop-empty">还没有提问</div>}
-        {questions.map((m) => (
-          <div className="pop-item hist-item" key={m.id} {...activate(() => jumpTo(m.id))} onClick={() => jumpTo(m.id)}>
-            {m.content.trim()}
-          </div>
-        ))}
-      </Popover>
-
-      {settingsOpen && ch && (
-        <AssistantSettingsModal
-          open
-          ch={ch}
-          onClose={() => setSettingsOpen(false)}
-          onSaved={(updated) => setCh(updated)}
-        />
-      )}
     </section>
   )
 }

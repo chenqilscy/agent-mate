@@ -80,6 +80,24 @@ export const api = {
     send<TelegramChannel>('PATCH', '/channels/telegram/config', patch),
   telegramUnbind: () => send<TelegramChannel>('POST', '/channels/telegram/unbind'),
 
+  // 多助理 · 多渠道（WB-086/087/088）。token 为 write-only：只在非空时传，后端绝不回传其值。
+  listAssistants: () => get<{ assistants: Assistant[] }>('/assistants'),
+  getAssistant: (id: string) => get<Assistant>(`/assistants/${id}`),
+  createAssistant: (body: AssistantInput) => send<Assistant>('POST', '/assistants', body),
+  updateAssistant: (id: string, patch: AssistantInput) => send<Assistant>('PATCH', `/assistants/${id}`, patch),
+  deleteAssistant: (id: string) => send<{ ok: boolean }>('DELETE', `/assistants/${id}`),
+  assistantSay: (id: string, text: string) =>
+    send<{ session_id: string; reply: string }>('POST', `/assistants/${id}/say`, { text }),
+  channelTypes: () => get<{ types: ChannelType[] }>('/channels/types'),
+  addAssistantChannel: (id: string, body: ChannelInput) =>
+    send<AssistantChannel>('POST', `/assistants/${id}/channels`, body),
+  updateAssistantChannel: (id: string, cid: string, body: ChannelInput) =>
+    send<AssistantChannel>('PATCH', `/assistants/${id}/channels/${cid}`, body),
+  deleteAssistantChannel: (id: string, cid: string) =>
+    send<{ ok: boolean }>('DELETE', `/assistants/${id}/channels/${cid}`),
+  unbindAssistantChannel: (id: string, cid: string) =>
+    send<AssistantChannel>('POST', `/assistants/${id}/channels/${cid}/unbind`),
+
   listSessions: (space?: string) =>
     get<{ sessions: SessionInfo[] }>(`/sessions${space ? `?space=${encodeURIComponent(space)}` : ''}`),
 
@@ -268,6 +286,44 @@ export interface TelegramChannel {
   model: string
   enabled_override: boolean | null // null = 跟随 .env 开关
   messages: { id: string; role: 'user' | 'assistant'; content: string; created_at: number }[]
+}
+
+// 多助理（WB-086/087/088）。渠道 token 绝不回传，只有 has_token 布尔。
+export type AssistantMode = 'exec' | 'plan' | 'ask'
+export interface AssistantChannel {
+  id: string
+  assistant_id: string
+  type: string
+  enabled: boolean
+  running: boolean
+  has_token: boolean
+  chat_id: string            // 白名单固定 chat（telegram）
+  bound_chat_id: string | null
+}
+export interface Assistant {
+  id: string
+  name: string
+  avatar: string
+  instruction: string
+  model: string
+  mode: AssistantMode
+  workspace: string          // default | project:<id> | dedicated
+  experts: string[]
+  skills: string[]
+  connectors: string[]
+  enabled: boolean
+  session_id: string | null
+  channels: AssistantChannel[]
+  messages?: { id: string; role: 'user' | 'assistant'; content: string; created_at: number }[]
+}
+export interface ChannelType { type: string; label: string; available: boolean }
+export interface AssistantInput {
+  name?: string; avatar?: string; instruction?: string; model?: string
+  mode?: AssistantMode; workspace?: string
+  experts?: string[]; skills?: string[]; connectors?: string[]; enabled?: boolean
+}
+export interface ChannelInput {
+  type?: string; config?: Record<string, unknown>; token?: string; enabled?: boolean
 }
 
 export interface RawMessage {
