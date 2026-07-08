@@ -3,7 +3,7 @@ id: WB-086
 title: 多助理 · 多渠道 —— 助理子系统重构（总纲 / epic）
 severity: P1
 area: fullstack
-status: open
+status: fixed
 origin: 既有实现
 files:
   - docs/workbuddy-助理-架构设计.md
@@ -55,6 +55,15 @@ P1：这是「助理」从演示级单例走向可用产品能力的关键重构
 - **WB-090 · S4（fullstack）**：打磨 + 迁移收尾 + 明暗双主题 + 多 bot 真机验证 + 台账/文档收口。
 
 > 子 issue 文件在开工对应片时再建（避免与并发会话抢号）。
+
+## 收口（2026-07-08，已完成）
+
+- **WB-087（S1）** ✅ 后端模型 + CRUD + 多 bot 管理器 + 迁移（commit 69db4bf）。
+- **WB-088（S2）** ✅ 前端主从多助理 UI，合并 S3 的渠道管理 UI（commit 0aeb16f）。
+- **WB-089（S3 路由验证 + S4 清理）** ✅ 移除兼容层 + epic 级验证收口；原 WB-090 并入本片。
+- 结果：可建多个助理、每个独立 loadout(指令/技能/连接器/专家/模型/权限=Plan·Ask·执行/工作空间) +
+  独立多渠道（Telegram 真跑，其它类型「敬请期待」占位）；现有单助理「小助」非破坏迁移、@CkyBuddyBot 照常。
+- 待用户：第二个真实 Telegram bot 的实机路由（机制已由离线「同 chat_id 跨渠道独立会话」+ poller 协调证明）。
 
 ## 验证（epic 级）
 

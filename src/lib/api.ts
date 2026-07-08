@@ -72,14 +72,6 @@ export const api = {
 
   // 助理外部渠道 · Telegram（WB-072）。状态 + 真实会话历史；say = 从 App 驱动同一助手
   // （与 Telegram 共用同一助理会话）。渠道是本机 local-first 特性，不携带项目/登录作用域。
-  getTelegramChannel: () => get<TelegramChannel>('/channels/telegram'),
-  telegramSay: (text: string) =>
-    send<{ session_id: string; reply: string }>('POST', '/channels/telegram/say', { text }),
-  // 助理设置（WB-077）。token write-only：只在非空时传；后端绝不回传其值。
-  patchTelegramConfig: (patch: { name?: string; persona?: string; model?: string; enabled?: boolean; token?: string }) =>
-    send<TelegramChannel>('PATCH', '/channels/telegram/config', patch),
-  telegramUnbind: () => send<TelegramChannel>('POST', '/channels/telegram/unbind'),
-
   // 多助理 · 多渠道（WB-086/087/088）。token 为 write-only：只在非空时传，后端绝不回传其值。
   listAssistants: () => get<{ assistants: Assistant[] }>('/assistants'),
   getAssistant: (id: string) => get<Assistant>(`/assistants/${id}`),
@@ -270,22 +262,6 @@ export const api = {
 
   deleteFile: (path: string, opts?: { project?: string; session?: string }) =>
     send<{ ok: boolean }>('POST', '/files/delete', { path, ...opts }),
-}
-
-export interface TelegramChannel {
-  configured: boolean          // 是否配了 token（DB 助理设置 或 .env）
-  enabled: boolean             // 有 token 且开关开着（effective）
-  running: boolean             // 桥接后台任务是否在跑
-  connected: boolean           // enabled 且 getMe 成功（bot 在线）
-  bot_username: string | null
-  bound_chat_id: string | null // 已配对的 Telegram chat（白名单/主人）
-  session_id: string | null    // 助理会话（尚无对话时为 null）
-  // 助理设置（WB-077）—— token 值绝不回传，仅 configured 反映「是否已配」。
-  name: string
-  persona: string
-  model: string
-  enabled_override: boolean | null // null = 跟随 .env 开关
-  messages: { id: string; role: 'user' | 'assistant'; content: string; created_at: number }[]
 }
 
 // 多助理（WB-086/087/088）。渠道 token 绝不回传，只有 has_token 布尔。

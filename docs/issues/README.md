@@ -102,9 +102,10 @@
 | [WB-083](WB-083-catalog-connectors-crud.md) | ✅ | P2 | frontend | 目录运营中心 —— 连接器 类型化 CRUD（launch spec 编辑器：内置/stdio；secret_env 仅变量名） |
 | [WB-084](WB-084-catalog-skills-skillhub.md) | ✅ | P2 | fullstack | 目录运营中心 —— 技能 + SkillHub（浏览/搜索/上架/手动同步；接已就绪的 WB-069 后端） |
 | [WB-085](WB-085-assistant-page-toolbar-real.md) | ✅ | P2 | frontend | 助理页顶栏按钮接真实 transcript —— 对话内搜索/分享导出/历史提问（去掉 toast 占位，复用 ChatView） |
-| [WB-086](WB-086-multi-assistant-multi-channel-epic.md) | ⬜ | P1 | fullstack | 多助理·多渠道 —— 助理子系统重构（总纲/epic；设计见 docs/workbuddy-助理-架构设计.md；子片 WB-087~090） |
+| [WB-086](WB-086-multi-assistant-multi-channel-epic.md) | ✅ | P1 | fullstack | 多助理·多渠道 —— 助理子系统重构（总纲/epic；设计见 docs/workbuddy-助理-架构设计.md；S1-087/S2-088/S3+S4-089） |
 | [WB-087](WB-087-multi-assistant-backend-model.md) | ✅ | P1 | backend | 多助理 S1 —— 后端模型(assistants/channels) + CRUD + 多 bot 渠道管理器 + run_chat 接 workspace/mode + 迁移 |
 | [WB-088](WB-088-multi-assistant-frontend.md) | ✅ | P1 | frontend | 多助理 S2 —— 前端多助理管理 UI（主从：列表/新建/设置/对话/渠道；合并 S3 前端） |
+| [WB-089](WB-089-multi-assistant-consolidate.md) | ✅ | P1 | fullstack | 多助理 S3+S4 收尾 —— 移除兼容层 + 端到端验证 + 关闭 epic WB-086 |
 | [WB-091](WB-091-local-hub-work-items-sync.md) | ✅ | P3 | backend | 本地 App ⇄ Hub work_items 双向同步（WB-081 二期；hub-origin 项目 work-items 读代理+镜像/写代理，前端零改，离线兜底） |
 
 ## 来源

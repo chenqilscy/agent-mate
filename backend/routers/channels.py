@@ -1,9 +1,6 @@
-"""Channels —— 助理外部渠道 + 多助理管理接口（WB-072 / WB-077 / WB-086·087）。
+"""Channels —— 多助理 + 多渠道管理接口（WB-086/087/088/089）。
 
-- 旧 `/api/channels/telegram*`：兼容层，映射到「主助理」+ 其 Telegram 渠道（WB-077 前端在 S2
-  落地前仍可用）。
-- 新 `/api/assistants*`：多助理 + 渠道的 CRUD（S2/S3 前端用）。`/api/channels/types` 给渠道类型注册表。
-
+`/api/assistants*`：多助理 + 渠道的 CRUD；`/api/channels/types`：渠道类型注册表。
 渠道是机器级 local-first 特性，绑定本机固定 LOCAL_USER；token 存 DB、write-only、绝不回传前端。
 """
 from __future__ import annotations
@@ -18,39 +15,8 @@ from storage.models import LOCAL_USER_ID
 router = APIRouter(prefix="/api", tags=["channels"])
 
 
-# ---- 兼容层（旧单助理端点）---------------------------------------------
-
 class SayBody(BaseModel):
     text: str = Field(max_length=200_000)
-
-
-class CompatConfigBody(BaseModel):
-    name: str | None = Field(default=None, max_length=60)
-    persona: str | None = Field(default=None, max_length=4000)
-    model: str | None = Field(default=None, max_length=120)
-    enabled: bool | None = None
-    token: str | None = Field(default=None, max_length=200)
-
-
-@router.get("/channels/telegram")
-async def telegram_channel() -> dict:
-    return await manager.compat_status()
-
-
-@router.post("/channels/telegram/say")
-async def telegram_say(body: SayBody) -> dict:
-    return await manager.compat_say(body.text)
-
-
-@router.patch("/channels/telegram/config")
-async def telegram_config(body: CompatConfigBody) -> dict:
-    return await manager.compat_config(body.model_dump())
-
-
-@router.post("/channels/telegram/unbind")
-async def telegram_unbind() -> dict:
-    manager.compat_unbind()
-    return await manager.compat_status()
 
 
 # ---- 渠道类型注册表 -----------------------------------------------------
