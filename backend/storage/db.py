@@ -1466,6 +1466,25 @@ def list_work_items(project_id: str) -> list[WorkItem]:
     return [_row_to_work_item(r) for r in rows]
 
 
+def mirror_hub_work_items(project_id: str, items: list[dict]) -> None:
+    """用 Hub 的 work_items 覆盖某 hub-origin 项目的本地 work_items（Hub 权威，WB-091）。
+    本地行 = Hub 行镜像（Hub id 作本地 id，供 update/delete 定位 + 离线读兜底）；
+    owner_id 空、attachments/due_date 取默认（Hub work_items 不带这些本地专有字段）。"""
+    conn = get_conn()
+    conn.execute("DELETE FROM work_items WHERE project_id=?", (project_id,))
+    for it in items:
+        conn.execute(
+            """INSERT INTO work_items
+               (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at,description,due_date,attachments)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (it.get("id") or new_uuid(), project_id, "", str(it.get("title", ""))[:200],
+             it.get("status", "todo"), it.get("source", "手动"), it.get("assignee", ""),
+             it.get("created_at") or time.time(), it.get("updated_at") or time.time(),
+             str(it.get("description", ""))[:4000], None, "[]"),
+        )
+    conn.commit()
+
+
 def get_work_item(item_id: str, owner_id: Optional[str] = None) -> Optional[WorkItem]:
     if owner_id is not None:
         r = get_conn().execute(

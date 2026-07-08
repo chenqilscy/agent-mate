@@ -62,6 +62,33 @@ def _post(path: str, token: str, body: Optional[dict] = None) -> Optional[Any]:
         return None
 
 
+def _patch(path: str, token: str, body: Optional[dict] = None) -> Optional[Any]:
+    """带 token PATCH Hub 的 `path`（guarded，从不抛）。"""
+    if not token or not settings.HUB_URL:
+        return None
+    try:
+        r = httpx.patch(
+            f"{settings.HUB_URL}{path}",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body or {}, timeout=_TIMEOUT,
+        )
+        return r.json() if r.status_code == 200 else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _delete(path: str, token: str) -> bool:
+    """带 token DELETE Hub 的 `path`（guarded，从不抛）。成功(200)→True。"""
+    if not token or not settings.HUB_URL:
+        return False
+    try:
+        r = httpx.delete(f"{settings.HUB_URL}{path}",
+                         headers={"Authorization": f"Bearer {token}"}, timeout=_TIMEOUT)
+        return r.status_code == 200
+    except Exception:  # noqa: BLE001
+        return False
+
+
 # ---- 前端接 Hub 的代理（WB-067）：本地 backend 转发 Hub 协作/登录，前端只连本地 ----
 
 def hub_login(name: str, password: str, register: bool = False) -> Optional[dict[str, Any]]:
@@ -162,3 +189,26 @@ def search_skillhub(token: str, q: str, limit: int = 12) -> Optional[list[dict[s
     d = _get(f"/api/catalog/skills/search?{qs}", token)
     res = d.get("results") if isinstance(d, dict) else None
     return res if isinstance(res, list) and res else None
+
+
+# ---- 团队计划/任务 work_items 代理（WB-091）：hub-origin 项目的看板走 Hub 权威 ----
+
+def list_work_items(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
+    """拉 Hub 项目的 work_items，或 None（未接/不可达）→ 调用方回退本地镜像。"""
+    d = _get(f"/api/projects/{project_id}/work-items", token)
+    items = d.get("items") if isinstance(d, dict) else None
+    return items if isinstance(items, list) else None
+
+
+def create_work_item(token: str, project_id: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    d = _post(f"/api/projects/{project_id}/work-items", token, body)
+    return d if isinstance(d, dict) else None
+
+
+def update_work_item(token: str, project_id: str, wid: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    d = _patch(f"/api/projects/{project_id}/work-items/{wid}", token, body)
+    return d if isinstance(d, dict) else None
+
+
+def delete_work_item(token: str, project_id: str, wid: str) -> bool:
+    return _delete(f"/api/projects/{project_id}/work-items/{wid}", token)
