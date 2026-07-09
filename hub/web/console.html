@@ -376,6 +376,8 @@ async function loadConfig(pid){
 // <style>/目录区，防撞，沿用 cg-/sg- 约定）。复用 WI_COLS（状态列）。Viewer 只读。
 const PM_PRIO = { "":["无","#9aa0a6"], low:["低","#16b37a"], medium:["中","#2e7df6"], high:["高","#f0a020"], urgent:["紧急","#ef4444"] };
 let PM_CTX = { pid:null, ro:false, items:[], miles:[], members:[] };
+let PM_VIEW = "board", PM_SORT = "created";                              // 视图/排序（跨刷新保持，WB-107）
+let PM_FILTER = { q:"", status:"", priority:"", assignee:"", milestone:"" };
 async function loadWorkItems(pid, ro){
   const box = document.getElementById("pd-work");
   try{
@@ -386,7 +388,7 @@ async function loadWorkItems(pid, ro){
     ]);
     PM_CTX = { pid, ro, items: wi.items||[], miles: ms.milestones||[], members: (mb.members||[]).map(x=>x.name) };
   }catch(e){ box.innerHTML = `<h3>计划 / 任务</h3><div class="err">${esc(e.message)}</div>`; return; }
-  pmRenderBoard();
+  pmRender();
 }
 function pmMsName(id){ const m=PM_CTX.miles.find(x=>x.id===id); return m?m.name:""; }
 function pmCardHtml(it){
@@ -408,33 +410,109 @@ function pmCardHtml(it){
     </div>
   </div>`;
 }
-function pmRenderBoard(){
-  const { pid, ro, items, miles } = PM_CTX;
+// 筛选 + 排序（作用于全部视图，WB-107）。
+function pmFiltered(){
+  const f = PM_FILTER;
+  let r = PM_CTX.items.filter(x=>!x.parent_id);
+  if(f.q){ const q=f.q.toLowerCase(); r = r.filter(x=>(x.title||"").toLowerCase().includes(q)); }
+  if(f.status) r = r.filter(x=>x.status===f.status);
+  if(f.priority) r = r.filter(x=>(x.priority||"")===f.priority);
+  if(f.assignee) r = r.filter(x=>x.assignee===f.assignee);
+  if(f.milestone) r = r.filter(x=>x.milestone_id===f.milestone);
+  const P = { urgent:4, high:3, medium:2, low:1, "":0 };
+  if(PM_SORT==="priority") r = [...r].sort((a,b)=>(P[b.priority||""]||0)-(P[a.priority||""]||0));
+  else if(PM_SORT==="due") r = [...r].sort((a,b)=>(a.due_date||"9999-99-99").localeCompare(b.due_date||"9999-99-99"));
+  return r;
+}
+// 任务区外壳：里程碑条 + 视图切换器 + 筛选行 + 快速新建；视图渲染进 #pm-view（WB-106 看板 + WB-107 列表/甘特）。
+function pmRender(){
+  const { ro, miles, members } = PM_CTX;
   const box = document.getElementById("pd-work");
-  const roots = items.filter(x=>!x.parent_id);
-  const byStatus = s => roots.filter(x=>x.status===s);
+  const total = PM_CTX.items.filter(x=>!x.parent_id).length;
   const milesChips = miles.length? miles.map(m=>`<span class="pill">🚩 ${esc(m.name)}${m.due_date?" · "+esc(String(m.due_date).slice(5)):""}${m.status==="closed"?" ✓":""}</span>`).join(" ") : '<span class="muted" style="font-size:12px">无</span>';
-  box.innerHTML = `<h3>计划 / 任务 <span class="pill">${roots.length}</span></h3>
+  const seg = (v,l)=>`<span class="pill" data-view="${v}" style="cursor:pointer;${PM_VIEW===v?"background:var(--brand);color:#fff":""}">${l}</span>`;
+  const sel = (id,cur,opts)=>`<select id="${id}" style="width:auto;padding:4px 8px;font-size:12px">${opts.map(([v,l])=>`<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
+  box.innerHTML = `<h3>计划 / 任务 <span class="pill" id="pm-count">0/${total}</span>
+      <span style="float:right;display:inline-flex;gap:6px">${seg("board","看板")}${seg("list","列表")}${seg("gantt","甘特")}</span></h3>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <span class="muted" style="font-size:12px">里程碑</span>${milesChips}
-      ${ro?"":`<input id="pm-ms-new" placeholder="新里程碑…" style="width:120px;padding:5px 9px"><button class="line" id="pm-ms-add" style="padding:5px 10px">＋</button>`}
+      ${ro?"":`<input id="pm-ms-new" placeholder="新里程碑…" style="width:110px;padding:5px 9px"><button class="line" id="pm-ms-add" style="padding:5px 10px">＋</button>`}
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      <input id="pm-q" placeholder="搜索标题…" value="${esc(PM_FILTER.q)}" style="width:150px;padding:5px 9px">
+      ${sel("pm-fs",PM_FILTER.status,[["","全部状态"],...WI_COLS])}
+      ${sel("pm-fp",PM_FILTER.priority,[["","全部优先级"],...Object.entries(PM_PRIO).filter(([k])=>k).map(([k,v])=>[k,v[0]])])}
+      ${sel("pm-fa",PM_FILTER.assignee,[["","全部负责人"],...members.map(n=>[n,n])])}
+      ${sel("pm-fm",PM_FILTER.milestone,[["","全部里程碑"],...miles.map(m=>[m.id,m.name])])}
+      ${sel("pm-sort",PM_SORT,[["created","默认排序"],["priority","按优先级"],["due","按截止"]])}
     </div>
     ${ro?"":`<div class="row" style="margin-bottom:10px"><input id="pm-new" placeholder="新增任务标题…"><button id="pm-add">添加</button></div>`}
     <div class="err" id="pm-err"></div>
-    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
-      ${WI_COLS.map(([s,label])=>`<div><div class="muted" style="font-size:12px;margin-bottom:6px">${label} · ${byStatus(s).length}</div><div id="pm-col-${s}" style="display:flex;flex-direction:column;gap:6px"></div></div>`).join("")}
-    </div>`;
-  WI_COLS.forEach(([s])=>{ document.getElementById("pm-col-"+s).innerHTML = byStatus(s).map(pmCardHtml).join("") || '<div class="muted" style="font-size:12px">—</div>'; });
-  box.querySelectorAll("[data-open]").forEach(c=> c.onclick=()=> pmOpenTask(c.dataset.open));
+    <div id="pm-view"></div>`;
+  pmRenderView();
+  box.querySelectorAll("[data-view]").forEach(s=> s.onclick=()=>{ PM_VIEW=s.dataset.view; box.querySelectorAll("[data-view]").forEach(p=>{ const on=p.dataset.view===PM_VIEW; p.style.background=on?"var(--brand)":""; p.style.color=on?"#fff":""; }); pmRenderView(); });
+  const fq=document.getElementById("pm-q"); if(fq) fq.oninput=()=>{ PM_FILTER.q=fq.value; pmRenderView(); };
+  const bind=(id,key)=>{ const el=document.getElementById(id); if(el) el.onchange=()=>{ PM_FILTER[key]=el.value; pmRenderView(); }; };
+  bind("pm-fs","status"); bind("pm-fp","priority"); bind("pm-fa","assignee"); bind("pm-fm","milestone");
+  const so=document.getElementById("pm-sort"); if(so) so.onchange=()=>{ PM_SORT=so.value; pmRenderView(); };
   if(!ro){
-    const E = document.getElementById("pm-err");
-    const addTask = async ()=>{ const inp=document.getElementById("pm-new"), t=inp.value.trim(); if(!t)return; E.textContent=""; try{ await api("POST","/projects/"+pid+"/work-items",{title:t}); inp.value=""; loadWorkItems(pid,ro);}catch(e){E.textContent=e.message;} };
+    const pid=PM_CTX.pid, ro2=PM_CTX.ro, E=document.getElementById("pm-err");
+    const addTask=async()=>{ const inp=document.getElementById("pm-new"), t=inp.value.trim(); if(!t)return; E.textContent=""; try{ await api("POST","/projects/"+pid+"/work-items",{title:t}); inp.value=""; loadWorkItems(pid,ro2);}catch(e){E.textContent=e.message;} };
     document.getElementById("pm-add").onclick=addTask;
     document.getElementById("pm-new").onkeydown=e=>{ if(e.key==="Enter")addTask(); };
-    const addMs = async ()=>{ const inp=document.getElementById("pm-ms-new"), n=inp.value.trim(); if(!n)return; E.textContent=""; try{ await api("POST","/projects/"+pid+"/milestones",{name:n}); inp.value=""; loadWorkItems(pid,ro);}catch(e){E.textContent=e.message;} };
+    const addMs=async()=>{ const inp=document.getElementById("pm-ms-new"), n=inp.value.trim(); if(!n)return; E.textContent=""; try{ await api("POST","/projects/"+pid+"/milestones",{name:n}); inp.value=""; loadWorkItems(pid,ro2);}catch(e){E.textContent=e.message;} };
     document.getElementById("pm-ms-add").onclick=addMs;
     document.getElementById("pm-ms-new").onkeydown=e=>{ if(e.key==="Enter")addMs(); };
   }
+}
+function pmRenderView(){
+  const roots = pmFiltered();
+  const cnt=document.getElementById("pm-count"); if(cnt) cnt.textContent = roots.length+"/"+PM_CTX.items.filter(x=>!x.parent_id).length;
+  if(PM_VIEW==="list") pmViewList(roots);
+  else if(PM_VIEW==="gantt") pmViewGantt(roots);
+  else pmViewBoard(roots);
+}
+function pmBindOpen(box){ box.querySelectorAll("[data-open]").forEach(c=> c.onclick=()=> pmOpenTask(c.dataset.open)); }
+function pmViewBoard(roots){
+  const box=document.getElementById("pm-view");
+  const byStatus=s=>roots.filter(x=>x.status===s);
+  box.innerHTML = `<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
+    ${WI_COLS.map(([s,label])=>`<div><div class="muted" style="font-size:12px;margin-bottom:6px">${label} · ${byStatus(s).length}</div><div style="display:flex;flex-direction:column;gap:6px">${byStatus(s).map(pmCardHtml).join("")||'<div class="muted" style="font-size:12px">—</div>'}</div></div>`).join("")}
+  </div>`;
+  pmBindOpen(box);
+}
+function pmViewList(roots){
+  const box=document.getElementById("pm-view");
+  const stL=Object.fromEntries(WI_COLS);
+  const head=["标题","状态","优先级","负责人","截止","里程碑"].map(h=>`<th style="padding:6px 8px;border-bottom:1px solid var(--line);font-weight:600">${h}</th>`).join("");
+  const rows=roots.map(x=>{ const p=PM_PRIO[x.priority||""]||PM_PRIO[""]; return `<tr data-open="${x.id}" style="cursor:pointer;border-bottom:1px solid var(--line)">
+    <td style="padding:7px 8px">${esc(x.title)}</td>
+    <td style="padding:7px 8px">${esc(stL[x.status]||x.status)}</td>
+    <td style="padding:7px 8px">${x.priority?`<span style="color:${p[1]}">● ${esc(p[0])}</span>`:'<span class="muted">—</span>'}</td>
+    <td style="padding:7px 8px">${x.assignee?esc(x.assignee):'<span class="muted">—</span>'}</td>
+    <td style="padding:7px 8px">${x.due_date?esc(x.due_date):'<span class="muted">—</span>'}</td>
+    <td style="padding:7px 8px">${x.milestone_id?esc(pmMsName(x.milestone_id)):'<span class="muted">—</span>'}</td>
+  </tr>`; }).join("") || `<tr><td colspan="6" style="padding:12px;color:var(--dim)">无任务</td></tr>`;
+  box.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="color:var(--dim);text-align:left">${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  pmBindOpen(box);
+}
+// 甘特/时间线：按 start_date→due_date 画相对横条（无 start 用 due 当点）。
+function pmViewGantt(roots){
+  const box=document.getElementById("pm-view");
+  const dated=roots.filter(x=>x.due_date||x.start_date);
+  if(!dated.length){ box.innerHTML='<div class="muted" style="font-size:12px">无排期任务（给任务设开始/截止日期即可在甘特显示）</div>'; return; }
+  const toD=s=>{ const a=String(s).split("-").map(Number); return Date.UTC(a[0],(a[1]||1)-1,a[2]||1)/86400000; };
+  let min=Infinity,max=-Infinity;
+  dated.forEach(x=>{ const s=toD(x.start_date||x.due_date), e=toD(x.due_date||x.start_date); if(s<min)min=s; if(e>max)max=e; });
+  if(max<=min) max=min+1;
+  const range=max-min;
+  const fmt=n=>{ const d=new Date(n*86400000); return (d.getUTCMonth()+1)+"/"+d.getUTCDate(); };
+  const ticks=[0,.25,.5,.75,1].map(f=>`<span style="position:absolute;left:${(f*100).toFixed(1)}%;transform:translateX(-50%);font-size:10px;color:var(--dim)">${fmt(min+f*range)}</span>`).join("");
+  const rows=dated.map(x=>{ const s=toD(x.start_date||x.due_date), e=toD(x.due_date||x.start_date); const left=((s-min)/range*100).toFixed(1), w=Math.max((e-s)/range*100,1.5).toFixed(1); const pc=(PM_PRIO[x.priority||""]||PM_PRIO[""])[1];
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div data-open="${x.id}" style="width:150px;flex-shrink:0;font-size:12.5px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.title)}</div><div style="position:relative;flex:1;height:20px;background:var(--panel2);border-radius:5px"><div data-open="${x.id}" title="${esc(x.start_date||"")} → ${esc(x.due_date||"")}" style="position:absolute;left:${left}%;width:${w}%;top:2px;bottom:2px;background:${pc};border-radius:5px;cursor:pointer;opacity:.85"></div></div></div>`;
+  }).join("");
+  box.innerHTML = `<div style="position:relative;height:16px;margin:0 0 8px 158px">${ticks}</div>${rows}`;
+  pmBindOpen(box);
 }
 // 任务详情抽屉：编辑 标题/描述/状态/优先级/负责人/截止/标签/里程碑 + 子任务 + 活动流。
 function pmOpenTask(id){
