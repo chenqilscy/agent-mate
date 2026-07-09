@@ -126,6 +126,7 @@
 | [WB-107](WB-107-portal-task-views-filters.md) | ✅ | P2 | frontend | BuddyWebMgr 门户任务 列表视图 + 甘特/时间线视图 + 筛选/排序 —— 视图切换器(看板/列表/甘特) + 搜索/状态/优先级/负责人/里程碑筛选；续 pm- 前缀内联样式，hunk 提交；隔离 Hub CDP 三视图实测无报错 |
 | [WB-110](WB-110-portal-kanban-drag-activity.md) | ✅ | P2 | frontend | BuddyWebMgr 门户 PM 增强 —— 看板拖拽换列(快速改状态,Viewer 不可拖) + 项目级任务活动流面板(消费 WB-105 activity 端点,变更自动刷新)；CDP DragEvent 实测 Hub 真变+活动入流 |
 | [WB-109](WB-109-app-featured-consume-hub.md) | ✅ | P3 | frontend | App 精选技能区消费 Hub SKILLHUB_FEATURED —— 打通 mgr「加入精选」→ App（渲染真图标，回退静态兜底；纯前端，数据链路 E2E 实测） |
+| [WB-113](WB-113-pm-board-view-enhancements.md) | ✅ | P2 | frontend | PM 细化之一 看板/视图增强 —— 泳道分组(按负责人/里程碑) + 列 WIP 上限(超限标红·localStorage) + 保存的筛选视图 + 列表批量操作(改状态/负责人/里程碑/删除)；纯前端 console，续 pm- 前缀 |
 | [WB-112](WB-112-manager-positioning-data-spec.md) | 🟡 | P1 | fullstack | WorkBuddy Manager 管理端定位（epic）—— 改名 BuddyWebMgr→WorkBuddy Manager(done) + 数据分层规范 `docs/workbuddy-数据分层与同步规范.md`(done) + 统一用户/协作写代理/身份强映射/动态回读/镜像增量合并/PM 细化(待做) |
 | [WB-111](WB-111-portal-pm-workspace-redesign.md) | ✅ | P1 | frontend | BuddyWebMgr 门户项目管理专业化重构 —— 项目详情改标签页工作台(概览/任务/协作/配置) + Linear 风看板/列表/甘特(统计条·进度条·列容器·富卡片·头像·逾期高亮·今天线)；纯前端消费既有 WB-104/105 API，Hub :8100 四 tab×三视图 CDP 实测+拖拽真落库，0 报错 |
 

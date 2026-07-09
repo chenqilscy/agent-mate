@@ -262,6 +262,16 @@
   .pm-actitem { display:flex; gap:9px; align-items:flex-start; padding:7px 0; font-size:12.5px; border-bottom:1px solid var(--line); }
   .pm-actitem:last-child { border-bottom:none; }
   .pm-actitem .ai { width:24px; height:24px; border-radius:7px; background:var(--chip); display:grid; place-items:center; font-size:12px; flex-shrink:0; }
+  /* 看板/视图增强（WB-113）：泳道分组 + WIP 超限 + 批量条 */
+  .pm-lane { margin-bottom:16px; }
+  .pm-lanehead { display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:700; color:var(--ink); margin:0 0 8px; padding-left:2px; }
+  .pm-lanehead .lav { flex-shrink:0; }
+  .pm-colhead .cnt.over { color:#fff; background:var(--danger); }
+  .pm-wipin { width:42px; margin-left:6px; padding:1px 4px; font-size:11px; }
+  .pm-batch { display:flex; align-items:center; gap:8px; flex-wrap:wrap; background:var(--panel2); border:1px solid var(--brand); border-radius:10px; padding:8px 12px; margin-bottom:10px; }
+  .pm-batch b { font-size:12.5px; }
+  .pm-batch select { width:auto; padding:5px 8px; font-size:12px; }
+  .pm-selrow, #pm-selall { cursor:pointer; }
 </style>
 </head>
 <body>
@@ -541,6 +551,16 @@ const PM_AVC = ["#2e7df6","#16b37a","#f0a020","#a855f7","#ef4444","#06b6d4","#ec
 let PM_CTX = { pid:null, ro:false, items:[], miles:[], members:[] };
 let PM_VIEW = "board", PM_SORT = "created";                              // 视图/排序（跨刷新保持，WB-107）
 let PM_FILTER = { q:"", status:"", priority:"", assignee:"", milestone:"" };
+let PM_GROUP = "none";                                                   // 泳道分组：none | assignee | milestone（WB-113）
+let PM_SEL = new Set();                                                  // 列表批量选中的任务 id（WB-113）
+let PM_WIPEDIT = false;                                                  // WIP 上限编辑态开关（WB-113）
+// WIP 上限 / 保存的视图：per-project 存 localStorage（WB-113）。
+function pmWipKey(){ return "pm.wip."+PM_CTX.pid; }
+function pmGetWip(){ try{ return JSON.parse(localStorage.getItem(pmWipKey())||"{}")||{}; }catch(e){ return {}; } }
+function pmSetWip(w){ try{ localStorage.setItem(pmWipKey(), JSON.stringify(w)); }catch(e){} }
+function pmViewsKey(){ return "pm.views."+PM_CTX.pid; }
+function pmGetViews(){ try{ return JSON.parse(localStorage.getItem(pmViewsKey())||"[]")||[]; }catch(e){ return []; } }
+function pmSetViews(v){ try{ localStorage.setItem(pmViewsKey(), JSON.stringify(v)); }catch(e){} }
 function pmToday(){ const d=new Date(); const p=n=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
 function pmAvatar(name){ const s=String(name||"?"); let h=0; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return `<span class="pm-av" style="background:${PM_AVC[h%PM_AVC.length]}">${esc(s.slice(0,1).toUpperCase())}</span>`; }
 function pmActIcon(k){ k=String(k||""); if(k.includes("create"))return "✚"; if(k.includes("delete"))return "🗑"; if(k.includes("status")||k.includes("update"))return "✎"; if(k.includes("comment"))return "💬"; return "•"; }
@@ -604,8 +624,41 @@ function pmFiltered(){
   else if(PM_SORT==="due") r = [...r].sort((a,b)=>(a.due_date||"9999-99-99").localeCompare(b.due_date||"9999-99-99"));
   return r;
 }
+// 泳道分组（WB-113）：按负责人 / 里程碑 把过滤后的根任务分组，未指派/无里程碑排最后。
+function pmGroups(roots, mode){
+  const seen = new Map();
+  roots.forEach(x=>{ const id = (mode==="assignee"? x.assignee : x.milestone_id) || ""; if(!seen.has(id)) seen.set(id,[]); seen.get(id).push(x); });
+  const out = [];
+  seen.forEach((items,id)=>{
+    let label;
+    if(mode==="assignee") label = id ? `${pmAvatar(items[0].assignee_name||id)}<span>${esc(items[0].assignee_name||id)}</span>` : '<span class="muted">未指派</span>';
+    else label = id ? `🚩 ${esc(pmMsName(id))}` : '<span class="muted">无里程碑</span>';
+    out.push({ id, label, items });
+  });
+  out.sort((a,b)=>(a.id?0:1)-(b.id?0:1));
+  return out;
+}
+// 套用一个保存的视图（WB-113）：整组筛选/排序/视图/分组一并恢复，再整体重渲染。
+function pmApplyView(v){
+  PM_FILTER = { q:"", status:"", priority:"", assignee:"", milestone:"", ...(v.filter||{}) };
+  PM_SORT = v.sort || "created"; PM_VIEW = v.view || "board"; PM_GROUP = v.group || "none";
+  pmRender();
+}
+// 批量操作（WB-113）：对列表选中的任务逐条 PATCH / DELETE，完成后清空选择并刷新。
+async function pmBatch(patch){
+  const ids=[...PM_SEL]; if(!ids.length) return; const E=document.getElementById("pm-err");
+  try{ for(const id of ids){ await api("PATCH","/projects/"+PM_CTX.pid+"/work-items/"+id, patch); } PM_SEL.clear(); loadWorkItems(PM_CTX.pid, PM_CTX.ro); }
+  catch(e){ if(E) E.textContent=e.message; }
+}
+async function pmBatchDelete(){
+  const ids=[...PM_SEL]; if(!ids.length) return;
+  if(!confirm(`删除选中的 ${ids.length} 个任务？`)) return;
+  const E=document.getElementById("pm-err");
+  try{ for(const id of ids){ await api("DELETE","/projects/"+PM_CTX.pid+"/work-items/"+id); } PM_SEL.clear(); loadWorkItems(PM_CTX.pid, PM_CTX.ro); }
+  catch(e){ if(E) E.textContent=e.message; }
+}
 // 任务工作台外壳（WB-111）：统计条 + 进度条 + 里程碑条 + 工具栏（分段视图切换/搜索/筛选/排序）+ 快速新建；
-// 视图渲染进 #pm-view（看板 / 列表 / 甘特）。整页承载，不再夹在其它卡片间。
+// 视图渲染进 #pm-view（看板 / 列表 / 甘特）。整页承载，不再夹在其它卡片间。WB-113 加分组/保存视图/WIP。
 function pmRender(){
   const { ro, miles, members } = PM_CTX;
   const box = document.getElementById("pd-work"); if(!box) return;
@@ -621,6 +674,8 @@ function pmRender(){
   }).join("") : '<span class="muted" style="font-size:12px">暂无里程碑</span>';
   const seg = (v,l)=>`<button data-view="${v}" class="${PM_VIEW===v?"active":""}">${l}</button>`;
   const sel = (id,cur,opts)=>`<select id="${id}" class="pm-fsel">${opts.map(([v,l])=>`<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
+  const views = pmGetViews();
+  const savedCtl = `${sel("pm-views","",[["","📑 视图…"],...views.map((v,i)=>[String(i),v.name])])}<button id="pm-view-save" class="line" style="padding:6px 10px;font-size:12px">保存视图</button>${views.length?'<button id="pm-view-del" class="line" style="padding:6px 9px;font-size:12px" title="删除所选视图">🗑</button>':""}`;
   box.innerHTML = `
     <div class="pm-stats">
       <div class="pm-stat" style="--sc:var(--dim)"><div class="n">${total}</div><div class="l">任务总数</div></div>
@@ -644,6 +699,9 @@ function pmRender(){
       ${sel("pm-fa",PM_FILTER.assignee,[["","全部负责人"],...members.map(m=>[m.account_id,m.name])])}
       ${sel("pm-fm",PM_FILTER.milestone,[["","全部里程碑"],...miles.map(m=>[m.id,m.name])])}
       ${sel("pm-sort",PM_SORT,[["created","默认排序"],["priority","按优先级"],["due","按截止"]])}
+      ${sel("pm-group",PM_GROUP,[["none","不分组"],["assignee","按负责人泳道"],["milestone","按里程碑泳道"]])}
+      ${savedCtl}
+      ${PM_VIEW==="board"&&!ro?`<button id="pm-wip" class="line ${PM_WIPEDIT?"":""}" style="padding:6px 11px;font-size:12px;${PM_WIPEDIT?"border-color:var(--brand);color:var(--brand)":""}">WIP 上限</button>`:""}
       <span class="pm-spacer"></span>
       ${ro?"":`<button id="pm-add-btn">＋ 新建任务</button>`}
     </div>
@@ -656,6 +714,11 @@ function pmRender(){
   const bind=(id,key)=>{ const el=document.getElementById(id); if(el) el.onchange=()=>{ PM_FILTER[key]=el.value; pmRenderView(); }; };
   bind("pm-fs","status"); bind("pm-fp","priority"); bind("pm-fa","assignee"); bind("pm-fm","milestone");
   const so=document.getElementById("pm-sort"); if(so) so.onchange=()=>{ PM_SORT=so.value; pmRenderView(); };
+  const gr=document.getElementById("pm-group"); if(gr) gr.onchange=()=>{ PM_GROUP=gr.value; pmRenderView(); };
+  const wip=document.getElementById("pm-wip"); if(wip) wip.onclick=()=>{ PM_WIPEDIT=!PM_WIPEDIT; pmRender(); };
+  const vsel=document.getElementById("pm-views"); if(vsel) vsel.onchange=()=>{ const v=pmGetViews()[+vsel.value]; if(v) pmApplyView(v); };
+  const vsave=document.getElementById("pm-view-save"); if(vsave) vsave.onclick=()=>{ const name=(prompt("视图名称：")||"").trim(); if(!name)return; const vs=pmGetViews(); vs.push({name, filter:{...PM_FILTER}, sort:PM_SORT, view:PM_VIEW, group:PM_GROUP}); pmSetViews(vs); pmRender(); };
+  const vdel=document.getElementById("pm-view-del"); if(vdel) vdel.onclick=()=>{ const s=document.getElementById("pm-views"); if(!s||s.value==="")return; const vs=pmGetViews(); vs.splice(+s.value,1); pmSetViews(vs); pmRender(); };
   if(!ro){
     const pid=PM_CTX.pid, ro2=PM_CTX.ro, E=document.getElementById("pm-err");
     const row=document.getElementById("pm-add-row");
@@ -677,17 +740,26 @@ function pmRenderView(){
 function pmBindOpen(box){ box.querySelectorAll("[data-open]").forEach(c=> c.onclick=()=> pmOpenTask(c.dataset.open)); }
 function pmViewBoard(roots){
   const box=document.getElementById("pm-view");
-  const byStatus=s=>roots.filter(x=>x.status===s);
-  box.innerHTML = `<div class="pm-board">
-    ${WI_COLS.map(([s,label])=>{ const list=byStatus(s);
-      return `<div class="pm-col" data-colstack="${s}">
-        <div class="pm-colhead"><span class="cd" style="background:${WI_COL_C[s]}"></span>${label}<span class="cnt">${list.length}</span></div>
-        <div class="pm-colstack">${list.map(pmCardHtml).join("")||'<div class="pm-colempty">拖到此处</div>'}</div>
-      </div>`; }).join("")}
-  </div>`;
+  const wip=pmGetWip(), ro=PM_CTX.ro;
+  // 单条泳道（或整个看板）的四状态列。WIP：设了上限 → 显示 count/limit，超限计数标红；编辑态显数字输入框。
+  const boardFor = (items) => `<div class="pm-board">${WI_COLS.map(([s,label])=>{
+      const list=items.filter(x=>x.status===s), lim=wip[s], over=lim&&list.length>lim;
+      const cntTxt = lim ? `${list.length}/${lim}` : `${list.length}`;
+      const wipIn = (PM_WIPEDIT&&!ro) ? `<input class="pm-wipin" data-wip="${s}" type="number" min="0" value="${lim||""}" placeholder="∞">` : "";
+      return `<div class="pm-col" data-colstack="${s}"><div class="pm-colhead"><span class="cd" style="background:${WI_COL_C[s]}"></span>${label}<span class="cnt${over?" over":""}">${cntTxt}</span>${wipIn}</div>`
+        + `<div class="pm-colstack">${list.map(pmCardHtml).join("")||'<div class="pm-colempty">拖到此处</div>'}</div></div>`;
+    }).join("")}</div>`;
+  if(PM_GROUP==="none"){
+    box.innerHTML = boardFor(roots);
+  } else {
+    const groups = pmGroups(roots, PM_GROUP);
+    box.innerHTML = groups.length ? groups.map(g=>`<div class="pm-lane"><div class="pm-lanehead">${g.label} <span class="pill">${g.items.length}</span></div>${boardFor(g.items)}</div>`).join("") : '<div class="pm-colempty">无任务</div>';
+  }
   pmBindOpen(box);
-  if(PM_CTX.ro) return;
-  // 拖卡换列 = 快速改状态（WB-110）。整列（.pm-col）作放置区，高亮加 .drop。
+  // WIP 输入：>0 存上限，空/0 清除（localStorage per project）。
+  box.querySelectorAll(".pm-wipin").forEach(inp=> inp.onchange=()=>{ const w=pmGetWip(), v=parseInt(inp.value,10); if(v>0) w[inp.dataset.wip]=v; else delete w[inp.dataset.wip]; pmSetWip(w); pmRenderView(); });
+  if(ro) return;
+  // 拖卡换列 = 快速改状态（WB-110）。分组时拖只改 status、不动分组维度；每条泳道的列各自是放置区。
   box.querySelectorAll("[data-open]").forEach(c=>{
     c.ondragstart = e=>{ e.dataTransfer.setData("text/plain", c.dataset.open); e.dataTransfer.effectAllowed="move"; };
   });
@@ -706,21 +778,46 @@ function pmViewBoard(roots){
 }
 function pmViewList(roots){
   const box=document.getElementById("pm-view");
-  const stL=Object.fromEntries(WI_COLS);
-  const today=pmToday();
-  const head=["任务","状态","优先级","负责人","截止","里程碑"].map(h=>`<th>${h}</th>`).join("");
+  const ro=PM_CTX.ro, stL=Object.fromEntries(WI_COLS), today=pmToday();
+  const rootIds=new Set(roots.map(x=>x.id));
+  [...PM_SEL].forEach(id=>{ if(!rootIds.has(id)) PM_SEL.delete(id); });   // 剔除已被筛掉/删除的选中项
+  const allSel = roots.length>0 && roots.every(x=>PM_SEL.has(x.id));
   const spill=(s)=>{ const c=WI_COL_C[s]||"#9aa0a6"; return `<span class="pm-spill" style="color:${c};background:${c}22">${esc(stL[s]||s)}</span>`; };
+  const cbTh = ro?"":`<th style="width:32px"><input type="checkbox" id="pm-selall" ${allSel?"checked":""} style="width:auto"></th>`;
+  const head=cbTh+["任务","状态","优先级","负责人","截止","里程碑"].map(h=>`<th>${h}</th>`).join("");
   const rows=roots.map(x=>{ const p=PM_PRIO[x.priority||""]||PM_PRIO[""]; const over=x.due_date&&x.due_date<today&&x.status!=="done";
-    return `<tr data-open="${x.id}">
+    const cbTd = ro?"":`<td style="width:32px"><input type="checkbox" class="pm-selrow" data-sel="${x.id}" ${PM_SEL.has(x.id)?"checked":""} style="width:auto"></td>`;
+    return `<tr data-open="${x.id}">${cbTd}
     <td style="font-weight:600">${esc(x.title)}</td>
     <td>${spill(x.status)}</td>
     <td>${x.priority?`<span class="pm-prio" style="color:${p[1]}"><span class="pd2" style="background:${p[1]}"></span>${esc(p[0])}</span>`:'<span class="muted">—</span>'}</td>
     <td>${x.assignee?`<span style="display:inline-flex;align-items:center;gap:6px">${pmAvatar(x.assignee_name||x.assignee)}${esc(x.assignee_name||x.assignee)}</span>`:'<span class="muted">—</span>'}</td>
     <td>${x.due_date?`<span style="${over?"color:#ff9a9a;font-weight:600":""}">${esc(x.due_date)}</span>`:'<span class="muted">—</span>'}</td>
     <td>${x.milestone_id?`🚩 ${esc(pmMsName(x.milestone_id))}`:'<span class="muted">—</span>'}</td>
-  </tr>`; }).join("") || `<tr><td colspan="6" style="padding:16px;color:var(--dim);text-align:center">无任务</td></tr>`;
-  box.innerHTML = `<div class="pm-tablewrap"><table class="pm-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  </tr>`; }).join("") || `<tr><td colspan="${ro?6:7}" style="padding:16px;color:var(--dim);text-align:center">无任务</td></tr>`;
+  const opt=(arr)=>arr.map(([v,l])=>`<option value="${esc(v)}">${esc(l)}</option>`).join("");
+  const batch = (!ro && PM_SEL.size) ? `<div class="pm-batch">
+    <b>已选 ${PM_SEL.size}</b>
+    <select id="pm-b-status"><option value="">改状态…</option>${opt(WI_COLS)}</select>
+    <select id="pm-b-assignee"><option value="__">改负责人…</option><option value="">未指派</option>${opt(PM_CTX.members.map(m=>[m.account_id,m.name]))}</select>
+    <select id="pm-b-ms"><option value="__">改里程碑…</option><option value="">无里程碑</option>${opt(PM_CTX.miles.map(m=>[m.id,m.name]))}</select>
+    <button class="danger" id="pm-b-del" style="padding:5px 11px">删除</button>
+    <button class="line" id="pm-b-clear" style="padding:5px 11px">取消</button>
+  </div>` : "";
+  box.innerHTML = batch + `<div class="pm-tablewrap"><table class="pm-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
   pmBindOpen(box);
+  if(ro) return;
+  // 选择框：勾选不触发打开抽屉（阻止冒泡到行 [data-open]）。
+  box.querySelectorAll(".pm-selrow").forEach(cb=>{
+    cb.onclick=e=>e.stopPropagation();
+    cb.onchange=()=>{ cb.checked?PM_SEL.add(cb.dataset.sel):PM_SEL.delete(cb.dataset.sel); pmRenderView(); };
+  });
+  const sa=document.getElementById("pm-selall"); if(sa) sa.onchange=()=>{ roots.forEach(x=> sa.checked?PM_SEL.add(x.id):PM_SEL.delete(x.id)); pmRenderView(); };
+  const bs=document.getElementById("pm-b-status"); if(bs) bs.onchange=()=>{ if(bs.value) pmBatch({status:bs.value}); };
+  const ba=document.getElementById("pm-b-assignee"); if(ba) ba.onchange=()=>{ if(ba.value!=="__") pmBatch({assignee:ba.value}); };
+  const bm=document.getElementById("pm-b-ms"); if(bm) bm.onchange=()=>{ if(bm.value!=="__") pmBatch({milestone_id:bm.value}); };
+  const bd=document.getElementById("pm-b-del"); if(bd) bd.onclick=pmBatchDelete;
+  const bc=document.getElementById("pm-b-clear"); if(bc) bc.onclick=()=>{ PM_SEL.clear(); pmRenderView(); };
 }
 // 甘特/时间线：按 start_date→due_date 画相对横条（无 start 用 due 当点）+ 今天标记 + 月度网格。
 function pmViewGantt(roots){
