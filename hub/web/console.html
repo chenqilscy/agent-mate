@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>BuddyWebMgr · WorkBuddy 管理门户</title>
+<title>WorkBuddy Manager · WorkBuddy App 管理端</title>
 <style>
   :root { --bg:#0f1420; --panel:#161c2b; --panel2:#1d2436; --line:#2a3348; --ink:#e7ecf5; --dim:#93a0b8; --brand:#16b37a; --brand2:#2e7df6; --danger:#ef4444; --chip:#232c40; }
   * { box-sizing:border-box; }
@@ -304,7 +304,7 @@ function render(){
   if(!ME){ app.innerHTML = authView(); wireAuth(); return; }
   app.innerHTML = `
     <div class="topbar">
-      <div class="logo">B</div><b>BuddyWebMgr</b><span class="badge">WorkBuddy 管理门户</span>
+      <div class="logo">M</div><b>WorkBuddy Manager</b><span class="badge">App 管理端</span>
       <div class="grow"></div>
       <span>${esc(ME.name)}</span>${ME.is_platform_admin?'<span class="badge admin">平台管理员</span>':''}
       <button class="line" id="logout">退出</button>
@@ -328,7 +328,7 @@ function navBtn(v,label){ return `<button data-v="${v}" class="${VIEW===v?'activ
 
 function authView(){
   return `<div class="auth"><div class="card">
-    <h1>BuddyWebMgr</h1><div class="sub">WorkBuddy 管理门户 · 登录或注册</div>
+    <h1>WorkBuddy Manager</h1><div class="sub">WorkBuddy App 管理端 · 登录或注册</div>
     <div class="tabs"><button data-k="login" class="active">登录</button><button data-k="register">注册</button></div>
     <div class="field"><label>用户名</label><input id="au-name" autocomplete="username"></div>
     <div class="field"><label>密码（≥4 位）</label><input id="au-pw" type="password" autocomplete="current-password"></div>
