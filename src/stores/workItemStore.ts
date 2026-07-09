@@ -26,6 +26,8 @@ export interface WorkItemPatch {
   start_date?: string | null
   labels?: string[]
   milestone_id?: string
+  estimate_h?: number
+  spent_h?: number
 }
 
 interface WorkItemState {

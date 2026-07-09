@@ -178,14 +178,14 @@ export const api = {
     project_id: string; title: string; status?: WorkStatus
     description?: string; due_date?: string | null; attachments?: WorkAttachment[]
     priority?: WorkPriority; start_date?: string | null; labels?: string[]
-    parent_id?: string; milestone_id?: string
+    parent_id?: string; milestone_id?: string; estimate_h?: number; spent_h?: number
   }) => send<WorkItem>('POST', '/work-items', body),
 
   updateWorkItem: (id: string, patch: {
     status?: WorkStatus; title?: string
     description?: string; due_date?: string | null; attachments?: WorkAttachment[]
     priority?: WorkPriority; start_date?: string | null; labels?: string[]
-    parent_id?: string; milestone_id?: string
+    parent_id?: string; milestone_id?: string; estimate_h?: number; spent_h?: number
   }) => send<WorkItem>('PATCH', `/work-items/${id}`, patch),
 
   deleteWorkItem: (id: string) => send<{ ok: boolean }>('DELETE', `/work-items/${id}`),

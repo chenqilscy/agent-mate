@@ -165,6 +165,8 @@ class WorkItem:
     labels: list[str] = field(default_factory=list)
     parent_id: str = ""             # 自引用 → 子任务
     milestone_id: str = ""          # → milestones.id
+    estimate_h: float = 0.0         # 工时预估/投入（WB-117，与 Hub 对齐）
+    spent_h: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

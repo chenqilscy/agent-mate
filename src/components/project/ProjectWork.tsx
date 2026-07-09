@@ -382,6 +382,20 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
           <div style={{ marginTop: 10 }}>
             <AttachmentAdder projectId={projectId} onAdd={addAttach} dir="up" />
           </div>
+
+          <div className="wb-td-sec-h">工时（小时）</div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <label style={{ flex: 1, fontSize: 12, color: 'var(--wb-dim, #93a0b8)' }}>预估
+              <input className="np-input" type="number" min={0} step={0.5} style={{ height: 30, marginTop: 4 }}
+                defaultValue={item.estimate_h || ''} key={`est-${item.id}-${item.estimate_h}`}
+                onBlur={(e) => { const v = parseFloat(e.target.value) || 0; if (v !== item.estimate_h) void update(item.id, { estimate_h: v }) }} />
+            </label>
+            <label style={{ flex: 1, fontSize: 12, color: 'var(--wb-dim, #93a0b8)' }}>已投入
+              <input className="np-input" type="number" min={0} step={0.5} style={{ height: 30, marginTop: 4 }}
+                defaultValue={item.spent_h || ''} key={`spent-${item.id}-${item.spent_h}`}
+                onBlur={(e) => { const v = parseFloat(e.target.value) || 0; if (v !== item.spent_h) void update(item.id, { spent_h: v }) }} />
+            </label>
+          </div>
         </div>
         <div className="wb-td-foot">
           <span className="wb-av" title={item.assignee_name}>{item.assignee_name?.[0] ?? '奇'}</span>

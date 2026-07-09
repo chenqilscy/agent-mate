@@ -73,6 +73,8 @@ class CreateBody(BaseModel):
     labels: list[str] = Field(default_factory=list)
     parent_id: str = ""           # 自引用 → 子任务
     milestone_id: str = ""
+    estimate_h: float = 0.0       # 工时预估/投入（WB-117）
+    spent_h: float = 0.0
 
 
 @router.post("/projects/{project_id}/work-items")
@@ -87,6 +89,7 @@ def create_item(project_id: str, body: CreateBody, account: Account = CurrentAcc
         description=body.description,
         priority=priority, due_date=body.due_date, start_date=body.start_date,
         labels=body.labels, parent_id=body.parent_id, milestone_id=body.milestone_id,
+        estimate_h=body.estimate_h, spent_h=body.spent_h,
     )
     db.log_work_item_activity(project_id=project_id, work_item_id=item["id"],
                               actor=account.name, kind="created", detail=item["title"])

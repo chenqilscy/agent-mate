@@ -62,6 +62,8 @@ class CreateWorkItemBody(BaseModel):
     labels: list[str] = []
     parent_id: str = ""
     milestone_id: str = ""
+    estimate_h: float = 0.0
+    spent_h: float = 0.0
 
 
 class UpdateWorkItemBody(BaseModel):
@@ -75,6 +77,8 @@ class UpdateWorkItemBody(BaseModel):
     labels: list[str] | None = None
     parent_id: str | None = None
     milestone_id: str | None = None
+    estimate_h: float | None = None
+    spent_h: float | None = None
 
 
 def _ago(ts: float) -> str:
@@ -143,6 +147,7 @@ def _hub_view(it: dict) -> dict:
         "priority": it.get("priority", ""), "start_date": it.get("start_date") or None,
         "labels": labels if isinstance(labels, list) else [],
         "parent_id": it.get("parent_id", ""), "milestone_id": it.get("milestone_id", ""),
+        "estimate_h": float(it.get("estimate_h") or 0), "spent_h": float(it.get("spent_h") or 0),
         "created_at": ca, "updated_at": it.get("updated_at") or ca,
         # Hub 已按成员名解析 assignee_name（WB-112c-B）；缺失时用原值兜底。
         "ago": _ago(ca), "assignee_name": it.get("assignee_name") or (it.get("assignee", "") or ""),
@@ -192,7 +197,8 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
              "description": (body.description or "").strip(),
              "priority": priority, "due_date": body.due_date or "",
              "start_date": body.start_date or "", "labels": labels,
-             "parent_id": body.parent_id or "", "milestone_id": body.milestone_id or ""},
+             "parent_id": body.parent_id or "", "milestone_id": body.milestone_id or "",
+             "estimate_h": body.estimate_h or 0, "spent_h": body.spent_h or 0},
         )
         if created:
             items = hub_client.list_work_items(tok, body.project_id)
@@ -206,6 +212,7 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
         attachments=_clean_attachments(body.attachments),
         priority=priority, start_date=(body.start_date or None), labels=labels,
         parent_id=(body.parent_id or ""), milestone_id=(body.milestone_id or ""),
+        estimate_h=body.estimate_h or 0, spent_h=body.spent_h or 0,
     )
     return _view(wi, user)
 
@@ -225,7 +232,7 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
     if tok:
         fs = body.model_fields_set
         keys = ("title", "status", "description", "priority", "due_date",
-                "start_date", "labels", "parent_id", "milestone_id")
+                "start_date", "labels", "parent_id", "milestone_id", "estimate_h", "spent_h")
         patch = {k: getattr(body, k) for k in keys if k in fs and getattr(body, k) is not None}
         if "priority" in patch and patch["priority"] not in PRIORITIES:
             patch["priority"] = ""
@@ -255,6 +262,8 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
         labels=_clean_labels(body.labels) if body.labels is not None else None,
         parent_id=body.parent_id,
         milestone_id=body.milestone_id,
+        estimate_h=body.estimate_h,
+        spent_h=body.spent_h,
     )
     if not wi:
         raise HTTPException(404, "work item not found")

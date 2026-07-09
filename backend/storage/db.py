@@ -188,7 +188,9 @@ def init_db() -> None:
             start_date TEXT,
             labels TEXT NOT NULL DEFAULT '[]',
             parent_id TEXT NOT NULL DEFAULT '',
-            milestone_id TEXT NOT NULL DEFAULT ''
+            milestone_id TEXT NOT NULL DEFAULT '',
+            estimate_h REAL NOT NULL DEFAULT 0,
+            spent_h REAL NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_work_items_project
             ON work_items(project_id, created_at);
@@ -453,6 +455,8 @@ def _migrate_columns() -> None:
         ("labels", "labels TEXT NOT NULL DEFAULT '[]'"),
         ("parent_id", "parent_id TEXT NOT NULL DEFAULT ''"),
         ("milestone_id", "milestone_id TEXT NOT NULL DEFAULT ''"),
+        ("estimate_h", "estimate_h REAL NOT NULL DEFAULT 0"),   # WB-117 工时对齐
+        ("spent_h", "spent_h REAL NOT NULL DEFAULT 0"),
     ):
         if col not in have:
             conn.execute(f"ALTER TABLE work_items ADD COLUMN {ddl}")
@@ -1467,6 +1471,8 @@ def _row_to_work_item(r: sqlite3.Row) -> WorkItem:
         labels=labels if isinstance(labels, list) else [],
         parent_id=r["parent_id"] if "parent_id" in keys and r["parent_id"] else "",
         milestone_id=r["milestone_id"] if "milestone_id" in keys and r["milestone_id"] else "",
+        estimate_h=float(r["estimate_h"]) if "estimate_h" in keys and r["estimate_h"] is not None else 0.0,
+        spent_h=float(r["spent_h"]) if "spent_h" in keys and r["spent_h"] is not None else 0.0,
     )
 
 
@@ -1476,6 +1482,7 @@ def create_work_item(
     due_date: Optional[str] = None, attachments: Optional[list] = None,
     priority: str = "", start_date: Optional[str] = None,
     labels: Optional[list] = None, parent_id: str = "", milestone_id: str = "",
+    estimate_h: float = 0.0, spent_h: float = 0.0,
 ) -> WorkItem:
     now = time.time()
     wi = WorkItem(
@@ -1485,15 +1492,17 @@ def create_work_item(
         description=description[:4000], due_date=due_date, attachments=attachments or [],
         priority=priority, start_date=start_date, labels=labels or [],
         parent_id=parent_id, milestone_id=milestone_id,
+        estimate_h=estimate_h or 0.0, spent_h=spent_h or 0.0,
     )
     get_conn().execute(
         """INSERT INTO work_items
            (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at,description,due_date,attachments,
-            priority,start_date,labels,parent_id,milestone_id)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            priority,start_date,labels,parent_id,milestone_id,estimate_h,spent_h)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (wi.id, wi.project_id, wi.owner_id, wi.title, wi.status, wi.source, wi.assignee,
          wi.created_at, wi.updated_at, wi.description, wi.due_date, json.dumps(wi.attachments, ensure_ascii=False),
-         wi.priority, wi.start_date, json.dumps(wi.labels, ensure_ascii=False), wi.parent_id, wi.milestone_id),
+         wi.priority, wi.start_date, json.dumps(wi.labels, ensure_ascii=False), wi.parent_id, wi.milestone_id,
+         wi.estimate_h, wi.spent_h),
     )
     get_conn().commit()
     return wi
@@ -1517,15 +1526,16 @@ def mirror_hub_work_items(project_id: str, items: list[dict]) -> None:
         conn.execute(
             """INSERT INTO work_items
                (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at,description,due_date,attachments,
-                priority,start_date,labels,parent_id,milestone_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                priority,start_date,labels,parent_id,milestone_id,estimate_h,spent_h)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (it.get("id") or new_uuid(), project_id, "", str(it.get("title", ""))[:200],
              it.get("status", "todo"), it.get("source", "手动"), it.get("assignee", ""),
              it.get("created_at") or time.time(), it.get("updated_at") or time.time(),
              str(it.get("description", ""))[:4000], it.get("due_date") or None, "[]",
              it.get("priority", ""), it.get("start_date") or None,
              json.dumps(labels if isinstance(labels, list) else [], ensure_ascii=False),
-             it.get("parent_id", ""), it.get("milestone_id", "")),
+             it.get("parent_id", ""), it.get("milestone_id", ""),
+             float(it.get("estimate_h") or 0), float(it.get("spent_h") or 0)),
         )
     conn.commit()
 
@@ -1547,6 +1557,7 @@ def update_work_item(
     priority: Optional[str] = None, start_date: Optional[str] = None,
     clear_start_date: bool = False, labels: Optional[list] = None,
     parent_id: Optional[str] = None, milestone_id: Optional[str] = None,
+    estimate_h: Optional[float] = None, spent_h: Optional[float] = None,
 ) -> Optional[WorkItem]:
     sets, vals = [], []
     if title is not None:
@@ -1573,6 +1584,10 @@ def update_work_item(
         sets.append("parent_id=?"); vals.append(parent_id)
     if milestone_id is not None:
         sets.append("milestone_id=?"); vals.append(milestone_id)
+    if estimate_h is not None:
+        sets.append("estimate_h=?"); vals.append(float(estimate_h))
+    if spent_h is not None:
+        sets.append("spent_h=?"); vals.append(float(spent_h))
     if not sets:
         return get_work_item(item_id)
     sets.append("updated_at=?"); vals.append(time.time())

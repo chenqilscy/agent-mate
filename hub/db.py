@@ -739,7 +739,7 @@ def create_work_item(*, project_id: str, title: str, status: str = "todo",
                      source: str = "手动", assignee: str = "", description: str = "",
                      priority: str = "", due_date: str = "", start_date: str = "",
                      labels: Optional[list[str]] = None, parent_id: str = "",
-                     milestone_id: str = "") -> dict:
+                     milestone_id: str = "", estimate_h: float = 0.0, spent_h: float = 0.0) -> dict:
     wid = new_uuid(); now = time.time()
     mx = get_conn().execute(
         "SELECT COALESCE(MAX(sort),0) FROM work_items WHERE project_id=? AND status=?",
@@ -747,11 +747,11 @@ def create_work_item(*, project_id: str, title: str, status: str = "todo",
     ).fetchone()[0]
     get_conn().execute(
         "INSERT INTO work_items (id,project_id,title,status,source,assignee,description,"
-        "priority,due_date,start_date,labels,parent_id,milestone_id,sort,created_at,updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "priority,due_date,start_date,labels,parent_id,milestone_id,estimate_h,spent_h,sort,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (wid, project_id, title, status, source, assignee, description,
          priority, due_date, start_date, json.dumps(labels or [], ensure_ascii=False),
-         parent_id, milestone_id, mx + 1, now, now),
+         parent_id, milestone_id, float(estimate_h or 0), float(spent_h or 0), mx + 1, now, now),
     )
     get_conn().commit()
     return get_work_item(wid)  # type: ignore[return-value]
