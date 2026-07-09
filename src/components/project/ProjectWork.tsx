@@ -727,6 +727,50 @@ export function KanbanBoard() {
   )
 }
 
+// 负载: 按负责人聚合工作量（WB-119，对齐 Manager pmViewWorkload）。含工时 est/spent 汇总。
+export function WorkloadView() {
+  const items = useWorkItemStore((s) => s.items).filter((i) => !i.parent_id)
+  const today = (() => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` })()
+  const groups = new Map<string, { name: string; items: WorkItem[] }>()
+  items.forEach((i) => {
+    const k = i.assignee || ''
+    if (!groups.has(k)) groups.set(k, { name: k ? (i.assignee_name || k) : '未指派', items: [] })
+    groups.get(k)!.items.push(i)
+  })
+  const rows = [...groups.entries()].map(([id, g]) => {
+    const t = g.items.length
+    const c = (s: WorkStatus) => g.items.filter((x) => x.status === s).length
+    const done = c('done')
+    const overdue = g.items.filter((x) => x.due_date && x.due_date < today && x.status !== 'done').length
+    const est = g.items.reduce((a, x) => a + (x.estimate_h || 0), 0)
+    const spent = g.items.reduce((a, x) => a + (x.spent_h || 0), 0)
+    return { id, name: g.name, t, todo: c('todo'), doing: c('doing'), paused: c('paused'), done, overdue, pct: t ? Math.round((done / t) * 100) : 0, est, spent }
+  }).sort((a, b) => (a.id === '' ? 1 : 0) - (b.id === '' ? 1 : 0) || b.t - a.t)
+
+  if (rows.length === 0) return <div className="pj-empty">还没有任务。</div>
+  const seg = (n: number, color: string) => (n > 0 ? <div style={{ flex: n, background: color }} /> : null)
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12 }}>
+      {rows.map((r) => (
+        <div key={r.id || '_none'} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', background: 'var(--card)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
+            <span className="wb-av">{r.id ? (r.name?.[0] ?? '?') : '∅'}</span>
+            <span style={{ flex: 1, fontWeight: 700, fontSize: 13.5 }}>{r.name}</span>
+            <span className="wb-label-chip sm">{r.t} 项</span>
+          </div>
+          <div style={{ display: 'flex', height: 9, borderRadius: 99, overflow: 'hidden', background: 'var(--border-2)', marginBottom: 9 }}>
+            {r.t > 0 && <>{seg(r.todo, DOT.todo)}{seg(r.doing, DOT.doing)}{seg(r.paused, DOT.paused)}{seg(r.done, DOT.done)}</>}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11.5, color: 'var(--text-3)' }}>
+            <span>待办 {r.todo}</span><span style={{ color: DOT.doing }}>进行 {r.doing}</span><span style={{ color: DOT.done }}>完成 {r.done} · {r.pct}%</span>{r.overdue > 0 && <span style={{ color: '#EF4444' }}>逾期 {r.overdue}</span>}
+          </div>
+          {(r.est > 0 || r.spent > 0) && <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--text-3)' }}>⏱ 预估 {r.est}h · 投入 {r.spent}h</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // 任务: the same work items as a private list (spec: 你的任务是私密的).
 export function TaskList() {
   const items = useWorkItemStore((s) => s.items)
