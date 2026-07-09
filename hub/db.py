@@ -191,6 +191,8 @@ def init_db() -> None:
             labels TEXT NOT NULL DEFAULT '[]',
             parent_id TEXT NOT NULL DEFAULT '',
             milestone_id TEXT NOT NULL DEFAULT '',
+            estimate_h REAL NOT NULL DEFAULT 0,
+            spent_h REAL NOT NULL DEFAULT 0,
             sort INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
@@ -244,6 +246,8 @@ def init_db() -> None:
         ("labels", "labels TEXT NOT NULL DEFAULT '[]'"),
         ("parent_id", "parent_id TEXT NOT NULL DEFAULT ''"),
         ("milestone_id", "milestone_id TEXT NOT NULL DEFAULT ''"),
+        ("estimate_h", "estimate_h REAL NOT NULL DEFAULT 0"),   # 工时预估/投入（WB-116）
+        ("spent_h", "spent_h REAL NOT NULL DEFAULT 0"),
     ):
         if _col not in have_wi:
             get_conn().execute(f"ALTER TABLE work_items ADD COLUMN {_ddl}")
@@ -788,7 +792,8 @@ def get_work_item(wid: str) -> Optional[dict]:
 
 def update_work_item(wid: str, **fields: Any) -> Optional[dict]:
     allowed = {"title", "status", "source", "assignee", "description", "sort",
-               "priority", "due_date", "start_date", "labels", "parent_id", "milestone_id"}
+               "priority", "due_date", "start_date", "labels", "parent_id", "milestone_id",
+               "estimate_h", "spent_h"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed and v is not None:

@@ -106,6 +106,8 @@ class UpdateBody(BaseModel):
     labels: list[str] | None = None
     parent_id: str | None = None
     milestone_id: str | None = None
+    estimate_h: float | None = None    # 工时预估/投入（WB-116）
+    spent_h: float | None = None
 
 
 @router.patch("/projects/{project_id}/work-items/{wid}")
