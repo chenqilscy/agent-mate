@@ -371,30 +371,126 @@ async function loadConfig(pid){
     };
   }
 }
-// 团队计划/任务看板（WB-081）：4 列（待办/进行中/暂停/完成），新增 + 移动状态（select）+ 删除。Viewer 只读。
+// 团队计划/任务 —— 专业化（WB-106）：卡片显优先级/负责人/截止/标签/里程碑/子任务数；点卡开详情抽屉
+// （编辑全字段 + 子任务 + 活动流）；顶部里程碑条（列表+新建）。全 pm- 前缀 + 内联样式（避开并发会话的
+// <style>/目录区，防撞，沿用 cg-/sg- 约定）。复用 WI_COLS（状态列）。Viewer 只读。
+const PM_PRIO = { "":["无","#9aa0a6"], low:["低","#16b37a"], medium:["中","#2e7df6"], high:["高","#f0a020"], urgent:["紧急","#ef4444"] };
+let PM_CTX = { pid:null, ro:false, items:[], miles:[], members:[] };
 async function loadWorkItems(pid, ro){
   const box = document.getElementById("pd-work");
-  let items;
-  try{ items = (await api("GET","/projects/"+pid+"/work-items")).items || []; }
-  catch(e){ box.innerHTML = `<h3>计划 / 任务</h3><div class="err">${esc(e.message)}</div>`; return; }
-  const byStatus = s => items.filter(x=>x.status===s);
-  box.innerHTML = `<h3>计划 / 任务 <span class="pill">${items.length}</span></h3>
-    ${ro?"":`<div class="row" style="margin-bottom:10px"><input id="wi-new" placeholder="新增待办任务…"><button id="wi-add">添加</button></div>`}
-    <div class="err" id="wi-err"></div>
+  try{
+    const [wi, ms, mb] = await Promise.all([
+      api("GET","/projects/"+pid+"/work-items"),
+      api("GET","/projects/"+pid+"/milestones"),
+      api("GET","/projects/"+pid+"/members"),
+    ]);
+    PM_CTX = { pid, ro, items: wi.items||[], miles: ms.milestones||[], members: (mb.members||[]).map(x=>x.name) };
+  }catch(e){ box.innerHTML = `<h3>计划 / 任务</h3><div class="err">${esc(e.message)}</div>`; return; }
+  pmRenderBoard();
+}
+function pmMsName(id){ const m=PM_CTX.miles.find(x=>x.id===id); return m?m.name:""; }
+function pmCardHtml(it){
+  const subs = PM_CTX.items.filter(x=>x.parent_id===it.id).length;
+  const pc = (PM_PRIO[it.priority||""]||PM_PRIO[""])[1];
+  const labels = (it.labels||[]).slice(0,3).map(l=>`<span style="font-size:10px;color:var(--brand);background:rgba(22,179,122,.15);border-radius:5px;padding:1px 6px">#${esc(l)}</span>`).join("");
+  const ms = it.milestone_id?pmMsName(it.milestone_id):"";
+  return `<div class="list-item" data-open="${it.id}" style="display:block;padding:8px 10px;cursor:pointer">
+    <div style="display:flex;align-items:center;gap:6px">
+      ${it.priority?`<span title="优先级" style="width:8px;height:8px;border-radius:50%;background:${pc};flex-shrink:0"></span>`:""}
+      <span style="font-size:13px;flex:1;min-width:0">${esc(it.title)}</span>
+      ${subs?`<span class="pill">☑ ${subs}</span>`:""}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;align-items:center">
+      ${labels}
+      ${ms?`<span class="pill">🚩 ${esc(ms)}</span>`:""}
+      ${it.due_date?`<span class="pill">📅 ${esc(String(it.due_date).slice(5))}</span>`:""}
+      ${it.assignee?`<span class="pill">👤 ${esc(it.assignee)}</span>`:""}
+    </div>
+  </div>`;
+}
+function pmRenderBoard(){
+  const { pid, ro, items, miles } = PM_CTX;
+  const box = document.getElementById("pd-work");
+  const roots = items.filter(x=>!x.parent_id);
+  const byStatus = s => roots.filter(x=>x.status===s);
+  const milesChips = miles.length? miles.map(m=>`<span class="pill">🚩 ${esc(m.name)}${m.due_date?" · "+esc(String(m.due_date).slice(5)):""}${m.status==="closed"?" ✓":""}</span>`).join(" ") : '<span class="muted" style="font-size:12px">无</span>';
+  box.innerHTML = `<h3>计划 / 任务 <span class="pill">${roots.length}</span></h3>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <span class="muted" style="font-size:12px">里程碑</span>${milesChips}
+      ${ro?"":`<input id="pm-ms-new" placeholder="新里程碑…" style="width:120px;padding:5px 9px"><button class="line" id="pm-ms-add" style="padding:5px 10px">＋</button>`}
+    </div>
+    ${ro?"":`<div class="row" style="margin-bottom:10px"><input id="pm-new" placeholder="新增任务标题…"><button id="pm-add">添加</button></div>`}
+    <div class="err" id="pm-err"></div>
     <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
-      ${WI_COLS.map(([s,label])=>`<div><div class="muted" style="font-size:12px;margin-bottom:6px">${label} · ${byStatus(s).length}</div><div id="wi-col-${s}" style="display:flex;flex-direction:column;gap:6px"></div></div>`).join("")}
+      ${WI_COLS.map(([s,label])=>`<div><div class="muted" style="font-size:12px;margin-bottom:6px">${label} · ${byStatus(s).length}</div><div id="pm-col-${s}" style="display:flex;flex-direction:column;gap:6px"></div></div>`).join("")}
     </div>`;
-  WI_COLS.forEach(([s])=>{
-    document.getElementById("wi-col-"+s).innerHTML = byStatus(s).map(it=>`<div class="list-item" style="display:block;padding:8px 10px"><div style="font-size:13px">${esc(it.title)}</div><div class="row" style="margin-top:5px;gap:5px">${ro?`<span class="pill">${esc(it.source||"")}</span>`:`<select data-mv="${it.id}" style="padding:3px 6px;font-size:12px;width:auto">${WI_COLS.map(([cs,cl])=>`<option value="${cs}" ${cs===it.status?"selected":""}>${cl}</option>`).join("")}</select><div class="grow"></div><button class="danger" data-del="${it.id}" style="padding:2px 8px">删除</button>`}</div></div>`).join("") || '<div class="muted" style="font-size:12px">—</div>';
-  });
+  WI_COLS.forEach(([s])=>{ document.getElementById("pm-col-"+s).innerHTML = byStatus(s).map(pmCardHtml).join("") || '<div class="muted" style="font-size:12px">—</div>'; });
+  box.querySelectorAll("[data-open]").forEach(c=> c.onclick=()=> pmOpenTask(c.dataset.open));
   if(!ro){
-    const E = document.getElementById("wi-err");
-    const add = async ()=>{ const inp=document.getElementById("wi-new"), t=inp.value.trim(); if(!t) return; E.textContent=""; try{ await api("POST","/projects/"+pid+"/work-items",{title:t}); inp.value=""; loadWorkItems(pid,ro);}catch(e){E.textContent=e.message;} };
-    document.getElementById("wi-add").onclick = add;
-    document.getElementById("wi-new").onkeydown = e=>{ if(e.key==="Enter") add(); };
-    box.querySelectorAll("[data-mv]").forEach(sel=> sel.onchange=async()=>{ E.textContent=""; try{ await api("PATCH","/projects/"+pid+"/work-items/"+sel.dataset.mv,{status:sel.value}); loadWorkItems(pid,ro);}catch(e){E.textContent=e.message;} });
-    box.querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ E.textContent=""; try{ await api("DELETE","/projects/"+pid+"/work-items/"+b.dataset.del); loadWorkItems(pid,ro);}catch(e){E.textContent=e.message;} });
+    const E = document.getElementById("pm-err");
+    const addTask = async ()=>{ const inp=document.getElementById("pm-new"), t=inp.value.trim(); if(!t)return; E.textContent=""; try{ await api("POST","/projects/"+pid+"/work-items",{title:t}); inp.value=""; loadWorkItems(pid,ro);}catch(e){E.textContent=e.message;} };
+    document.getElementById("pm-add").onclick=addTask;
+    document.getElementById("pm-new").onkeydown=e=>{ if(e.key==="Enter")addTask(); };
+    const addMs = async ()=>{ const inp=document.getElementById("pm-ms-new"), n=inp.value.trim(); if(!n)return; E.textContent=""; try{ await api("POST","/projects/"+pid+"/milestones",{name:n}); inp.value=""; loadWorkItems(pid,ro);}catch(e){E.textContent=e.message;} };
+    document.getElementById("pm-ms-add").onclick=addMs;
+    document.getElementById("pm-ms-new").onkeydown=e=>{ if(e.key==="Enter")addMs(); };
   }
+}
+// 任务详情抽屉：编辑 标题/描述/状态/优先级/负责人/截止/标签/里程碑 + 子任务 + 活动流。
+function pmOpenTask(id){
+  const { pid, ro, items, miles, members } = PM_CTX;
+  const it = items.find(x=>x.id===id); if(!it) return;
+  const dis = ro?"disabled":"";
+  const optS = arr => arr.map(([v,l])=>`<option value="${v}" ${v===it.status?"selected":""}>${l}</option>`).join("");
+  const prioOpt = Object.entries(PM_PRIO).map(([k,v])=>`<option value="${k}" ${k===(it.priority||"")?"selected":""}>${v[0]}</option>`).join("");
+  const asOpt = `<option value="">未指派</option>`+members.map(n=>`<option value="${esc(n)}" ${n===it.assignee?"selected":""}>${esc(n)}</option>`).join("");
+  const msOpt = `<option value="">无里程碑</option>`+miles.map(m=>`<option value="${m.id}" ${m.id===it.milestone_id?"selected":""}>${esc(m.name)}</option>`).join("");
+  const subs = items.filter(x=>x.parent_id===id);
+  const ov = document.createElement("div");
+  ov.id="pm-ov"; ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;display:flex;justify-content:flex-end";
+  ov.innerHTML = `<div style="width:min(470px,92vw);height:100%;background:var(--panel);border-left:1px solid var(--line);overflow:auto;padding:18px">
+    <div class="row"><h3 style="flex:1;margin:0">任务详情</h3><button class="line" id="pm-x">关闭</button></div>
+    <div class="field" style="margin-top:12px"><label>标题</label><input id="pm-f-title" value="${esc(it.title)}" ${dis}></div>
+    <div class="field"><label>描述</label><textarea id="pm-f-desc" ${dis}>${esc(it.description||"")}</textarea></div>
+    <div class="grid2">
+      <div class="field"><label>状态</label><select id="pm-f-status" ${dis}>${optS(WI_COLS)}</select></div>
+      <div class="field"><label>优先级</label><select id="pm-f-prio" ${dis}>${prioOpt}</select></div>
+      <div class="field"><label>负责人</label><select id="pm-f-assignee" ${dis}>${asOpt}</select></div>
+      <div class="field"><label>截止日期</label><input type="date" id="pm-f-due" value="${esc(it.due_date||"")}" ${dis}></div>
+      <div class="field"><label>里程碑</label><select id="pm-f-ms" ${dis}>${msOpt}</select></div>
+      <div class="field"><label>标签（逗号分隔）</label><input id="pm-f-labels" value="${esc((it.labels||[]).join(", "))}" ${dis}></div>
+    </div>
+    <div class="err" id="pm-f-err"></div>
+    ${ro?"":`<div class="row"><button id="pm-f-save">保存</button><div class="grow"></div><button class="danger" id="pm-f-del">删除任务</button></div>`}
+    <div class="card" style="margin-top:14px"><h3>子任务 <span class="pill">${subs.length}</span></h3><div id="pm-subs"></div>
+      ${ro?"":`<div class="row" style="margin-top:8px"><input id="pm-sub-new" placeholder="新增子任务…"><button class="line" id="pm-sub-add">＋</button></div>`}</div>
+    <div class="card"><h3>活动</h3><div id="pm-acts" class="muted" style="font-size:12px">加载中…</div></div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.onclick = e=>{ if(e.target===ov) ov.remove(); };
+  document.getElementById("pm-x").onclick=()=>ov.remove();
+  const subBox = document.getElementById("pm-subs");
+  subBox.innerHTML = subs.length? subs.map(s=>`<div class="row" style="padding:3px 0"><input type="checkbox" data-sub="${s.id}" ${s.status==="done"?"checked":""} ${dis} style="width:auto"><span style="flex:1;${s.status==="done"?"text-decoration:line-through;color:var(--dim)":""}">${esc(s.title)}</span>${ro?"":`<span class="danger" data-subdel="${s.id}" style="cursor:pointer;padding:0 6px">×</span>`}</div>`).join("") : '<div class="muted" style="font-size:12px">无</div>';
+  api("GET","/projects/"+pid+"/work-items/"+id+"/activity").then(r=>{
+    const a=r.activity||[]; const box=document.getElementById("pm-acts"); if(!box) return;
+    box.innerHTML = a.length? a.map(x=>`<div style="padding:3px 0">${esc(x.actor||"?")} · ${esc(x.kind)}${x.detail?" · "+esc(x.detail):""} <span style="color:var(--dim)">${ago(x.created_at)}</span></div>`).join("") : "暂无活动";
+  }).catch(()=>{});
+  if(ro) return;
+  const E=document.getElementById("pm-f-err");
+  document.getElementById("pm-f-save").onclick=async()=>{
+    E.textContent="";
+    const labels = document.getElementById("pm-f-labels").value.split(",").map(s=>s.trim()).filter(Boolean);
+    try{ await api("PATCH","/projects/"+pid+"/work-items/"+id,{
+      title:document.getElementById("pm-f-title").value.trim(), description:document.getElementById("pm-f-desc").value,
+      status:document.getElementById("pm-f-status").value, priority:document.getElementById("pm-f-prio").value,
+      assignee:document.getElementById("pm-f-assignee").value, due_date:document.getElementById("pm-f-due").value,
+      milestone_id:document.getElementById("pm-f-ms").value, labels });
+      ov.remove(); loadWorkItems(pid,ro); }catch(e){E.textContent=e.message;}
+  };
+  document.getElementById("pm-f-del").onclick=async()=>{ try{ await api("DELETE","/projects/"+pid+"/work-items/"+id); ov.remove(); loadWorkItems(pid,ro);}catch(e){E.textContent=e.message;} };
+  document.getElementById("pm-sub-add").onclick=async()=>{ const inp=document.getElementById("pm-sub-new"),t=inp.value.trim(); if(!t)return; try{ await api("POST","/projects/"+pid+"/work-items",{title:t,parent_id:id}); ov.remove(); await loadWorkItems(pid,ro); pmOpenTask(id);}catch(e){E.textContent=e.message;} };
+  subBox.querySelectorAll("[data-sub]").forEach(cb=> cb.onchange=async()=>{ try{ await api("PATCH","/projects/"+pid+"/work-items/"+cb.dataset.sub,{status:cb.checked?"done":"todo"}); }catch(e){E.textContent=e.message;} });
+  subBox.querySelectorAll("[data-subdel]").forEach(x=> x.onclick=async()=>{ try{ await api("DELETE","/projects/"+pid+"/work-items/"+x.dataset.subdel); ov.remove(); await loadWorkItems(pid,ro); pmOpenTask(id);}catch(e){E.textContent=e.message;} });
 }
 async function loadMembers(pid){
   try{ const {members} = await api("GET",`/projects/${pid}/members`);

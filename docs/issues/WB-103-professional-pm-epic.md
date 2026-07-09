@@ -50,7 +50,7 @@ created: 2026-07-09
 
 - **WB-104 · P1（backend/hub）** ✅：Hub 数据模型 + 迁移（`work_items` 新列 + `milestones` + `work_item_activity` 表；`db.py` CRUD 扩展）。
 - **WB-105 · P1（hub）** ✅：Hub API —— `work_items` CRUD 全字段 + 子任务(parent_id) + `milestones` CRUD + 活动 feed 端点。assignee/priority **宽松校验**（保护同步；成员约束交给门户 UI 下拉）。
-- **WB-106 · P1（frontend·console）**：BuddyWebMgr 任务专业化 —— 列表视图 + 看板增强(负责人/优先级/截止/标签/子任务计数) + 任务详情抽屉(全字段+子任务+活动) + 筛选/排序。
+- **WB-106 · P1（frontend·console）** ✅：BuddyWebMgr 任务专业化 —— 看板卡片富信息(负责人/优先级/截止/标签/里程碑/子任务计数) + 任务详情抽屉(全字段+子任务+活动流) + 里程碑条。全 pm- 前缀内联样式（防撞并发）；隔离 Hub CDP 实测无报错。列表视图/筛选/排序并入 WB-107。
 - **WB-107 · P2（frontend·console）**：里程碑/迭代面板 + 甘特/时间线视图 + 活动流。
 - **WB-108 · P1（fullstack）** ✅：App↔Hub 打通 —— 扩展 WB-091 同步覆盖新字段/里程碑；本地 backend `work_items` 模型对齐；App 项目工作台任务 UI 接优先级/标签/里程碑。**108a 后端 + 108b 前端均 ✅**（冒烟 25+12+HTTP E2E、tsc/build、明暗双主题 CDP 实截 全过）。子任务 UI/甘特随门户期（WB-106/107）。
 

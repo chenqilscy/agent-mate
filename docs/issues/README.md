@@ -122,6 +122,7 @@
 | [WB-104](WB-104-hub-pm-data-model.md) | ✅ | P1 | backend | Hub 专业 PM 数据模型 + 迁移 —— work_items 增 priority/due/start/labels/parent_id/milestone_id + 新表 milestones/work_item_activity（非破坏 ALTER，CRUD 扩展） |
 | [WB-105](WB-105-hub-pm-api.md) | ✅ | P1 | backend | Hub 专业 PM API —— work_items 全字段+子任务+活动流端点 + milestones CRUD 路由；assignee/priority 宽松校验保护同步（TestClient 冒烟 20 项全过） |
 | [WB-108](WB-108-app-hub-pm-integration.md) | ✅ | P1 | fullstack | App↔Hub 专业 PM 打通 —— 本地模型/迁移/同步扩展新字段+里程碑 + App 工作台任务 UI（优先级/标签/里程碑接卡片·详情·新建）；冒烟 25+12+HTTP E2E 全过、tsc/build 过、明暗双主题 CDP 实截核对过 |
+| [WB-106](WB-106-portal-task-professional.md) | ✅ | P1 | frontend | BuddyWebMgr 门户任务专业化 —— 看板卡片富信息(优先级/负责人/截止/标签/里程碑/子任务) + 任务详情抽屉(全字段+子任务+活动流) + 里程碑条；全 pm- 前缀内联样式防撞并发；隔离 Hub CDP 实测无报错 |
 | [WB-109](WB-109-app-featured-consume-hub.md) | ✅ | P3 | frontend | App 精选技能区消费 Hub SKILLHUB_FEATURED —— 打通 mgr「加入精选」→ App（渲染真图标，回退静态兜底；纯前端，数据链路 E2E 实测） |
 
 ## 来源
