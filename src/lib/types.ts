@@ -159,6 +159,8 @@ export interface AppNotification {
 }
 
 export type WorkStatus = 'todo' | 'doing' | 'paused' | 'done'
+// 专业 PM 优先级（WB-108，与 Hub 对齐）。'' = 未设。
+export type WorkPriority = '' | 'low' | 'medium' | 'high' | 'urgent'
 
 export interface WorkAttachment {
   name: string
@@ -177,9 +179,26 @@ export interface WorkItem {
   description: string
   due_date: string | null
   attachments: WorkAttachment[]
+  // 专业 PM 字段（WB-108）：随 hub-origin 项目与门户双向同步。
+  priority: WorkPriority
+  start_date: string | null
+  labels: string[]
+  parent_id: string
+  milestone_id: string
   ago?: string
   created_at?: number
   updated_at?: number
+}
+
+// 项目里程碑 / 迭代（WB-108）。
+export interface Milestone {
+  id: string
+  project_id: string
+  name: string
+  description: string
+  due_date: string | null
+  status: 'open' | 'closed'
+  sort: number
 }
 
 export type TriggerKind = 'interval' | 'daily'

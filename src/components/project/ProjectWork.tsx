@@ -4,7 +4,7 @@ import { useWorkItemStore } from '../../stores/workItemStore'
 import { useLoadoutStore } from '../../stores/loadoutStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
-import type { WorkAttachment, WorkItem, WorkStatus } from '../../lib/types'
+import type { WorkAttachment, WorkItem, WorkPriority, WorkStatus } from '../../lib/types'
 
 const COLS: { key: WorkStatus; label: string }[] = [
   { key: 'todo', label: '待开始' },
@@ -12,6 +12,17 @@ const COLS: { key: WorkStatus; label: string }[] = [
   { key: 'paused', label: '暂停' },
   { key: 'done', label: '完成' },
 ]
+// 优先级（WB-108，与 Hub 对齐）。'' = 未设；颜色沿用状态点的调色。
+const PRIORITY_OPTS: { key: WorkPriority; label: string; color: string }[] = [
+  { key: '', label: '无优先级', color: '#9AA0A6' },
+  { key: 'low', label: '低', color: '#16B37A' },
+  { key: 'medium', label: '中', color: '#3D6BFF' },
+  { key: 'high', label: '高', color: '#F0A020' },
+  { key: 'urgent', label: '紧急', color: '#E5484D' },
+]
+const PRIO: Record<WorkPriority, { label: string; color: string }> = Object.fromEntries(
+  PRIORITY_OPTS.map((o) => [o.key, { label: o.label, color: o.color }]),
+) as Record<WorkPriority, { label: string; color: string }>
 // Fuller labels for the status dropdowns (detail / batch), matching the target design.
 const STATUS_OPTS: { key: WorkStatus; label: string }[] = [
   { key: 'todo', label: '待开始' },
@@ -112,6 +123,95 @@ function DueDatePill({ value, dir = 'up', onChange }: { value: string | null; di
           )}
         </div>
       </Popover>
+    </>
+  )
+}
+
+function PriorityPill({ value, dir = 'up', onPick }: { value: WorkPriority; dir?: 'up' | 'down'; onPick: (p: WorkPriority) => void }) {
+  const ref = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const meta = PRIO[value] ?? PRIO['']
+  return (
+    <>
+      <button ref={ref} type="button" className="wb-pill" onClick={() => setOpen((v) => !v)}>
+        <span className="wb-dot" style={{ background: meta.color }} />{value ? meta.label : '优先级'}{IcCaret}
+      </button>
+      <Popover open={open} anchor={ref.current} dir={dir} onClose={() => setOpen(false)} minWidth={132}>
+        {PRIORITY_OPTS.map((o) => (
+          <div className="pop-item" key={o.key || 'none'} onClick={() => { onPick(o.key); setOpen(false) }}>
+            <span className="wb-dot" style={{ background: o.color }} />{o.label}
+          </div>
+        ))}
+      </Popover>
+    </>
+  )
+}
+
+// 里程碑选择器：从项目里程碑里选，或就地新建一个（WB-108）。
+function MilestonePill({ value, dir = 'up', onPick }: { value: string; dir?: 'up' | 'down'; onPick: (id: string) => void }) {
+  const ref = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [draft, setDraft] = useState('')
+  const milestones = useWorkItemStore((s) => s.milestones)
+  const addMilestone = useWorkItemStore((s) => s.addMilestone)
+  const cur = milestones.find((m) => m.id === value)
+  const doCreate = async () => {
+    const m = await addMilestone(draft)
+    if (m) { onPick(m.id); setDraft(''); setCreating(false); setOpen(false) }
+    else toast('新建里程碑失败')
+  }
+  return (
+    <>
+      <button ref={ref} type="button" className="wb-pill" onClick={() => setOpen((v) => !v)}>
+        <span aria-hidden>🚩</span>{cur ? cur.name : '里程碑'}{IcCaret}
+      </button>
+      <Popover open={open} anchor={ref.current} dir={dir} onClose={() => { setOpen(false); setCreating(false) }} minWidth={200}>
+        <div className="pop-item" onClick={() => { onPick(''); setOpen(false) }}>无里程碑</div>
+        {milestones.map((m) => (
+          <div className="pop-item" key={m.id} onClick={() => { onPick(m.id); setOpen(false) }}>🚩 {m.name}</div>
+        ))}
+        {creating ? (
+          <div style={{ padding: 6, display: 'flex', gap: 6 }}>
+            <input className="np-input" style={{ height: 30 }} placeholder="里程碑名称" value={draft} autoFocus
+              onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void doCreate() }} />
+            <button className="btn-dark" style={{ height: 30, padding: '0 12px' }} onClick={() => void doCreate()}>建</button>
+          </div>
+        ) : (
+          <div className="pop-item" onClick={() => setCreating(true)}>＋ 新建里程碑</div>
+        )}
+      </Popover>
+    </>
+  )
+}
+
+// 标签编辑器：回车/失焦加标签，× 删（WB-108）。
+function LabelsEditor({ labels, onChange }: { labels: string[]; onChange: (l: string[]) => void }) {
+  const [draft, setDraft] = useState('')
+  const add = () => {
+    const t = draft.trim().slice(0, 40)
+    if (t && !labels.includes(t)) onChange([...labels, t])
+    setDraft('')
+  }
+  return (
+    <div className="wb-labels-ed">
+      {labels.map((l, i) => (
+        <span className="wb-label-chip" key={l}>#{l}<span className="x" onClick={() => onChange(labels.filter((_, j) => j !== i))}>×</span></span>
+      ))}
+      <input className="wb-label-in" placeholder="加标签…" value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }} onBlur={add} />
+    </div>
+  )
+}
+
+// 卡片上的标签徽标（只读，最多显示几枚）。
+function LabelBadges({ labels }: { labels: string[] }) {
+  if (!labels.length) return null
+  return (
+    <>
+      {labels.slice(0, 3).map((l) => <span className="wb-label-chip sm" key={l}>#{l}</span>)}
+      {labels.length > 3 && <span className="wb-label-chip sm">+{labels.length - 3}</span>}
     </>
   )
 }
@@ -274,6 +374,9 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
             <div className={`wb-td-desc ${item.description ? '' : 'empty'}`.trim()}>{item.description || '暂无描述，点「编辑」补充。'}</div>
           )}
 
+          <div className="wb-td-sec-h">标签</div>
+          <LabelsEditor labels={item.labels} onChange={(l) => void update(item.id, { labels: l })} />
+
           {item.attachments.length > 0 && <div className="wb-td-sec-h">附件 {item.attachments.length}</div>}
           <AttachmentChips list={item.attachments} projectId={projectId} onRemove={rmAttach} />
           <div style={{ marginTop: 10 }}>
@@ -283,7 +386,9 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
         <div className="wb-td-foot">
           <span className="wb-av" title={item.assignee_name}>{item.assignee_name?.[0] ?? '奇'}</span>
           <StatusPill status={item.status} dir="up" onPick={(s) => void update(item.id, { status: s })} />
+          <PriorityPill value={item.priority} dir="up" onPick={(p) => void update(item.id, { priority: p })} />
           <DueDatePill value={item.due_date} dir="up" onChange={(v) => void update(item.id, { due_date: v })} />
+          <MilestonePill value={item.milestone_id} dir="up" onPick={(id) => void update(item.id, { milestone_id: id })} />
         </div>
       </div>
     </div>
@@ -303,13 +408,16 @@ function NewTodoModal({ status, onClose, onCreated }: {
   const [desc, setDesc] = useState('')
   const [due, setDue] = useState<string | null>(null)
   const [attachments, setAttachments] = useState<WorkAttachment[]>([])
+  const [priority, setPriority] = useState<WorkPriority>('')
+  const [labels, setLabels] = useState<string[]>([])
+  const [milestoneId, setMilestoneId] = useState('')
   const [busy, setBusy] = useState(false)
 
   const create = async () => {
     if (!title.trim() || busy) return
     setBusy(true)
     try {
-      const wi = await add({ title, status, description: desc, due_date: due, attachments })
+      const wi = await add({ title, status, description: desc, due_date: due, attachments, priority, labels, milestone_id: milestoneId })
       if (wi) { toast('待办已创建'); onCreated(wi) }
       onClose()
     } catch {
@@ -329,11 +437,15 @@ function NewTodoModal({ status, onClose, onCreated }: {
             onKeyDown={(e) => { if (e.key === 'Enter') void create() }} />
           <div className="np-lbl">描述（可选）</div>
           <textarea className="np-ta" placeholder="请输入待办描述" value={desc} onChange={(e) => setDesc(e.target.value)} />
+          <div className="np-lbl">标签（可选）</div>
+          <LabelsEditor labels={labels} onChange={setLabels} />
           <AttachmentChips list={attachments} projectId={projectId} onRemove={(i) => setAttachments((a) => a.filter((_, j) => j !== i))} />
         </div>
         <div className="np-foot">
           <AttachmentAdder projectId={projectId} onAdd={(a) => setAttachments((prev) => [...prev, a])} dir="up" />
+          <PriorityPill value={priority} dir="up" onPick={setPriority} />
           <DueDatePill value={due} dir="up" onChange={setDue} />
+          <MilestonePill value={milestoneId} dir="up" onPick={setMilestoneId} />
           <span style={{ flex: 1 }} />
           <button className="btn-ghost" onClick={onClose}>取消</button>
           <button className="btn-dark" disabled={!title.trim() || busy} onClick={create}>创建</button>
@@ -411,6 +523,8 @@ export function KanbanBoard() {
   const add = useWorkItemStore((s) => s.add)
   const move = useWorkItemStore((s) => s.move)
   const remove = useWorkItemStore((s) => s.remove)
+  const milestones = useWorkItemStore((s) => s.milestones)
+  const msName = useMemo(() => Object.fromEntries(milestones.map((m) => [m.id, m.name])), [milestones])
 
   const [detailId, setDetailId] = useState<string | null>(null)
   const [newIn, setNewIn] = useState<WorkStatus | null>(null)
@@ -526,10 +640,15 @@ export function KanbanBoard() {
                   ) : (
                     <span className="del" onClick={(e) => { e.stopPropagation(); void remove(i.id) }}>×</span>
                   )}
-                  <div className="t">{i.title}</div>
+                  <div className="t">
+                    {i.priority && <span className="wb-dot" style={{ background: PRIO[i.priority].color, marginRight: 6, verticalAlign: 'middle' }} title={`优先级：${PRIO[i.priority].label}`} />}
+                    {i.title}
+                  </div>
                   {i.description && <div className="wb-card-d">{i.description}</div>}
+                  {i.labels.length > 0 && <div className="wb-card-labels"><LabelBadges labels={i.labels} /></div>}
                   <div className="m">
                     <span className="av">{i.assignee_name?.[0] ?? '奇'}</span>
+                    {i.milestone_id && msName[i.milestone_id] && <span className="wb-badge">🚩 {msName[i.milestone_id]}</span>}
                     {i.attachments.length > 0 && <span className="wb-badge">📎 {i.attachments.length}</span>}
                     {i.due_date && <span className="wb-badge due">📅 {i.due_date.slice(5)}</span>}
                     <span style={{ flex: 1 }} />
@@ -578,7 +697,9 @@ export function TaskList() {
         filtered.map((i) => (
           <div className="pj-task" key={i.id}>
             <span className="st" style={{ background: DOT[i.status] }} />
+            {i.priority && <span className="wb-dot" style={{ background: PRIO[i.priority].color }} title={`优先级：${PRIO[i.priority].label}`} />}
             <span className="tt">{i.title}</span>
+            <LabelBadges labels={i.labels} />
             {i.due_date && <span className="wb-badge due">📅 {i.due_date.slice(5)}</span>}
             <span className="stx">{LABEL[i.status]}</span>
             <span className="ago">{i.ago}</span>

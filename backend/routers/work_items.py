@@ -16,7 +16,20 @@ from storage.models import Role
 router = APIRouter(prefix="/api", tags=["work_items"])
 
 STATUSES = {"todo", "doing", "paused", "done"}
+PRIORITIES = {"", "low", "medium", "high", "urgent"}
 MAX_ATTACHMENTS = 20
+MAX_LABELS = 20
+
+
+def _clean_labels(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for s in raw[:MAX_LABELS]:
+        t = str(s).strip()[:40]
+        if t and t not in out:
+            out.append(t)
+    return out
 
 
 def _clean_attachments(raw: Any) -> list[dict]:
@@ -44,6 +57,11 @@ class CreateWorkItemBody(BaseModel):
     description: str = ""
     due_date: str | None = None
     attachments: list[dict] = []
+    priority: str = ""
+    start_date: str | None = None
+    labels: list[str] = []
+    parent_id: str = ""
+    milestone_id: str = ""
 
 
 class UpdateWorkItemBody(BaseModel):
@@ -52,6 +70,11 @@ class UpdateWorkItemBody(BaseModel):
     description: str | None = None
     due_date: str | None = None
     attachments: list[dict] | None = None
+    priority: str | None = None
+    start_date: str | None = None
+    labels: list[str] | None = None
+    parent_id: str | None = None
+    milestone_id: str | None = None
 
 
 def _ago(ts: float) -> str:
@@ -94,13 +117,20 @@ def _hub_token(project_id: str, authorization: str) -> str:
 
 
 def _hub_view(it: dict) -> dict:
-    """Hub work_item → 前端期望的视图形状（补齐本地专有字段：owner_id/due_date/attachments）。"""
+    """Hub work_item → 前端期望的视图形状。
+    专业 PM 字段（priority/start_date/labels/parent_id/milestone_id/due_date）随 Hub 透传；
+    owner_id/attachments 是本地专有、Hub 不带，补默认空。"""
     ca = it.get("created_at") or 0
+    labels = it.get("labels") or []
     return {
         "id": it.get("id"), "project_id": it.get("project_id"), "owner_id": "",
         "title": it.get("title", ""), "status": it.get("status", "todo"),
         "source": it.get("source", "手动"), "assignee": it.get("assignee", ""),
-        "description": it.get("description", ""), "due_date": None, "attachments": [],
+        "description": it.get("description", ""), "due_date": it.get("due_date") or None,
+        "attachments": [],
+        "priority": it.get("priority", ""), "start_date": it.get("start_date") or None,
+        "labels": labels if isinstance(labels, list) else [],
+        "parent_id": it.get("parent_id", ""), "milestone_id": it.get("milestone_id", ""),
         "created_at": ca, "updated_at": it.get("updated_at") or ca,
         "ago": _ago(ca), "assignee_name": (it.get("assignee", "") or "")[:2],
     }
@@ -137,6 +167,8 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
     if not title:
         raise HTTPException(400, "empty title")
     status = body.status if body.status in STATUSES else "todo"
+    priority = body.priority if body.priority in PRIORITIES else ""
+    labels = _clean_labels(body.labels)
     user = current_user()
     _require_project_write(body.project_id, user.id)
     tok = _hub_token(body.project_id, authorization)
@@ -144,7 +176,10 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
         created = hub_client.create_work_item(
             tok, body.project_id,
             {"title": title, "status": status, "source": body.source,
-             "description": (body.description or "").strip()},
+             "description": (body.description or "").strip(),
+             "priority": priority, "due_date": body.due_date or "",
+             "start_date": body.start_date or "", "labels": labels,
+             "parent_id": body.parent_id or "", "milestone_id": body.milestone_id or ""},
         )
         if created:
             items = hub_client.list_work_items(tok, body.project_id)
@@ -156,6 +191,8 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
         project_id=body.project_id, owner_id=user.id, title=title, status=status, source=body.source,
         description=(body.description or "").strip(), due_date=(body.due_date or None),
         attachments=_clean_attachments(body.attachments),
+        priority=priority, start_date=(body.start_date or None), labels=labels,
+        parent_id=(body.parent_id or ""), milestone_id=(body.milestone_id or ""),
     )
     return _view(wi, user)
 
@@ -174,7 +211,13 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
     tok = _hub_token(existing.project_id, authorization)
     if tok:
         fs = body.model_fields_set
-        patch = {k: getattr(body, k) for k in ("title", "status", "description") if k in fs and getattr(body, k) is not None}
+        keys = ("title", "status", "description", "priority", "due_date",
+                "start_date", "labels", "parent_id", "milestone_id")
+        patch = {k: getattr(body, k) for k in keys if k in fs and getattr(body, k) is not None}
+        if "priority" in patch and patch["priority"] not in PRIORITIES:
+            patch["priority"] = ""
+        if "labels" in patch:
+            patch["labels"] = _clean_labels(patch["labels"])
         if patch:
             up = hub_client.update_work_item(tok, existing.project_id, item_id, patch)
             if up:
@@ -183,7 +226,7 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
                     db.mirror_hub_work_items(existing.project_id, items)
                 return _hub_view(up)
         # Hub 不可达 → 回退本地
-    # due_date is nullable: an explicit `due_date: null` clears it; omitting leaves it.
+    # due_date / start_date nullable: 显式 null 清空，省略则不动。
     fields = body.model_fields_set
     wi = db.update_work_item(
         item_id,
@@ -193,6 +236,12 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
         due_date=body.due_date if "due_date" in fields else None,
         clear_due_date="due_date" in fields and body.due_date is None,
         attachments=_clean_attachments(body.attachments) if body.attachments is not None else None,
+        priority=(body.priority if body.priority in PRIORITIES else "") if body.priority is not None else None,
+        start_date=body.start_date if "start_date" in fields else None,
+        clear_start_date="start_date" in fields and body.start_date is None,
+        labels=_clean_labels(body.labels) if body.labels is not None else None,
+        parent_id=body.parent_id,
+        milestone_id=body.milestone_id,
     )
     if not wi:
         raise HTTPException(404, "work item not found")

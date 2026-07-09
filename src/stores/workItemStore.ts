@@ -1,7 +1,7 @@
 // workItemStore — kanban / task items for the active project (§11 阶段 B).
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import type { WorkAttachment, WorkItem, WorkStatus } from '../lib/types'
+import type { Milestone, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from '../lib/types'
 
 export interface NewWorkItem {
   title: string
@@ -9,6 +9,11 @@ export interface NewWorkItem {
   description?: string
   due_date?: string | null
   attachments?: WorkAttachment[]
+  priority?: WorkPriority
+  start_date?: string | null
+  labels?: string[]
+  parent_id?: string
+  milestone_id?: string
 }
 
 export interface WorkItemPatch {
@@ -17,12 +22,19 @@ export interface WorkItemPatch {
   description?: string
   due_date?: string | null
   attachments?: WorkAttachment[]
+  priority?: WorkPriority
+  start_date?: string | null
+  labels?: string[]
+  milestone_id?: string
 }
 
 interface WorkItemState {
   projectId: string | null
   items: WorkItem[]
+  milestones: Milestone[]
   load: (projectId: string) => Promise<void>
+  loadMilestones: (projectId: string) => Promise<void>
+  addMilestone: (name: string, due_date?: string | null) => Promise<Milestone | null>
   add: (input: NewWorkItem) => Promise<WorkItem | null>
   update: (id: string, patch: WorkItemPatch) => Promise<void>
   // Apply a live change pushed over SSE (WB-031: agent changed a plan item's
@@ -36,15 +48,38 @@ interface WorkItemState {
 export const useWorkItemStore = create<WorkItemState>((set, get) => ({
   projectId: null,
   items: [],
+  milestones: [],
 
   load: async (projectId) => {
-    set({ projectId, items: [] })
+    set({ projectId, items: [], milestones: [] })
     try {
       const { items } = await api.listWorkItems(projectId)
       // guard against a stale response after the project changed
       if (get().projectId === projectId) set({ items })
     } catch {
       /* backend down */
+    }
+    void get().loadMilestones(projectId)
+  },
+
+  loadMilestones: async (projectId) => {
+    try {
+      const { milestones } = await api.listMilestones(projectId)
+      if (get().projectId === projectId) set({ milestones })
+    } catch {
+      /* backend down / no milestones */
+    }
+  },
+
+  addMilestone: async (name, due_date = null) => {
+    const pid = get().projectId
+    if (!pid || !name.trim()) return null
+    try {
+      const m = await api.createMilestone({ project_id: pid, name: name.trim(), due_date })
+      set({ milestones: [...get().milestones, m] })
+      return m
+    } catch {
+      return null
     }
   },
 
@@ -58,6 +93,11 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
       description: input.description,
       due_date: input.due_date,
       attachments: input.attachments,
+      priority: input.priority,
+      start_date: input.start_date,
+      labels: input.labels,
+      parent_id: input.parent_id,
+      milestone_id: input.milestone_id,
     })
     set({ items: [...get().items, wi] })
     return wi

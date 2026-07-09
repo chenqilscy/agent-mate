@@ -159,6 +159,12 @@ class WorkItem:
     # 引用列表，元素形如 {"name": str, "kind": "local"|"asset", "path": str|None}。
     # 只存引用，不复制文件（项目资产引用项目云盘现有文件）。
     attachments: list[dict[str, Any]] = field(default_factory=list)
+    # 专业 PM 字段（WB-108，与 Hub 对齐、随 hub-origin 项目双向同步）。
+    priority: str = ""              # '' | low | medium | high | urgent
+    start_date: Optional[str] = None  # "YYYY-MM-DD" or None（甘特起点）
+    labels: list[str] = field(default_factory=list)
+    parent_id: str = ""             # 自引用 → 子任务
+    milestone_id: str = ""          # → milestones.id
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

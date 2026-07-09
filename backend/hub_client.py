@@ -212,3 +212,25 @@ def update_work_item(token: str, project_id: str, wid: str, body: dict[str, Any]
 
 def delete_work_item(token: str, project_id: str, wid: str) -> bool:
     return _delete(f"/api/projects/{project_id}/work-items/{wid}", token)
+
+
+# ---- 里程碑 milestones 代理（WB-108）：hub-origin 项目的里程碑走 Hub 权威 ----
+
+def list_milestones(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
+    d = _get(f"/api/projects/{project_id}/milestones", token)
+    items = d.get("milestones") if isinstance(d, dict) else None
+    return items if isinstance(items, list) else None
+
+
+def create_milestone(token: str, project_id: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    d = _post(f"/api/projects/{project_id}/milestones", token, body)
+    return d if isinstance(d, dict) else None
+
+
+def update_milestone(token: str, project_id: str, mid: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    d = _patch(f"/api/projects/{project_id}/milestones/{mid}", token, body)
+    return d if isinstance(d, dict) else None
+
+
+def delete_milestone(token: str, project_id: str, mid: str) -> bool:
+    return _delete(f"/api/projects/{project_id}/milestones/{mid}", token)

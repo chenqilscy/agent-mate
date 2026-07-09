@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, InstalledSkill, Me, ModelOption, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkStatus } from './types'
+import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, InstalledSkill, Me, Milestone, ModelOption, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -177,14 +177,26 @@ export const api = {
   createWorkItem: (body: {
     project_id: string; title: string; status?: WorkStatus
     description?: string; due_date?: string | null; attachments?: WorkAttachment[]
+    priority?: WorkPriority; start_date?: string | null; labels?: string[]
+    parent_id?: string; milestone_id?: string
   }) => send<WorkItem>('POST', '/work-items', body),
 
   updateWorkItem: (id: string, patch: {
     status?: WorkStatus; title?: string
     description?: string; due_date?: string | null; attachments?: WorkAttachment[]
+    priority?: WorkPriority; start_date?: string | null; labels?: string[]
+    parent_id?: string; milestone_id?: string
   }) => send<WorkItem>('PATCH', `/work-items/${id}`, patch),
 
   deleteWorkItem: (id: string) => send<{ ok: boolean }>('DELETE', `/work-items/${id}`),
+
+  // 里程碑（WB-108）：hub-origin 项目走 Hub 权威 + 本地镜像，离线回退本地。
+  listMilestones: (project: string) => get<{ milestones: Milestone[] }>(`/milestones?project=${project}`),
+  createMilestone: (body: { project_id: string; name: string; description?: string; due_date?: string | null; status?: 'open' | 'closed' }) =>
+    send<Milestone>('POST', '/milestones', body),
+  updateMilestone: (id: string, patch: { name?: string; description?: string; due_date?: string | null; status?: 'open' | 'closed'; sort?: number }) =>
+    send<Milestone>('PATCH', `/milestones/${id}`, patch),
+  deleteMilestone: (id: string) => send<{ ok: boolean }>('DELETE', `/milestones/${id}`),
 
   listAutomations: () => get<{ automations: Automation[] }>('/automations'),
 

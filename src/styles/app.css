@@ -1006,6 +1006,15 @@ body.dark .pj-kadd { background: #22272D; }
 .pj-card .m .wb-badge.due, .pj-task .wb-badge.due { color: var(--brand-600); }
 .pj-task .wb-badge.due { font-size: 11px; background: var(--chip); border-radius: 5px; padding: 1px 7px; }
 
+/* 任务标签（WB-108）：brand-soft 底 + brand-600 字，随暗色主题 token 翻转 */
+.wb-labels-ed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 2px; }
+.wb-label-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; color: var(--brand-600); background: var(--brand-soft); border-radius: 6px; padding: 2px 8px; white-space: nowrap; }
+.wb-label-chip.sm { font-size: 10.5px; padding: 1px 6px; }
+.wb-label-chip .x { cursor: pointer; color: var(--text-3); font-weight: 700; }
+.wb-label-chip .x:hover { color: #E5484D; }
+.wb-label-in { border: none; outline: none; background: transparent; font-family: inherit; font-size: 12.5px; color: var(--text); min-width: 80px; flex: 1; }
+.wb-card-labels { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+
 /* small dropdown pills (状态 / 截止日期) + attachment chips */
 .wb-pill { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text); font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .wb-pill:hover { border-color: var(--text-3); }

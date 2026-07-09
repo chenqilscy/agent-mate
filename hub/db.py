@@ -184,11 +184,41 @@ def init_db() -> None:
             source TEXT NOT NULL DEFAULT '手动',
             assignee TEXT NOT NULL DEFAULT '',
             description TEXT NOT NULL DEFAULT '',
+            priority TEXT NOT NULL DEFAULT '',
+            due_date TEXT NOT NULL DEFAULT '',
+            start_date TEXT NOT NULL DEFAULT '',
+            labels TEXT NOT NULL DEFAULT '[]',
+            parent_id TEXT NOT NULL DEFAULT '',
+            milestone_id TEXT NOT NULL DEFAULT '',
             sort INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, status, sort);
+
+        CREATE TABLE IF NOT EXISTS milestones (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            due_date TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'open',
+            sort INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones(project_id, sort);
+
+        CREATE TABLE IF NOT EXISTS work_item_activity (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            work_item_id TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL DEFAULT '',
+            detail TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_wi_activity_item ON work_item_activity(work_item_id, created_at);
 
         CREATE TABLE IF NOT EXISTS settings (
             k TEXT PRIMARY KEY,
@@ -204,6 +234,18 @@ def init_db() -> None:
         get_conn().execute("ALTER TABLE accounts ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0")
     if "last_seen" not in have_acct:
         get_conn().execute("ALTER TABLE accounts ADD COLUMN last_seen REAL NOT NULL DEFAULT 0")
+    # 幂等补列（老库）：work_items 专业化字段（WB-104）。
+    have_wi = {r["name"] for r in get_conn().execute("PRAGMA table_info(work_items)").fetchall()}
+    for _col, _ddl in (
+        ("priority", "priority TEXT NOT NULL DEFAULT ''"),
+        ("due_date", "due_date TEXT NOT NULL DEFAULT ''"),
+        ("start_date", "start_date TEXT NOT NULL DEFAULT ''"),
+        ("labels", "labels TEXT NOT NULL DEFAULT '[]'"),
+        ("parent_id", "parent_id TEXT NOT NULL DEFAULT ''"),
+        ("milestone_id", "milestone_id TEXT NOT NULL DEFAULT ''"),
+    ):
+        if _col not in have_wi:
+            get_conn().execute(f"ALTER TABLE work_items ADD COLUMN {_ddl}")
     get_conn().commit()
 
 
@@ -669,19 +711,34 @@ def delete_setting(k: str) -> bool:
     return cur.rowcount > 0
 
 
-# ---- 团队计划/任务 work_items（WB-081）---------------------------------
+# ---- 团队计划/任务 work_items（WB-081；专业化字段 WB-104）-----------------
+
+def _row_to_work_item(r: sqlite3.Row) -> dict:
+    d = dict(r)
+    try:
+        d["labels"] = json.loads(d.get("labels") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        d["labels"] = []
+    return d
+
 
 def create_work_item(*, project_id: str, title: str, status: str = "todo",
-                     source: str = "手动", assignee: str = "", description: str = "") -> dict:
+                     source: str = "手动", assignee: str = "", description: str = "",
+                     priority: str = "", due_date: str = "", start_date: str = "",
+                     labels: Optional[list[str]] = None, parent_id: str = "",
+                     milestone_id: str = "") -> dict:
     wid = new_uuid(); now = time.time()
     mx = get_conn().execute(
         "SELECT COALESCE(MAX(sort),0) FROM work_items WHERE project_id=? AND status=?",
         (project_id, status),
     ).fetchone()[0]
     get_conn().execute(
-        "INSERT INTO work_items (id,project_id,title,status,source,assignee,description,sort,created_at,updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (wid, project_id, title, status, source, assignee, description, mx + 1, now, now),
+        "INSERT INTO work_items (id,project_id,title,status,source,assignee,description,"
+        "priority,due_date,start_date,labels,parent_id,milestone_id,sort,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (wid, project_id, title, status, source, assignee, description,
+         priority, due_date, start_date, json.dumps(labels or [], ensure_ascii=False),
+         parent_id, milestone_id, mx + 1, now, now),
     )
     get_conn().commit()
     return get_work_item(wid)  # type: ignore[return-value]
@@ -691,19 +748,22 @@ def list_work_items(project_id: str) -> list[dict]:
     rows = get_conn().execute(
         "SELECT * FROM work_items WHERE project_id=? ORDER BY status, sort", (project_id,)
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [_row_to_work_item(r) for r in rows]
 
 
 def get_work_item(wid: str) -> Optional[dict]:
     r = get_conn().execute("SELECT * FROM work_items WHERE id=?", (wid,)).fetchone()
-    return dict(r) if r else None
+    return _row_to_work_item(r) if r else None
 
 
 def update_work_item(wid: str, **fields: Any) -> Optional[dict]:
-    allowed = {"title", "status", "source", "assignee", "description", "sort"}
+    allowed = {"title", "status", "source", "assignee", "description", "sort",
+               "priority", "due_date", "start_date", "labels", "parent_id", "milestone_id"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed and v is not None:
+            if k == "labels":
+                v = json.dumps(v, ensure_ascii=False)
             sets.append(f"{k}=?"); vals.append(v)
     if not sets:
         return get_work_item(wid)
@@ -715,9 +775,91 @@ def update_work_item(wid: str, **fields: Any) -> Optional[dict]:
 
 
 def delete_work_item(wid: str) -> bool:
-    cur = get_conn().execute("DELETE FROM work_items WHERE id=?", (wid,))
-    get_conn().commit()
+    conn = get_conn()
+    conn.execute("DELETE FROM work_items WHERE parent_id=?", (wid,))       # 连带子任务
+    conn.execute("DELETE FROM work_item_activity WHERE work_item_id=?", (wid,))
+    cur = conn.execute("DELETE FROM work_items WHERE id=?", (wid,))
+    conn.commit()
     return cur.rowcount > 0
+
+
+# ---- 里程碑 milestones（WB-104）---------------------------------------
+
+def create_milestone(*, project_id: str, name: str, description: str = "",
+                     due_date: str = "", status: str = "open") -> dict:
+    mid = new_uuid(); now = time.time()
+    mx = get_conn().execute(
+        "SELECT COALESCE(MAX(sort),0) FROM milestones WHERE project_id=?", (project_id,)
+    ).fetchone()[0]
+    get_conn().execute(
+        "INSERT INTO milestones (id,project_id,name,description,due_date,status,sort,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (mid, project_id, name, description, due_date, status, mx + 1, now, now),
+    )
+    get_conn().commit()
+    return get_milestone(mid)  # type: ignore[return-value]
+
+
+def list_milestones(project_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM milestones WHERE project_id=? ORDER BY sort", (project_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_milestone(mid: str) -> Optional[dict]:
+    r = get_conn().execute("SELECT * FROM milestones WHERE id=?", (mid,)).fetchone()
+    return dict(r) if r else None
+
+
+def update_milestone(mid: str, **fields: Any) -> Optional[dict]:
+    allowed = {"name", "description", "due_date", "status", "sort"}
+    sets, vals = [], []
+    for k, v in fields.items():
+        if k in allowed and v is not None:
+            sets.append(f"{k}=?"); vals.append(v)
+    if not sets:
+        return get_milestone(mid)
+    sets.append("updated_at=?"); vals.append(time.time())
+    vals.append(mid)
+    cur = get_conn().execute(f"UPDATE milestones SET {', '.join(sets)} WHERE id=?", vals)
+    get_conn().commit()
+    return get_milestone(mid) if cur.rowcount else None
+
+
+def delete_milestone(mid: str) -> bool:
+    conn = get_conn()
+    conn.execute("UPDATE work_items SET milestone_id='' WHERE milestone_id=?", (mid,))  # 解绑任务
+    cur = conn.execute("DELETE FROM milestones WHERE id=?", (mid,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+# ---- 任务活动流 work_item_activity（WB-104）---------------------------
+
+def log_work_item_activity(*, project_id: str, work_item_id: str, actor: str,
+                           kind: str, detail: str = "") -> None:
+    get_conn().execute(
+        "INSERT INTO work_item_activity (id,project_id,work_item_id,actor,kind,detail,created_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (new_uuid(), project_id, work_item_id, actor, kind, detail, time.time()),
+    )
+    get_conn().commit()
+
+
+def list_work_item_activity(project_id: str, work_item_id: Optional[str] = None,
+                            limit: int = 100) -> list[dict]:
+    if work_item_id:
+        rows = get_conn().execute(
+            "SELECT * FROM work_item_activity WHERE work_item_id=? ORDER BY created_at DESC LIMIT ?",
+            (work_item_id, limit),
+        ).fetchall()
+    else:
+        rows = get_conn().execute(
+            "SELECT * FROM work_item_activity WHERE project_id=? ORDER BY created_at DESC LIMIT ?",
+            (project_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ---- 团队时间线（WB-062 Phase 3）----------------------------------------

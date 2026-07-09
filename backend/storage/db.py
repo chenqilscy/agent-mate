@@ -183,10 +183,29 @@ def init_db() -> None:
             updated_at REAL NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             due_date TEXT,
-            attachments TEXT NOT NULL DEFAULT '[]'
+            attachments TEXT NOT NULL DEFAULT '[]',
+            priority TEXT NOT NULL DEFAULT '',
+            start_date TEXT,
+            labels TEXT NOT NULL DEFAULT '[]',
+            parent_id TEXT NOT NULL DEFAULT '',
+            milestone_id TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_work_items_project
             ON work_items(project_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS milestones (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            due_date TEXT,
+            status TEXT NOT NULL DEFAULT 'open',
+            sort INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_milestones_project
+            ON milestones(project_id, sort);
 
         CREATE TABLE IF NOT EXISTS automations (
             id TEXT PRIMARY KEY,
@@ -423,11 +442,17 @@ def _migrate_columns() -> None:
     """幂等补列：老库缺少后加的列时 ALTER TABLE 补上（CREATE TABLE IF NOT EXISTS 不会改已存在的表）。"""
     conn = get_conn()
     # WB-026: work_items 增 description / due_date / attachments。
+    # WB-108: 专业 PM 字段 priority / start_date / labels / parent_id / milestone_id（与 Hub 对齐）。
     have = {r["name"] for r in conn.execute("PRAGMA table_info(work_items)").fetchall()}
     for col, ddl in (
         ("description", "description TEXT NOT NULL DEFAULT ''"),
         ("due_date", "due_date TEXT"),
         ("attachments", "attachments TEXT NOT NULL DEFAULT '[]'"),
+        ("priority", "priority TEXT NOT NULL DEFAULT ''"),
+        ("start_date", "start_date TEXT"),
+        ("labels", "labels TEXT NOT NULL DEFAULT '[]'"),
+        ("parent_id", "parent_id TEXT NOT NULL DEFAULT ''"),
+        ("milestone_id", "milestone_id TEXT NOT NULL DEFAULT ''"),
     ):
         if col not in have:
             conn.execute(f"ALTER TABLE work_items ADD COLUMN {ddl}")
@@ -1426,6 +1451,10 @@ def _row_to_work_item(r: sqlite3.Row) -> WorkItem:
         attachments = json.loads(r["attachments"]) if "attachments" in keys and r["attachments"] else []
     except (json.JSONDecodeError, TypeError):
         attachments = []
+    try:
+        labels = json.loads(r["labels"]) if "labels" in keys and r["labels"] else []
+    except (json.JSONDecodeError, TypeError):
+        labels = []
     return WorkItem(
         id=r["id"], project_id=r["project_id"], owner_id=r["owner_id"], title=r["title"],
         status=r["status"], source=r["source"], assignee=r["assignee"],
@@ -1433,6 +1462,11 @@ def _row_to_work_item(r: sqlite3.Row) -> WorkItem:
         description=r["description"] if "description" in keys and r["description"] else "",
         due_date=r["due_date"] if "due_date" in keys else None,
         attachments=attachments if isinstance(attachments, list) else [],
+        priority=r["priority"] if "priority" in keys and r["priority"] else "",
+        start_date=r["start_date"] if "start_date" in keys else None,
+        labels=labels if isinstance(labels, list) else [],
+        parent_id=r["parent_id"] if "parent_id" in keys and r["parent_id"] else "",
+        milestone_id=r["milestone_id"] if "milestone_id" in keys and r["milestone_id"] else "",
     )
 
 
@@ -1440,6 +1474,8 @@ def create_work_item(
     *, project_id: str, owner_id: str, title: str, status: str = "todo",
     source: str = "手动", assignee: str = "", description: str = "",
     due_date: Optional[str] = None, attachments: Optional[list] = None,
+    priority: str = "", start_date: Optional[str] = None,
+    labels: Optional[list] = None, parent_id: str = "", milestone_id: str = "",
 ) -> WorkItem:
     now = time.time()
     wi = WorkItem(
@@ -1447,13 +1483,17 @@ def create_work_item(
         status=status, source=source, assignee=assignee or owner_id,
         created_at=now, updated_at=now,
         description=description[:4000], due_date=due_date, attachments=attachments or [],
+        priority=priority, start_date=start_date, labels=labels or [],
+        parent_id=parent_id, milestone_id=milestone_id,
     )
     get_conn().execute(
         """INSERT INTO work_items
-           (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at,description,due_date,attachments)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+           (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at,description,due_date,attachments,
+            priority,start_date,labels,parent_id,milestone_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (wi.id, wi.project_id, wi.owner_id, wi.title, wi.status, wi.source, wi.assignee,
-         wi.created_at, wi.updated_at, wi.description, wi.due_date, json.dumps(wi.attachments, ensure_ascii=False)),
+         wi.created_at, wi.updated_at, wi.description, wi.due_date, json.dumps(wi.attachments, ensure_ascii=False),
+         wi.priority, wi.start_date, json.dumps(wi.labels, ensure_ascii=False), wi.parent_id, wi.milestone_id),
     )
     get_conn().commit()
     return wi
@@ -1473,14 +1513,19 @@ def mirror_hub_work_items(project_id: str, items: list[dict]) -> None:
     conn = get_conn()
     conn.execute("DELETE FROM work_items WHERE project_id=?", (project_id,))
     for it in items:
+        labels = it.get("labels") or []
         conn.execute(
             """INSERT INTO work_items
-               (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at,description,due_date,attachments)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+               (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at,description,due_date,attachments,
+                priority,start_date,labels,parent_id,milestone_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (it.get("id") or new_uuid(), project_id, "", str(it.get("title", ""))[:200],
              it.get("status", "todo"), it.get("source", "手动"), it.get("assignee", ""),
              it.get("created_at") or time.time(), it.get("updated_at") or time.time(),
-             str(it.get("description", ""))[:4000], None, "[]"),
+             str(it.get("description", ""))[:4000], it.get("due_date") or None, "[]",
+             it.get("priority", ""), it.get("start_date") or None,
+             json.dumps(labels if isinstance(labels, list) else [], ensure_ascii=False),
+             it.get("parent_id", ""), it.get("milestone_id", "")),
         )
     conn.commit()
 
@@ -1499,6 +1544,9 @@ def update_work_item(
     item_id: str, *, title: Optional[str] = None, status: Optional[str] = None,
     description: Optional[str] = None, due_date: Optional[str] = None,
     clear_due_date: bool = False, attachments: Optional[list] = None,
+    priority: Optional[str] = None, start_date: Optional[str] = None,
+    clear_start_date: bool = False, labels: Optional[list] = None,
+    parent_id: Optional[str] = None, milestone_id: Optional[str] = None,
 ) -> Optional[WorkItem]:
     sets, vals = [], []
     if title is not None:
@@ -1513,6 +1561,18 @@ def update_work_item(
         sets.append("due_date=?"); vals.append(due_date)
     if attachments is not None:
         sets.append("attachments=?"); vals.append(json.dumps(attachments, ensure_ascii=False))
+    if priority is not None:
+        sets.append("priority=?"); vals.append(priority)
+    if clear_start_date:
+        sets.append("start_date=?"); vals.append(None)
+    elif start_date is not None:
+        sets.append("start_date=?"); vals.append(start_date)
+    if labels is not None:
+        sets.append("labels=?"); vals.append(json.dumps(labels, ensure_ascii=False))
+    if parent_id is not None:
+        sets.append("parent_id=?"); vals.append(parent_id)
+    if milestone_id is not None:
+        sets.append("milestone_id=?"); vals.append(milestone_id)
     if not sets:
         return get_work_item(item_id)
     sets.append("updated_at=?"); vals.append(time.time())
@@ -1523,8 +1583,77 @@ def update_work_item(
 
 
 def delete_work_item(item_id: str) -> None:
-    get_conn().execute("DELETE FROM work_items WHERE id=?", (item_id,))
+    conn = get_conn()
+    conn.execute("DELETE FROM work_items WHERE parent_id=?", (item_id,))  # 连带子任务（本地项目）
+    conn.execute("DELETE FROM work_items WHERE id=?", (item_id,))
+    conn.commit()
+
+
+# ---- milestones（WB-108；本地镜像 Hub 权威 + 本地项目自管）--------------
+
+def list_milestones(project_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM milestones WHERE project_id=? ORDER BY sort", (project_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_milestone(mid: str) -> Optional[dict]:
+    r = get_conn().execute("SELECT * FROM milestones WHERE id=?", (mid,)).fetchone()
+    return dict(r) if r else None
+
+
+def create_milestone(*, project_id: str, name: str, description: str = "",
+                     due_date: Optional[str] = None, status: str = "open") -> dict:
+    mid = new_uuid(); now = time.time()
+    mx = get_conn().execute(
+        "SELECT COALESCE(MAX(sort),0) FROM milestones WHERE project_id=?", (project_id,)
+    ).fetchone()[0]
+    get_conn().execute(
+        "INSERT INTO milestones (id,project_id,name,description,due_date,status,sort,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (mid, project_id, name[:200], description, due_date, status, mx + 1, now, now),
+    )
     get_conn().commit()
+    return get_milestone(mid)  # type: ignore[return-value]
+
+
+def update_milestone(mid: str, **fields: Any) -> Optional[dict]:
+    allowed = {"name", "description", "due_date", "status", "sort"}
+    sets, vals = [], []
+    for k, v in fields.items():
+        if k in allowed and v is not None:
+            sets.append(f"{k}=?"); vals.append(v)
+    if not sets:
+        return get_milestone(mid)
+    sets.append("updated_at=?"); vals.append(time.time())
+    vals.append(mid)
+    get_conn().execute(f"UPDATE milestones SET {', '.join(sets)} WHERE id=?", vals)
+    get_conn().commit()
+    return get_milestone(mid)
+
+
+def delete_milestone(mid: str) -> None:
+    conn = get_conn()
+    conn.execute("UPDATE work_items SET milestone_id='' WHERE milestone_id=?", (mid,))  # 解绑任务
+    conn.execute("DELETE FROM milestones WHERE id=?", (mid,))
+    conn.commit()
+
+
+def mirror_hub_milestones(project_id: str, items: list[dict]) -> None:
+    """用 Hub 里程碑覆盖某 hub-origin 项目的本地镜像（Hub 权威，WB-108）。"""
+    conn = get_conn()
+    conn.execute("DELETE FROM milestones WHERE project_id=?", (project_id,))
+    for i, it in enumerate(items):
+        conn.execute(
+            "INSERT INTO milestones (id,project_id,name,description,due_date,status,sort,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (it.get("id") or new_uuid(), project_id, str(it.get("name", ""))[:200],
+             str(it.get("description", "")), it.get("due_date") or None,
+             it.get("status", "open"), it.get("sort", i),
+             it.get("created_at") or time.time(), it.get("updated_at") or time.time()),
+        )
+    conn.commit()
 
 
 def list_messages(session_id: str) -> list[Message]:
