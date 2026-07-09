@@ -234,3 +234,33 @@ def update_milestone(token: str, project_id: str, mid: str, body: dict[str, Any]
 
 def delete_milestone(token: str, project_id: str, mid: str) -> bool:
     return _delete(f"/api/projects/{project_id}/milestones/{mid}", token)
+
+
+# ---- 项目配置 / 成员写代理（WB-112c）：hub-origin 项目的成员·角色·配置以 Manager 为权威 ----
+# 只写协作元数据（名/角色/指令/loadout 名字数组），绝无凭据/工作区文件（红线 1/2）。
+
+def get_project(token: str, project_id: str) -> Optional[dict[str, Any]]:
+    """拉 Manager 单个项目（含 role），或 None（未接/不可达）。"""
+    d = _get(f"/api/projects/{project_id}", token)
+    return d if isinstance(d, dict) else None
+
+
+def update_project(token: str, project_id: str, patch: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """代理项目配置更新（name/instruction/connectors/experts/skills）到 Manager。"""
+    d = _patch(f"/api/projects/{project_id}", token, patch)
+    return d if isinstance(d, dict) else None
+
+
+def add_member(token: str, project_id: str, name: str, role: str) -> Optional[dict[str, Any]]:
+    """按账号名加成员到 Manager 项目（Manager 侧按名解析 account）。返回结果 dict 或 None。"""
+    d = _post(f"/api/projects/{project_id}/members", token, {"name": name, "role": role})
+    return d if isinstance(d, dict) else None
+
+
+def update_member(token: str, project_id: str, account_id: str, role: str) -> Optional[dict[str, Any]]:
+    d = _patch(f"/api/projects/{project_id}/members/{account_id}", token, {"role": role})
+    return d if isinstance(d, dict) else None
+
+
+def remove_member(token: str, project_id: str, account_id: str) -> bool:
+    return _delete(f"/api/projects/{project_id}/members/{account_id}", token)
