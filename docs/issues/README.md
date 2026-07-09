@@ -126,6 +126,7 @@
 | [WB-107](WB-107-portal-task-views-filters.md) | ✅ | P2 | frontend | BuddyWebMgr 门户任务 列表视图 + 甘特/时间线视图 + 筛选/排序 —— 视图切换器(看板/列表/甘特) + 搜索/状态/优先级/负责人/里程碑筛选；续 pm- 前缀内联样式，hunk 提交；隔离 Hub CDP 三视图实测无报错 |
 | [WB-110](WB-110-portal-kanban-drag-activity.md) | ✅ | P2 | frontend | BuddyWebMgr 门户 PM 增强 —— 看板拖拽换列(快速改状态,Viewer 不可拖) + 项目级任务活动流面板(消费 WB-105 activity 端点,变更自动刷新)；CDP DragEvent 实测 Hub 真变+活动入流 |
 | [WB-109](WB-109-app-featured-consume-hub.md) | ✅ | P3 | frontend | App 精选技能区消费 Hub SKILLHUB_FEATURED —— 打通 mgr「加入精选」→ App（渲染真图标，回退静态兜底；纯前端，数据链路 E2E 实测） |
+| [WB-118](WB-118-app-task-comments.md) | ✅ | P2 | fullstack | App 对齐片2 任务级评论 —— App 后端代理 Hub 任务评论端点 + 任务详情评论区（复用 WB-115 Hub 端点，仅 hub-origin 可用） |
 | [WB-117](WB-117-app-pm-alignment.md) | 🟡 | P2 | fullstack | App 端项目管理对齐 Manager（epic）—— 片1 工时字段(estimate_h/spent_h) App 全链路(模型/迁移/路由/_hub_view/前端类型·store·任务详情) |
 | [WB-116](WB-116-pm-effort-hours.md) | ✅ | P2 | fullstack | PM 细化之四 计划与度量(片1) 工时预估与投入 —— Hub work_items 加 estimate_h/spent_h + 控制台抽屉工时输入 + 工作量/概览汇总（Manager 侧） |
 | [WB-115](WB-115-pm-workload-task-comments.md) | ✅ | P2 | fullstack | PM 细化之三 协作联动 —— 按负责人工作量视图(前端聚合) + 任务级评论(Hub comments 加 work_item_id + 任务级端点 + 控制台抽屉评论区) |

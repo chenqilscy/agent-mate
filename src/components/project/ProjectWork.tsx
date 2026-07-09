@@ -324,9 +324,19 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
   const addRef = useLoadoutStore((s) => s.addRef)
   const [editDesc, setEditDesc] = useState(false)
   const [descDraft, setDescDraft] = useState('')
+  // 任务级评论（WB-118）：经 Hub 代理，hub-origin/已连 Hub 项目可用。
+  const [comments, setComments] = useState<{ id: string; author_name: string; body: string; created_at: number }[]>([])
+  const [cbody, setCbody] = useState('')
+  const [hubOn, setHubOn] = useState(true)
 
   // If the item vanishes (deleted elsewhere), close.
   useEffect(() => { if (!item) onClose() }, [item, onClose])
+  useEffect(() => {
+    if (!projectId) return
+    let alive = true
+    void api.hubItemComments(projectId, itemId).then((r) => { if (alive) { setComments(r.comments || []); setHubOn(r.hub) } }).catch(() => {})
+    return () => { alive = false }
+  }, [projectId, itemId])
   if (!item) return null
 
   const startEdit = () => { setDescDraft(item.description); setEditDesc(true) }
@@ -341,6 +351,15 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
   }
   const addAttach = (a: WorkAttachment) => void update(item.id, { attachments: [...item.attachments, a] })
   const rmAttach = (i: number) => void update(item.id, { attachments: item.attachments.filter((_, j) => j !== i) })
+  const sendComment = async () => {
+    const v = cbody.trim(); if (!v || !projectId) return
+    try {
+      await api.hubPostItemComment(projectId, itemId, v)
+      setCbody('')
+      const r = await api.hubItemComments(projectId, itemId)
+      setComments(r.comments || [])
+    } catch { toast('评论失败') }
+  }
 
   return (
     <div className="np-overlay open" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
@@ -396,6 +415,32 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
                 onBlur={(e) => { const v = parseFloat(e.target.value) || 0; if (v !== item.spent_h) void update(item.id, { spent_h: v }) }} />
             </label>
           </div>
+
+          <div className="wb-td-sec-h">评论{comments.length > 0 ? ` ${comments.length}` : ''}</div>
+          {!hubOn ? (
+            <div className="pj-empty">连接 Hub 账号后可在任务下评论、@ 队友。</div>
+          ) : (
+            <>
+              <div className="hub-cmt-box" style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <input className="np-input" style={{ flex: 1 }} value={cbody} placeholder="写条评论…用 @用户名 提及成员"
+                  onChange={(e) => setCbody(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void sendComment() }} />
+                <button className="btn-dark" disabled={!cbody.trim()} onClick={() => void sendComment()}>发送</button>
+              </div>
+              {comments.length === 0 ? (
+                <div className="pj-empty">还没有评论。</div>
+              ) : (
+                comments.map((c) => (
+                  <div className="msg-row" key={c.id}>
+                    <span className="msg-ic">{(c.author_name || '?').slice(0, 1)}</span>
+                    <div className="msg-main">
+                      <div className="msg-title">{c.author_name}<span style={{ fontWeight: 400, color: 'var(--text-3)', marginLeft: 6 }}>· {fmtDate(c.created_at)}</span></div>
+                      <div className="msg-sub" style={{ whiteSpace: 'pre-wrap' }}>{c.body}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </>
+          )}
         </div>
         <div className="wb-td-foot">
           <span className="wb-av" title={item.assignee_name}>{item.assignee_name?.[0] ?? '奇'}</span>

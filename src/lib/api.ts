@@ -64,6 +64,10 @@ export const api = {
     get<{ hub: boolean; comments: { id: string; author_name: string; body: string; created_at: number }[] }>(`/hub/projects/${pid}/comments`),
   hubPostComment: (pid: string, body: string) =>
     send<{ id: string; mentioned?: number }>('POST', `/hub/projects/${pid}/comments`, { body }),
+  hubItemComments: (pid: string, wid: string) =>
+    get<{ hub: boolean; comments: { id: string; author_name: string; body: string; created_at: number }[] }>(`/hub/projects/${pid}/work-items/${wid}/comments`),
+  hubPostItemComment: (pid: string, wid: string, body: string) =>
+    send<{ id: string; mentioned?: number }>('POST', `/hub/projects/${pid}/work-items/${wid}/comments`, { body }),
   hubPresence: (pid: string) =>
     get<{ hub: boolean; presence: { account_id: string; name: string; role: string; online: boolean; last_seen: number }[] }>(`/hub/projects/${pid}/presence`),
   hubNotifications: () =>

@@ -106,6 +106,17 @@ def post_comment(token: str, project_id: str, body: str) -> Optional[dict[str, A
     return _post(f"/api/projects/{project_id}/comments", token, {"body": body})
 
 
+def list_item_comments(token: str, project_id: str, wid: str) -> Optional[list[dict[str, Any]]]:
+    """任务级评论（WB-118）：拉 Hub `work-items/{wid}/comments`。"""
+    d = _get(f"/api/projects/{project_id}/work-items/{wid}/comments", token)
+    c = d.get("comments") if isinstance(d, dict) else None
+    return c if isinstance(c, list) else None
+
+
+def post_item_comment(token: str, project_id: str, wid: str, body: str) -> Optional[dict[str, Any]]:
+    return _post(f"/api/projects/{project_id}/work-items/{wid}/comments", token, {"body": body})
+
+
 def list_presence(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
     d = _get(f"/api/projects/{project_id}/presence", token)
     p = d.get("presence") if isinstance(d, dict) else None

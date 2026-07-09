@@ -103,6 +103,24 @@ def hub_post_comment(project_id: str, body: CommentBody, authorization: str = He
     return c
 
 
+# 任务级评论代理（WB-118）：转发到 Hub work-items/{wid}/comments。未接 Hub → 空/报错，不崩。
+@router.get("/hub/projects/{project_id}/work-items/{wid}/comments")
+def hub_item_comments(project_id: str, wid: str, authorization: str = Header(default="")) -> dict:
+    if not hub_client.hub_enabled():
+        return {"hub": False, "comments": []}
+    return {"hub": True, "comments": hub_client.list_item_comments(_bearer(authorization), project_id, wid) or []}
+
+
+@router.post("/hub/projects/{project_id}/work-items/{wid}/comments")
+def hub_post_item_comment(project_id: str, wid: str, body: CommentBody, authorization: str = Header(default="")) -> dict:
+    if not hub_client.hub_enabled():
+        raise HTTPException(400, "hub not configured")
+    c = hub_client.post_item_comment(_bearer(authorization), project_id, wid, (body.body or "").strip())
+    if not c:
+        raise HTTPException(400, "评论失败（无权限或 Hub 不可达）")
+    return c
+
+
 @router.get("/hub/projects/{project_id}/presence")
 def hub_presence(project_id: str, authorization: str = Header(default="")) -> dict:
     if not hub_client.hub_enabled():
