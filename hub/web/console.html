@@ -74,6 +74,53 @@
   .cg-sec:first-child { margin-top:0; }
   .cg-mdesc { font-size:13px; line-height:1.7; color:var(--ink); }
   .cg-mf { display:flex; gap:8px; align-items:center; padding:12px 18px; border-top:1px solid var(--line); }
+  /* ---- 专家 · 专家团 浏览橱窗（WB-100，App 同款布局，适配控制台 dark token）---- */
+  .sec-title { font-size:14px; font-weight:700; margin:22px 0 12px; }
+  .scene-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; }
+  .scene-card { border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel); cursor:pointer; transition:.15s; }
+  .scene-card:hover { border-color:var(--brand); }
+  .sc-top { height:58px; background:linear-gradient(135deg,rgba(22,179,122,.22),rgba(46,125,246,.22)); display:flex; align-items:flex-end; padding:10px 12px; font-size:14px; font-weight:800; }
+  .sc-list { padding:8px 6px 10px; }
+  .sc-item { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:8px; font-size:12.5px; color:var(--dim); }
+  .sc-item:hover { background:var(--chip); color:var(--ink); }
+  .sc-item .av { width:20px; height:20px; border-radius:6px; background:var(--chip); display:grid; place-items:center; font-size:11px; flex-shrink:0; }
+  .subtabs { display:flex; align-items:center; gap:16px; margin:20px 0 4px; border-bottom:1px solid var(--line); }
+  .subtab { padding:8px 2px; font-size:13.5px; font-weight:600; color:var(--dim); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; }
+  .subtab:hover { color:var(--ink); }
+  .subtab.active { color:var(--ink); border-bottom-color:var(--brand); }
+  .cats { display:flex; gap:7px; flex-wrap:wrap; margin:16px 0; }
+  .cat { padding:5px 12px; border-radius:20px; font-size:12px; color:var(--dim); cursor:pointer; background:var(--chip); }
+  .cat:hover { color:var(--ink); }
+  .cat.active { background:var(--brand); color:#fff; }
+  .card-grid { display:grid; gap:14px; }
+  .card-grid.g4 { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .card-grid.g2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  @media (max-width:1080px){ .card-grid.g4 { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  .ecard { border:1px solid var(--line); border-radius:13px; padding:15px; background:var(--panel); transition:.15s; cursor:pointer; }
+  .ecard:hover { border-color:var(--brand); }
+  .ecard.off { opacity:.55; }
+  .ec-h { display:flex; gap:11px; align-items:flex-start; }
+  .ec-av { width:38px; height:38px; border-radius:10px; background:var(--chip); display:grid; place-items:center; font-size:18px; flex-shrink:0; }
+  .ec-n { font-size:13.5px; font-weight:700; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .ec-n .b { font-size:9.5px; font-weight:700; color:var(--brand); background:rgba(22,179,122,.16); padding:1px 6px; border-radius:6px; }
+  .ec-s { font-size:11px; color:var(--dim); margin-top:2px; }
+  .ec-d { font-size:11.8px; color:var(--dim); line-height:1.55; margin-top:10px; min-height:34px; }
+  .ec-tags { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+  .ec-tag { font-size:10.5px; color:var(--ink); background:var(--chip); padding:2px 8px; border-radius:6px; }
+  .hub-blank { padding:48px 0; text-align:center; color:var(--dim); font-size:13.5px; }
+  /* 详情 / 编辑弹窗（复用 App .np-* 骨架，适配 dark token）*/
+  .np-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:150; padding:20px; }
+  .np-overlay.open { display:flex; }
+  .np-modal { width:520px; max-width:100%; max-height:92vh; background:var(--panel); border:1px solid var(--line); border-radius:16px; display:flex; flex-direction:column; overflow:hidden; }
+  .np-h { display:flex; align-items:center; gap:12px; padding:18px 22px 8px; font-size:16px; font-weight:800; flex-shrink:0; }
+  .np-x { margin-left:auto; width:28px; height:28px; border-radius:8px; background:transparent; color:var(--dim); font-size:19px; line-height:1; display:grid; place-items:center; padding:0; }
+  .np-x:hover { background:var(--chip); }
+  .np-body { padding:6px 22px 12px; overflow-y:auto; }
+  .np-foot { display:flex; align-items:center; gap:10px; padding:14px 22px 18px; border-top:1px solid var(--line); flex-shrink:0; }
+  .pkc-row { display:flex; gap:11px; align-items:flex-start; border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-bottom:8px; background:var(--panel2); }
+  .pkc-row .pi { width:26px; height:26px; border-radius:7px; background:var(--chip); display:grid; place-items:center; font-size:14px; flex-shrink:0; }
+  .pkc-row .pn { font-size:13.5px; font-weight:700; }
+  .pkc-row .pd { font-size:11.8px; color:var(--dim); margin-top:3px; }
   /* 技能浏览橱窗（WB-102）：对齐主应用 App 的技能页（精选/推荐·SkillHub·套件/富卡★⬇/详情），套 console 暗色 token。sg- 前缀防撞并发改动 */
   .sg-sectitle { font-size:14px; font-weight:700; margin:22px 0 12px; }
   .sg-grid { display:grid; gap:14px; }
@@ -133,53 +180,88 @@
   .sg-mdesc { font-size:13px; line-height:1.7; color:var(--ink); }
   .sg-mfoot { display:flex; align-items:center; gap:10px; padding:12px 18px; border-top:1px solid var(--line); }
   .sg-mlink { font-size:12.5px; font-weight:600; color:var(--brand); text-decoration:none; white-space:nowrap; }
-  /* ---- 专家 · 专家团 浏览橱窗（WB-100，App 同款布局，适配控制台 dark token）---- */
-  .sec-title { font-size:14px; font-weight:700; margin:22px 0 12px; }
-  .scene-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; }
-  .scene-card { border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel); cursor:pointer; transition:.15s; }
-  .scene-card:hover { border-color:var(--brand); }
-  .sc-top { height:58px; background:linear-gradient(135deg,rgba(22,179,122,.22),rgba(46,125,246,.22)); display:flex; align-items:flex-end; padding:10px 12px; font-size:14px; font-weight:800; }
-  .sc-list { padding:8px 6px 10px; }
-  .sc-item { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:8px; font-size:12.5px; color:var(--dim); }
-  .sc-item:hover { background:var(--chip); color:var(--ink); }
-  .sc-item .av { width:20px; height:20px; border-radius:6px; background:var(--chip); display:grid; place-items:center; font-size:11px; flex-shrink:0; }
-  .subtabs { display:flex; align-items:center; gap:16px; margin:20px 0 4px; border-bottom:1px solid var(--line); }
-  .subtab { padding:8px 2px; font-size:13.5px; font-weight:600; color:var(--dim); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; }
-  .subtab:hover { color:var(--ink); }
-  .subtab.active { color:var(--ink); border-bottom-color:var(--brand); }
-  .cats { display:flex; gap:7px; flex-wrap:wrap; margin:16px 0; }
-  .cat { padding:5px 12px; border-radius:20px; font-size:12px; color:var(--dim); cursor:pointer; background:var(--chip); }
-  .cat:hover { color:var(--ink); }
-  .cat.active { background:var(--brand); color:#fff; }
-  .card-grid { display:grid; gap:14px; }
-  .card-grid.g4 { grid-template-columns:repeat(4,minmax(0,1fr)); }
-  .card-grid.g2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  @media (max-width:1080px){ .card-grid.g4 { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-  .ecard { border:1px solid var(--line); border-radius:13px; padding:15px; background:var(--panel); transition:.15s; cursor:pointer; }
-  .ecard:hover { border-color:var(--brand); }
-  .ecard.off { opacity:.55; }
-  .ec-h { display:flex; gap:11px; align-items:flex-start; }
-  .ec-av { width:38px; height:38px; border-radius:10px; background:var(--chip); display:grid; place-items:center; font-size:18px; flex-shrink:0; }
-  .ec-n { font-size:13.5px; font-weight:700; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  .ec-n .b { font-size:9.5px; font-weight:700; color:var(--brand); background:rgba(22,179,122,.16); padding:1px 6px; border-radius:6px; }
-  .ec-s { font-size:11px; color:var(--dim); margin-top:2px; }
-  .ec-d { font-size:11.8px; color:var(--dim); line-height:1.55; margin-top:10px; min-height:34px; }
-  .ec-tags { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
-  .ec-tag { font-size:10.5px; color:var(--ink); background:var(--chip); padding:2px 8px; border-radius:6px; }
-  .hub-blank { padding:48px 0; text-align:center; color:var(--dim); font-size:13.5px; }
-  /* 详情 / 编辑弹窗（复用 App .np-* 骨架，适配 dark token）*/
-  .np-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:150; padding:20px; }
-  .np-overlay.open { display:flex; }
-  .np-modal { width:520px; max-width:100%; max-height:92vh; background:var(--panel); border:1px solid var(--line); border-radius:16px; display:flex; flex-direction:column; overflow:hidden; }
-  .np-h { display:flex; align-items:center; gap:12px; padding:18px 22px 8px; font-size:16px; font-weight:800; flex-shrink:0; }
-  .np-x { margin-left:auto; width:28px; height:28px; border-radius:8px; background:transparent; color:var(--dim); font-size:19px; line-height:1; display:grid; place-items:center; padding:0; }
-  .np-x:hover { background:var(--chip); }
-  .np-body { padding:6px 22px 12px; overflow-y:auto; }
-  .np-foot { display:flex; align-items:center; gap:10px; padding:14px 22px 18px; border-top:1px solid var(--line); flex-shrink:0; }
-  .pkc-row { display:flex; gap:11px; align-items:flex-start; border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-bottom:8px; background:var(--panel2); }
-  .pkc-row .pi { width:26px; height:26px; border-radius:7px; background:var(--chip); display:grid; place-items:center; font-size:14px; flex-shrink:0; }
-  .pkc-row .pn { font-size:13.5px; font-weight:700; }
-  .pkc-row .pd { font-size:11.8px; color:var(--dim); margin-top:3px; }
+  /* ---- 项目管理工作台（WB-111，Linear 风；pd-/pm- 前缀防并发撞车）---- */
+  .pd-hero { display:flex; align-items:center; gap:14px; margin:14px 0 2px; }
+  .pd-hero-ic { width:46px; height:46px; border-radius:13px; background:linear-gradient(135deg,var(--brand),var(--brand2)); display:grid; place-items:center; color:#fff; font-weight:800; font-size:20px; flex-shrink:0; }
+  .pm-tabs2 { display:flex; gap:4px; border-bottom:1px solid var(--line); margin:16px 0 18px; }
+  .pm-tab { padding:9px 15px; font-size:13.5px; font-weight:600; color:var(--dim); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; background:transparent; border-radius:0; display:inline-flex; align-items:center; gap:6px; }
+  .pm-tab:hover { color:var(--ink); }
+  .pm-tab.active { color:var(--ink); border-bottom-color:var(--brand); }
+  .pm-tab .tc { font-size:10.5px; font-weight:700; color:var(--dim); background:var(--chip); border-radius:99px; padding:0 7px; }
+  .pm-tab.active .tc { color:var(--brand); background:rgba(22,179,122,.16); }
+  /* 统计条 */
+  .pm-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:12px; }
+  .pm-stat { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:13px 15px; }
+  .pm-stat .n { font-size:25px; font-weight:800; line-height:1.05; }
+  .pm-stat .l { font-size:11.5px; color:var(--dim); margin-top:4px; display:flex; align-items:center; gap:5px; }
+  .pm-stat .l::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--sc,var(--dim)); flex-shrink:0; }
+  .pm-stat.over .n { color:var(--danger); }
+  .pm-bar { height:7px; border-radius:99px; background:var(--panel2); overflow:hidden; }
+  .pm-bar > i { display:block; height:100%; background:linear-gradient(90deg,var(--brand),#3ddc9a); border-radius:99px; transition:width .3s; }
+  /* 工具栏 */
+  .pm-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .pm-seg { display:inline-flex; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:2px; gap:2px; }
+  .pm-seg > button { padding:5px 13px; font-size:12.5px; font-weight:600; border-radius:7px; background:transparent; color:var(--dim); }
+  .pm-seg > button:hover { color:var(--ink); }
+  .pm-seg > button.active { background:var(--brand); color:#fff; }
+  .pm-fsel { width:auto; padding:6px 9px; font-size:12.5px; background:var(--panel2); }
+  .pm-search { width:170px; }
+  .pm-spacer { flex:1; }
+  /* 里程碑条 */
+  .pm-msbar { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:12px; }
+  .pm-mschip { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink); background:var(--panel2); border:1px solid var(--line); border-radius:99px; padding:3px 11px; }
+  .pm-mschip .mp { font-size:10px; color:var(--dim); }
+  .pm-mschip.done { color:var(--brand); border-color:rgba(22,179,122,.4); }
+  /* 看板 */
+  .pm-board { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; align-items:start; }
+  .pm-col { background:var(--panel2); border:1px solid var(--line); border-radius:13px; padding:9px; min-width:0; transition:background .12s,border-color .12s; }
+  .pm-col.drop { background:rgba(22,179,122,.08); border-color:var(--brand); }
+  .pm-colhead { display:flex; align-items:center; gap:8px; padding:3px 6px 10px; font-size:12.5px; font-weight:700; }
+  .pm-colhead .cd { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .pm-colhead .cnt { margin-left:auto; font-size:11px; font-weight:700; color:var(--dim); background:var(--chip); border-radius:99px; padding:1px 9px; }
+  .pm-colstack { display:flex; flex-direction:column; gap:8px; min-height:20px; }
+  .pm-colempty { text-align:center; color:var(--dim); font-size:11.5px; padding:16px 0; border:1px dashed var(--line); border-radius:10px; }
+  /* 卡片 */
+  .pm-card { position:relative; background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:10px 12px 10px 15px; cursor:pointer; transition:.13s; overflow:hidden; }
+  .pm-card:hover { border-color:var(--brand); box-shadow:0 4px 14px rgba(0,0,0,.28); }
+  .pm-card::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--pc,transparent); }
+  .pm-card .tt { font-size:13px; font-weight:600; line-height:1.42; }
+  .pm-cmeta { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; align-items:center; }
+  .pm-tag { font-size:10px; color:var(--brand); background:rgba(22,179,122,.14); border-radius:5px; padding:1px 6px; }
+  .pm-chip { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--dim); background:var(--chip); border-radius:6px; padding:1px 7px; }
+  .pm-chip.over { color:#ff9a9a; background:rgba(239,68,68,.15); }
+  .pm-av { width:19px; height:19px; border-radius:50%; color:#fff; font-size:10px; font-weight:700; display:inline-grid; place-items:center; flex-shrink:0; }
+  .pm-prio { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:700; }
+  .pm-prio .pd2 { width:8px; height:8px; border-radius:2px; }
+  /* 列表 */
+  .pm-tablewrap { overflow-x:auto; border:1px solid var(--line); border-radius:12px; }
+  .pm-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .pm-table th { text-align:left; padding:9px 12px; color:var(--dim); font-weight:600; border-bottom:1px solid var(--line); font-size:11.5px; background:var(--panel2); position:sticky; top:0; }
+  .pm-table td { padding:10px 12px; border-bottom:1px solid var(--line); }
+  .pm-table tbody tr { cursor:pointer; transition:background .1s; }
+  .pm-table tbody tr:last-child td { border-bottom:none; }
+  .pm-table tbody tr:hover { background:var(--panel2); }
+  .pm-spill { display:inline-block; font-size:11px; font-weight:600; padding:2px 10px; border-radius:99px; }
+  /* 甘特 */
+  .pm-gantt-head { position:relative; height:18px; margin-bottom:8px; }
+  .pm-gantt-head span { position:absolute; transform:translateX(-50%); font-size:10px; color:var(--dim); }
+  .pm-gantt-row { display:flex; align-items:center; gap:10px; margin-bottom:7px; }
+  .pm-gantt-name { width:160px; flex-shrink:0; font-size:12.5px; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pm-gantt-track { position:relative; flex:1; height:24px; background:var(--panel2); border-radius:6px; overflow:hidden; }
+  .pm-gantt-grid { position:absolute; top:0; bottom:0; width:1px; background:var(--line); }
+  .pm-gantt-bar { position:absolute; top:4px; bottom:4px; border-radius:5px; cursor:pointer; opacity:.92; min-width:6px; box-shadow:0 1px 4px rgba(0,0,0,.3); }
+  .pm-gantt-today { position:absolute; top:-4px; bottom:0; width:2px; background:var(--brand2); z-index:3; }
+  .pm-gantt-today::after { content:"今天"; position:absolute; top:-14px; left:50%; transform:translateX(-50%); font-size:9px; color:var(--brand2); white-space:nowrap; }
+  /* 概览 */
+  .pm-ovgrid { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); gap:14px; align-items:start; }
+  @media (max-width:900px){ .pm-ovgrid { grid-template-columns:1fr; } .pm-board { grid-template-columns:repeat(2,1fr); } .pm-stats { grid-template-columns:repeat(2,1fr); } }
+  .pm-msprog { margin-bottom:14px; }
+  .pm-msprog .h { display:flex; align-items:center; justify-content:space-between; font-size:12.5px; margin-bottom:6px; }
+  .pm-msprog .h b { font-weight:600; }
+  .pm-msprog .h span { color:var(--dim); font-size:11.5px; }
+  .pm-actitem { display:flex; gap:9px; align-items:flex-start; padding:7px 0; font-size:12.5px; border-bottom:1px solid var(--line); }
+  .pm-actitem:last-child { border-bottom:none; }
+  .pm-actitem .ai { width:24px; height:24px; border-radius:7px; background:var(--chip); display:grid; place-items:center; font-size:12px; flex-shrink:0; }
 </style>
 </head>
 <body>
@@ -290,38 +372,118 @@ async function projectsView(m){
   }catch(e){ document.getElementById("p-list").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
 
+// 项目详情 = 标签页工作台（WB-111）：概览 / 任务 / 协作 / 配置。项目基本信息 + 只读态一次取好存 PD，
+// 各 tab 用其渲染，避免重复取数、并让「任务」独占整页成为专业 PM 工作台。
+let PD = null;              // { pid, name, instruction, role, ro }
+let PD_TAB = "overview";   // overview | tasks | collab | config
 async function projectDetail(m){
   const pid = CUR.id;
-  m.innerHTML = `<button class="line" id="back">← 返回项目</button><h1 id="pd-name" style="margin-top:10px">项目</h1>
-    <div class="card" id="pd-cfg"><h3>配置</h3><div class="muted">加载中…</div></div>
-    <div class="card" id="pd-work"><h3>计划 / 任务</h3><div class="muted">加载中…</div></div>
-    <div class="grid2">
-      <div>
-        <div class="card"><h3>成员</h3><div id="pd-members" class="muted">…</div>
-          <div class="row" style="margin-top:8px"><input id="pd-add" placeholder="账号名"><select id="pd-role" style="width:120px"><option>Member</option><option>Admin</option><option>Viewer</option></select><button id="pd-addbtn">加入</button></div>
-          <div class="err" id="pd-merr"></div></div>
-        <div class="card"><h3>邀请码</h3><div class="row"><select id="pd-invrole" style="width:120px"><option>Member</option><option>Admin</option><option>Viewer</option></select><button id="pd-inv">生成邀请码</button></div><div id="pd-invout" style="margin-top:8px"></div></div>
-        <div class="card"><h3>在线状态</h3><div id="pd-presence" class="muted">…</div></div>
+  m.innerHTML = `<button class="line" id="back">← 返回项目</button>
+    <div id="pd-shell"><div class="muted" style="padding:22px 0">加载中…</div></div>`;
+  document.getElementById("back").onclick=()=>{ CUR=null; PD=null; render(); };
+  let p; try{ p = await api("GET","/projects/"+pid); }
+  catch(e){ document.getElementById("pd-shell").innerHTML=`<div class="err" style="margin-top:14px">${esc(e.message)}</div>`; return; }
+  PD = { pid, name:p.name||"项目", instruction:p.instruction||"", role:p.role, ro:p.role==="Viewer" };
+  // 任务数徽标：概览/任务 tab 头上带一个总数，需先探一下 work-items（失败则省略）。
+  let taskN = null; try{ const wi = await api("GET","/projects/"+pid+"/work-items"); taskN = (wi.items||[]).filter(x=>!x.parent_id).length; }catch(e){}
+  document.getElementById("pd-shell").innerHTML = `
+    <div class="pd-hero">
+      <div class="pd-hero-ic">${esc((PD.name||"P").slice(0,1))}</div>
+      <div style="flex:1;min-width:0">
+        <h1 id="pd-name" style="margin:0;font-size:21px">${esc(PD.name)}</h1>
+        <div class="sub" style="margin:3px 0 0">${PD.instruction?esc(PD.instruction):'<span class="muted">未设置项目指令</span>'} ${PD.ro?'<span class="pill">只读</span>':''}</div>
       </div>
-      <div>
-        <div class="card"><h3>讨论</h3><div id="pd-comments" class="muted">…</div>
-          <div class="field" style="margin-top:8px"><textarea id="pd-cbody" placeholder="写评论…可 @用户名 提及成员"></textarea></div>
-          <div class="err" id="pd-cerr"></div><button id="pd-csend">发送</button></div>
-        <div class="card"><h3>时间线</h3><div id="pd-timeline" class="muted">…</div></div>
-        <div class="card"><h3>任务活动</h3><div id="pm-activity" class="muted">…</div></div>
+    </div>
+    <div class="pm-tabs2" id="pd-tabs">
+      ${pdTabBtn("overview","概览")}
+      ${pdTabBtn("tasks","任务",taskN)}
+      ${pdTabBtn("collab","协作")}
+      ${pdTabBtn("config","配置")}
+    </div>
+    <div id="pd-body"></div>`;
+  document.getElementById("pd-tabs").querySelectorAll("[data-tab]").forEach(b=> b.onclick=()=>{ PD_TAB=b.dataset.tab; document.getElementById("pd-tabs").querySelectorAll("[data-tab]").forEach(x=>x.classList.toggle("active",x.dataset.tab===PD_TAB)); pdRenderTab(); });
+  pdRenderTab();
+}
+function pdTabBtn(t,label,cnt){ return `<button class="pm-tab ${PD_TAB===t?'active':''}" data-tab="${t}">${label}${cnt!=null?`<span class="tc">${cnt}</span>`:""}</button>`; }
+function pdRenderTab(){
+  const body = document.getElementById("pd-body"); if(!body) return;
+  const pid = PD.pid;
+  if(PD_TAB==="tasks"){ body.innerHTML = `<div id="pd-work"><div class="muted">加载中…</div></div>`; loadWorkItems(pid, PD.ro); }
+  else if(PD_TAB==="collab") pdTabCollab(body, pid);
+  else if(PD_TAB==="config"){ body.innerHTML = `<div class="card" id="pd-cfg"><h3>配置</h3><div class="muted">加载中…</div></div>`; loadConfig(pid); }
+  else pdTabOverview(body, pid);
+}
+// 概览：健康度统计 + 进度条 + 里程碑进度 + 近期任务活动。
+async function pdTabOverview(body, pid){
+  body.innerHTML = `<div id="pm-stats-slot"><div class="muted">加载中…</div></div>`;
+  let items=[], miles=[], activity=[];
+  try{
+    const [wi, ms, ac] = await Promise.all([
+      api("GET","/projects/"+pid+"/work-items"),
+      api("GET","/projects/"+pid+"/milestones"),
+      api("GET","/projects/"+pid+"/activity").catch(()=>({activity:[]})),
+    ]);
+    items=(wi.items||[]).filter(x=>!x.parent_id); miles=ms.milestones||[]; activity=ac.activity||[];
+  }catch(e){ body.innerHTML=`<div class="err">${esc(e.message)}</div>`; return; }
+  const today = pmToday();
+  const cnt = s => items.filter(x=>x.status===s).length;
+  const total=items.length, done=cnt("done"), doing=cnt("doing"), todo=cnt("todo");
+  const overdue = items.filter(x=>x.due_date && x.due_date<today && x.status!=="done").length;
+  const pct = total? Math.round(done/total*100):0;
+  const msRows = miles.length ? miles.map(m=>{
+    const mi=items.filter(x=>x.milestone_id===m.id), md=mi.filter(x=>x.status==="done").length;
+    const mp = mi.length? Math.round(md/mi.length*100):0;
+    return `<div class="pm-msprog"><div class="h"><b>🚩 ${esc(m.name)}${m.status==="closed"?" ✓":""}</b><span>${md}/${mi.length} · ${mp}%</span></div><div class="pm-bar"><i style="width:${mp}%"></i></div></div>`;
+  }).join("") : '<div class="muted" style="font-size:12.5px">还没有里程碑</div>';
+  const acts = activity.length ? activity.slice(0,12).map(x=>`<div class="pm-actitem"><div class="ai">${pmActIcon(x.kind)}</div><div style="flex:1;min-width:0"><div><b style="font-weight:600">${esc(x.actor||"?")}</b> ${esc(pmActLabel(x.kind))}${x.detail?` · ${esc(x.detail)}`:""}</div><div class="muted" style="font-size:11px;margin-top:1px">${ago(x.created_at)}</div></div></div>`).join("") : '<div class="muted" style="font-size:12.5px">暂无任务活动</div>';
+  body.innerHTML = `
+    <div class="pm-stats">
+      <div class="pm-stat" style="--sc:var(--dim)"><div class="n">${total}</div><div class="l">任务总数</div></div>
+      <div class="pm-stat" style="--sc:#2e7df6"><div class="n">${doing}</div><div class="l">进行中</div></div>
+      <div class="pm-stat" style="--sc:var(--brand)"><div class="n">${done}</div><div class="l">已完成</div></div>
+      <div class="pm-stat over" style="--sc:var(--danger)"><div class="n">${overdue}</div><div class="l">已逾期</div></div>
+    </div>
+    <div class="card" style="padding:14px 18px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;margin-bottom:9px"><span class="muted">整体进度</span><span style="font-weight:800;font-size:15px">${pct}%</span></div>
+      <div class="pm-bar" style="height:9px"><i style="width:${pct}%"></i></div>
+      <div style="display:flex;gap:16px;margin-top:11px;font-size:11.5px;color:var(--dim)">
+        <span>待办 ${todo}</span><span>进行中 ${doing}</span><span>已完成 ${done}</span>${overdue?`<span style="color:var(--danger)">逾期 ${overdue}</span>`:""}
       </div>
+    </div>
+    <div class="pm-ovgrid">
+      <div class="card"><h3>里程碑进度</h3>${msRows}</div>
+      <div class="card"><h3>近期活动</h3>${acts}</div>
     </div>`;
-  document.getElementById("back").onclick=()=>{ CUR=null; render(); };
-  loadConfig(pid);
-  loadMembers(pid); loadPresence(pid); loadComments(pid); loadTimeline(pid); pmLoadActivity(pid);
-  document.getElementById("pd-addbtn").onclick = async ()=>{
-    try{ await api("POST",`/projects/${pid}/members`,{name:document.getElementById("pd-add").value.trim(), role:document.getElementById("pd-role").value}); document.getElementById("pd-add").value=""; loadMembers(pid); }
-    catch(e){ document.getElementById("pd-merr").textContent=e.message; }
-  };
-  document.getElementById("pd-inv").onclick = async ()=>{
-    try{ const i = await api("POST",`/projects/${pid}/invites`,{role:document.getElementById("pd-invrole").value}); document.getElementById("pd-invout").innerHTML = `邀请码：<code>${esc(i.code)}</code>`; }
-    catch(e){ document.getElementById("pd-invout").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
-  };
+}
+// 协作：成员 / 邀请码 / 在线状态 / 讨论 / 时间线（原详情页右侧诸卡片，聚到一个 tab）。
+function pdTabCollab(body, pid){
+  const ro = PD.ro;
+  body.innerHTML = `<div class="grid2">
+    <div>
+      <div class="card"><h3>成员</h3><div id="pd-members" class="muted">…</div>
+        ${ro?"":`<div class="row" style="margin-top:10px"><input id="pd-add" placeholder="账号名"><select id="pd-role" style="width:120px"><option>Member</option><option>Admin</option><option>Viewer</option></select><button id="pd-addbtn">加入</button></div>
+        <div class="err" id="pd-merr"></div>`}</div>
+      ${ro?"":`<div class="card"><h3>邀请码</h3><div class="row"><select id="pd-invrole" style="width:120px"><option>Member</option><option>Admin</option><option>Viewer</option></select><button id="pd-inv">生成邀请码</button></div><div id="pd-invout" style="margin-top:8px"></div></div>`}
+      <div class="card"><h3>在线状态</h3><div id="pd-presence" class="muted">…</div></div>
+    </div>
+    <div>
+      <div class="card"><h3>讨论</h3><div id="pd-comments" class="muted">…</div>
+        <div class="field" style="margin-top:10px"><textarea id="pd-cbody" placeholder="写评论…可 @用户名 提及成员"></textarea></div>
+        <div class="err" id="pd-cerr"></div><button id="pd-csend">发送</button></div>
+      <div class="card"><h3>时间线</h3><div id="pd-timeline" class="muted">…</div></div>
+    </div>
+  </div>`;
+  loadMembers(pid); loadPresence(pid); loadComments(pid); loadTimeline(pid);
+  if(!ro){
+    document.getElementById("pd-addbtn").onclick = async ()=>{
+      try{ await api("POST",`/projects/${pid}/members`,{name:document.getElementById("pd-add").value.trim(), role:document.getElementById("pd-role").value}); document.getElementById("pd-add").value=""; loadMembers(pid); }
+      catch(e){ document.getElementById("pd-merr").textContent=e.message; }
+    };
+    document.getElementById("pd-inv").onclick = async ()=>{
+      try{ const i = await api("POST",`/projects/${pid}/invites`,{role:document.getElementById("pd-invrole").value}); document.getElementById("pd-invout").innerHTML = `邀请码：<code>${esc(i.code)}</code>`; }
+      catch(e){ document.getElementById("pd-invout").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+    };
+  }
   document.getElementById("pd-csend").onclick = async ()=>{
     const b=document.getElementById("pd-cbody");
     try{ await api("POST",`/projects/${pid}/comments`,{body:b.value.trim()}); b.value=""; document.getElementById("pd-cerr").textContent=""; loadComments(pid); loadTimeline(pid); }
@@ -341,7 +503,6 @@ async function catalogNames(category){
 async function loadConfig(pid){
   const box = document.getElementById("pd-cfg");
   let p; try{ p = await api("GET","/projects/"+pid); }catch(e){ box.innerHTML = `<h3>配置</h3><div class="err">${esc(e.message)}</div>`; return; }
-  document.getElementById("pd-name").textContent = p.name;
   const ro = p.role === "Viewer";
   const cur = { connectors:[...(p.connectors||[])], experts:[...(p.experts||[])], skills:[...(p.skills||[])] };
   const opts = {}; for(const k in CFG_CATS){ opts[k] = await catalogNames(CFG_CATS[k]); }
@@ -362,7 +523,6 @@ async function loadConfig(pid){
     if(!ro) box.querySelectorAll("[data-rm]").forEach(x=> x.onclick=()=>{ const [k,i]=x.dataset.rm.split(":"); cur[k].splice(+i,1); renderChips(); });
   }
   renderChips();
-  loadWorkItems(pid, ro);
   if(!ro){
     box.querySelectorAll("[data-add]").forEach(b=> b.onclick=()=>{ const k=b.dataset.add, inp=document.getElementById(`cfg-${k}-in`), v=inp.value.trim(); if(v && !cur[k].includes(v)){ cur[k].push(v); renderChips(); } inp.value=""; inp.focus(); });
     document.getElementById("cfg-save").onclick = async ()=>{
@@ -376,9 +536,15 @@ async function loadConfig(pid){
 // （编辑全字段 + 子任务 + 活动流）；顶部里程碑条（列表+新建）。全 pm- 前缀 + 内联样式（避开并发会话的
 // <style>/目录区，防撞，沿用 cg-/sg- 约定）。复用 WI_COLS（状态列）。Viewer 只读。
 const PM_PRIO = { "":["无","#9aa0a6"], low:["低","#16b37a"], medium:["中","#2e7df6"], high:["高","#f0a020"], urgent:["紧急","#ef4444"] };
+const WI_COL_C = { todo:"#9aa0a6", doing:"#2e7df6", paused:"#f0a020", done:"#16b37a" };   // 状态色（列头/状态 pill，WB-111）
+const PM_AVC = ["#2e7df6","#16b37a","#f0a020","#a855f7","#ef4444","#06b6d4","#ec4899"];    // 头像底色轮转
 let PM_CTX = { pid:null, ro:false, items:[], miles:[], members:[] };
 let PM_VIEW = "board", PM_SORT = "created";                              // 视图/排序（跨刷新保持，WB-107）
 let PM_FILTER = { q:"", status:"", priority:"", assignee:"", milestone:"" };
+function pmToday(){ const d=new Date(); const p=n=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
+function pmAvatar(name){ const s=String(name||"?"); let h=0; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return `<span class="pm-av" style="background:${PM_AVC[h%PM_AVC.length]}">${esc(s.slice(0,1).toUpperCase())}</span>`; }
+function pmActIcon(k){ k=String(k||""); if(k.includes("create"))return "✚"; if(k.includes("delete"))return "🗑"; if(k.includes("status")||k.includes("update"))return "✎"; if(k.includes("comment"))return "💬"; return "•"; }
+function pmActLabel(k){ const M={created:"新建了任务","status_changed":"更新了状态",updated:"更新了任务",deleted:"删除了任务",commented:"发表了评论"}; return M[k]||k; }
 async function loadWorkItems(pid, ro){
   const box = document.getElementById("pd-work");
   try{
@@ -404,22 +570,24 @@ async function pmLoadActivity(pid){
 }
 function pmMsName(id){ const m=PM_CTX.miles.find(x=>x.id===id); return m?m.name:""; }
 function pmCardHtml(it){
-  const subs = PM_CTX.items.filter(x=>x.parent_id===it.id).length;
+  const kids = PM_CTX.items.filter(x=>x.parent_id===it.id);
+  const subDone = kids.filter(x=>x.status==="done").length;
   const pc = (PM_PRIO[it.priority||""]||PM_PRIO[""])[1];
-  const labels = (it.labels||[]).slice(0,3).map(l=>`<span style="font-size:10px;color:var(--brand);background:rgba(22,179,122,.15);border-radius:5px;padding:1px 6px">#${esc(l)}</span>`).join("");
+  const labels = (it.labels||[]).slice(0,3).map(l=>`<span class="pm-tag">#${esc(l)}</span>`).join("");
   const ms = it.milestone_id?pmMsName(it.milestone_id):"";
-  return `<div class="list-item" data-open="${it.id}" ${PM_CTX.ro?"":'draggable="true"'} style="display:block;padding:8px 10px;cursor:pointer">
-    <div style="display:flex;align-items:center;gap:6px">
-      ${it.priority?`<span title="优先级" style="width:8px;height:8px;border-radius:50%;background:${pc};flex-shrink:0"></span>`:""}
-      <span style="font-size:13px;flex:1;min-width:0">${esc(it.title)}</span>
-      ${subs?`<span class="pill">☑ ${subs}</span>`:""}
+  const over = it.due_date && it.due_date<pmToday() && it.status!=="done";
+  const meta = [
+    labels,
+    ms?`<span class="pm-chip">🚩 ${esc(ms)}</span>`:"",
+    it.due_date?`<span class="pm-chip ${over?"over":""}">${over?"⚠":"📅"} ${esc(String(it.due_date).slice(5))}</span>`:"",
+    kids.length?`<span class="pm-chip">☑ ${subDone}/${kids.length}</span>`:"",
+  ].filter(Boolean).join("");
+  return `<div class="pm-card" data-open="${it.id}" ${PM_CTX.ro?"":'draggable="true"'} style="--pc:${pc}">
+    <div style="display:flex;align-items:flex-start;gap:7px">
+      <span class="tt" style="flex:1;min-width:0">${esc(it.title)}</span>
+      ${it.assignee?pmAvatar(it.assignee):""}
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;align-items:center">
-      ${labels}
-      ${ms?`<span class="pill">🚩 ${esc(ms)}</span>`:""}
-      ${it.due_date?`<span class="pill">📅 ${esc(String(it.due_date).slice(5))}</span>`:""}
-      ${it.assignee?`<span class="pill">👤 ${esc(it.assignee)}</span>`:""}
-    </div>
+    ${meta?`<div class="pm-cmeta">${meta}</div>`:""}
   </div>`;
 }
 // 筛选 + 排序（作用于全部视图，WB-107）。
@@ -436,39 +604,62 @@ function pmFiltered(){
   else if(PM_SORT==="due") r = [...r].sort((a,b)=>(a.due_date||"9999-99-99").localeCompare(b.due_date||"9999-99-99"));
   return r;
 }
-// 任务区外壳：里程碑条 + 视图切换器 + 筛选行 + 快速新建；视图渲染进 #pm-view（WB-106 看板 + WB-107 列表/甘特）。
+// 任务工作台外壳（WB-111）：统计条 + 进度条 + 里程碑条 + 工具栏（分段视图切换/搜索/筛选/排序）+ 快速新建；
+// 视图渲染进 #pm-view（看板 / 列表 / 甘特）。整页承载，不再夹在其它卡片间。
 function pmRender(){
   const { ro, miles, members } = PM_CTX;
-  const box = document.getElementById("pd-work");
-  const total = PM_CTX.items.filter(x=>!x.parent_id).length;
-  const milesChips = miles.length? miles.map(m=>`<span class="pill">🚩 ${esc(m.name)}${m.due_date?" · "+esc(String(m.due_date).slice(5)):""}${m.status==="closed"?" ✓":""}</span>`).join(" ") : '<span class="muted" style="font-size:12px">无</span>';
-  const seg = (v,l)=>`<span class="pill" data-view="${v}" style="cursor:pointer;${PM_VIEW===v?"background:var(--brand);color:#fff":""}">${l}</span>`;
-  const sel = (id,cur,opts)=>`<select id="${id}" style="width:auto;padding:4px 8px;font-size:12px">${opts.map(([v,l])=>`<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
-  box.innerHTML = `<h3>计划 / 任务 <span class="pill" id="pm-count">0/${total}</span>
-      <span style="float:right;display:inline-flex;gap:6px">${seg("board","看板")}${seg("list","列表")}${seg("gantt","甘特")}</span></h3>
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-      <span class="muted" style="font-size:12px">里程碑</span>${milesChips}
-      ${ro?"":`<input id="pm-ms-new" placeholder="新里程碑…" style="width:110px;padding:5px 9px"><button class="line" id="pm-ms-add" style="padding:5px 10px">＋</button>`}
+  const box = document.getElementById("pd-work"); if(!box) return;
+  const roots = PM_CTX.items.filter(x=>!x.parent_id);
+  const today = pmToday();
+  const cnt = s => roots.filter(x=>x.status===s).length;
+  const total=roots.length, done=cnt("done"), doing=cnt("doing");
+  const overdue = roots.filter(x=>x.due_date && x.due_date<today && x.status!=="done").length;
+  const pct = total? Math.round(done/total*100):0;
+  const msChips = miles.length ? miles.map(m=>{
+    const mi=PM_CTX.items.filter(x=>x.milestone_id===m.id&&!x.parent_id), md=mi.filter(x=>x.status==="done").length;
+    return `<span class="pm-mschip ${m.status==="closed"?"done":""}">🚩 ${esc(m.name)}<span class="mp">${md}/${mi.length}</span></span>`;
+  }).join("") : '<span class="muted" style="font-size:12px">暂无里程碑</span>';
+  const seg = (v,l)=>`<button data-view="${v}" class="${PM_VIEW===v?"active":""}">${l}</button>`;
+  const sel = (id,cur,opts)=>`<select id="${id}" class="pm-fsel">${opts.map(([v,l])=>`<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
+  box.innerHTML = `
+    <div class="pm-stats">
+      <div class="pm-stat" style="--sc:var(--dim)"><div class="n">${total}</div><div class="l">任务总数</div></div>
+      <div class="pm-stat" style="--sc:#2e7df6"><div class="n">${doing}</div><div class="l">进行中</div></div>
+      <div class="pm-stat" style="--sc:var(--brand)"><div class="n">${done}</div><div class="l">已完成</div></div>
+      <div class="pm-stat over" style="--sc:var(--danger)"><div class="n">${overdue}</div><div class="l">已逾期</div></div>
     </div>
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-      <input id="pm-q" placeholder="搜索标题…" value="${esc(PM_FILTER.q)}" style="width:150px;padding:5px 9px">
+    <div class="card" style="padding:11px 16px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:7px"><span class="muted">整体进度 · 完成 ${done}/${total}</span><span style="font-weight:800">${pct}%</span></div>
+      <div class="pm-bar"><i style="width:${pct}%"></i></div>
+    </div>
+    <div class="pm-msbar">
+      <span class="muted" style="font-size:12px">里程碑</span>${msChips}
+      ${ro?"":`<input id="pm-ms-new" placeholder="新里程碑…" style="width:120px;padding:4px 10px;font-size:12px"><button class="line" id="pm-ms-add" style="padding:4px 11px">＋</button>`}
+    </div>
+    <div class="pm-toolbar">
+      <div class="pm-seg">${seg("board","看板")}${seg("list","列表")}${seg("gantt","甘特")}</div>
+      <input id="pm-q" class="pm-search" placeholder="🔍 搜索任务…" value="${esc(PM_FILTER.q)}">
       ${sel("pm-fs",PM_FILTER.status,[["","全部状态"],...WI_COLS])}
       ${sel("pm-fp",PM_FILTER.priority,[["","全部优先级"],...Object.entries(PM_PRIO).filter(([k])=>k).map(([k,v])=>[k,v[0]])])}
       ${sel("pm-fa",PM_FILTER.assignee,[["","全部负责人"],...members.map(n=>[n,n])])}
       ${sel("pm-fm",PM_FILTER.milestone,[["","全部里程碑"],...miles.map(m=>[m.id,m.name])])}
       ${sel("pm-sort",PM_SORT,[["created","默认排序"],["priority","按优先级"],["due","按截止"]])}
+      <span class="pm-spacer"></span>
+      ${ro?"":`<button id="pm-add-btn">＋ 新建任务</button>`}
     </div>
-    ${ro?"":`<div class="row" style="margin-bottom:10px"><input id="pm-new" placeholder="新增任务标题…"><button id="pm-add">添加</button></div>`}
+    ${ro?"":`<div class="row" id="pm-add-row" style="margin-bottom:12px;display:none"><input id="pm-new" placeholder="任务标题，回车添加…"><button id="pm-add">添加</button></div>`}
     <div class="err" id="pm-err"></div>
     <div id="pm-view"></div>`;
   pmRenderView();
-  box.querySelectorAll("[data-view]").forEach(s=> s.onclick=()=>{ PM_VIEW=s.dataset.view; box.querySelectorAll("[data-view]").forEach(p=>{ const on=p.dataset.view===PM_VIEW; p.style.background=on?"var(--brand)":""; p.style.color=on?"#fff":""; }); pmRenderView(); });
+  box.querySelectorAll("[data-view]").forEach(s=> s.onclick=()=>{ PM_VIEW=s.dataset.view; box.querySelectorAll("[data-view]").forEach(p=>p.classList.toggle("active",p.dataset.view===PM_VIEW)); pmRenderView(); });
   const fq=document.getElementById("pm-q"); if(fq) fq.oninput=()=>{ PM_FILTER.q=fq.value; pmRenderView(); };
   const bind=(id,key)=>{ const el=document.getElementById(id); if(el) el.onchange=()=>{ PM_FILTER[key]=el.value; pmRenderView(); }; };
   bind("pm-fs","status"); bind("pm-fp","priority"); bind("pm-fa","assignee"); bind("pm-fm","milestone");
   const so=document.getElementById("pm-sort"); if(so) so.onchange=()=>{ PM_SORT=so.value; pmRenderView(); };
   if(!ro){
     const pid=PM_CTX.pid, ro2=PM_CTX.ro, E=document.getElementById("pm-err");
+    const row=document.getElementById("pm-add-row");
+    document.getElementById("pm-add-btn").onclick=()=>{ row.style.display = row.style.display==="none"?"flex":"none"; if(row.style.display==="flex") document.getElementById("pm-new").focus(); };
     const addTask=async()=>{ const inp=document.getElementById("pm-new"), t=inp.value.trim(); if(!t)return; E.textContent=""; try{ await api("POST","/projects/"+pid+"/work-items",{title:t}); inp.value=""; loadWorkItems(pid,ro2);}catch(e){E.textContent=e.message;} };
     document.getElementById("pm-add").onclick=addTask;
     document.getElementById("pm-new").onkeydown=e=>{ if(e.key==="Enter")addTask(); };
@@ -479,7 +670,6 @@ function pmRender(){
 }
 function pmRenderView(){
   const roots = pmFiltered();
-  const cnt=document.getElementById("pm-count"); if(cnt) cnt.textContent = roots.length+"/"+PM_CTX.items.filter(x=>!x.parent_id).length;
   if(PM_VIEW==="list") pmViewList(roots);
   else if(PM_VIEW==="gantt") pmViewGantt(roots);
   else pmViewBoard(roots);
@@ -488,20 +678,24 @@ function pmBindOpen(box){ box.querySelectorAll("[data-open]").forEach(c=> c.oncl
 function pmViewBoard(roots){
   const box=document.getElementById("pm-view");
   const byStatus=s=>roots.filter(x=>x.status===s);
-  box.innerHTML = `<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
-    ${WI_COLS.map(([s,label])=>`<div style="min-width:0"><div class="muted" style="font-size:12px;margin-bottom:6px">${label} · ${byStatus(s).length}</div><div data-colstack="${s}" style="display:flex;flex-direction:column;gap:6px;min-height:34px;border-radius:8px">${byStatus(s).map(pmCardHtml).join("")||'<div class="muted" style="font-size:12px">—</div>'}</div></div>`).join("")}
+  box.innerHTML = `<div class="pm-board">
+    ${WI_COLS.map(([s,label])=>{ const list=byStatus(s);
+      return `<div class="pm-col" data-colstack="${s}">
+        <div class="pm-colhead"><span class="cd" style="background:${WI_COL_C[s]}"></span>${label}<span class="cnt">${list.length}</span></div>
+        <div class="pm-colstack">${list.map(pmCardHtml).join("")||'<div class="pm-colempty">拖到此处</div>'}</div>
+      </div>`; }).join("")}
   </div>`;
   pmBindOpen(box);
   if(PM_CTX.ro) return;
-  // 拖卡换列 = 快速改状态（WB-110）。
+  // 拖卡换列 = 快速改状态（WB-110）。整列（.pm-col）作放置区，高亮加 .drop。
   box.querySelectorAll("[data-open]").forEach(c=>{
     c.ondragstart = e=>{ e.dataTransfer.setData("text/plain", c.dataset.open); e.dataTransfer.effectAllowed="move"; };
   });
   box.querySelectorAll("[data-colstack]").forEach(col=>{
-    col.ondragover = e=>{ e.preventDefault(); e.dataTransfer.dropEffect="move"; col.style.background="rgba(22,179,122,.08)"; };
-    col.ondragleave = ()=>{ col.style.background=""; };
+    col.ondragover = e=>{ e.preventDefault(); e.dataTransfer.dropEffect="move"; col.classList.add("drop"); };
+    col.ondragleave = ()=>{ col.classList.remove("drop"); };
     col.ondrop = async e=>{
-      e.preventDefault(); col.style.background="";
+      e.preventDefault(); col.classList.remove("drop");
       const id = e.dataTransfer.getData("text/plain"); if(!id) return;
       const it = PM_CTX.items.find(x=>x.id===id), st = col.dataset.colstack;
       if(!it || it.status===st) return;
@@ -513,34 +707,41 @@ function pmViewBoard(roots){
 function pmViewList(roots){
   const box=document.getElementById("pm-view");
   const stL=Object.fromEntries(WI_COLS);
-  const head=["标题","状态","优先级","负责人","截止","里程碑"].map(h=>`<th style="padding:6px 8px;border-bottom:1px solid var(--line);font-weight:600">${h}</th>`).join("");
-  const rows=roots.map(x=>{ const p=PM_PRIO[x.priority||""]||PM_PRIO[""]; return `<tr data-open="${x.id}" style="cursor:pointer;border-bottom:1px solid var(--line)">
-    <td style="padding:7px 8px">${esc(x.title)}</td>
-    <td style="padding:7px 8px">${esc(stL[x.status]||x.status)}</td>
-    <td style="padding:7px 8px">${x.priority?`<span style="color:${p[1]}">● ${esc(p[0])}</span>`:'<span class="muted">—</span>'}</td>
-    <td style="padding:7px 8px">${x.assignee?esc(x.assignee):'<span class="muted">—</span>'}</td>
-    <td style="padding:7px 8px">${x.due_date?esc(x.due_date):'<span class="muted">—</span>'}</td>
-    <td style="padding:7px 8px">${x.milestone_id?esc(pmMsName(x.milestone_id)):'<span class="muted">—</span>'}</td>
-  </tr>`; }).join("") || `<tr><td colspan="6" style="padding:12px;color:var(--dim)">无任务</td></tr>`;
-  box.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="color:var(--dim);text-align:left">${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  const today=pmToday();
+  const head=["任务","状态","优先级","负责人","截止","里程碑"].map(h=>`<th>${h}</th>`).join("");
+  const spill=(s)=>{ const c=WI_COL_C[s]||"#9aa0a6"; return `<span class="pm-spill" style="color:${c};background:${c}22">${esc(stL[s]||s)}</span>`; };
+  const rows=roots.map(x=>{ const p=PM_PRIO[x.priority||""]||PM_PRIO[""]; const over=x.due_date&&x.due_date<today&&x.status!=="done";
+    return `<tr data-open="${x.id}">
+    <td style="font-weight:600">${esc(x.title)}</td>
+    <td>${spill(x.status)}</td>
+    <td>${x.priority?`<span class="pm-prio" style="color:${p[1]}"><span class="pd2" style="background:${p[1]}"></span>${esc(p[0])}</span>`:'<span class="muted">—</span>'}</td>
+    <td>${x.assignee?`<span style="display:inline-flex;align-items:center;gap:6px">${pmAvatar(x.assignee)}${esc(x.assignee)}</span>`:'<span class="muted">—</span>'}</td>
+    <td>${x.due_date?`<span style="${over?"color:#ff9a9a;font-weight:600":""}">${esc(x.due_date)}</span>`:'<span class="muted">—</span>'}</td>
+    <td>${x.milestone_id?`🚩 ${esc(pmMsName(x.milestone_id))}`:'<span class="muted">—</span>'}</td>
+  </tr>`; }).join("") || `<tr><td colspan="6" style="padding:16px;color:var(--dim);text-align:center">无任务</td></tr>`;
+  box.innerHTML = `<div class="pm-tablewrap"><table class="pm-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
   pmBindOpen(box);
 }
-// 甘特/时间线：按 start_date→due_date 画相对横条（无 start 用 due 当点）。
+// 甘特/时间线：按 start_date→due_date 画相对横条（无 start 用 due 当点）+ 今天标记 + 月度网格。
 function pmViewGantt(roots){
   const box=document.getElementById("pm-view");
   const dated=roots.filter(x=>x.due_date||x.start_date);
-  if(!dated.length){ box.innerHTML='<div class="muted" style="font-size:12px">无排期任务（给任务设开始/截止日期即可在甘特显示）</div>'; return; }
+  if(!dated.length){ box.innerHTML='<div class="pm-colempty" style="margin-top:8px">无排期任务 —— 给任务设开始/截止日期即可在此按时间轴排布</div>'; return; }
   const toD=s=>{ const a=String(s).split("-").map(Number); return Date.UTC(a[0],(a[1]||1)-1,a[2]||1)/86400000; };
   let min=Infinity,max=-Infinity;
   dated.forEach(x=>{ const s=toD(x.start_date||x.due_date), e=toD(x.due_date||x.start_date); if(s<min)min=s; if(e>max)max=e; });
+  const tD=toD(pmToday()); if(tD<min)min=tD; if(tD>max)max=tD;   // 让今天线永远落在范围内
   if(max<=min) max=min+1;
+  const pad=Math.max((max-min)*0.04,1); min-=pad; max+=pad;
   const range=max-min;
   const fmt=n=>{ const d=new Date(n*86400000); return (d.getUTCMonth()+1)+"/"+d.getUTCDate(); };
-  const ticks=[0,.25,.5,.75,1].map(f=>`<span style="position:absolute;left:${(f*100).toFixed(1)}%;transform:translateX(-50%);font-size:10px;color:var(--dim)">${fmt(min+f*range)}</span>`).join("");
-  const rows=dated.map(x=>{ const s=toD(x.start_date||x.due_date), e=toD(x.due_date||x.start_date); const left=((s-min)/range*100).toFixed(1), w=Math.max((e-s)/range*100,1.5).toFixed(1); const pc=(PM_PRIO[x.priority||""]||PM_PRIO[""])[1];
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div data-open="${x.id}" style="width:150px;flex-shrink:0;font-size:12.5px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.title)}</div><div style="position:relative;flex:1;height:20px;background:var(--panel2);border-radius:5px"><div data-open="${x.id}" title="${esc(x.start_date||"")} → ${esc(x.due_date||"")}" style="position:absolute;left:${left}%;width:${w}%;top:2px;bottom:2px;background:${pc};border-radius:5px;cursor:pointer;opacity:.85"></div></div></div>`;
+  const ticks=[0,.2,.4,.6,.8,1].map(f=>`<span style="left:${(f*100).toFixed(1)}%">${fmt(min+f*range)}</span>`).join("");
+  const grid=[0,.2,.4,.6,.8,1].map(f=>`<div class="pm-gantt-grid" style="left:${(f*100).toFixed(1)}%"></div>`).join("");
+  const todayL=((tD-min)/range*100).toFixed(1);
+  const rows=dated.map(x=>{ const s=toD(x.start_date||x.due_date), e=toD(x.due_date||x.start_date); const left=((s-min)/range*100).toFixed(1), w=Math.max((e-s)/range*100,1.2).toFixed(1); const pc=(PM_PRIO[x.priority||""]||PM_PRIO[""])[1];
+    return `<div class="pm-gantt-row"><div class="pm-gantt-name" data-open="${x.id}">${esc(x.title)}</div><div class="pm-gantt-track">${grid}<div class="pm-gantt-today" style="left:${todayL}%"></div><div class="pm-gantt-bar" data-open="${x.id}" title="${esc(x.start_date||"")} → ${esc(x.due_date||"")}" style="left:${left}%;width:${w}%;background:${pc}"></div></div></div>`;
   }).join("");
-  box.innerHTML = `<div style="position:relative;height:16px;margin:0 0 8px 158px">${ticks}</div>${rows}`;
+  box.innerHTML = `<div style="display:flex;gap:10px"><div style="width:160px;flex-shrink:0"></div><div class="pm-gantt-head" style="flex:1">${ticks}</div></div>${rows}`;
   pmBindOpen(box);
 }
 // 任务详情抽屉：编辑 标题/描述/状态/优先级/负责人/截止/标签/里程碑 + 子任务 + 活动流。
