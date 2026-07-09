@@ -88,10 +88,22 @@ def _ago(ts: float) -> str:
     return f"{int(diff // 86400)}天前"
 
 
+def _assignee_name(assignee: str, user) -> str:
+    """负责人显示名（WB-112c-B）：assignee 权威值 = account_id → 从 users 解析真名；
+    解析不到（历史自由文本 / 尚未镜像）用原值兜底。"""
+    a = (assignee or "").strip()
+    if not a:
+        return ""
+    if a == user.id:
+        return user.name
+    u = db.get_user(a)
+    return u.name if u else a
+
+
 def _view(wi, user) -> dict:
     d = wi.to_dict()
     d["ago"] = _ago(wi.created_at)
-    d["assignee_name"] = user.name if wi.assignee == user.id else wi.assignee[:2]
+    d["assignee_name"] = _assignee_name(wi.assignee, user)
     return d
 
 
@@ -132,7 +144,8 @@ def _hub_view(it: dict) -> dict:
         "labels": labels if isinstance(labels, list) else [],
         "parent_id": it.get("parent_id", ""), "milestone_id": it.get("milestone_id", ""),
         "created_at": ca, "updated_at": it.get("updated_at") or ca,
-        "ago": _ago(ca), "assignee_name": (it.get("assignee", "") or "")[:2],
+        # Hub 已按成员名解析 assignee_name（WB-112c-B）；缺失时用原值兜底。
+        "ago": _ago(ca), "assignee_name": it.get("assignee_name") or (it.get("assignee", "") or ""),
     }
 
 

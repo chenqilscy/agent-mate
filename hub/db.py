@@ -247,6 +247,10 @@ def init_db() -> None:
         if _col not in have_wi:
             get_conn().execute(f"ALTER TABLE work_items ADD COLUMN {_ddl}")
     get_conn().commit()
+    # 一次性：存量 work_items.assignee 自由文本 → account_id 强映射（WB-112c-B）。
+    if get_setting("assignee_norm_v1") != "1":
+        migrate_assignees_to_account_id()
+        set_setting("assignee_norm_v1", "1")
 
 
 # ---- password / tokens --------------------------------------------------
@@ -749,6 +753,27 @@ def list_work_items(project_id: str) -> list[dict]:
         "SELECT * FROM work_items WHERE project_id=? ORDER BY status, sort", (project_id,)
     ).fetchall()
     return [_row_to_work_item(r) for r in rows]
+
+
+def migrate_assignees_to_account_id() -> None:
+    """一次性把存量 work_items.assignee 由自由文本归一到 account_id（WB-112c-B）：
+    按项目成员名匹配 → 该成员 account_id；匹配不上保留原值兜底（铁律不丢数据）。幂等。"""
+    conn = get_conn()
+    proj_ids = [r["id"] for r in conn.execute("SELECT id FROM projects").fetchall()]
+    for pid in proj_ids:
+        mem = list_project_members(pid)
+        by_id = {m["account_id"] for m in mem}
+        by_name = {(m["name"] or "").lower(): m["account_id"] for m in mem if m.get("name")}
+        rows = conn.execute(
+            "SELECT id, assignee FROM work_items WHERE project_id=? AND assignee!=''", (pid,)
+        ).fetchall()
+        for r in rows:
+            a = (r["assignee"] or "").strip()
+            if a and a not in by_id:
+                nid = by_name.get(a.lower())
+                if nid:
+                    conn.execute("UPDATE work_items SET assignee=? WHERE id=?", (nid, r["id"]))
+    conn.commit()
 
 
 def get_work_item(wid: str) -> Optional[dict]:

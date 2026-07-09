@@ -51,5 +51,10 @@ created: 2026-07-10
 - **WB-112c Part A（协作写代理）done**：`backend/hub_client.py` 加 `get_project/update_project/add_member/update_member/remove_member` 五个 guarded 代理；`backend/routers/projects.py` 的 `update_project`/`add_member`/`update_member`/`remove_member` 四个写 handler 接 `authorization` header + `_hub_token`（Manager 已接 & 项目 origin=='hub' & 带 token 才走代理）→ 代理到 Manager → `_mirror_project`/`_mirror_members` 刷新本地镜像 → Manager 不可达回退纯本地。修掉「hub-origin 项目改成员/配置只写本地、下次 pull 被覆盖 = 静默丢数据」。
   - 验证：`py_compile` 过；用 backend venv 置 `HUB_URL` 后直连 live Manager :8100（demopm token + 注册 bob 账号）实跑五函数：`update_project` 写入 instruction+skills、`add_member`(bob→Member)→`update_member`(→Admin)→`remove_member` 成员表逐步真变，全部落 Manager 权威。`HUB_URL` 空的运行中 :8000 backend 走 `hub_enabled()` 短路 → 全部回退纯本地，reload 后 `/api/health`+`/api/projects` 均 200，无回归。
   - **待补（本 Part 已知取舍）**：hub-origin 成员变更的「通知」目前 Manager 侧未生成（本地通知在代理分支被跳过），归入后续通知/动态回读分片。
-- **WB-112c Part B（身份强映射 assignee→account_id）**：待做，独立分片（两侧 schema + 存量迁移）。
+- **WB-112c Part B（身份强映射 assignee→account_id）done**：无 schema 变更（assignee 列已存在），采用「写时归一 + 读时解析名 + 一次性存量迁移」，对异构客户端（App React 仍可能发名字）容错。
+  - Hub：`hub/routers/work_items.py` 加 `_members_maps/_norm_assignee/_decorate` —— 创建/更新时把 assignee 由「名字或 id」归一到成员 `account_id`（匹配不上保留原值兜底，不丢数据）；list/create/update 返回补 `assignee_name`（成员名解析）；assignee 变更的活动流用成员名而非 uuid。`hub/db.py` 加 `migrate_assignees_to_account_id()`（幂等，按成员名归一存量行）+ `init_db` 里 `assignee_norm_v1` 标志守卫的一次性调用。
+  - App backend：`backend/routers/work_items.py` `_view` 用新 `_assignee_name`（从本地 users 按 account_id 解析真名，替代 `[:2]` 截断）；`_hub_view` 用 Hub 返回的 `assignee_name`（缺失回退原值）。
+  - Manager console：`PM_CTX.members` 保留 `{account_id,name,role}` 全对象；负责人筛选/详情下拉 value=account_id·label=name；看板卡头像 + 列表负责人显示 `assignee_name`。
+  - 验证：隔离 Hub（TestClient + scratch DB）6 项断言全过——创建/更新/list 名字→account_id 归一、不可解析名保留不丢、存量迁移生效、活动流用名不漏 uuid。App backend reload 后 `/api/work-items` 422（非 500）、`/api/health` 200，无回归。
+  - **运行中的 Manager :8100 需重启**才激活 Hub 侧改动（迁移 + 归一/解析）；console.html 每次请求实时读取、已即时更新。
 - WB-112d/e/f（动态回读 / 镜像增量合并 / PM 细化四方向）：待做。用户已选 PM 细化范围 = 看板视图增强 + 任务字段丰富 + 计划与度量 + 协作联动（全选）。

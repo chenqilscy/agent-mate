@@ -553,7 +553,7 @@ async function loadWorkItems(pid, ro){
       api("GET","/projects/"+pid+"/milestones"),
       api("GET","/projects/"+pid+"/members"),
     ]);
-    PM_CTX = { pid, ro, items: wi.items||[], miles: ms.milestones||[], members: (mb.members||[]).map(x=>x.name) };
+    PM_CTX = { pid, ro, items: wi.items||[], miles: ms.milestones||[], members: (mb.members||[]) };  // 保留 {account_id,name,role}——负责人强映射（WB-112c-B）
   }catch(e){ box.innerHTML = `<h3>计划 / 任务</h3><div class="err">${esc(e.message)}</div>`; return; }
   pmRender();
   pmLoadActivity(pid);   // 任何任务变更后顺带刷新项目活动面板（WB-110）
@@ -585,7 +585,7 @@ function pmCardHtml(it){
   return `<div class="pm-card" data-open="${it.id}" ${PM_CTX.ro?"":'draggable="true"'} style="--pc:${pc}">
     <div style="display:flex;align-items:flex-start;gap:7px">
       <span class="tt" style="flex:1;min-width:0">${esc(it.title)}</span>
-      ${it.assignee?pmAvatar(it.assignee):""}
+      ${it.assignee?pmAvatar(it.assignee_name||it.assignee):""}
     </div>
     ${meta?`<div class="pm-cmeta">${meta}</div>`:""}
   </div>`;
@@ -641,7 +641,7 @@ function pmRender(){
       <input id="pm-q" class="pm-search" placeholder="🔍 搜索任务…" value="${esc(PM_FILTER.q)}">
       ${sel("pm-fs",PM_FILTER.status,[["","全部状态"],...WI_COLS])}
       ${sel("pm-fp",PM_FILTER.priority,[["","全部优先级"],...Object.entries(PM_PRIO).filter(([k])=>k).map(([k,v])=>[k,v[0]])])}
-      ${sel("pm-fa",PM_FILTER.assignee,[["","全部负责人"],...members.map(n=>[n,n])])}
+      ${sel("pm-fa",PM_FILTER.assignee,[["","全部负责人"],...members.map(m=>[m.account_id,m.name])])}
       ${sel("pm-fm",PM_FILTER.milestone,[["","全部里程碑"],...miles.map(m=>[m.id,m.name])])}
       ${sel("pm-sort",PM_SORT,[["created","默认排序"],["priority","按优先级"],["due","按截止"]])}
       <span class="pm-spacer"></span>
@@ -715,7 +715,7 @@ function pmViewList(roots){
     <td style="font-weight:600">${esc(x.title)}</td>
     <td>${spill(x.status)}</td>
     <td>${x.priority?`<span class="pm-prio" style="color:${p[1]}"><span class="pd2" style="background:${p[1]}"></span>${esc(p[0])}</span>`:'<span class="muted">—</span>'}</td>
-    <td>${x.assignee?`<span style="display:inline-flex;align-items:center;gap:6px">${pmAvatar(x.assignee)}${esc(x.assignee)}</span>`:'<span class="muted">—</span>'}</td>
+    <td>${x.assignee?`<span style="display:inline-flex;align-items:center;gap:6px">${pmAvatar(x.assignee_name||x.assignee)}${esc(x.assignee_name||x.assignee)}</span>`:'<span class="muted">—</span>'}</td>
     <td>${x.due_date?`<span style="${over?"color:#ff9a9a;font-weight:600":""}">${esc(x.due_date)}</span>`:'<span class="muted">—</span>'}</td>
     <td>${x.milestone_id?`🚩 ${esc(pmMsName(x.milestone_id))}`:'<span class="muted">—</span>'}</td>
   </tr>`; }).join("") || `<tr><td colspan="6" style="padding:16px;color:var(--dim);text-align:center">无任务</td></tr>`;
@@ -751,7 +751,7 @@ function pmOpenTask(id){
   const dis = ro?"disabled":"";
   const optS = arr => arr.map(([v,l])=>`<option value="${v}" ${v===it.status?"selected":""}>${l}</option>`).join("");
   const prioOpt = Object.entries(PM_PRIO).map(([k,v])=>`<option value="${k}" ${k===(it.priority||"")?"selected":""}>${v[0]}</option>`).join("");
-  const asOpt = `<option value="">未指派</option>`+members.map(n=>`<option value="${esc(n)}" ${n===it.assignee?"selected":""}>${esc(n)}</option>`).join("");
+  const asOpt = `<option value="">未指派</option>`+members.map(m=>`<option value="${esc(m.account_id)}" ${m.account_id===it.assignee?"selected":""}>${esc(m.name)}</option>`).join("");
   const msOpt = `<option value="">无里程碑</option>`+miles.map(m=>`<option value="${m.id}" ${m.id===it.milestone_id?"selected":""}>${esc(m.name)}</option>`).join("");
   const subs = items.filter(x=>x.parent_id===id);
   const ov = document.createElement("div");
