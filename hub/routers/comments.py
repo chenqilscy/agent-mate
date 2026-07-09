@@ -24,13 +24,10 @@ class CommentBody(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
 
 
-@router.post("/projects/{project_id}/comments")
-def post_comment(project_id: str, body: CommentBody, account: Account = CurrentAccount) -> dict:
-    if db.project_access_role(project_id, account.id) is None:
-        raise HTTPException(404, "project not found")
-    text = body.body.strip()
-    c = db.add_comment(project_id=project_id, author_id=account.id, author_name=account.name, body=text)
-    # @提及 → 给被提及的项目成员建通知（去重、不通知自己、仅限项目成员）。
+def _post_comment(project_id: str, account: Account, text: str, work_item_id: str = "") -> dict:
+    """落一条评论（项目级 work_item_id='' 或任务级）+ 解析 @提及给项目成员建通知。"""
+    c = db.add_comment(project_id=project_id, author_id=account.id, author_name=account.name,
+                       body=text, work_item_id=work_item_id)
     members = {m["name"]: m["account_id"] for m in db.list_project_members(project_id)}
     notified: set[str] = set()
     for name in _MENTION.findall(text):
@@ -44,11 +41,40 @@ def post_comment(project_id: str, body: CommentBody, account: Account = CurrentA
     return {**c, "mentioned": len(notified)}
 
 
+@router.post("/projects/{project_id}/comments")
+def post_comment(project_id: str, body: CommentBody, account: Account = CurrentAccount) -> dict:
+    if db.project_access_role(project_id, account.id) is None:
+        raise HTTPException(404, "project not found")
+    return _post_comment(project_id, account, body.body.strip())
+
+
 @router.get("/projects/{project_id}/comments")
 def get_comments(project_id: str, account: Account = CurrentAccount) -> dict:
     if db.project_access_role(project_id, account.id) is None:
         raise HTTPException(404, "project not found")
     return {"comments": db.list_comments(project_id)}
+
+
+# ---- 任务级评论（WB-115）：挂在具体 work_item 上，与项目级评论分流。 ----
+
+def _require_item(project_id: str, wid: str, account: Account) -> None:
+    if db.project_access_role(project_id, account.id) is None:
+        raise HTTPException(404, "project not found")
+    it = db.get_work_item(wid)
+    if not it or it["project_id"] != project_id:
+        raise HTTPException(404, "work item not found")
+
+
+@router.get("/projects/{project_id}/work-items/{wid}/comments")
+def get_item_comments(project_id: str, wid: str, account: Account = CurrentAccount) -> dict:
+    _require_item(project_id, wid, account)
+    return {"comments": db.list_comments(project_id, work_item_id=wid)}
+
+
+@router.post("/projects/{project_id}/work-items/{wid}/comments")
+def post_item_comment(project_id: str, wid: str, body: CommentBody, account: Account = CurrentAccount) -> dict:
+    _require_item(project_id, wid, account)
+    return _post_comment(project_id, account, body.body.strip(), work_item_id=wid)
 
 
 @router.get("/projects/{project_id}/presence")

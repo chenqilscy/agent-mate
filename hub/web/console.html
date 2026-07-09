@@ -941,6 +941,9 @@ function pmOpenTask(id){
       ${subs.length?`<div class="pm-bar" style="margin-bottom:9px"><i style="width:${Math.round(subs.filter(s=>s.status==="done").length/subs.length*100)}%"></i></div>`:""}
       <div id="pm-subs"></div>
       ${ro?"":`<div class="row" style="margin-top:8px"><input id="pm-sub-new" placeholder="新增子任务…"><button class="line" id="pm-sub-add">＋</button></div>`}</div>
+    <div class="card"><h3>评论</h3><div id="pm-cmts" class="muted" style="font-size:12px">加载中…</div>
+      <div class="field" style="margin-top:8px"><textarea id="pm-cmt-body" placeholder="写评论…可 @成员"></textarea></div>
+      <div class="err" id="pm-cmt-err"></div><button class="line" id="pm-cmt-send">发送</button></div>
     <div class="card"><h3>活动</h3><div id="pm-acts" class="muted" style="font-size:12px">加载中…</div></div>
   </div>`;
   document.body.appendChild(ov);
@@ -952,6 +955,18 @@ function pmOpenTask(id){
     const a=r.activity||[]; const box=document.getElementById("pm-acts"); if(!box) return;
     box.innerHTML = a.length? a.map(x=>`<div style="padding:3px 0">${esc(x.actor||"?")} · ${esc(x.kind)}${x.detail?" · "+esc(x.detail):""} <span style="color:var(--dim)">${ago(x.created_at)}</span></div>`).join("") : "暂无活动";
   }).catch(()=>{});
+  // 任务级评论（WB-115）：读 + 发（@提及沿用 Hub 通知）。所有成员可参与。
+  const loadCmts=()=> api("GET","/projects/"+pid+"/work-items/"+id+"/comments").then(r=>{
+    const cs=r.comments||[], b=document.getElementById("pm-cmts"); if(!b) return;
+    b.innerHTML = cs.length? cs.map(c=>`<div class="cmt"><span class="who">${esc(c.author_name)}</span> <span class="when">${ago(c.created_at)}</span><div>${esc(c.body)}</div></div>`).join("") : '暂无评论';
+  }).catch(()=>{});
+  loadCmts();
+  const csend=document.getElementById("pm-cmt-send"); if(csend) csend.onclick=async()=>{
+    const t=document.getElementById("pm-cmt-body"), v=t.value.trim(); if(!v) return;
+    const CE=document.getElementById("pm-cmt-err"); CE.textContent="";
+    try{ await api("POST","/projects/"+pid+"/work-items/"+id+"/comments",{body:v}); t.value=""; loadCmts(); }
+    catch(e){ CE.textContent=e.message; }
+  };
   if(ro) return;
   const E=document.getElementById("pm-f-err");
   document.getElementById("pm-f-save").onclick=async()=>{

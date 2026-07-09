@@ -3,7 +3,7 @@ id: WB-115
 title: PM 细化之三 协作联动 —— 按负责人工作量视图（前端）+ 任务级评论（Hub 后端 + 控制台）
 severity: P2
 area: fullstack
-status: in-progress
+status: fixed
 origin: WB-112f PM 细化四方向「协作联动」
 files:
   - hub/web/console.html
@@ -37,4 +37,6 @@ PM 细化四方向之④。本片两件：**工作量视图**（纯前端，按�
 
 2026-07-10：
 - **A 工作量视图 done**（`hub/web/console.html`）：视图切换器加「负载」；`pmViewWorkload` 按 assignee(+未指派) 聚合当前筛选根任务，每人一卡（头像+名+总数 pill+状态分布堆叠条+待办/进行/完成·完成率+逾期红）。实测本机 :8100：demopm 1 项·100%、未指派 7 项·完成2/29%·逾期1，堆叠条正确，0 报错。纯前端、无需重启。
-- **B 任务评论**：待做（Hub comments 加 work_item_id + 任务级端点 + 控制台抽屉评论区，需重启 :8100）。
+- **B 任务评论 done**：Hub `comments` 加 `work_item_id`（CREATE + 幂等补列，''=项目级）；`db.add_comment/list_comments` 带 work_item_id 分流；`hub/routers/comments.py` 抽 `_post_comment` 共享（含 @提及通知），加 `GET/POST /projects/{pid}/work-items/{wid}/comments`（`_require_item` 校验任务属项目）；控制台抽屉 `pmOpenTask` 加「评论」区（读+发，所有成员可参与，置于 ro 早退之前）。
+  - 验证：隔离 Hub TestClient/scratch DB —— 任务评论只挂该任务(count=1)、项目级评论不混入、@bob2 得 mention 通知、坏 wid→404；重启 :8100 后控制台抽屉发「…@demopm」即时渲染 + API 确认为任务级评论；0 控制台报错。
+  - 运行中 :8100 已重启激活（迁移补列 + 新端点）。App 端 React 任务评论另作后续。

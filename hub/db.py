@@ -155,6 +155,7 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS comments (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
+            work_item_id TEXT NOT NULL DEFAULT '',
             author_id TEXT NOT NULL,
             author_name TEXT NOT NULL DEFAULT '',
             body TEXT NOT NULL,
@@ -246,6 +247,10 @@ def init_db() -> None:
     ):
         if _col not in have_wi:
             get_conn().execute(f"ALTER TABLE work_items ADD COLUMN {_ddl}")
+    # 幂等补列（老库）：comments.work_item_id —— 任务级评论（WB-115），'' = 项目级。
+    have_cm = {r["name"] for r in get_conn().execute("PRAGMA table_info(comments)").fetchall()}
+    if "work_item_id" not in have_cm:
+        get_conn().execute("ALTER TABLE comments ADD COLUMN work_item_id TEXT NOT NULL DEFAULT ''")
     get_conn().commit()
     # 一次性：存量 work_items.assignee 自由文本 → account_id 强映射（WB-112c-B）。
     if get_setting("assignee_norm_v1") != "1":
@@ -921,21 +926,23 @@ def touch_last_seen(account_id: str) -> None:
     get_conn().commit()
 
 
-def add_comment(*, project_id: str, author_id: str, author_name: str, body: str) -> dict:
+def add_comment(*, project_id: str, author_id: str, author_name: str, body: str, work_item_id: str = "") -> dict:
     cid = new_uuid()
     now = time.time()
     get_conn().execute(
-        "INSERT INTO comments (id,project_id,author_id,author_name,body,created_at) VALUES (?,?,?,?,?,?)",
-        (cid, project_id, author_id, author_name, body, now),
+        "INSERT INTO comments (id,project_id,work_item_id,author_id,author_name,body,created_at) VALUES (?,?,?,?,?,?,?)",
+        (cid, project_id, work_item_id, author_id, author_name, body, now),
     )
     get_conn().commit()
-    return {"id": cid, "project_id": project_id, "author_id": author_id,
+    return {"id": cid, "project_id": project_id, "work_item_id": work_item_id, "author_id": author_id,
             "author_name": author_name, "body": body, "created_at": now}
 
 
-def list_comments(project_id: str, limit: int = 200) -> list[dict]:
+def list_comments(project_id: str, work_item_id: str = "", limit: int = 200) -> list[dict]:
+    """work_item_id='' = 项目级评论（任务级评论不混入）；给 wid = 该任务的评论（WB-115）。"""
     rows = get_conn().execute(
-        "SELECT * FROM comments WHERE project_id=? ORDER BY created_at ASC LIMIT ?", (project_id, limit)
+        "SELECT * FROM comments WHERE project_id=? AND work_item_id=? ORDER BY created_at ASC LIMIT ?",
+        (project_id, work_item_id, limit),
     ).fetchall()
     return [dict(r) for r in rows]
 
