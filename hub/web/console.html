@@ -308,11 +308,12 @@ async function projectDetail(m){
           <div class="field" style="margin-top:8px"><textarea id="pd-cbody" placeholder="写评论…可 @用户名 提及成员"></textarea></div>
           <div class="err" id="pd-cerr"></div><button id="pd-csend">发送</button></div>
         <div class="card"><h3>时间线</h3><div id="pd-timeline" class="muted">…</div></div>
+        <div class="card"><h3>任务活动</h3><div id="pm-activity" class="muted">…</div></div>
       </div>
     </div>`;
   document.getElementById("back").onclick=()=>{ CUR=null; render(); };
   loadConfig(pid);
-  loadMembers(pid); loadPresence(pid); loadComments(pid); loadTimeline(pid);
+  loadMembers(pid); loadPresence(pid); loadComments(pid); loadTimeline(pid); pmLoadActivity(pid);
   document.getElementById("pd-addbtn").onclick = async ()=>{
     try{ await api("POST",`/projects/${pid}/members`,{name:document.getElementById("pd-add").value.trim(), role:document.getElementById("pd-role").value}); document.getElementById("pd-add").value=""; loadMembers(pid); }
     catch(e){ document.getElementById("pd-merr").textContent=e.message; }
@@ -389,6 +390,17 @@ async function loadWorkItems(pid, ro){
     PM_CTX = { pid, ro, items: wi.items||[], miles: ms.milestones||[], members: (mb.members||[]).map(x=>x.name) };
   }catch(e){ box.innerHTML = `<h3>计划 / 任务</h3><div class="err">${esc(e.message)}</div>`; return; }
   pmRender();
+  pmLoadActivity(pid);   // 任何任务变更后顺带刷新项目活动面板（WB-110）
+}
+// 项目级任务活动流（WB-110）：消费 WB-105 的 GET /projects/{pid}/activity。
+async function pmLoadActivity(pid){
+  const box = document.getElementById("pm-activity"); if(!box) return;
+  try{
+    const { activity } = await api("GET","/projects/"+pid+"/activity");
+    box.innerHTML = (activity&&activity.length)? activity.slice(0,30).map(x=>
+      `<div style="padding:3px 0;font-size:12.5px">${esc(x.actor||"?")} · ${esc(x.kind)}${x.detail?" · "+esc(x.detail):""} <span style="color:var(--dim)">${ago(x.created_at)}</span></div>`
+    ).join("") : '<div class="muted">暂无任务活动</div>';
+  }catch(e){ box.innerHTML = `<span class="err">${esc(e.message)}</span>`; }
 }
 function pmMsName(id){ const m=PM_CTX.miles.find(x=>x.id===id); return m?m.name:""; }
 function pmCardHtml(it){
@@ -396,7 +408,7 @@ function pmCardHtml(it){
   const pc = (PM_PRIO[it.priority||""]||PM_PRIO[""])[1];
   const labels = (it.labels||[]).slice(0,3).map(l=>`<span style="font-size:10px;color:var(--brand);background:rgba(22,179,122,.15);border-radius:5px;padding:1px 6px">#${esc(l)}</span>`).join("");
   const ms = it.milestone_id?pmMsName(it.milestone_id):"";
-  return `<div class="list-item" data-open="${it.id}" style="display:block;padding:8px 10px;cursor:pointer">
+  return `<div class="list-item" data-open="${it.id}" ${PM_CTX.ro?"":'draggable="true"'} style="display:block;padding:8px 10px;cursor:pointer">
     <div style="display:flex;align-items:center;gap:6px">
       ${it.priority?`<span title="优先级" style="width:8px;height:8px;border-radius:50%;background:${pc};flex-shrink:0"></span>`:""}
       <span style="font-size:13px;flex:1;min-width:0">${esc(it.title)}</span>
@@ -477,9 +489,26 @@ function pmViewBoard(roots){
   const box=document.getElementById("pm-view");
   const byStatus=s=>roots.filter(x=>x.status===s);
   box.innerHTML = `<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
-    ${WI_COLS.map(([s,label])=>`<div><div class="muted" style="font-size:12px;margin-bottom:6px">${label} · ${byStatus(s).length}</div><div style="display:flex;flex-direction:column;gap:6px">${byStatus(s).map(pmCardHtml).join("")||'<div class="muted" style="font-size:12px">—</div>'}</div></div>`).join("")}
+    ${WI_COLS.map(([s,label])=>`<div style="min-width:0"><div class="muted" style="font-size:12px;margin-bottom:6px">${label} · ${byStatus(s).length}</div><div data-colstack="${s}" style="display:flex;flex-direction:column;gap:6px;min-height:34px;border-radius:8px">${byStatus(s).map(pmCardHtml).join("")||'<div class="muted" style="font-size:12px">—</div>'}</div></div>`).join("")}
   </div>`;
   pmBindOpen(box);
+  if(PM_CTX.ro) return;
+  // 拖卡换列 = 快速改状态（WB-110）。
+  box.querySelectorAll("[data-open]").forEach(c=>{
+    c.ondragstart = e=>{ e.dataTransfer.setData("text/plain", c.dataset.open); e.dataTransfer.effectAllowed="move"; };
+  });
+  box.querySelectorAll("[data-colstack]").forEach(col=>{
+    col.ondragover = e=>{ e.preventDefault(); e.dataTransfer.dropEffect="move"; col.style.background="rgba(22,179,122,.08)"; };
+    col.ondragleave = ()=>{ col.style.background=""; };
+    col.ondrop = async e=>{
+      e.preventDefault(); col.style.background="";
+      const id = e.dataTransfer.getData("text/plain"); if(!id) return;
+      const it = PM_CTX.items.find(x=>x.id===id), st = col.dataset.colstack;
+      if(!it || it.status===st) return;
+      try{ await api("PATCH","/projects/"+PM_CTX.pid+"/work-items/"+id,{status:st}); loadWorkItems(PM_CTX.pid, PM_CTX.ro); }
+      catch(err){ const E=document.getElementById("pm-err"); if(E) E.textContent=err.message; }
+    };
+  });
 }
 function pmViewList(roots){
   const box=document.getElementById("pm-view");

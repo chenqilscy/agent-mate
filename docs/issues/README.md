@@ -124,6 +124,7 @@
 | [WB-108](WB-108-app-hub-pm-integration.md) | ✅ | P1 | fullstack | App↔Hub 专业 PM 打通 —— 本地模型/迁移/同步扩展新字段+里程碑 + App 工作台任务 UI（优先级/标签/里程碑接卡片·详情·新建）；冒烟 25+12+HTTP E2E 全过、tsc/build 过、明暗双主题 CDP 实截核对过 |
 | [WB-106](WB-106-portal-task-professional.md) | ✅ | P1 | frontend | BuddyWebMgr 门户任务专业化 —— 看板卡片富信息(优先级/负责人/截止/标签/里程碑/子任务) + 任务详情抽屉(全字段+子任务+活动流) + 里程碑条；全 pm- 前缀内联样式防撞并发；隔离 Hub CDP 实测无报错 |
 | [WB-107](WB-107-portal-task-views-filters.md) | ✅ | P2 | frontend | BuddyWebMgr 门户任务 列表视图 + 甘特/时间线视图 + 筛选/排序 —— 视图切换器(看板/列表/甘特) + 搜索/状态/优先级/负责人/里程碑筛选；续 pm- 前缀内联样式，hunk 提交；隔离 Hub CDP 三视图实测无报错 |
+| [WB-110](WB-110-portal-kanban-drag-activity.md) | ✅ | P2 | frontend | BuddyWebMgr 门户 PM 增强 —— 看板拖拽换列(快速改状态,Viewer 不可拖) + 项目级任务活动流面板(消费 WB-105 activity 端点,变更自动刷新)；CDP DragEvent 实测 Hub 真变+活动入流 |
 | [WB-109](WB-109-app-featured-consume-hub.md) | ✅ | P3 | frontend | App 精选技能区消费 Hub SKILLHUB_FEATURED —— 打通 mgr「加入精选」→ App（渲染真图标，回退静态兜底；纯前端，数据链路 E2E 实测） |
 
 ## 来源
