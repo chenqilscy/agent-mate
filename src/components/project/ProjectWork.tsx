@@ -775,6 +775,7 @@ export function WorkloadView() {
 export function TaskList() {
   const items = useWorkItemStore((s) => s.items)
   const remove = useWorkItemStore((s) => s.remove)
+  const update = useWorkItemStore((s) => s.update)
   const [q, setQ] = useState('')
   const filtered = items.filter((i) => i.title.toLowerCase().includes(q.trim().toLowerCase()))
 
@@ -799,13 +800,13 @@ export function TaskList() {
       {filtered.length ? (
         filtered.map((i) => (
           <div className="pj-task" key={i.id}>
-            <span className="st" style={{ background: DOT[i.status] }} />
-            {i.priority && <span className="wb-dot" style={{ background: PRIO[i.priority].color }} title={`优先级：${PRIO[i.priority].label}`} />}
             <span className="tt">{i.title}</span>
             <LabelBadges labels={i.labels} />
             {i.due_date && <span className="wb-badge due">📅 {i.due_date.slice(5)}</span>}
-            <span className="stx">{LABEL[i.status]}</span>
-            <span className="ago">{i.ago}</span>
+            <span style={{ flex: 1 }} />
+            {i.assignee_name && <span className="wb-av" style={{ width: 20, height: 20, fontSize: 11 }} title={i.assignee_name}>{i.assignee_name[0]}</span>}
+            <PriorityPill value={i.priority} dir="down" onPick={(p) => void update(i.id, { priority: p })} />
+            <StatusPill status={i.status} dir="down" onPick={(s) => void update(i.id, { status: s })} />
             <span className="del" title="删除" onClick={() => void remove(i.id)}>×</span>
           </div>
         ))
