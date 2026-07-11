@@ -771,6 +771,51 @@ export function WorkloadView() {
   )
 }
 
+// 甘特: 按 start/due 相对时间画横条（对齐 Manager pmViewGantt，WB-121）。今天线 + 月度刻度 + 优先级色条。
+export function GanttView() {
+  const items = useWorkItemStore((s) => s.items).filter((i) => !i.parent_id)
+  const [detailId, setDetailId] = useState<string | null>(null)
+  const dated = items.filter((i) => i.due_date || i.start_date)
+  if (!dated.length) return <div className="pj-empty">无排期任务 —— 给任务设开始/截止日期即可在此按时间轴排布。</div>
+  const toD = (s: string) => { const a = s.split('-').map(Number); return Date.UTC(a[0], (a[1] || 1) - 1, a[2] || 1) / 86400000 }
+  const today = (() => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` })()
+  let min = Infinity, max = -Infinity
+  dated.forEach((x) => { const s = toD((x.start_date || x.due_date) as string); const e = toD((x.due_date || x.start_date) as string); if (s < min) min = s; if (e > max) max = e })
+  const tD = toD(today); if (tD < min) min = tD; if (tD > max) max = tD
+  if (max <= min) max = min + 1
+  const pad = Math.max((max - min) * 0.04, 1); min -= pad; max += pad
+  const range = max - min
+  const fmt = (n: number) => { const d = new Date(n * 86400000); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}` }
+  const ticks = [0, 0.2, 0.4, 0.6, 0.8, 1]
+  const todayL = (((tD - min) / range) * 100).toFixed(1)
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ width: 160, flexShrink: 0 }} />
+        <div style={{ position: 'relative', flex: 1, height: 18, marginBottom: 8 }}>
+          {ticks.map((f) => <span key={f} style={{ position: 'absolute', left: `${(f * 100).toFixed(1)}%`, transform: 'translateX(-50%)', fontSize: 10, color: 'var(--text-3)' }}>{fmt(min + f * range)}</span>)}
+        </div>
+      </div>
+      {dated.map((x) => {
+        const s = toD((x.start_date || x.due_date) as string), e = toD((x.due_date || x.start_date) as string)
+        const left = (((s - min) / range) * 100).toFixed(1), w = Math.max(((e - s) / range) * 100, 1.2).toFixed(1)
+        const color = (PRIO[x.priority] ?? PRIO['']).color
+        return (
+          <div key={x.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 7 }}>
+            <div style={{ width: 160, flexShrink: 0, fontSize: 12.5, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} onClick={() => setDetailId(x.id)}>{x.title}</div>
+            <div style={{ position: 'relative', flex: 1, height: 24, background: 'var(--border-2)', borderRadius: 6, overflow: 'hidden' }}>
+              {ticks.map((f) => <div key={f} style={{ position: 'absolute', top: 0, bottom: 0, left: `${(f * 100).toFixed(1)}%`, width: 1, background: 'var(--border)' }} />)}
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${todayL}%`, width: 2, background: '#3D6BFF', zIndex: 2 }} />
+              <div title={`${x.start_date || ''} → ${x.due_date || ''}`} onClick={() => setDetailId(x.id)} style={{ position: 'absolute', top: 4, bottom: 4, left: `${left}%`, width: `${w}%`, background: color, borderRadius: 5, cursor: 'pointer', opacity: 0.92 }} />
+            </div>
+          </div>
+        )
+      })}
+      {detailId && <TodoDetailModal itemId={detailId} onClose={() => setDetailId(null)} />}
+    </>
+  )
+}
+
 // 任务: the same work items as a private list (spec: 你的任务是私密的).
 export function TaskList() {
   const items = useWorkItemStore((s) => s.items)

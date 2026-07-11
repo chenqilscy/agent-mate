@@ -8,14 +8,14 @@ import { useUIStore } from '../stores/uiStore'
 import { toast } from '../stores/toastStore'
 import { Composer } from '../components/composer/Composer'
 import { PickerOverlay } from '../components/project/NewProjectModal'
-import { KanbanBoard, TaskList, WorkloadView } from '../components/project/ProjectWork'
+import { KanbanBoard, TaskList, WorkloadView, GanttView } from '../components/project/ProjectWork'
 import { AssetsManager } from '../components/project/AssetsManager'
 import { MembersModal } from '../components/project/MembersModal'
 import { HubCommentsPanel } from '../components/hub/HubCommentsPanel'
 import { useWorkItemStore } from '../stores/workItemStore'
 import { useCatalogStore } from '../stores/catalogStore'
 
-type Tab = '动态' | '计划' | '任务' | '负载' | '资产' | '讨论'
+type Tab = '动态' | '计划' | '任务' | '负载' | '甘特' | '资产' | '讨论'
 type Kind = 'conn' | 'exp' | 'skill'
 const FIELD: Record<Kind, 'connectors' | 'experts' | 'skills'> = { conn: 'connectors', exp: 'experts', skill: 'skills' }
 
@@ -136,7 +136,7 @@ export function ProjectHomeView() {
       <div className="pjh">
         <div className="pjh-main">
           <div className="pjh-tabs">
-            {(['动态', '计划', '任务', '负载', '资产', '讨论'] as Tab[]).map((t) => (
+            {(['动态', '计划', '任务', '负载', '甘特', '资产', '讨论'] as Tab[]).map((t) => (
               <div key={t} className={`pjh-tab ${tab === t ? 'active' : ''}`.trim()} onClick={() => setTab(t)}>{t}</div>
             ))}
           </div>
@@ -161,6 +161,8 @@ export function ProjectHomeView() {
             {tab === '任务' && <TaskList />}
 
             {tab === '负载' && <WorkloadView />}
+
+            {tab === '甘特' && <GanttView />}
 
             {tab === '资产' && <AssetsManager scope={{ project: project.id }} />}
 
