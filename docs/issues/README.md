@@ -126,6 +126,8 @@
 | [WB-107](WB-107-portal-task-views-filters.md) | ✅ | P2 | frontend | BuddyWebMgr 门户任务 列表视图 + 甘特/时间线视图 + 筛选/排序 —— 视图切换器(看板/列表/甘特) + 搜索/状态/优先级/负责人/里程碑筛选；续 pm- 前缀内联样式，hunk 提交；隔离 Hub CDP 三视图实测无报错 |
 | [WB-110](WB-110-portal-kanban-drag-activity.md) | ✅ | P2 | frontend | BuddyWebMgr 门户 PM 增强 —— 看板拖拽换列(快速改状态,Viewer 不可拖) + 项目级任务活动流面板(消费 WB-105 activity 端点,变更自动刷新)；CDP DragEvent 实测 Hub 真变+活动入流 |
 | [WB-109](WB-109-app-featured-consume-hub.md) | ✅ | P3 | frontend | App 精选技能区消费 Hub SKILLHUB_FEATURED —— 打通 mgr「加入精选」→ App（渲染真图标，回退静态兜底；纯前端，数据链路 E2E 实测） |
+| [WB-122](WB-122-app-task-templates.md) | ✅ | P2 | frontend | App 对齐片6 任务模板 —— 详情「存为模板」+ 看板「从模板」新建(per-project localStorage，对齐 Manager WB-114) |
+| [WB-121](WB-121-app-gantt-view.md) | ✅ | P2 | frontend | App 对齐片5 甘特视图 —— 项目页加「甘特」tab(相对时间横条+今天线+月度刻度+优先级色条，对齐 Manager pmViewGantt) |
 | [WB-120](WB-120-app-tasklist-inline.md) | ✅ | P2 | frontend | App 对齐片4 任务列表增强 —— TaskList 行内状态/优先级改可内联编辑 pill(复用 StatusPill/PriorityPill) + 负责人头像 |
 | [WB-119](WB-119-app-workload-view.md) | ✅ | P2 | frontend | App 对齐片3 工作量视图 —— 项目页加「负载」tab(按负责人聚合状态分布+完成率+逾期+工时Σ，对齐 Manager pmViewWorkload) |
 | [WB-118](WB-118-app-task-comments.md) | ✅ | P2 | fullstack | App 对齐片2 任务级评论 —— App 后端代理 Hub 任务评论端点 + 任务详情评论区（复用 WB-115 Hub 端点，仅 hub-origin 可用） |
