@@ -60,6 +60,22 @@ function getTpl(pid: string | null): WorkTemplate[] {
 function setTpl(pid: string, t: WorkTemplate[]): void {
   try { localStorage.setItem(`pm.tpl.${pid}`, JSON.stringify(t)) } catch { /* quota */ }
 }
+// 看板 WIP 上限 + 保存视图（WB-123，per-project localStorage，对齐 Manager WB-113）。
+function getWip(pid: string | null): Record<string, number> {
+  if (!pid) return {}
+  try { return JSON.parse(localStorage.getItem(`pm.wip.${pid}`) || '{}') || {} } catch { return {} }
+}
+function setWip(pid: string, w: Record<string, number>): void {
+  try { localStorage.setItem(`pm.wip.${pid}`, JSON.stringify(w)) } catch { /* quota */ }
+}
+type KView = { name: string; assignee: string; source: string; q: string; group: string }
+function getKViews(pid: string | null): KView[] {
+  if (!pid) return []
+  try { return JSON.parse(localStorage.getItem(`pm.kview.${pid}`) || '[]') || [] } catch { return [] }
+}
+function setKViews(pid: string, v: KView[]): void {
+  try { localStorage.setItem(`pm.kview.${pid}`, JSON.stringify(v)) } catch { /* quota */ }
+}
 function flattenFiles(entries: FileEntry[]): { name: string; path: string }[] {
   const out: { name: string; path: string }[] = []
   for (const e of entries) {
@@ -618,6 +634,12 @@ export function KanbanBoard() {
   // batch
   const [batch, setBatch] = useState(false)
   const [sel, setSel] = useState<Set<string>>(new Set())
+  // 看板增强（WB-123）：分组泳道 / WIP 编辑态 / 保存视图。tick 强制重渲染（WIP/视图写 localStorage 后）。
+  const [group, setGroup] = useState<'none' | 'assignee' | 'milestone'>('none')
+  const [wipEdit, setWipEdit] = useState(false)
+  const [, setTick] = useState(0)
+  const wip = getWip(projectId)
+  const kviews = getKViews(projectId)
 
   const assigneeOpts = useMemo(() => {
     const m = new Map<string, string>()
@@ -634,6 +656,15 @@ export function KanbanBoard() {
     (fSource === 'all' || i.source === fSource) &&
     (!q.trim() || i.title.toLowerCase().includes(q.trim().toLowerCase())),
   )
+  const lanes = group === 'none' ? [] : (() => {
+    const m = new Map<string, { label: string; items: WorkItem[] }>()
+    visible.forEach((i) => {
+      const k = group === 'assignee' ? (i.assignee || '') : (i.milestone_id || '')
+      if (!m.has(k)) m.set(k, { label: group === 'assignee' ? (k ? (i.assignee_name || k) : '未指派') : (k ? (msName[k] || '里程碑') : '无里程碑'), items: [] })
+      m.get(k)!.items.push(i)
+    })
+    return [...m.entries()].map(([id, g]) => ({ id, label: g.label, items: g.items })).sort((a, b) => (a.id ? 0 : 1) - (b.id ? 0 : 1))
+  })()
 
   const quickSubmit = (status: WorkStatus) => {
     if (quickDraft.trim()) void add({ title: quickDraft, status })
@@ -646,9 +677,77 @@ export function KanbanBoard() {
     const wi = await add({ title: t.name, priority: t.priority, labels: t.labels, milestone_id: t.milestone_id, description: t.description })
     if (wi) setDetailId(wi.id)
   }
+  const saveWip = (k: string, v: number) => { const w = getWip(projectId); if (v > 0) w[k] = v; else delete w[k]; if (projectId) setWip(projectId, w); setTick((t) => t + 1) }
+  const applyKView = (idx: string) => { const v = kviews[Number(idx)]; if (!v) return; setFAssignee(v.assignee); setFSource(v.source); setQ(v.q); setGroup((v.group as 'none' | 'assignee' | 'milestone') || 'none') }
+  const saveKView = () => { const name = (window.prompt('视图名称：') || '').trim(); if (!name || !projectId) return; const v = getKViews(projectId); v.push({ name, assignee: fAssignee, source: fSource, q, group }); setKViews(projectId, v); setTick((t) => t + 1) }
   const batchMove = (s: WorkStatus) => { sel.forEach((id) => void move(id, s)); exitBatch() }
   const batchDelete = () => { sel.forEach((id) => void remove(id)); exitBatch() }
   const cardClick = (i: WorkItem) => { if (batch) toggleSel(i.id); else setDetailId(i.id) }
+
+  // 单块四列看板（WB-123 抽出，供整体或每条泳道复用）。WIP：列头 count/limit + 超限标红 + 编辑态数字输入。
+  const renderKanban = (source: WorkItem[]) => (
+    <div className="pj-kanban">
+      {COLS.map((col) => {
+        const colItems = source.filter((i) => i.status === col.key)
+        const lim = wip[col.key]; const over = !!lim && colItems.length > lim
+        return (
+          <div
+            key={col.key}
+            className={`pj-kcol ${dropCol === col.key ? 'drop' : ''}`.trim()}
+            onDragOver={(e) => { if (batch) return; e.preventDefault(); setDropCol(col.key) }}
+            onDragLeave={() => setDropCol((c) => (c === col.key ? null : c))}
+            onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData('text/plain'); if (id) void move(id, col.key); setDropCol(null) }}
+          >
+            <div className="pj-kcol-h">
+              <span className="wb-dot" style={{ background: DOT[col.key] }} />
+              {col.label}
+              <span className="cnt" style={over ? { background: '#EF4444', color: '#fff' } : undefined}>{lim ? `${colItems.length}/${lim}` : colItems.length}</span>
+              {wipEdit
+                ? <input type="number" min={0} className="np-input" style={{ width: 46, height: 22, padding: '0 6px', marginLeft: 6, fontSize: 11 }} defaultValue={lim || ''} placeholder="∞" onBlur={(e) => saveWip(col.key, parseInt(e.target.value, 10) || 0)} />
+                : <span className="plus" onClick={() => { setQuickIn(col.key); setQuickDraft('') }}>＋</span>}
+            </div>
+            {quickIn === col.key && (
+              <input
+                className="pj-kadd" autoFocus placeholder="输入标题，回车创建" value={quickDraft}
+                onChange={(e) => setQuickDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') quickSubmit(col.key); if (e.key === 'Escape') { setQuickIn(null); setQuickDraft('') } }}
+                onBlur={() => { if (!quickDraft.trim()) setQuickIn(null) }}
+              />
+            )}
+            {colItems.map((i) => (
+              <div
+                key={i.id}
+                className={`pj-card ${batch && sel.has(i.id) ? 'sel' : ''}`.trim()}
+                draggable={!batch}
+                onDragStart={(e) => e.dataTransfer.setData('text/plain', i.id)}
+                onClick={() => cardClick(i)}
+              >
+                {batch ? (
+                  <span className={`pj-card-chk ${sel.has(i.id) ? 'on' : ''}`.trim()}>{sel.has(i.id) ? '✓' : ''}</span>
+                ) : (
+                  <span className="del" onClick={(e) => { e.stopPropagation(); void remove(i.id) }}>×</span>
+                )}
+                <div className="t">
+                  {i.priority && <span className="wb-dot" style={{ background: PRIO[i.priority].color, marginRight: 6, verticalAlign: 'middle' }} title={`优先级：${PRIO[i.priority].label}`} />}
+                  {i.title}
+                </div>
+                {i.description && <div className="wb-card-d">{i.description}</div>}
+                {i.labels.length > 0 && <div className="wb-card-labels"><LabelBadges labels={i.labels} /></div>}
+                <div className="m">
+                  <span className="av">{i.assignee_name?.[0] ?? '奇'}</span>
+                  {i.milestone_id && msName[i.milestone_id] && <span className="wb-badge">🚩 {msName[i.milestone_id]}</span>}
+                  {i.attachments.length > 0 && <span className="wb-badge">📎 {i.attachments.length}</span>}
+                  {i.due_date && <span className="wb-badge due">📅 {i.due_date.slice(5)}</span>}
+                  <span style={{ flex: 1 }} />
+                  <span className="ago">{i.ago}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      })}
+    </div>
+  )
 
   return (
     <>
@@ -659,6 +758,10 @@ export function KanbanBoard() {
         <FilterDropdown label={assigneeOpts.find((o) => o.key === fAssignee)?.label ?? '全部归属'} options={assigneeOpts} onPick={setFAssignee} />
         <FilterDropdown label={sourceOpts.find((o) => o.key === fSource)?.label ?? '全部来源'} options={sourceOpts} onPick={setFSource} />
         {templates.length > 0 && <FilterDropdown label="🧩 从模板" options={templates.map((t, i) => ({ key: String(i), label: t.name }))} onPick={(k) => void newFromTpl(k)} />}
+        <FilterDropdown label={group === 'none' ? '不分组' : group === 'assignee' ? '按负责人' : '按里程碑'} options={[{ key: 'none', label: '不分组' }, { key: 'assignee', label: '按负责人' }, { key: 'milestone', label: '按里程碑' }]} onPick={(k) => setGroup(k as 'none' | 'assignee' | 'milestone')} />
+        {kviews.length > 0 && <FilterDropdown label="📑 视图" options={kviews.map((v, i) => ({ key: String(i), label: v.name }))} onPick={applyKView} />}
+        <button className="btn-ghost" style={{ height: 34 }} onClick={saveKView}>保存视图</button>
+        <button className={`hub-act ${wipEdit ? 'on' : ''}`.trim()} onClick={() => setWipEdit((v) => !v)}>WIP</button>
         <button className={`hub-act ${batch ? 'on' : ''}`.trim()} onClick={() => (batch ? exitBatch() : setBatch(true))}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" /></svg>
           批量操作
@@ -684,66 +787,16 @@ export function KanbanBoard() {
         </div>
       )}
 
-      <div className="pj-kanban">
-        {COLS.map((col) => {
-          const colItems = visible.filter((i) => i.status === col.key)
-          return (
-            <div
-              key={col.key}
-              className={`pj-kcol ${dropCol === col.key ? 'drop' : ''}`.trim()}
-              onDragOver={(e) => { if (batch) return; e.preventDefault(); setDropCol(col.key) }}
-              onDragLeave={() => setDropCol((c) => (c === col.key ? null : c))}
-              onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData('text/plain'); if (id) void move(id, col.key); setDropCol(null) }}
-            >
-              <div className="pj-kcol-h">
-                <span className="wb-dot" style={{ background: DOT[col.key] }} />
-                {col.label}<span className="cnt">{colItems.length}</span>
-                <span className="plus" onClick={() => { setQuickIn(col.key); setQuickDraft('') }}>＋</span>
-              </div>
-              {quickIn === col.key && (
-                <input
-                  className="pj-kadd"
-                  autoFocus
-                  placeholder="输入标题，回车创建"
-                  value={quickDraft}
-                  onChange={(e) => setQuickDraft(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') quickSubmit(col.key); if (e.key === 'Escape') { setQuickIn(null); setQuickDraft('') } }}
-                  onBlur={() => { if (!quickDraft.trim()) setQuickIn(null) }}
-                />
-              )}
-              {colItems.map((i) => (
-                <div
-                  key={i.id}
-                  className={`pj-card ${batch && sel.has(i.id) ? 'sel' : ''}`.trim()}
-                  draggable={!batch}
-                  onDragStart={(e) => e.dataTransfer.setData('text/plain', i.id)}
-                  onClick={() => cardClick(i)}
-                >
-                  {batch ? (
-                    <span className={`pj-card-chk ${sel.has(i.id) ? 'on' : ''}`.trim()}>{sel.has(i.id) ? '✓' : ''}</span>
-                  ) : (
-                    <span className="del" onClick={(e) => { e.stopPropagation(); void remove(i.id) }}>×</span>
-                  )}
-                  <div className="t">
-                    {i.priority && <span className="wb-dot" style={{ background: PRIO[i.priority].color, marginRight: 6, verticalAlign: 'middle' }} title={`优先级：${PRIO[i.priority].label}`} />}
-                    {i.title}
-                  </div>
-                  {i.description && <div className="wb-card-d">{i.description}</div>}
-                  {i.labels.length > 0 && <div className="wb-card-labels"><LabelBadges labels={i.labels} /></div>}
-                  <div className="m">
-                    <span className="av">{i.assignee_name?.[0] ?? '奇'}</span>
-                    {i.milestone_id && msName[i.milestone_id] && <span className="wb-badge">🚩 {msName[i.milestone_id]}</span>}
-                    {i.attachments.length > 0 && <span className="wb-badge">📎 {i.attachments.length}</span>}
-                    {i.due_date && <span className="wb-badge due">📅 {i.due_date.slice(5)}</span>}
-                    <span style={{ flex: 1 }} />
-                    <span className="ago">{i.ago}</span>
-                  </div>
-                </div>
-              ))}
+      {group === 'none'
+        ? renderKanban(visible)
+        : (lanes.length
+          ? lanes.map((l) => (
+            <div key={l.id || '_none'} style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, margin: '4px 0 8px' }}>{l.label}<span className="cnt">{l.items.length}</span></div>
+              {renderKanban(l.items)}
             </div>
-          )
-        })}
-      </div>
+          ))
+          : <div className="pj-empty">无任务</div>)}
 
       {detailId && <TodoDetailModal itemId={detailId} onClose={() => setDetailId(null)} />}
       {newIn && <NewTodoModal status={newIn} onClose={() => setNewIn(null)} onCreated={(wi) => setDetailId(wi.id)} />}
