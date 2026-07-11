@@ -132,7 +132,7 @@
 | [WB-120](WB-120-app-tasklist-inline.md) | ✅ | P2 | frontend | App 对齐片4 任务列表增强 —— TaskList 行内状态/优先级改可内联编辑 pill(复用 StatusPill/PriorityPill) + 负责人头像 |
 | [WB-119](WB-119-app-workload-view.md) | ✅ | P2 | frontend | App 对齐片3 工作量视图 —— 项目页加「负载」tab(按负责人聚合状态分布+完成率+逾期+工时Σ，对齐 Manager pmViewWorkload) |
 | [WB-118](WB-118-app-task-comments.md) | ✅ | P2 | fullstack | App 对齐片2 任务级评论 —— App 后端代理 Hub 任务评论端点 + 任务详情评论区（复用 WB-115 Hub 端点，仅 hub-origin 可用） |
-| [WB-117](WB-117-app-pm-alignment.md) | 🟡 | P2 | fullstack | App 端项目管理对齐 Manager（epic）—— 片1 工时字段(estimate_h/spent_h) App 全链路(模型/迁移/路由/_hub_view/前端类型·store·任务详情) |
+| [WB-117](WB-117-app-pm-alignment.md) | ✅ | P2 | fullstack | App 端项目管理对齐 Manager（epic，七片全 done）—— 工时全链路 + 任务评论 + 工作量/甘特视图 + 列表内联 + 任务模板 + 看板 WIP/泳道/保存视图；App 工作台 tab 动态/计划/任务/负载/甘特/资产/讨论 与 Manager 能力对齐 |
 | [WB-116](WB-116-pm-effort-hours.md) | ✅ | P2 | fullstack | PM 细化之四 计划与度量(片1) 工时预估与投入 —— Hub work_items 加 estimate_h/spent_h + 控制台抽屉工时输入 + 工作量/概览汇总（Manager 侧） |
 | [WB-115](WB-115-pm-workload-task-comments.md) | ✅ | P2 | fullstack | PM 细化之三 协作联动 —— 按负责人工作量视图(前端聚合) + 任务级评论(Hub comments 加 work_item_id + 任务级端点 + 控制台抽屉评论区) |
 | [WB-114](WB-114-pm-task-templates-inline-edit.md) | ✅ | P2 | frontend | PM 细化之二（纯前端）任务模板 + 列表内联编辑(状态/优先级/负责人/里程碑点选即改) + 子任务进度条；依赖/自定义字段/附件需后端另设计 |

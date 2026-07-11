@@ -3,7 +3,7 @@ id: WB-117
 title: App 端项目管理对齐 Manager（epic）—— 片1：工时字段全链路打通
 severity: P2
 area: fullstack
-status: in-progress   # epic 持续；片1 已 done（见处理记录）
+status: fixed   # epic 七片全 done：117 工时 / 118 任务评论 / 119 工作量 / 120 列表内联 / 121 甘特 / 122 模板 / 123 看板增强
 origin: WB-112/113/114/115/116 的 PM 增强目前多在 Manager 控制台，App（React src/）项目工作台未跟进
 files:
   - backend/storage/models.py
@@ -26,11 +26,16 @@ App 桌面端（`src/`）的项目工作台（KanbanBoard 计划 / TaskList 任�
 - **App 后端**：`models.py` WorkItem 加 `estimate_h/spent_h: float=0`；`db.py` `_migrate_columns` + CREATE + `_row_to_work_item` + `create_work_item` + `mirror_hub_work_items` + `update_work_item` 带两字段；`routers/work_items.py` Create/Update Body + `_hub_view` 透传 + 写代理 patch 带上。
 - **App 前端**：`types.ts` WorkItem 加两字段；`workItemStore` patch/create 支持；任务详情弹窗加 预估工时/已投入 输入。
 
-## 后续片（App 对齐 epic 余项）
+## 后续片（App 对齐 epic 余项）——**全部已完成**
 
-- 视图对齐：列表/甘特/工作量视图、WIP/泳道/保存视图（App 目前只有看板）。
-- 任务模板 / 列表内联编辑（App）。
-- 任务级评论（App 复用 Hub 端点，App 后端加代理 + 任务详情评论区）。
+- WB-118 任务级评论（App 后端代理 Hub + 任务详情评论区）✅
+- WB-119 工作量视图（负载 tab）✅
+- WB-120 任务列表内联编辑（状态/优先级 pill）✅
+- WB-121 甘特视图（甘特 tab）✅
+- WB-122 任务模板（存为模板/从模板新建）✅
+- WB-123 看板增强（WIP 上限/泳道分组/保存视图）✅
+
+App 项目工作台 tab 现为：动态/计划/任务/负载/甘特/资产/讨论，计划看板含 拖拽/筛选/批量/搜索/从模板/分组泳道/WIP/保存视图，任务含内联编辑，任务详情含 工时/评论。与 Manager 能力对齐。
 
 ## 验证
 
