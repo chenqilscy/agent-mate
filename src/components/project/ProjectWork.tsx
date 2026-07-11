@@ -51,6 +51,15 @@ function fmtDate(ts?: number): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
+// 任务模板（WB-122，per-project localStorage，对齐 Manager WB-114）。
+type WorkTemplate = { name: string; priority: WorkPriority; labels: string[]; milestone_id: string; description: string }
+function getTpl(pid: string | null): WorkTemplate[] {
+  if (!pid) return []
+  try { return JSON.parse(localStorage.getItem(`pm.tpl.${pid}`) || '[]') || [] } catch { return [] }
+}
+function setTpl(pid: string, t: WorkTemplate[]): void {
+  try { localStorage.setItem(`pm.tpl.${pid}`, JSON.stringify(t)) } catch { /* quota */ }
+}
 function flattenFiles(entries: FileEntry[]): { name: string; path: string }[] {
   const out: { name: string; path: string }[] = []
   for (const e of entries) {
@@ -351,6 +360,13 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
   }
   const addAttach = (a: WorkAttachment) => void update(item.id, { attachments: [...item.attachments, a] })
   const rmAttach = (i: number) => void update(item.id, { attachments: item.attachments.filter((_, j) => j !== i) })
+  const saveAsTemplate = () => {
+    if (!projectId || !item) return
+    const t = getTpl(projectId)
+    t.push({ name: item.title, priority: item.priority, labels: item.labels, milestone_id: item.milestone_id, description: item.description })
+    setTpl(projectId, t)
+    toast(`已存为模板「${item.title}」`)
+  }
   const sendComment = async () => {
     const v = cbody.trim(); if (!v || !projectId) return
     try {
@@ -367,6 +383,7 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
         <div className="wb-td-top">
           <span className="wb-td-kicker">待办详情</span>
           <span style={{ flex: 1 }} />
+          <button className="btn-ghost wb-td-addbtn" onClick={saveAsTemplate}>存为模板</button>
           <button className="btn-ghost wb-td-addbtn" onClick={addToInput}>＋ 添加到输入框</button>
           <button className="np-x" onClick={onClose}>×</button>
         </div>
@@ -583,7 +600,9 @@ export function KanbanBoard() {
   const move = useWorkItemStore((s) => s.move)
   const remove = useWorkItemStore((s) => s.remove)
   const milestones = useWorkItemStore((s) => s.milestones)
+  const projectId = useWorkItemStore((s) => s.projectId)
   const msName = useMemo(() => Object.fromEntries(milestones.map((m) => [m.id, m.name])), [milestones])
+  const templates = getTpl(projectId)
 
   const [detailId, setDetailId] = useState<string | null>(null)
   const [newIn, setNewIn] = useState<WorkStatus | null>(null)
@@ -622,6 +641,11 @@ export function KanbanBoard() {
   }
   const toggleSel = (id: string) => setSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const exitBatch = () => { setBatch(false); setSel(new Set()) }
+  const newFromTpl = async (idx: string) => {
+    const t = templates[Number(idx)]; if (!t) return
+    const wi = await add({ title: t.name, priority: t.priority, labels: t.labels, milestone_id: t.milestone_id, description: t.description })
+    if (wi) setDetailId(wi.id)
+  }
   const batchMove = (s: WorkStatus) => { sel.forEach((id) => void move(id, s)); exitBatch() }
   const batchDelete = () => { sel.forEach((id) => void remove(id)); exitBatch() }
   const cardClick = (i: WorkItem) => { if (batch) toggleSel(i.id); else setDetailId(i.id) }
@@ -634,6 +658,7 @@ export function KanbanBoard() {
         <span style={{ flex: 1 }} />
         <FilterDropdown label={assigneeOpts.find((o) => o.key === fAssignee)?.label ?? '全部归属'} options={assigneeOpts} onPick={setFAssignee} />
         <FilterDropdown label={sourceOpts.find((o) => o.key === fSource)?.label ?? '全部来源'} options={sourceOpts} onPick={setFSource} />
+        {templates.length > 0 && <FilterDropdown label="🧩 从模板" options={templates.map((t, i) => ({ key: String(i), label: t.name }))} onPick={(k) => void newFromTpl(k)} />}
         <button className={`hub-act ${batch ? 'on' : ''}`.trim()} onClick={() => (batch ? exitBatch() : setBatch(true))}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" /></svg>
           批量操作
