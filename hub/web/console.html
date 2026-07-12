@@ -1051,11 +1051,11 @@ function catTab(c,label){ return `<button data-c="${c}" class="${CATVIEW===c?'ac
 async function catFlat(category){ try{ const {items}=await api("GET","/catalog/"+category); return items.map(it=>it.data).filter(x=>typeof x==="string"); }catch(e){ return []; } }
 async function catalogView(m){
   m.innerHTML = `<h1>目录运营中心</h1><div class="sub">维护下发给客户端的内置目录，客户端 pull 后覆盖本地（离线回落本地 builtin 兜底）</div>
-    <div class="tabs">${catTab("experts","专家 · 专家团")}${catTab("connectors","连接器")}${catTab("skills","技能")}${catTab("skillhub","SkillHub")}${catTab("raw","高级 JSON")}</div>
+    <div class="tabs">${catTab("experts","专家 · 专家团")}${catTab("connectors","连接器")}${catTab("skills","技能")}${catTab("raw","高级 JSON")}</div>
     <div id="cat-body" class="muted">加载中…</div>`;
   m.querySelectorAll(".tabs button").forEach(b=> b.onclick=()=>{ CATVIEW=b.dataset.c; catalogView(m); });
   const body = document.getElementById("cat-body");
-  ({experts:expertsCat, connectors:connectorsCat, skills:skillsCat, skillhub:skillhubCat, raw:rawCat}[CATVIEW]||rawCat)(body);
+  ({experts:expertsCat, connectors:connectorsCat, skills:skillsCat, raw:rawCat}[CATVIEW]||rawCat)(body);
 }
 
 // 专家 · 专家团 浏览橱窗（WB-100）：App 同款——精选场景 + 专家/专家团子标签 + 分类筛选 + 富卡片 + 详情弹窗。
@@ -1400,19 +1400,22 @@ async function connectorsManage(body){
   }catch(e){ F("cn-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 
-// 技能（WB-102）：子切换「浏览橱窗 | 目录管理」。浏览橱窗 = App 同款整页技能
-// （精选+换一换 / 推荐·SkillHub·套件 / 分类 chips / 富卡★⬇ / 只读详情 / 实时搜索），读同一 Hub 目录数据；
-// 目录管理 = 原 SK_GRID CRUD。Hub 门户无本地技能后端，install/我安装的/SKILL.md 不搬（不做假动作，铁律#1）。
-let SKILLSUB = "gallery";   // gallery 浏览橱窗 / manage 目录管理
+// 技能（WB-102）：子切换「浏览橱窗 | 目录管理 | SkillHub 同步」（WB-125 把原顶层 SkillHub tab 并进来作第三子视图，
+// 与「连接器」范式对齐）。浏览橱窗 = App 同款整页技能（精选+换一换 / 推荐·SkillHub·套件 / 分类 chips / 富卡★⬇ /
+// 只读详情 / 实时搜索），读同一 Hub 目录数据；目录管理 = 原 SK_GRID CRUD；SkillHub 同步 = 原 skillhubCat（手动同步 CLI /
+// 按真实榜单字段筛选排序 / 加入·取消精选 → 生产 SKILLHUB_FEATURED）。
+// Hub 门户无本地技能后端，install/我安装的/SKILL.md 不搬（不做假动作，铁律#1）。
+let SKILLSUB = "gallery";   // gallery 浏览橱窗 / manage 目录管理 / skillhub SkillHub 同步
 async function skillsCat(body){
   body.innerHTML = `
     <div class="tabs" style="margin-bottom:14px">
       <button data-ss="gallery" class="${SKILLSUB==='gallery'?'active':''}">浏览橱窗</button>
       <button data-ss="manage" class="${SKILLSUB==='manage'?'active':''}">目录管理</button>
+      <button data-ss="skillhub" class="${SKILLSUB==='skillhub'?'active':''}">SkillHub 同步</button>
     </div>
     <div id="sk-sub"></div>`;
   body.querySelectorAll("[data-ss]").forEach(b=> b.onclick=()=>{ SKILLSUB=b.dataset.ss; skillsCat(body); });
-  (SKILLSUB==="manage"? skillsManage : skillsGallery)(document.getElementById("sk-sub"));
+  ({gallery:skillsGallery, manage:skillsManage, skillhub:skillhubCat}[SKILLSUB]||skillsGallery)(document.getElementById("sk-sub"));
 }
 
 // 目录管理（原 WB-084 CRUD）：SK_GRID 三元组 [icon,name,desc]。
