@@ -25,6 +25,18 @@
   .nav { width:180px; padding:16px 10px; border-right:1px solid var(--line); min-height:calc(100vh - 51px); }
   .nav button { display:block; width:100%; text-align:left; background:transparent; color:var(--dim); font-weight:500; margin-bottom:2px; }
   .nav button.active { background:var(--panel2); color:var(--ink); }
+  /* WB-131 导航/IA 重构：分区侧栏 + 顶栏铃铛 + 概览页（nv-/ov- 前缀防并发撞类名） */
+  .nv-gtitle { font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); opacity:.65; margin:16px 12px 6px; }
+  .nv-group:first-child .nv-gtitle { margin-top:2px; }
+  .topbar .bell { position:relative; background:transparent; color:var(--dim); padding:5px 8px; font-size:16px; }
+  .topbar .bell:hover { color:var(--ink); }
+  .topbar .bell .ndot { position:absolute; top:2px; right:4px; width:7px; height:7px; border-radius:50%; background:var(--danger); display:none; }
+  .ov-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; }
+  .ov-stat { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
+  .ov-val { font-size:28px; font-weight:800; line-height:1.1; }
+  .ov-lbl { font-size:12.5px; color:var(--dim); margin-top:3px; }
+  .ov-sub { font-size:11px; color:var(--brand); margin-top:4px; }
+  .ov-links { display:flex; flex-wrap:wrap; gap:8px; }
   .main { flex:1; padding:22px 26px; min-width:0; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:14px; }
   .card h3 { margin:0 0 10px; font-size:15px; }
@@ -281,7 +293,7 @@
 <script>
 const API = ""; // same-origin
 const TK = "hub.console.token";
-let ME = null, VIEW = "projects", CUR = null; // CUR = open project
+let ME = null, VIEW = "overview", CUR = null; // CUR = open project
 
 function tok(){ return localStorage.getItem(TK) || ""; }
 function setTok(t){ t ? localStorage.setItem(TK,t) : localStorage.removeItem(TK); }
@@ -306,7 +318,7 @@ async function boot(){
 }
 async function doAuth(kind, name, password){
   const res = await api("POST", kind==="register"?"/auth/register":"/auth/login", {name, password});
-  setTok(res.token); ME = res.account; VIEW="projects"; render();
+  setTok(res.token); ME = res.account; VIEW="overview"; render();
 }
 function logout(){ setTok(""); ME=null; render(); }
 
@@ -314,29 +326,47 @@ function logout(){ setTok(""); ME=null; render(); }
 function render(){
   const app = document.getElementById("app");
   if(!ME){ app.innerHTML = authView(); wireAuth(); return; }
+  const admin = ME.is_platform_admin;
   app.innerHTML = `
     <div class="topbar">
       <div class="logo">M</div><b>WorkBuddy Manager</b><span class="badge">App 管理端</span>
       <div class="grow"></div>
-      <span>${esc(ME.name)}</span>${ME.is_platform_admin?'<span class="badge admin">平台管理员</span>':''}
+      <button class="bell" id="nav-bell" title="通知">🔔<span class="ndot" id="bell-dot"></span></button>
+      <span>${esc(ME.name)}</span>${admin?'<span class="badge admin">平台管理员</span>':''}
       <button class="line" id="logout">退出</button>
     </div>
     <div class="wrap">
       <div class="nav">
-        ${navBtn("projects","项目")}${ME.is_platform_admin?navBtn("catalog","目录运营中心"):""}${navBtn("orgs","组织")}${navBtn("notifs","通知")}${ME.is_platform_admin?navBtn("settings","设置"):""}
+        <div class="nv-group"><div class="nv-gtitle">工作区</div>
+          ${nvItem("overview","概览")}${nvItem("projects","项目")}${nvItem("orgs","组织与成员")}
+        </div>
+        ${admin?`<div class="nv-group"><div class="nv-gtitle">目录</div>
+          ${nvItem("catalog","专家","experts")}${nvItem("catalog","连接器","connectors")}${nvItem("catalog","技能","skills")}
+        </div>`:""}
+        ${admin?`<div class="nv-group"><div class="nv-gtitle">系统</div>
+          ${nvItem("settings","设置")}${nvItem("catalog","高级 JSON","raw")}
+        </div>`:""}
       </div>
       <div class="main" id="main"></div>
     </div>`;
   document.getElementById("logout").onclick = logout;
-  document.querySelectorAll(".nav button").forEach(b=> b.onclick=()=>{ VIEW=b.dataset.v; CUR=null; render(); });
+  document.getElementById("nav-bell").onclick = ()=>{ VIEW="notifs"; CUR=null; render(); };
+  document.querySelectorAll(".nav button").forEach(b=> b.onclick=()=>{ VIEW=b.dataset.v; if(b.dataset.c) CATVIEW=b.dataset.c; CUR=null; render(); });
+  // 通知铃铛未读小红点（真取 /notifications，非模拟）
+  (async()=>{ try{ const {notifications}=await api("GET","/notifications"); const u=(notifications||[]).filter(n=>!n.read).length; const d=document.getElementById("bell-dot"); if(d&&u>0) d.style.display="block"; }catch(e){} })();
   const m = document.getElementById("main");
-  if(VIEW==="projects") CUR? projectDetail(m) : projectsView(m);
+  if(VIEW==="overview") overviewView(m);
+  else if(VIEW==="projects") CUR? projectDetail(m) : projectsView(m);
   else if(VIEW==="orgs") orgsView(m);
   else if(VIEW==="notifs") notifsView(m);
   else if(VIEW==="catalog") catalogView(m);
   else if(VIEW==="settings") settingsView(m);
 }
-function navBtn(v,label){ return `<button data-v="${v}" class="${VIEW===v?'active':''}">${label}</button>`; }
+// 侧栏项：普通页按 VIEW 高亮；目录子页（catsec）按 VIEW===catalog && CATVIEW 高亮
+function nvItem(view,label,catsec){
+  const active = catsec ? (VIEW==="catalog" && CATVIEW===catsec) : (VIEW===view);
+  return `<button data-v="${view}"${catsec?` data-c="${catsec}"`:""} class="${active?'active':''}">${label}</button>`;
+}
 
 function authView(){
   return `<div class="auth"><div class="card">
@@ -360,6 +390,38 @@ function wireAuth(){
     document.getElementById("au-err").textContent="";
     try{ await doAuth(kind, n, p); }catch(e){ document.getElementById("au-err").textContent=e.message; }
   };
+}
+
+// ---------- 概览 / 仪表盘（WB-131）：admin console 首屏，汇总真实数据（铁律#1，不造假；缺数据 catch→0） ----------
+async function overviewView(m){
+  const admin = ME.is_platform_admin;
+  m.innerHTML = `<h1>概览</h1><div class="sub">WorkBuddy Manager · App 云端管理端总览</div>
+    <div id="ov-cards" class="muted">加载中…</div>`;
+  const box = document.getElementById("ov-cards");
+  const [proj, orgs, exp, conn, skill, feat] = await Promise.all([
+    api("GET","/projects").catch(()=>({projects:[]})),
+    api("GET","/orgs").catch(()=>({orgs:[]})),
+    admin?api("GET","/catalog/EXP_GRID?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
+    admin?api("GET","/catalog/CONN_DEFS?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
+    admin?api("GET","/catalog/skill?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
+    admin?api("GET","/catalog/SKILLHUB_FEATURED?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
+  ]);
+  const stat=(label,val,sub)=>`<div class="ov-stat"><div class="ov-val">${val}</div><div class="ov-lbl">${esc(label)}</div>${sub?`<div class="ov-sub">${esc(sub)}</div>`:""}</div>`;
+  box.className="";
+  box.innerHTML = `<div class="ov-grid">
+      ${stat("我的项目",(proj.projects||[]).length)}
+      ${stat("组织",(orgs.orgs||[]).length)}
+      ${admin?stat("下发专家",(exp.items||[]).length):""}
+      ${admin?stat("下发连接器",(conn.items||[]).length):""}
+      ${admin?stat("技能镜像",(skill.items||[]).length, `${(feat.items||[]).length} 个精选`):""}
+    </div>
+    <div class="card" style="margin-top:14px"><h3>快速入口</h3>
+      <div class="ov-links">
+        <button class="line" data-go="projects">→ 项目</button>
+        <button class="line" data-go="orgs">→ 组织与成员</button>
+        ${admin?`<button class="line" data-go="catalog:skills">→ 技能目录</button><button class="line" data-go="catalog:experts">→ 专家目录</button><button class="line" data-go="settings">→ 设置</button>`:""}
+      </div></div>`;
+  box.querySelectorAll("[data-go]").forEach(b=> b.onclick=()=>{ const [v,c]=b.dataset.go.split(":"); VIEW=v; if(c) CATVIEW=c; CUR=null; render(); });
 }
 
 // ---------- projects ----------
@@ -1047,13 +1109,12 @@ async function notifsView(m){
 let CATVIEW = "experts";
 let CONNSUB = "gallery";   // 连接器 tab 子视图（WB-101）：gallery 浏览橱窗 / manage 目录管理
 let CONN_EDIT_ID = null;   // 从橱窗详情「编辑此连接器」跳目录管理时，带过去要载入编辑的项 id
-function catTab(c,label){ return `<button data-c="${c}" class="${CATVIEW===c?'active':''}">${label}</button>`; }
 async function catFlat(category){ try{ const {items}=await api("GET","/catalog/"+category); return items.map(it=>it.data).filter(x=>typeof x==="string"); }catch(e){ return []; } }
+const CAT_TITLES = {experts:"专家 · 专家团", connectors:"连接器", skills:"技能", raw:"高级 JSON（裸目录项）"};
+// 目录分区（WB-131）：具体子目录由左侧栏「目录」分区驱动（CATVIEW），本页只渲染对应子目录，不再自带顶 tab 行。
 async function catalogView(m){
-  m.innerHTML = `<h1>目录运营中心</h1><div class="sub">维护下发给客户端的内置目录，客户端 pull 后覆盖本地（离线回落本地 builtin 兜底）</div>
-    <div class="tabs">${catTab("experts","专家 · 专家团")}${catTab("connectors","连接器")}${catTab("skills","技能")}${catTab("raw","高级 JSON")}</div>
+  m.innerHTML = `<h1>${CAT_TITLES[CATVIEW]||"目录"}</h1><div class="sub">维护下发给客户端的内置目录，客户端 pull 后覆盖本地（离线回落本地 builtin 兜底）</div>
     <div id="cat-body" class="muted">加载中…</div>`;
-  m.querySelectorAll(".tabs button").forEach(b=> b.onclick=()=>{ CATVIEW=b.dataset.c; catalogView(m); });
   const body = document.getElementById("cat-body");
   ({experts:expertsCat, connectors:connectorsCat, skills:skillsCat, raw:rawCat}[CATVIEW]||rawCat)(body);
 }

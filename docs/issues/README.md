@@ -146,6 +146,7 @@
 | [WB-128](WB-128-builtin-provider-channels.md) | ✅ | P2 | fullstack | 模型管理重构 —— 内置改「厂商渠道」（DeepSeek/智谱/MiniMax/Kimi/通义/OpenAI，真实 base+模型，填 key 即用）+ 移除假 Auto/倍率 + resolve 按 @provider 路由(含非标 chat_path) + 自定义作兜底 |
 | [WB-129](WB-129-provider-editable-base-live-models.md) | ✅ | P2 | fullstack | 厂商渠道 base_url/请求路径可显示可编辑（按 owner 覆盖预置，resolve 用有效值）+ 「拉取最新」在线列举厂商真实模型（打 `{base}/models`，治模型名过时）；实测真拉到用户 DeepSeek 的 v4-flash/pro |
 | [WB-130](WB-130-console-skill-detail-files.md) | ⬜ | P3 | fullstack | 目录运营中心技能详情缺「文件信息」(SKILL.md 正文/文件树/源码) —— 镜像只存榜单元数据，需 Hub 加单技能拉包代理 + 弹窗渲染；或按「浏览视图」定位转 wontfix（待定夺） |
+| [WB-131](WB-131-manager-nav-ia-redesign.md) | ✅ | P2 | frontend | WorkBuddy Manager 导航/IA 专业化重构 —— 扁平混杂菜单改分区侧栏(工作区/目录/系统)+顶栏(组织切换·通知铃铛·账号)+新增概览页+收编 SkillHub/高级JSON、去运营黑话；纯前端 console.html，沿用现有 token（关联 epic WB-112 管理端定位） |
 
 ## 来源
 
