@@ -3,6 +3,9 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
 import type { ModelOption } from '../../lib/types'
 
+// 能力徽标（WB-132）：picker 里 text 不显（默认都有），只显图片/音频/视频/工具/推理。
+const CAP_ICON: Record<string, string> = { image: '🖼', audio: '🎧', video: '🎬', tools: '🔧', reasoning: '🧠' }
+
 // Model menu (WB-128). Flat list from GET /api/models → settingsStore: a 默认(.env)
 // backstop, built-in provider models (grouped by vendor, only those with a key), and
 // free-form custom models. Selecting persists the entry's `key` via setModel.
@@ -25,6 +28,9 @@ export function ModelPicker({ onClose, onConfigure }: { onClose: () => void; onC
       <div className="mrow" key={m.key || 'default'} onClick={() => pick(m)}>
         <span className="mi" style={m.color ? { background: m.color, color: '#fff' } : undefined}>{m.icon}</span>
         <span className="mname">{m.name}</span>
+        {m.meta?.capabilities && m.meta.capabilities.length > 0 && (
+          <span className="mrow-caps">{m.meta.capabilities.filter((c) => c !== 'text').map((c) => <span key={c}>{CAP_ICON[c] ?? ''}</span>)}</span>
+        )}
         {sel && <span className="chk">✓</span>}
       </div>
     )

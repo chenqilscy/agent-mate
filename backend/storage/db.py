@@ -422,6 +422,20 @@ def init_db() -> None:
             PRIMARY KEY (owner_id, provider_id)
         );
 
+        -- 模型能力/成本元数据（WB-132）：为 Auto 模式铺路。model_ref = 选择键（@provider:model 或自定义名）。
+        -- capabilities = JSON 标签列表(text/image/audio/video/tools/reasoning)；单价按每百万 token；按 owner 隔离。
+        CREATE TABLE IF NOT EXISTS model_meta (
+            owner_id TEXT NOT NULL,
+            model_ref TEXT NOT NULL,
+            capabilities TEXT NOT NULL DEFAULT '[]',
+            input_cost REAL,
+            output_cost REAL,
+            context_window INTEGER,
+            note TEXT,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (owner_id, model_ref)
+        );
+
         -- 厂商 base_url/请求路径覆盖（WB-129）：预置只作起点，用户可改成自己的实际网关/代理。
         -- 有效值 = 覆盖 ∨ 预置默认；空串/无行 = 用预置默认。
         CREATE TABLE IF NOT EXISTS provider_config (
@@ -1978,6 +1992,57 @@ def set_provider_key(owner_id: str, provider_id: str, api_key: str) -> None:
             "DELETE FROM provider_keys WHERE owner_id=? AND provider_id=?",
             (owner_id, provider_id),
         )
+    get_conn().commit()
+
+
+# ---- model meta: capabilities + cost (WB-132) --------------------------
+
+def _row_to_model_meta(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    d["capabilities"] = json.loads(d.get("capabilities") or "[]")
+    return d
+
+
+def get_model_meta(owner_id: str, model_ref: str) -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT capabilities, input_cost, output_cost, context_window, note FROM model_meta WHERE owner_id=? AND model_ref=?",
+        (owner_id, model_ref),
+    ).fetchone()
+    return _row_to_model_meta(row) if row else None
+
+
+def list_model_meta(owner_id: str) -> dict[str, dict]:
+    """本 owner 所有已存 meta，键为 model_ref（GET 批量附上用）。"""
+    rows = get_conn().execute(
+        "SELECT model_ref, capabilities, input_cost, output_cost, context_window, note FROM model_meta WHERE owner_id=?",
+        (owner_id,),
+    ).fetchall()
+    out: dict[str, dict] = {}
+    for r in rows:
+        d = _row_to_model_meta(r)
+        out[d.pop("model_ref")] = d
+    return out
+
+
+def set_model_meta(owner_id: str, model_ref: str, *, capabilities: list[str],
+                   input_cost: float | None, output_cost: float | None,
+                   context_window: int | None, note: str | None) -> dict:
+    get_conn().execute(
+        """INSERT OR REPLACE INTO model_meta
+           (owner_id, model_ref, capabilities, input_cost, output_cost, context_window, note, updated_at)
+           VALUES (?,?,?,?,?,?,?,?)""",
+        (owner_id, model_ref, json.dumps(capabilities), input_cost, output_cost,
+         context_window, note, time.time()),
+    )
+    get_conn().commit()
+    return get_model_meta(owner_id, model_ref) or {}
+
+
+def delete_model_meta(owner_id: str, model_ref: str) -> None:
+    """清除覆盖，回到启发式默认。"""
+    get_conn().execute(
+        "DELETE FROM model_meta WHERE owner_id=? AND model_ref=?", (owner_id, model_ref)
+    )
     get_conn().commit()
 
 

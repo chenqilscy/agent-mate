@@ -22,6 +22,8 @@ interface UIState {
   // ≤900px drawer): here the sidebar is fully hidden and re-opened via the
   // menubar hamburger. Reset when the window narrows past 900px (App.tsx).
   sidebarCollapsed: boolean
+  // 模型管理弹窗（WB-132）：提到全局，侧栏/账号菜单与输入框模型下拉都能打开同一个。
+  modelConfigOpen: boolean
 
   setView: (v: ViewId) => void
   toggleOv: () => void
@@ -33,6 +35,7 @@ interface UIState {
   toggleExpand: () => void
   setNavOpen: (open: boolean) => void
   setSidebarCollapsed: (collapsed: boolean) => void
+  setModelConfigOpen: (open: boolean) => void
 }
 
 const THEME_KEY = 'wb.theme'
@@ -59,6 +62,7 @@ export const useUIStore = create<UIState>((set) => ({
   ovExpanded: false,
   navOpen: false,
   sidebarCollapsed: false,
+  modelConfigOpen: false,
 
   // Switching views also dismisses the mobile nav drawer (you navigated, so the
   // drawer's job is done) and any open popover.
@@ -79,4 +83,5 @@ export const useUIStore = create<UIState>((set) => ({
   toggleExpand: () => set((s) => ({ ovExpanded: !s.ovExpanded })),
   setNavOpen: (navOpen) => set({ navOpen }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+  setModelConfigOpen: (modelConfigOpen) => set({ modelConfigOpen }),
 }))

@@ -1,14 +1,26 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
-import type { ModelOption, Provider } from '../../lib/types'
+import type { ModelMeta, ModelOption, Provider } from '../../lib/types'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
 
-// 模型管理（WB-128）。上半：内置厂商渠道——每个厂商填一次 API Key 即启用其模型（可增删模型名）；
-// 下半：自由填写的自定义模型（WB-124 兜底，接预置外的厂商/自建）。API Key 只写不回读（后端脱敏，铁律#4）。
+// 模型管理（WB-128/129/132）。内置厂商渠道（填一次 Key 即启用，Base URL 可改、可在线拉取真实模型）
+// + 自定义模型兜底；每个模型可记「能力(模态/工具/推理)+成本」为 Auto 铺路。Key 只写不回读（铁律#4）。
 // 套 .np-* / mc- 类，token 化天然暗色。
 
 const BLANK = { name: '', model_id: '', api_base: '', api_key: '', icon: '🧩', mult: '' }
+
+// 能力词表（WB-132），与后端 CAPABILITIES 对齐。
+const CAPS: { k: string; label: string; icon: string }[] = [
+  { k: 'text', label: '文本', icon: '📝' },
+  { k: 'image', label: '图片', icon: '🖼' },
+  { k: 'audio', label: '音频', icon: '🎧' },
+  { k: 'video', label: '视频', icon: '🎬' },
+  { k: 'tools', label: '工具', icon: '🔧' },
+  { k: 'reasoning', label: '推理', icon: '🧠' },
+]
+const capIcon = (k: string) => CAPS.find((c) => c.k === k)?.icon ?? ''
+const capLabel = (k: string) => CAPS.find((c) => c.k === k)?.label ?? k
 
 export function ModelConfigModal({ onClose }: { onClose: () => void }) {
   const reloadModels = useSettingsStore((s) => s.reloadModels)
@@ -18,9 +30,12 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({})
   const [modelDraft, setModelDraft] = useState<Record<string, string>>({})
-  const [cfgDraft, setCfgDraft] = useState<Record<string, { base: string; path: string }>>({})
+  const [cfgDraft, setCfgDraft] = useState<Record<string, string>>({}) // 仅 Base URL（WB-132：去掉 chat_path 输入）
   const [fetched, setFetched] = useState<Record<string, string[]>>({})
   const [busy, setBusy] = useState(false)
+  // 模型能力/成本编辑（WB-132）。metaEditing = 正在编辑的 model_ref。
+  const [metaEditing, setMetaEditing] = useState<string | null>(null)
+  const [metaDraft, setMetaDraft] = useState({ caps: [] as string[], input: '', output: '', ctx: '', note: '' })
   // custom form
   const [editing, setEditing] = useState<ModelOption | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -75,17 +90,15 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
       setModelDraft({ ...modelDraft, [p.id]: '' }); await refresh()
     } catch { toast('添加失败') } finally { setBusy(false) }
   }
-  // base_url/请求路径可编辑（WB-129）
-  const cfgOf = (p: Provider) => cfgDraft[p.id] ?? { base: p.base_url, path: p.chat_path }
-  const overridden = (p: Provider) => p.base_url !== p.default_base_url || p.chat_path !== p.default_chat_path
-  const setCfg = (p: Provider, patch: Partial<{ base: string; path: string }>) =>
-    setCfgDraft({ ...cfgDraft, [p.id]: { ...cfgOf(p), ...patch } })
+  // Base URL 可编辑（WB-129/132：只留 base，chat_path 由后端 seed 兜底不暴露）
+  const cfgOf = (p: Provider) => cfgDraft[p.id] ?? p.base_url
+  const overridden = (p: Provider) => p.base_url !== p.default_base_url
   const saveCfg = async (p: Provider) => {
     if (busy) return
-    const c = cfgOf(p)
     setBusy(true)
     try {
-      await api.setProviderConfig(p.id, c.base.trim(), c.path.trim()); toast('已保存接入地址')
+      // chat_path 传 '' = 保持/回退到 seed 默认（含 MiniMax 非标路径）。
+      await api.setProviderConfig(p.id, cfgOf(p).trim(), ''); toast('已保存接入地址')
       setCfgDraft((d) => { const n = { ...d }; delete n[p.id]; return n }); await refresh()
     } catch { toast('保存失败') } finally { setBusy(false) }
   }
@@ -96,6 +109,39 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
       await api.setProviderConfig(p.id, '', ''); toast('已恢复默认地址')
       setCfgDraft((d) => { const n = { ...d }; delete n[p.id]; return n }); await refresh()
     } catch { toast('操作失败') } finally { setBusy(false) }
+  }
+  // ---- 模型能力/成本（WB-132）----
+  const toggleMeta = (ref: string, meta?: ModelMeta) => {
+    if (metaEditing === ref) { setMetaEditing(null); return }
+    setMetaDraft({
+      caps: [...(meta?.capabilities ?? [])],
+      input: meta?.input_cost != null ? String(meta.input_cost) : '',
+      output: meta?.output_cost != null ? String(meta.output_cost) : '',
+      ctx: meta?.context_window != null ? String(meta.context_window) : '',
+      note: meta?.note ?? '',
+    })
+    setMetaEditing(ref)
+  }
+  const toggleCap = (k: string) =>
+    setMetaDraft((d) => ({ ...d, caps: d.caps.includes(k) ? d.caps.filter((x) => x !== k) : [...d.caps, k] }))
+  const saveMeta = async (ref: string) => {
+    if (busy) return
+    const num = (s: string) => { const n = parseFloat(s); return s.trim() === '' || isNaN(n) ? null : n }
+    const int = (s: string) => { const n = parseInt(s, 10); return s.trim() === '' || isNaN(n) ? null : n }
+    setBusy(true)
+    try {
+      await api.setModelMeta(ref, {
+        capabilities: metaDraft.caps, input_cost: num(metaDraft.input), output_cost: num(metaDraft.output),
+        context_window: int(metaDraft.ctx), note: metaDraft.note.trim() || null,
+      })
+      toast('已保存能力/成本'); setMetaEditing(null); await refresh()
+    } catch { toast('保存失败') } finally { setBusy(false) }
+  }
+  const resetMeta = async (ref: string) => {
+    if (busy) return
+    setBusy(true)
+    try { await api.resetModelMeta(ref); toast('已恢复默认'); setMetaEditing(null); await refresh() }
+    catch { toast('操作失败') } finally { setBusy(false) }
   }
   // 在线拉取厂商真实模型（WB-129）
   const fetchModels = async (p: Provider) => {
@@ -143,6 +189,31 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
     catch { toast('删除失败') } finally { setBusy(false) }
   }
 
+  const capBadges = (meta?: ModelMeta) => (
+    <span className="mc-caps">
+      {(meta?.capabilities ?? []).map((c) => <span className="mc-cap" key={c} title={capLabel(c)}>{capIcon(c)}</span>)}
+      {meta?.input_cost != null && <span className="mc-cost" title="每百万 token 输入/输出价">{meta.input_cost}/{meta.output_cost ?? '?'}</span>}
+    </span>
+  )
+  const metaEditor = (ref: string) => (
+    <div className="mc-metaed">
+      <div className="mc-caprow">
+        {CAPS.map((c) => (
+          <button key={c.k} className={`mc-capchip ${metaDraft.caps.includes(c.k) ? 'on' : ''}`.trim()} onClick={() => toggleCap(c.k)}>{c.icon} {c.label}</button>
+        ))}
+      </div>
+      <div className="mc-costrow">
+        <input className="np-input" inputMode="decimal" placeholder="输入价/百万tok" value={metaDraft.input} onChange={(e) => setMetaDraft((d) => ({ ...d, input: e.target.value }))} />
+        <input className="np-input" inputMode="decimal" placeholder="输出价/百万tok" value={metaDraft.output} onChange={(e) => setMetaDraft((d) => ({ ...d, output: e.target.value }))} />
+        <input className="np-input" inputMode="numeric" placeholder="上下文 tokens" value={metaDraft.ctx} onChange={(e) => setMetaDraft((d) => ({ ...d, ctx: e.target.value }))} />
+      </div>
+      <div className="mc-fbtns">
+        <button className="btn-ghost" disabled={busy} onClick={() => resetMeta(ref)}>恢复默认</button>
+        <button className="btn-dark" disabled={busy} onClick={() => saveMeta(ref)}>保存能力/成本</button>
+      </div>
+    </div>
+  )
+
   return (
     <div className="np-overlay open" style={{ zIndex: 170 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="np-modal" role="dialog" aria-modal="true" aria-label="模型管理">
@@ -175,9 +246,8 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
                     </div>
                     <div className="mc-cfg">
                       <div className="mc-cfglbl">接入地址（可改成你的实际网关/代理）<a href={p.site} target="_blank" rel="noreferrer">获取 Key ↗</a></div>
-                      <input className="np-input" placeholder="Base URL，如 https://api.deepseek.com/v1" value={cfgOf(p).base} onChange={(e) => setCfg(p, { base: e.target.value })} />
-                      <div className="mc-frow" style={{ marginTop: 8 }}>
-                        <input className="np-input" style={{ flex: 1 }} placeholder="请求路径 /chat/completions" value={cfgOf(p).path} onChange={(e) => setCfg(p, { path: e.target.value })} />
+                      <div className="mc-frow">
+                        <input className="np-input" style={{ flex: 1 }} placeholder="Base URL，如 https://api.deepseek.com/v1" value={cfgOf(p)} onChange={(e) => setCfgDraft({ ...cfgDraft, [p.id]: e.target.value })} />
                         <button className="btn-dark" disabled={busy} onClick={() => saveCfg(p)}>保存地址</button>
                         {overridden(p) && <button className="btn-ghost" disabled={busy} onClick={() => resetCfg(p)}>恢复默认</button>}
                       </div>
@@ -187,14 +257,22 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
                       <button className="mc-act" disabled={!p.has_key || busy} onClick={() => fetchModels(p)} title={!p.has_key ? '先填 API Key' : '从厂商在线列举真实模型'}>↻ 拉取最新</button>
                     </div>
                     <div className="mc-modlist">
-                      {p.models.map((m) => (
-                        <div className={`mc-mod ${m.hidden ? 'off' : ''}`.trim()} key={m.model_id}>
-                          <span className="mc-modname">{m.model_id}{!m.preset && <span className="mc-tag">自加</span>}</span>
-                          {m.preset
-                            ? <button className="mc-act" disabled={busy} onClick={() => toggleModel(p, m.model_id, !m.hidden)}>{m.hidden ? '恢复' : '隐藏'}</button>
-                            : <button className="mc-act danger" disabled={busy} onClick={() => toggleModel(p, m.model_id, true)}>删除</button>}
-                        </div>
-                      ))}
+                      {p.models.map((m) => {
+                        const ref = `@${p.id}:${m.model_id}`
+                        return (
+                          <div key={m.model_id}>
+                            <div className={`mc-mod ${m.hidden ? 'off' : ''}`.trim()}>
+                              <span className="mc-modname">{m.model_id}{!m.preset && <span className="mc-tag">自加</span>}</span>
+                              {capBadges(m.meta)}
+                              <button className={`mc-act ${metaEditing === ref ? 'on' : ''}`.trim()} disabled={busy} onClick={() => toggleMeta(ref, m.meta)}>能力</button>
+                              {m.preset
+                                ? <button className="mc-act" disabled={busy} onClick={() => toggleModel(p, m.model_id, !m.hidden)}>{m.hidden ? '恢复' : '隐藏'}</button>
+                                : <button className="mc-act danger" disabled={busy} onClick={() => toggleModel(p, m.model_id, true)}>删除</button>}
+                            </div>
+                            {metaEditing === ref && metaEditor(ref)}
+                          </div>
+                        )
+                      })}
                     </div>
                     {fetched[p.id] && (
                       <div className="mc-fetched">
@@ -226,14 +304,18 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
           </div>
           {custom.length === 0 && !showForm && <div className="mc-empty">没有自定义模型。预置厂商够用就不必加。</div>}
           {custom.map((m) => (
-            <div className="mc-row" key={m.id}>
-              <span className="mc-ic">{m.icon}</span>
-              <span className="mc-info">
-                <span className="mc-name">{m.name}</span>
-                <span className="mc-sub">{m.model_id}{m.api_base ? ` · ${m.api_base}` : ''}{m.has_key ? ' · 🔑' : ''}</span>
-              </span>
-              <button className="mc-act" onClick={() => startEdit(m)}>编辑</button>
-              <button className="mc-act danger" onClick={() => delCustom(m)}>删除</button>
+            <div key={m.id}>
+              <div className="mc-row">
+                <span className="mc-ic">{m.icon}</span>
+                <span className="mc-info">
+                  <span className="mc-name">{m.name}{capBadges(m.meta)}</span>
+                  <span className="mc-sub">{m.model_id}{m.api_base ? ` · ${m.api_base}` : ''}{m.has_key ? ' · 🔑' : ''}</span>
+                </span>
+                <button className={`mc-act ${metaEditing === m.key ? 'on' : ''}`.trim()} onClick={() => toggleMeta(m.key, m.meta)}>能力</button>
+                <button className="mc-act" onClick={() => startEdit(m)}>编辑</button>
+                <button className="mc-act danger" onClick={() => delCustom(m)}>删除</button>
+              </div>
+              {metaEditing === m.key && metaEditor(m.key)}
             </div>
           ))}
           {showForm && (

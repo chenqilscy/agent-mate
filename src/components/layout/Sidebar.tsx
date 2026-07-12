@@ -11,6 +11,7 @@ import { activate } from '../../lib/a11y'
 import { LoginModal } from '../auth/LoginModal'
 import { MessageCenter } from './MessageCenter'
 import { HubConnectModal } from '../hub/HubConnectModal'
+import { ModelConfigModal } from '../composer/ModelConfigModal'
 import { useHubStore } from '../../stores/hubStore'
 import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
 
@@ -61,6 +62,8 @@ export function Sidebar() {
   const loadProjects = useProjectStore((s) => s.load)
   const setActiveProject = useProjectStore((s) => s.setActive)
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
+  const modelConfigOpen = useUIStore((s) => s.modelConfigOpen)
+  const setModelConfigOpen = useUIStore((s) => s.setModelConfigOpen)
   const me = useAuthStore((s) => s.me)
   const loggedIn = useAuthStore((s) => s.loggedIn)
   const logout = useAuthStore((s) => s.logout)
@@ -442,6 +445,9 @@ export function Sidebar() {
               <b className={theme === 'dark' ? 'on' : ''} onClick={(e) => { e.stopPropagation(); setTheme('dark') }}>深色</b>
             </span>
           </div>
+          <div className="pf-row" onClick={() => { setProfileOpen(false); setModelConfigOpen(true) }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7h11M4 12h16M4 17h7" /><circle cx="18" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>模型管理
+          </div>
           <div className="pf-row" onClick={() => { toast('帮助与反馈'); setProfileOpen(false) }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 115 1c0 1.5-2.5 2-2.5 3.5M12 17h.01" /></svg>帮助与反馈
           </div>
@@ -467,6 +473,7 @@ export function Sidebar() {
       {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
       {msgOpen && <MessageCenter onClose={() => setMsgOpen(false)} />}
       {hubOpen && <HubConnectModal onClose={() => { setHubOpen(false); void refreshHub() }} />}
+      {modelConfigOpen && <ModelConfigModal onClose={() => setModelConfigOpen(false)} />}
     </aside>
   )
 }

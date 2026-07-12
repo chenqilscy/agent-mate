@@ -147,6 +147,7 @@
 | [WB-129](WB-129-provider-editable-base-live-models.md) | ✅ | P2 | fullstack | 厂商渠道 base_url/请求路径可显示可编辑（按 owner 覆盖预置，resolve 用有效值）+ 「拉取最新」在线列举厂商真实模型（打 `{base}/models`，治模型名过时）；实测真拉到用户 DeepSeek 的 v4-flash/pro |
 | [WB-130](WB-130-console-skill-detail-files.md) | ⬜ | P3 | fullstack | 目录运营中心技能详情缺「文件信息」(SKILL.md 正文/文件树/源码) —— 镜像只存榜单元数据，需 Hub 加单技能拉包代理 + 弹窗渲染；或按「浏览视图」定位转 wontfix（待定夺） |
 | [WB-131](WB-131-manager-nav-ia-redesign.md) | ✅ | P2 | frontend | WorkBuddy Manager 导航/IA 专业化重构 —— 扁平混杂菜单改分区侧栏(工作区/目录/系统)+顶栏(组织切换·通知铃铛·账号)+新增概览页+收编 SkillHub/高级JSON、去运营黑话；纯前端 console.html，沿用现有 token（关联 epic WB-112 管理端定位） |
+| [WB-132](WB-132-model-capabilities-cost-meta.md) | ✅ | P2 | fullstack | 模型能力/成本元数据（模态/工具/推理 + 每百万token 输入·输出单价 + 上下文，启发式默认可编辑，为 Auto 铺路）+ 接入地址简化为仅 Base URL + 模型管理提到全局菜单入口（账号菜单，uiStore flag） |
 
 ## 来源
 

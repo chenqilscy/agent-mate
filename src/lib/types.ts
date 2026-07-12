@@ -98,6 +98,16 @@ export interface SessionInfo {
 
 // Flat picker entry (WB-128). `key` is the selection value stored/sent to the backend:
 //   '' = 默认(.env backstop) · '@{provider}:{model}' = built-in provider · custom name.
+// 模型能力/成本元数据（WB-132，为 Auto 铺路）。source: 'default'=启发式默认 · 'custom'=用户已存。
+export interface ModelMeta {
+  capabilities: string[] // text/image/audio/video/tools/reasoning 子集
+  input_cost: number | null // 每百万 token 输入价
+  output_cost: number | null
+  context_window: number | null
+  note: string | null
+  source?: 'default' | 'custom'
+}
+
 export interface ModelOption {
   key: string
   name: string
@@ -106,6 +116,7 @@ export interface ModelOption {
   group: 'default' | 'provider' | 'custom'
   provider?: string
   providerName?: string
+  meta?: ModelMeta
   // custom-only (WB-124): api_key never crosses to the frontend — only has_key.
   id?: string
   model_id?: string
@@ -114,7 +125,7 @@ export interface ModelOption {
 }
 
 // Built-in provider channel (WB-128). Key lives backend-only; `has_key` reflects存否.
-export interface ProviderModel { model_id: string; preset: boolean; hidden: boolean }
+export interface ProviderModel { model_id: string; preset: boolean; hidden: boolean; meta?: ModelMeta }
 export interface Provider {
   id: string
   name: string

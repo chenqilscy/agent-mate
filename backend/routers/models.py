@@ -33,6 +33,34 @@ def _effective_base_path(owner_id: str, prov: dict) -> tuple[str, str]:
     return base, path
 
 
+# 能力词表（WB-132）：模态 + 工具 + 推理。前端徽标一一对应。
+CAPABILITIES = ["text", "image", "audio", "video", "tools", "reasoning"]
+
+
+def _default_capabilities(model_id: str) -> list[str]:
+    """按模型名给启发式默认能力（可编辑；铁律#1：仅作起点，不当真值断言）。"""
+    m = (model_id or "").lower()
+    caps = ["text", "tools"]
+    # 注意别用会误命中版本号的裸 "-v"（如 deepseek-v4 ≠ vision）。
+    if any(k in m for k in ("4o", "-vl", "vl-", "vision", "omni", "multimodal", "glm-4v", "pixtral", "gemini", "claude-3", "claude-4", "4.5v", "-vision")):
+        caps.append("image")
+    if any(k in m for k in ("reasoner", "o1", "o3", "o4", "r1", "deepseek-r", "think", "reasoning", "qwq")):
+        caps.append("reasoning")
+    return caps
+
+
+def _effective_meta(model_ref: str, model_id: str, stored: dict[str, dict]) -> dict:
+    """有效元数据 = 用户覆盖 ∨ 启发式默认。source 供 UI 判断是否可「恢复默认」。"""
+    s = stored.get(model_ref)
+    if s:
+        return {**s, "source": "custom"}
+    return {
+        "capabilities": _default_capabilities(model_id),
+        "input_cost": None, "output_cost": None, "context_window": None, "note": None,
+        "source": "default",
+    }
+
+
 def _provider_models_mgmt(owner_id: str, prov: dict) -> list[dict]:
     """厂商模型的**管理视图**：预置模型（带 hidden 标记）+ 用户新增模型。"""
     preset = prov["models"]
@@ -69,12 +97,16 @@ def list_models() -> dict:
     `models` list of directly-selectable entries (for the picker)."""
     user = current_user()
     keyed = db.list_provider_keys(user.id)
+    stored_meta = db.list_model_meta(user.id)  # WB-132: 批量取，逐模型附有效 meta
 
     providers: list[dict] = []
     picker: list[dict] = []
     for prov in provider_seed.PROVIDERS:
         has_key = prov["id"] in keyed
         mgmt = _provider_models_mgmt(user.id, prov)
+        for m in mgmt:  # WB-132: 每个厂商模型附能力/成本（覆盖∨启发式默认）
+            ref = _sel_key_provider(prov["id"], m["model_id"])
+            m["meta"] = _effective_meta(ref, m["model_id"], stored_meta)
         eff_base, eff_path = _effective_base_path(user.id, prov)
         providers.append({
             "id": prov["id"],
@@ -103,9 +135,12 @@ def list_models() -> dict:
                     "provider": prov["id"],
                     "providerName": prov["name"],
                     "group": "provider",
+                    "meta": m["meta"],
                 })
 
     custom = [_pack_custom(r) for r in db.list_custom_models(user.id, include_secrets=False)]
+    for cm in custom:  # WB-132: 自定义模型也附 meta（ref = 自定义名）
+        cm["meta"] = _effective_meta(cm["name"], cm.get("model_id") or "", stored_meta)
 
     # 「默认」= .env 后端配置的模型，永远可用（local-first 兜底，取代假 Auto）。key="" → resolve 回退 .env。
     backstop = {
@@ -222,6 +257,33 @@ def hide_provider_model(pid: str, body: ProviderModelHideIn) -> dict:
             db.remove_provider_model(user.id, pid, body.model_id.strip())
         else:
             db.add_provider_model(user.id, pid, body.model_id.strip())
+    return {"ok": True}
+
+
+# ---- model meta: capabilities + cost (WB-132) --------------------------
+
+class ModelMetaIn(BaseModel):
+    model_ref: str = Field(min_length=1, max_length=200)
+    capabilities: list[str] = Field(default=[], max_length=12)
+    input_cost: float | None = Field(default=None, ge=0)
+    output_cost: float | None = Field(default=None, ge=0)
+    context_window: int | None = Field(default=None, ge=0)
+    note: str | None = Field(default=None, max_length=300)
+    reset: bool = False  # true = 清除覆盖，回启发式默认
+
+
+@router.put("/models/meta")
+def set_model_meta(body: ModelMetaIn) -> dict:
+    user = current_user()
+    if body.reset:
+        db.delete_model_meta(user.id, body.model_ref)
+        return {"ok": True, "reset": True}
+    caps = [c for c in body.capabilities if c in CAPABILITIES]  # 只收白名单能力
+    db.set_model_meta(
+        user.id, body.model_ref,
+        capabilities=caps, input_cost=body.input_cost, output_cost=body.output_cost,
+        context_window=body.context_window, note=(body.note or None),
+    )
     return {"ok": True}
 
 
