@@ -131,7 +131,11 @@ def resolve_model_config(
             prov = provider_seed.PROVIDERS_BY_ID.get(pid)
             key = db.get_provider_key(owner_id, pid) if prov else None
             if prov and mid and key:
-                return mid, prov["base_url"], key, prov.get("chat_path") or default_path
+                # 有效 base/path = 用户覆盖（WB-129）∨ 预置默认。
+                cfg = db.get_provider_config(owner_id, pid) or {}
+                base = cfg.get("base_url") or prov["base_url"]
+                path = cfg.get("chat_path") or prov.get("chat_path") or default_path
+                return mid, base, key, path
             # provider unknown / model empty / no key → .env backstop below
         else:
             row = db.get_custom_model_by_name(owner_id, client_model, include_secrets=True)

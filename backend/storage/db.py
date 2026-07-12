@@ -422,6 +422,17 @@ def init_db() -> None:
             PRIMARY KEY (owner_id, provider_id)
         );
 
+        -- 厂商 base_url/请求路径覆盖（WB-129）：预置只作起点，用户可改成自己的实际网关/代理。
+        -- 有效值 = 覆盖 ∨ 预置默认；空串/无行 = 用预置默认。
+        CREATE TABLE IF NOT EXISTS provider_config (
+            owner_id TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            base_url TEXT,
+            chat_path TEXT,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (owner_id, provider_id)
+        );
+
         -- 厂商模型覆盖（WB-128）：hidden=1 隐藏某预置模型；hidden=0 且非预置 = 用户新增的模型名
         -- （厂商上新时补进来）。预置模型的有效列表 = 注册表 − 隐藏 ∪ 新增。
         CREATE TABLE IF NOT EXISTS provider_models (
@@ -1966,6 +1977,33 @@ def set_provider_key(owner_id: str, provider_id: str, api_key: str) -> None:
         get_conn().execute(
             "DELETE FROM provider_keys WHERE owner_id=? AND provider_id=?",
             (owner_id, provider_id),
+        )
+    get_conn().commit()
+
+
+def get_provider_config(owner_id: str, provider_id: str) -> Optional[dict]:
+    """base_url/chat_path 覆盖（WB-129）。未设过则 None。"""
+    row = get_conn().execute(
+        "SELECT base_url, chat_path FROM provider_config WHERE owner_id=? AND provider_id=?",
+        (owner_id, provider_id),
+    ).fetchone()
+    return {"base_url": row["base_url"], "chat_path": row["chat_path"]} if row else None
+
+
+def set_provider_config(owner_id: str, provider_id: str, base_url: str | None, chat_path: str | None) -> None:
+    """写/清 base_url·chat_path 覆盖。两者都空 = 删行（恢复预置默认）。空串按 None 存。"""
+    base_url = (base_url or "").strip() or None
+    chat_path = (chat_path or "").strip() or None
+    if base_url is None and chat_path is None:
+        get_conn().execute(
+            "DELETE FROM provider_config WHERE owner_id=? AND provider_id=?",
+            (owner_id, provider_id),
+        )
+    else:
+        get_conn().execute(
+            """INSERT OR REPLACE INTO provider_config (owner_id, provider_id, base_url, chat_path, updated_at)
+               VALUES (?,?,?,?,?)""",
+            (owner_id, provider_id, base_url, chat_path, time.time()),
         )
     get_conn().commit()
 

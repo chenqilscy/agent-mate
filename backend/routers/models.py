@@ -14,6 +14,7 @@ surfaced honestly as a 「默认」entry.
 """
 from __future__ import annotations
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -22,6 +23,14 @@ from config import settings
 from storage import db, provider_seed
 
 router = APIRouter(prefix="/api", tags=["models"])
+
+
+def _effective_base_path(owner_id: str, prov: dict) -> tuple[str, str]:
+    """有效 base_url + chat_path = 用户覆盖（WB-129）∨ 预置默认。"""
+    cfg = db.get_provider_config(owner_id, prov["id"]) or {}
+    base = cfg.get("base_url") or prov["base_url"]
+    path = cfg.get("chat_path") or prov.get("chat_path") or provider_seed.DEFAULT_CHAT_PATH
+    return base, path
 
 
 def _provider_models_mgmt(owner_id: str, prov: dict) -> list[dict]:
@@ -66,12 +75,17 @@ def list_models() -> dict:
     for prov in provider_seed.PROVIDERS:
         has_key = prov["id"] in keyed
         mgmt = _provider_models_mgmt(user.id, prov)
+        eff_base, eff_path = _effective_base_path(user.id, prov)
         providers.append({
             "id": prov["id"],
             "name": prov["name"],
             "icon": prov["icon"],
             "color": prov["color"],
-            "base_url": prov["base_url"],
+            # 有效值（含用户覆盖）+ 预置默认（供「恢复默认」判断，WB-129）。
+            "base_url": eff_base,
+            "chat_path": eff_path,
+            "default_base_url": prov["base_url"],
+            "default_chat_path": prov.get("chat_path") or provider_seed.DEFAULT_CHAT_PATH,
             "key_hint": prov["key_hint"],
             "site": prov["site"],
             "has_key": has_key,
@@ -132,6 +146,51 @@ def set_provider_key(pid: str, body: ProviderKeyIn) -> dict:
     _require_provider(pid)
     db.set_provider_key(user.id, pid, body.api_key.strip())
     return {"ok": True, "provider": pid, "has_key": bool(body.api_key.strip())}
+
+
+class ProviderConfigIn(BaseModel):
+    # 空串 = 恢复该字段为预置默认。两者都空 = 全恢复默认。
+    base_url: str = Field(default="", max_length=300)
+    chat_path: str = Field(default="", max_length=120)
+
+
+@router.patch("/providers/{pid}/config")
+def set_provider_config(pid: str, body: ProviderConfigIn) -> dict:
+    user = current_user()
+    prov = _require_provider(pid)
+    db.set_provider_config(user.id, pid, body.base_url, body.chat_path)
+    base, path = _effective_base_path(user.id, prov)
+    return {"ok": True, "base_url": base, "chat_path": path}
+
+
+@router.post("/providers/{pid}/models/fetch")
+async def fetch_provider_models(pid: str) -> dict:
+    """在线列举厂商真实模型（WB-129）：用有效 base+key 打 OpenAI 兼容 `GET {base}/models`。
+    治「硬编码模型名过时」——真实数据来自厂商。个别厂商不支持则如实返回错误，让用户手动加。"""
+    user = current_user()
+    prov = _require_provider(pid)
+    key = db.get_provider_key(user.id, pid)
+    if not key:
+        raise HTTPException(400, "请先为该厂商填写 API Key")
+    base, _ = _effective_base_path(user.id, prov)
+    url = f"{base.rstrip('/')}/models"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {key}"})
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"连接失败：{e}"}
+    if resp.status_code >= 400:
+        return {"ok": False, "error": f"该厂商未返回模型列表（HTTP {resp.status_code}），请手动添加"}
+    try:
+        data = resp.json()
+        # OpenAI 兼容：{"data": [{"id": "..."}]}；个别厂商直接给 list。
+        items = data.get("data", data) if isinstance(data, dict) else data
+        ids = sorted({str(m["id"]) for m in items if isinstance(m, dict) and m.get("id")})
+    except Exception:  # noqa: BLE001
+        return {"ok": False, "error": "厂商返回格式非标准，请手动添加"}
+    if not ids:
+        return {"ok": False, "error": "厂商未返回任何模型，请手动添加"}
+    return {"ok": True, "models": ids}
 
 
 class ProviderModelIn(BaseModel):

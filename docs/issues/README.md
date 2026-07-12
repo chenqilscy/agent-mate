@@ -144,6 +144,8 @@
 | [WB-126](WB-126-skillhub-sync-http-leftover.md) | ✅ | P2 | fullstack | SkillHub 同步 HTTP 化后的收尾 —— 前端手动同步文案仍写死「跑 CLI」（误导，实际直连公开 HTTP、无需 key）；后台定期同步被 `cli_available()` 卡住，无 CLI 环境一次都不启动（hub/web/console.html:1617 + hub/main.py:38） |
 | [WB-127](WB-127-skillhub-sync-list-no-detail.md) | ✅ | P3 | frontend | 目录运营中心「SkillHub 同步」列表无查看技能详情入口 —— 卡片描述截断且不可点，复用现成 `sgDetail()` 弹窗给列表项加点击详情（纯前端 console.html） |
 | [WB-128](WB-128-builtin-provider-channels.md) | ✅ | P2 | fullstack | 模型管理重构 —— 内置改「厂商渠道」（DeepSeek/智谱/MiniMax/Kimi/通义/OpenAI，真实 base+模型，填 key 即用）+ 移除假 Auto/倍率 + resolve 按 @provider 路由(含非标 chat_path) + 自定义作兜底 |
+| [WB-129](WB-129-provider-editable-base-live-models.md) | ✅ | P2 | fullstack | 厂商渠道 base_url/请求路径可显示可编辑（按 owner 覆盖预置，resolve 用有效值）+ 「拉取最新」在线列举厂商真实模型（打 `{base}/models`，治模型名过时）；实测真拉到用户 DeepSeek 的 v4-flash/pro |
+| [WB-130](WB-130-console-skill-detail-files.md) | ⬜ | P3 | fullstack | 目录运营中心技能详情缺「文件信息」(SKILL.md 正文/文件树/源码) —— 镜像只存榜单元数据，需 Hub 加单技能拉包代理 + 弹窗渲染；或按「浏览视图」定位转 wontfix（待定夺） |
 
 ## 来源
 

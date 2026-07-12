@@ -51,6 +51,11 @@ export const api = {
   // 厂商 API Key（空串 = 撤销）；模型增删/隐藏（厂商上新/清理）。key 只后端存、绝不回前端。
   setProviderKey: (pid: string, api_key: string) =>
     send<{ ok: boolean; has_key: boolean }>('PUT', `/providers/${pid}/key`, { api_key }),
+  // base_url/请求路径覆盖（空串=恢复预置默认）+ 在线拉取厂商真实模型（WB-129）。
+  setProviderConfig: (pid: string, base_url: string, chat_path: string) =>
+    send<{ ok: boolean; base_url: string; chat_path: string }>('PATCH', `/providers/${pid}/config`, { base_url, chat_path }),
+  fetchProviderModels: (pid: string) =>
+    send<{ ok: boolean; models?: string[]; error?: string }>('POST', `/providers/${pid}/models/fetch`),
   addProviderModel: (pid: string, model_id: string) =>
     send<{ ok: boolean }>('POST', `/providers/${pid}/models`, { model_id }),
   hideProviderModel: (pid: string, model_id: string, hidden: boolean) =>

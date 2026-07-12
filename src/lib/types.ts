@@ -120,7 +120,10 @@ export interface Provider {
   name: string
   icon: string
   color: string
-  base_url: string
+  base_url: string        // 有效值（含用户覆盖，WB-129）
+  chat_path: string
+  default_base_url: string // 预置默认（判断是否已覆盖 / 恢复默认）
+  default_chat_path: string
   key_hint: string
   site: string
   has_key: boolean

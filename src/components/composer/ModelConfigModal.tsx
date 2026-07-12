@@ -18,6 +18,8 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({})
   const [modelDraft, setModelDraft] = useState<Record<string, string>>({})
+  const [cfgDraft, setCfgDraft] = useState<Record<string, { base: string; path: string }>>({})
+  const [fetched, setFetched] = useState<Record<string, string[]>>({})
   const [busy, setBusy] = useState(false)
   // custom form
   const [editing, setEditing] = useState<ModelOption | null>(null)
@@ -72,6 +74,43 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
       await api.addProviderModel(p.id, v); toast('已添加模型')
       setModelDraft({ ...modelDraft, [p.id]: '' }); await refresh()
     } catch { toast('添加失败') } finally { setBusy(false) }
+  }
+  // base_url/请求路径可编辑（WB-129）
+  const cfgOf = (p: Provider) => cfgDraft[p.id] ?? { base: p.base_url, path: p.chat_path }
+  const overridden = (p: Provider) => p.base_url !== p.default_base_url || p.chat_path !== p.default_chat_path
+  const setCfg = (p: Provider, patch: Partial<{ base: string; path: string }>) =>
+    setCfgDraft({ ...cfgDraft, [p.id]: { ...cfgOf(p), ...patch } })
+  const saveCfg = async (p: Provider) => {
+    if (busy) return
+    const c = cfgOf(p)
+    setBusy(true)
+    try {
+      await api.setProviderConfig(p.id, c.base.trim(), c.path.trim()); toast('已保存接入地址')
+      setCfgDraft((d) => { const n = { ...d }; delete n[p.id]; return n }); await refresh()
+    } catch { toast('保存失败') } finally { setBusy(false) }
+  }
+  const resetCfg = async (p: Provider) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await api.setProviderConfig(p.id, '', ''); toast('已恢复默认地址')
+      setCfgDraft((d) => { const n = { ...d }; delete n[p.id]; return n }); await refresh()
+    } catch { toast('操作失败') } finally { setBusy(false) }
+  }
+  // 在线拉取厂商真实模型（WB-129）
+  const fetchModels = async (p: Provider) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const r = await api.fetchProviderModels(p.id)
+      if (r.ok && r.models) { setFetched({ ...fetched, [p.id]: r.models }); toast(`拉到 ${r.models.length} 个模型`) }
+      else toast(r.error || '拉取失败')
+    } catch { toast('拉取失败') } finally { setBusy(false) }
+  }
+  const addFetched = async (p: Provider, mid: string) => {
+    if (busy) return
+    setBusy(true)
+    try { await api.addProviderModel(p.id, mid); await refresh() } catch { toast('添加失败') } finally { setBusy(false) }
   }
 
   // ---- custom fallback ----
@@ -134,7 +173,19 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
                       <button className="btn-dark" disabled={busy || (!(keyDraft[p.id] ?? '').trim() && p.has_key)} onClick={() => saveKey(p)}>保存</button>
                       {p.has_key && <button className="btn-ghost danger-b" disabled={busy} onClick={() => clearKey(p)}>撤销</button>}
                     </div>
-                    <div className="mc-provmeta">Base：{p.base_url} · <a href={p.site} target="_blank" rel="noreferrer">获取 Key ↗</a></div>
+                    <div className="mc-cfg">
+                      <div className="mc-cfglbl">接入地址（可改成你的实际网关/代理）<a href={p.site} target="_blank" rel="noreferrer">获取 Key ↗</a></div>
+                      <input className="np-input" placeholder="Base URL，如 https://api.deepseek.com/v1" value={cfgOf(p).base} onChange={(e) => setCfg(p, { base: e.target.value })} />
+                      <div className="mc-frow" style={{ marginTop: 8 }}>
+                        <input className="np-input" style={{ flex: 1 }} placeholder="请求路径 /chat/completions" value={cfgOf(p).path} onChange={(e) => setCfg(p, { path: e.target.value })} />
+                        <button className="btn-dark" disabled={busy} onClick={() => saveCfg(p)}>保存地址</button>
+                        {overridden(p) && <button className="btn-ghost" disabled={busy} onClick={() => resetCfg(p)}>恢复默认</button>}
+                      </div>
+                    </div>
+                    <div className="mc-modhd">
+                      <span>模型</span>
+                      <button className="mc-act" disabled={!p.has_key || busy} onClick={() => fetchModels(p)} title={!p.has_key ? '先填 API Key' : '从厂商在线列举真实模型'}>↻ 拉取最新</button>
+                    </div>
                     <div className="mc-modlist">
                       {p.models.map((m) => (
                         <div className={`mc-mod ${m.hidden ? 'off' : ''}`.trim()} key={m.model_id}>
@@ -145,8 +196,22 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
                         </div>
                       ))}
                     </div>
+                    {fetched[p.id] && (
+                      <div className="mc-fetched">
+                        <div className="mc-fetchhd">厂商在线模型（{fetched[p.id].length}）</div>
+                        {fetched[p.id].map((mid) => {
+                          const exists = p.models.some((m) => m.model_id === mid && !m.hidden)
+                          return (
+                            <div className="mc-mod" key={mid}>
+                              <span className="mc-modname">{mid}</span>
+                              {exists ? <span className="mc-tag">已有</span> : <button className="mc-act" disabled={busy} onClick={() => addFetched(p, mid)}>添加</button>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                     <div className="mc-keyrow">
-                      <input className="np-input" placeholder="补充模型名（厂商上新时），如 deepseek-chat" value={modelDraft[p.id] ?? ''} onChange={(e) => setModelDraft({ ...modelDraft, [p.id]: e.target.value })} />
+                      <input className="np-input" placeholder="手动补充模型名" value={modelDraft[p.id] ?? ''} onChange={(e) => setModelDraft({ ...modelDraft, [p.id]: e.target.value })} />
                       <button className="btn-ghost" disabled={busy || !(modelDraft[p.id] ?? '').trim()} onClick={() => addModel(p)}>＋ 加模型</button>
                     </div>
                   </div>
