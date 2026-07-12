@@ -57,4 +57,4 @@ P2：#1 纯误导性文案，无功能损失但直接造成用户困惑；#2 有
 - 验证：
   - `SKILLHUB_CLI=/nonexistent` + 隔离 `HUB_DB` 跑 `sync_once()`：`cli_available()==False`，仍 `ok=True`、经 HTTP `total=339`、`inserted=340`（339 技能 + 1 分类骨架行）。改前此路径返回「skillhub CLI 未安装」。
   - `py_compile hub/{main,skillhub_sync,skillhub_client}.py` 全过；前端为 vanilla 模板串纯文本替换，肉眼核对。
-- commit：`7c6a403`
+- commit：`a246a96`
