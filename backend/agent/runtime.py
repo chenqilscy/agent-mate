@@ -25,7 +25,7 @@ from agent.sandbox import current_root, use_root, workspace_root
 from agent.skills import skill_def
 from agent.tools import ASK_USER_SCHEMA, base_tools, run_tool, set_work_context, work_item_tools
 from config import settings
-from storage import db
+from storage import db, provider_seed
 from storage.models import Session, User
 
 SYSTEM_PROMPT = (
@@ -110,27 +110,38 @@ def submit_answers(session_id: str, answers: list[str]) -> bool:
     return False
 
 
-def resolve_model_config(owner_id: str, client_model: str | None) -> tuple[str, str | None, str | None]:
-    """Map the picker selection to a real (model_id, api_base, api_key) triple.
+def resolve_model_config(
+    owner_id: str, client_model: str | None
+) -> tuple[str, str | None, str | None, str]:
+    """Map the picker selection to a concrete (model_id, api_base, api_key, chat_path).
 
-    WB-124: a custom model (matched by its display name for this owner) carries its
-    own provider base URL + key, so an explicit pick actually reaches that provider.
-    Fallbacks, in order:
-      1. DB custom model whose name == the selection → its model_id + base/key.
-      2. Legacy "Display:real-id" custom labels → the id after the colon, on the
-         .env provider (back-compat with pre-WB-124 hardcoded entries).
-      3. Builtin labels (Auto, GLM-5.2…) → the authoritative .env LLM_MODEL.
+    Resolution order:
+      1. Built-in provider pick `@{provider}:{model}` (WB-128) → the provider's
+         base_url/chat_path (provider_seed) + the owner's key for that provider.
+         If no key stored, fall through to the .env backstop so the app still runs.
+      2. DB custom model matched by display name (WB-124) → its own base/key.
+      3. Legacy "Display:real-id" custom labels → the id after the colon, on .env.
+      4. Anything else → the authoritative .env LLM_MODEL.
     api_base/api_key None means "use the .env default" (see llm.stream_chat).
     """
+    default_path = provider_seed.DEFAULT_CHAT_PATH
     if client_model:
-        row = db.get_custom_model_by_name(owner_id, client_model, include_secrets=True)
-        if row and row.get("model_id"):
-            return row["model_id"], row.get("api_base"), row.get("api_key")
-        if ":" in client_model:
-            real = client_model.rsplit(":", 1)[-1].strip()
-            if real:
-                return real, None, None
-    return settings.LLM_MODEL, None, None
+        if client_model.startswith("@") and ":" in client_model:
+            pid, _, mid = client_model[1:].partition(":")
+            prov = provider_seed.PROVIDERS_BY_ID.get(pid)
+            key = db.get_provider_key(owner_id, pid) if prov else None
+            if prov and mid and key:
+                return mid, prov["base_url"], key, prov.get("chat_path") or default_path
+            # provider unknown / model empty / no key → .env backstop below
+        else:
+            row = db.get_custom_model_by_name(owner_id, client_model, include_secrets=True)
+            if row and row.get("model_id"):
+                return row["model_id"], row.get("api_base"), row.get("api_key"), default_path
+            if ":" in client_model:
+                real = client_model.rsplit(":", 1)[-1].strip()
+                if real:
+                    return real, None, None, default_path
+    return settings.LLM_MODEL, None, None, default_path
 
 
 def _approx_tokens(text: str) -> int:
@@ -361,8 +372,8 @@ async def run_chat(
             yield record({"kind": "step", "tool": "loadout", "label": "已加载 · " + " · ".join(parts)})
 
         # Resolve the picker selection to a concrete provider once (owner-scoped so a
-        # custom model uses its own base/key). Stable across tool-loop rounds.
-        model_id, model_base, model_key = resolve_model_config(user.id, model)
+        # provider/custom model uses its own base/key/path). Stable across tool-loop rounds.
+        model_id, model_base, model_key, model_path = resolve_model_config(user.id, model)
 
         for _round in range(MAX_ROUNDS):
             content_buf = ""
@@ -372,7 +383,7 @@ async def run_chat(
 
             async for delta in stream_chat(
                 llm_messages, model=model_id, tools=schemas,
-                api_base=model_base, api_key=model_key,
+                api_base=model_base, api_key=model_key, chat_path=model_path,
             ):
                 if stop.is_set():
                     stopped = True

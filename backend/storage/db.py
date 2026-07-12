@@ -405,10 +405,32 @@ def init_db() -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_models_owner_name ON custom_models(owner_id, name);
 
         -- 隐藏的内置模型（WB-124）：用户把用不到的内置项从 picker 隐藏。存在一行 = 隐藏。
+        -- （WB-128 起旧「假内置」列表已移除、改厂商预置；此表保留仅为兼容存量，不再写新。）
         CREATE TABLE IF NOT EXISTS hidden_builtin_models (
             owner_id TEXT NOT NULL,
             name TEXT NOT NULL,
             PRIMARY KEY (owner_id, name)
+        );
+
+        -- 厂商 API Key（WB-128）：每个 owner 每个内置厂商一把 key。只存后端、绝不回前端（铁律#4）；
+        -- 列表只暴露 has_key 布尔。厂商定义（base_url/模型名）在 storage/provider_seed.py，运行时读注册表。
+        CREATE TABLE IF NOT EXISTS provider_keys (
+            owner_id TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            api_key TEXT NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (owner_id, provider_id)
+        );
+
+        -- 厂商模型覆盖（WB-128）：hidden=1 隐藏某预置模型；hidden=0 且非预置 = 用户新增的模型名
+        -- （厂商上新时补进来）。预置模型的有效列表 = 注册表 − 隐藏 ∪ 新增。
+        CREATE TABLE IF NOT EXISTS provider_models (
+            owner_id TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            hidden INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            PRIMARY KEY (owner_id, provider_id, model_id)
         );
 
         -- 多助理（WB-086/087）：每个助理一套独立能力配置 + 一条共享会话。
@@ -1910,6 +1932,80 @@ def set_builtin_hidden(owner_id: str, name: str, hidden: bool) -> None:
             "DELETE FROM hidden_builtin_models WHERE owner_id=? AND name=?",
             (owner_id, name),
         )
+    get_conn().commit()
+
+
+# ---- provider keys + model overrides (WB-128) --------------------------
+
+def get_provider_key(owner_id: str, provider_id: str) -> Optional[str]:
+    """某厂商的 API key（仅后端用，绝不回前端）。未设过则 None。"""
+    row = get_conn().execute(
+        "SELECT api_key FROM provider_keys WHERE owner_id=? AND provider_id=?",
+        (owner_id, provider_id),
+    ).fetchone()
+    return row["api_key"] if row else None
+
+
+def list_provider_keys(owner_id: str) -> set[str]:
+    """已配置 key 的厂商 id 集合（脱敏——只给「有没有」）。"""
+    rows = get_conn().execute(
+        "SELECT provider_id FROM provider_keys WHERE owner_id=?", (owner_id,)
+    ).fetchall()
+    return {r["provider_id"] for r in rows}
+
+
+def set_provider_key(owner_id: str, provider_id: str, api_key: str) -> None:
+    """写/覆盖厂商 key；空串 = 删除（撤销该厂商）。"""
+    if api_key:
+        get_conn().execute(
+            """INSERT OR REPLACE INTO provider_keys (owner_id, provider_id, api_key, updated_at)
+               VALUES (?,?,?,?)""",
+            (owner_id, provider_id, api_key, time.time()),
+        )
+    else:
+        get_conn().execute(
+            "DELETE FROM provider_keys WHERE owner_id=? AND provider_id=?",
+            (owner_id, provider_id),
+        )
+    get_conn().commit()
+
+
+def list_provider_model_overrides(owner_id: str, provider_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT model_id, hidden FROM provider_models WHERE owner_id=? AND provider_id=?",
+        (owner_id, provider_id),
+    ).fetchall()
+    return [{"model_id": r["model_id"], "hidden": bool(r["hidden"])} for r in rows]
+
+
+def add_provider_model(owner_id: str, provider_id: str, model_id: str) -> None:
+    """新增一个厂商模型名（hidden=0）；若同名已存在则取消其隐藏。"""
+    get_conn().execute(
+        """INSERT INTO provider_models (owner_id, provider_id, model_id, hidden, created_at)
+           VALUES (?,?,?,0,?)
+           ON CONFLICT(owner_id, provider_id, model_id) DO UPDATE SET hidden=0""",
+        (owner_id, provider_id, model_id, time.time()),
+    )
+    get_conn().commit()
+
+
+def set_provider_model_hidden(owner_id: str, provider_id: str, model_id: str, hidden: bool) -> None:
+    """隐藏/恢复某厂商模型。恢复一个「用户新增」的模型即删除其行（回到无覆盖态由调用方决定，这里统一 upsert）。"""
+    get_conn().execute(
+        """INSERT INTO provider_models (owner_id, provider_id, model_id, hidden, created_at)
+           VALUES (?,?,?,?,?)
+           ON CONFLICT(owner_id, provider_id, model_id) DO UPDATE SET hidden=excluded.hidden""",
+        (owner_id, provider_id, model_id, 1 if hidden else 0, time.time()),
+    )
+    get_conn().commit()
+
+
+def remove_provider_model(owner_id: str, provider_id: str, model_id: str) -> None:
+    """彻底删除一条模型覆盖行（用于删掉「用户新增」的模型名）。"""
+    get_conn().execute(
+        "DELETE FROM provider_models WHERE owner_id=? AND provider_id=? AND model_id=?",
+        (owner_id, provider_id, model_id),
+    )
     get_conn().commit()
 
 

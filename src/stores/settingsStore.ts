@@ -36,7 +36,8 @@ interface SettingsState {
 const MODEL_KEY = 'wb.model'
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  model: localStorage.getItem(MODEL_KEY) ?? 'DeepSeek-V4 Flash:deepseek-v4-flash',
+  // 选择键（WB-128）：'' = 默认(.env 兜底) · '@provider:model' · 自定义名。空串=跟随后端默认。
+  model: localStorage.getItem(MODEL_KEY) ?? '',
   models: [],
   maxMode: false,
   perm: '默认权限',

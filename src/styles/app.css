@@ -798,6 +798,27 @@ body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
 .mc-frow { display: flex; gap: 8px; }
 .mc-hint { font-size: 11.5px; color: var(--text-3); margin-top: 8px; line-height: 1.5; }
 .mc-fbtns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+/* 厂商渠道卡片（WB-128）*/
+.mc-prov { border: 1px solid var(--border); border-radius: 12px; margin-top: 8px; overflow: hidden; }
+.mc-prov.open { border-color: var(--brand); }
+.mc-provhd { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; }
+.mc-provhd:hover { background: var(--chip); }
+.mc-badge { flex-shrink: 0; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
+.mc-badge.on { color: #16794C; background: rgba(22,163,74,.12); }
+.mc-caret { flex-shrink: 0; color: var(--text-3); font-size: 12px; width: 14px; text-align: center; }
+.mc-provbody { padding: 4px 12px 12px; border-top: 1px solid var(--border-2); }
+.mc-keyrow { display: flex; gap: 8px; margin-top: 10px; }
+.mc-keyrow .np-input { flex: 1; min-width: 0; }
+.mc-keyrow .btn-dark, .mc-keyrow .btn-ghost { flex-shrink: 0; }
+.mc-provmeta { font-size: 11.5px; color: var(--text-3); margin-top: 8px; word-break: break-all; }
+.mc-provmeta a { color: var(--brand-600); }
+.mc-modlist { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.mc-mod { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 8px; background: var(--chip); }
+.mc-mod.off { opacity: .45; }
+.mc-modname { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-tag { margin-left: 6px; font-size: 10.5px; font-weight: 600; color: var(--brand-600); background: var(--brand-soft); padding: 1px 6px; border-radius: 5px; }
+.mpick-empty { font-size: 12px; color: var(--text-3); line-height: 1.6; padding: 8px 6px; }
 .pk-desc { font-size: 12px; color: var(--text-3); padding: 2px 22px 10px; }
 .pkc-row { display: flex; gap: 11px; align-items: flex-start; border: 1px solid var(--border); border-radius: 12px; padding: 12px 13px; margin-bottom: 10px; cursor: pointer; transition: .13s; }
 .pkc-row:hover { border-color: var(--brand); }

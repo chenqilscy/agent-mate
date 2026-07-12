@@ -143,6 +143,7 @@
 | [WB-125](WB-125-merge-skillhub-into-skills-tab.md) | ✅ | P2 | frontend | 目录运营中心「SkillHub」顶层 tab 与「技能」tab 冗余 —— 把顶层 SkillHub 降为「技能」的第三子视图（浏览橱窗｜目录管理｜SkillHub 同步），与「连接器」范式对齐，顶层 5→4 tab（console.html 纯前端） |
 | [WB-126](WB-126-skillhub-sync-http-leftover.md) | ✅ | P2 | fullstack | SkillHub 同步 HTTP 化后的收尾 —— 前端手动同步文案仍写死「跑 CLI」（误导，实际直连公开 HTTP、无需 key）；后台定期同步被 `cli_available()` 卡住，无 CLI 环境一次都不启动（hub/web/console.html:1617 + hub/main.py:38） |
 | [WB-127](WB-127-skillhub-sync-list-no-detail.md) | ✅ | P3 | frontend | 目录运营中心「SkillHub 同步」列表无查看技能详情入口 —— 卡片描述截断且不可点，复用现成 `sgDetail()` 弹窗给列表项加点击详情（纯前端 console.html） |
+| [WB-128](WB-128-builtin-provider-channels.md) | ✅ | P2 | fullstack | 模型管理重构 —— 内置改「厂商渠道」（DeepSeek/智谱/MiniMax/Kimi/通义/OpenAI，真实 base+模型，填 key 即用）+ 移除假 Auto/倍率 + resolve 按 @provider 路由(含非标 chat_path) + 自定义作兜底 |
 
 ## 来源
 

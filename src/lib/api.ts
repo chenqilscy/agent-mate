@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, InstalledSkill, Me, Milestone, ModelOption, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, InstalledSkill, Me, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -46,15 +46,20 @@ export const api = {
     send<AuthResult>('POST', '/auth/login', { name, password }),
   logout: () => send<{ ok: boolean }>('POST', '/auth/logout'),
 
-  // all=true 含隐藏的内置项（配置弹窗用）；默认只给可见项（picker 用）。WB-124。
-  models: (all = false) =>
-    get<{ default: string; effective: string; models: ModelOption[] }>(`/models${all ? '?all=true' : ''}`),
+  // 厂商预置 + 自定义兜底（WB-128）。providers 供配置弹窗分组；models 是 picker 扁平可选列表。
+  models: () => get<ModelsResponse>('/models'),
+  // 厂商 API Key（空串 = 撤销）；模型增删/隐藏（厂商上新/清理）。key 只后端存、绝不回前端。
+  setProviderKey: (pid: string, api_key: string) =>
+    send<{ ok: boolean; has_key: boolean }>('PUT', `/providers/${pid}/key`, { api_key }),
+  addProviderModel: (pid: string, model_id: string) =>
+    send<{ ok: boolean }>('POST', `/providers/${pid}/models`, { model_id }),
+  hideProviderModel: (pid: string, model_id: string, hidden: boolean) =>
+    send<{ ok: boolean }>('POST', `/providers/${pid}/models/hide`, { model_id, hidden }),
+  // 自由填写的自定义模型（WB-124，兜底）。
   createCustomModel: (m: CustomModelInput) => send<ModelOption>('POST', '/models/custom', m),
   updateCustomModel: (id: string, m: Partial<CustomModelInput>) =>
     send<ModelOption>('PATCH', `/models/custom/${id}`, m),
   deleteCustomModel: (id: string) => send<{ ok: boolean }>('DELETE', `/models/custom/${id}`),
-  hideBuiltinModel: (name: string, hidden: boolean) =>
-    send<{ ok: boolean }>('POST', '/models/builtin/hide', { name, hidden }),
 
   // 橱窗目录（WB-060）：原 data/catalog.ts 静态商品卡，现由后端供给。按 export 名分组的对象。
   getCatalog: () => get<Record<string, unknown>>('/catalog'),

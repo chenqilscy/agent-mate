@@ -1,12 +1,16 @@
-"""Model menu + custom-model management (WB-124).
+"""Model menu — built-in provider channels + custom models (WB-128, supersedes the
+WB-124 fake-builtin list).
 
-Drives the composer model picker. Two kinds of entries:
-  - builtin: the prototype menu (multiplier / level / limited-offer). These don't map
-    to a real provider locally; users may *hide* the ones they don't use.
-  - custom: owner-scoped rows in `custom_models`, each carrying its own provider
-    (model_id + api_base + api_key). Selecting one actually routes there at run time
-    (agent.runtime.resolve_model_config). The api_key is backend-only and NEVER
-    returned to the frontend (铁律#4) — the list exposes only `api_base` + `has_key`.
+Two real sources feed the composer model picker:
+  - **providers**: a curated registry of real vendors (DeepSeek / 智谱 / MiniMax / Kimi /
+    通义 / OpenAI, see storage/provider_seed.py). Each has a fixed base_url + real model
+    names; the user supplies an API key per provider and its models become runnable.
+    Keys are backend-only, per-owner, NEVER returned to the frontend (铁律#4).
+  - **custom**: free-form fallback (WB-124) for anything not in the preset list.
+
+There is no fake "Auto"/multiplier anymore — a pick resolves to a real provider at run
+time (agent.runtime.resolve_model_config). The `.env` model remains the local backstop,
+surfaced honestly as a 「默认」entry.
 """
 from __future__ import annotations
 
@@ -15,50 +19,34 @@ from pydantic import BaseModel, Field
 
 from auth.deps import current_user
 from config import settings
-from storage import db
+from storage import db, provider_seed
 
 router = APIRouter(prefix="/api", tags=["models"])
 
-# [icon, color, name, level, mult, off]
-_BUILTIN = [
-    ["A", "#3B4048", "Auto", "High", "", ""],
-    ["H", "#1B74E4", "Hy3 preview", "High", "0.04x", "限时折扣"],
-    ["Z", "#17181C", "GLM-5.2", "Medium", "0.79x", ""],
-    ["Z", "#17181C", "GLM-5.1", "Medium", "0.79x", ""],
-    ["M", "#E5484D", "MiniMax-M3", "Medium", "0.25x", ""],
-    ["K", "#17181C", "Kimi-K2.7-Code", "Medium", "0.57x", ""],
-    ["🐋", "", "Deepseek-V4-Flash", "High", "0.06x", ""],
-    ["🐋", "", "Deepseek-V4-Pro", "High", "0.16x", ""],
-]
+
+def _provider_models_mgmt(owner_id: str, prov: dict) -> list[dict]:
+    """厂商模型的**管理视图**：预置模型（带 hidden 标记）+ 用户新增模型。"""
+    preset = prov["models"]
+    overrides = db.list_provider_model_overrides(owner_id, prov["id"])
+    hidden = {o["model_id"] for o in overrides if o["hidden"]}
+    added = [o["model_id"] for o in overrides if not o["hidden"] and o["model_id"] not in preset]
+    out = [{"model_id": m, "preset": True, "hidden": m in hidden} for m in preset]
+    out += [{"model_id": m, "preset": False, "hidden": False} for m in added]
+    return out
 
 
-def _pack_builtin(hidden: set[str]) -> list[dict]:
-    return [
-        {
-            "icon": r[0],
-            "color": r[1],
-            "name": r[2],
-            "level": r[3],
-            "mult": r[4],
-            "off": r[5],
-            "group": "builtin",
-            "builtin": True,
-            "hidden": r[2] in hidden,
-        }
-        for r in _BUILTIN
-    ]
+def _sel_key_provider(pid: str, model_id: str) -> str:
+    return f"@{pid}:{model_id}"
 
 
 def _pack_custom(row: dict) -> dict:
-    """DB custom-model row (already secret-stripped) → frontend ModelOption shape."""
+    """WB-124 custom-model row (secret-stripped) → picker/management shape."""
     return {
+        "key": row["name"],
         "id": row["id"],
         "icon": row.get("icon") or "🧩",
         "color": row.get("color") or "",
         "name": row["name"],
-        "level": "",
-        "mult": row.get("mult") or "",
-        "off": "",
         "group": "custom",
         "model_id": row.get("model_id") or "",
         "api_base": row.get("api_base") or "",
@@ -67,28 +55,118 @@ def _pack_custom(row: dict) -> dict:
 
 
 @router.get("/models")
-def list_models(all: bool = False) -> dict:
-    """Picker list (default) or full management list (`?all=true` includes hidden
-    builtins with a `hidden` flag)."""
+def list_models() -> dict:
+    """Composed model menu: providers (grouped, for the config modal), custom, and a flat
+    `models` list of directly-selectable entries (for the picker)."""
     user = current_user()
-    hidden = set(db.list_hidden_builtins(user.id))
-    builtin = _pack_builtin(hidden)
-    if not all:
-        builtin = [m for m in builtin if not m["hidden"]]
-    custom = [_pack_custom(r) for r in db.list_custom_models(user.id, include_secrets=False)]
-    models = builtin + custom
-    # Seed first-visit selection to whatever resolves to the .env model (so what's
-    # shown = what runs), else the raw id. Only affects the very first pick (WB-005).
-    default = next(
-        (
-            m["name"]
-            for m in models
-            if m.get("model_id") == settings.LLM_MODEL or m["name"].endswith(":" + settings.LLM_MODEL)
-        ),
-        settings.LLM_MODEL,
-    )
-    return {"default": default, "effective": settings.LLM_MODEL, "models": models}
+    keyed = db.list_provider_keys(user.id)
 
+    providers: list[dict] = []
+    picker: list[dict] = []
+    for prov in provider_seed.PROVIDERS:
+        has_key = prov["id"] in keyed
+        mgmt = _provider_models_mgmt(user.id, prov)
+        providers.append({
+            "id": prov["id"],
+            "name": prov["name"],
+            "icon": prov["icon"],
+            "color": prov["color"],
+            "base_url": prov["base_url"],
+            "key_hint": prov["key_hint"],
+            "site": prov["site"],
+            "has_key": has_key,
+            "models": mgmt,
+        })
+        if has_key:
+            for m in mgmt:
+                if m["hidden"]:
+                    continue
+                picker.append({
+                    "key": _sel_key_provider(prov["id"], m["model_id"]),
+                    "icon": prov["icon"],
+                    "color": prov["color"],
+                    "name": m["model_id"],
+                    "provider": prov["id"],
+                    "providerName": prov["name"],
+                    "group": "provider",
+                })
+
+    custom = [_pack_custom(r) for r in db.list_custom_models(user.id, include_secrets=False)]
+
+    # 「默认」= .env 后端配置的模型，永远可用（local-first 兜底，取代假 Auto）。key="" → resolve 回退 .env。
+    backstop = {
+        "key": "",
+        "icon": "⚙️",
+        "color": "",
+        "name": f"默认 · {settings.LLM_MODEL}",
+        "group": "default",
+    }
+    models = [backstop] + picker + custom
+    # 首屏默认选中：第一个可用厂商模型，否则默认兜底。
+    default = picker[0]["key"] if picker else ""
+    return {
+        "default": default,
+        "effective": settings.LLM_MODEL,
+        "providers": providers,
+        "custom": custom,
+        "models": models,
+    }
+
+
+# ---- provider keys + model overrides (WB-128) --------------------------
+
+def _require_provider(pid: str) -> dict:
+    prov = provider_seed.PROVIDERS_BY_ID.get(pid)
+    if not prov:
+        raise HTTPException(404, "未知厂商")
+    return prov
+
+
+class ProviderKeyIn(BaseModel):
+    api_key: str = Field(default="", max_length=800)  # 空串 = 撤销该厂商
+
+
+@router.put("/providers/{pid}/key")
+def set_provider_key(pid: str, body: ProviderKeyIn) -> dict:
+    user = current_user()
+    _require_provider(pid)
+    db.set_provider_key(user.id, pid, body.api_key.strip())
+    return {"ok": True, "provider": pid, "has_key": bool(body.api_key.strip())}
+
+
+class ProviderModelIn(BaseModel):
+    model_id: str = Field(min_length=1, max_length=120)
+
+
+@router.post("/providers/{pid}/models")
+def add_provider_model(pid: str, body: ProviderModelIn) -> dict:
+    user = current_user()
+    _require_provider(pid)
+    db.add_provider_model(user.id, pid, body.model_id.strip())
+    return {"ok": True}
+
+
+class ProviderModelHideIn(BaseModel):
+    model_id: str = Field(min_length=1, max_length=120)
+    hidden: bool
+
+
+@router.post("/providers/{pid}/models/hide")
+def hide_provider_model(pid: str, body: ProviderModelHideIn) -> dict:
+    user = current_user()
+    prov = _require_provider(pid)
+    if body.model_id in prov["models"]:
+        db.set_provider_model_hidden(user.id, pid, body.model_id.strip(), body.hidden)
+    else:
+        # 用户新增的模型：恢复=保留(hidden=0)，隐藏其实等价于删除该新增行。
+        if body.hidden:
+            db.remove_provider_model(user.id, pid, body.model_id.strip())
+        else:
+            db.add_provider_model(user.id, pid, body.model_id.strip())
+    return {"ok": True}
+
+
+# ---- custom models (WB-124, free-form fallback) ------------------------
 
 class CustomModelIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
@@ -132,7 +210,6 @@ def create_custom(body: CustomModelIn) -> dict:
 @router.patch("/models/custom/{model_id}")
 def update_custom(model_id: str, body: CustomModelPatch) -> dict:
     user = current_user()
-    # Guard the unique-name constraint before writing (clearer than a 500 on IntegrityError).
     if body.name is not None:
         clash = db.get_custom_model_by_name(user.id, body.name.strip())
         if clash and clash["id"] != model_id:
@@ -142,7 +219,6 @@ def update_custom(model_id: str, body: CustomModelPatch) -> dict:
         v = getattr(body, k)
         if v is not None:
             fields[k] = v.strip() if k in ("name", "model_id", "api_base") else v
-    # api_base "" → None (clear); api_key passthrough (None keep / "" clear / value set).
     if "api_base" in fields:
         fields["api_base"] = fields["api_base"] or None
     if body.api_key is not None:
@@ -160,17 +236,3 @@ def delete_custom(model_id: str) -> dict:
     if not ok:
         raise HTTPException(404, "自定义模型不存在")
     return {"ok": True}
-
-
-class HideBuiltinIn(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
-    hidden: bool
-
-
-@router.post("/models/builtin/hide")
-def hide_builtin(body: HideBuiltinIn) -> dict:
-    user = current_user()
-    if body.name not in {r[2] for r in _BUILTIN}:
-        raise HTTPException(404, "未知的内置模型")
-    db.set_builtin_hidden(user.id, body.name, body.hidden)
-    return {"ok": True, "name": body.name, "hidden": body.hidden}

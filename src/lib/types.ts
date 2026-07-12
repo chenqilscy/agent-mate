@@ -96,23 +96,43 @@ export interface SessionInfo {
   workspace?: string | null
 }
 
+// Flat picker entry (WB-128). `key` is the selection value stored/sent to the backend:
+//   '' = 默认(.env backstop) · '@{provider}:{model}' = built-in provider · custom name.
 export interface ModelOption {
+  key: string
+  name: string
   icon: string
   color: string
-  name: string
-  level: string
-  mult: string
-  off: string
-  group: 'builtin' | 'custom'
-  // builtin-only (WB-124): user can hide unused builtin entries from the picker
-  builtin?: boolean
-  hidden?: boolean
-  // custom-only (WB-124): its own provider. api_key never crosses to the frontend —
-  // only has_key tells whether one is stored.
+  group: 'default' | 'provider' | 'custom'
+  provider?: string
+  providerName?: string
+  // custom-only (WB-124): api_key never crosses to the frontend — only has_key.
   id?: string
   model_id?: string
   api_base?: string
   has_key?: boolean
+}
+
+// Built-in provider channel (WB-128). Key lives backend-only; `has_key` reflects存否.
+export interface ProviderModel { model_id: string; preset: boolean; hidden: boolean }
+export interface Provider {
+  id: string
+  name: string
+  icon: string
+  color: string
+  base_url: string
+  key_hint: string
+  site: string
+  has_key: boolean
+  models: ProviderModel[]
+}
+
+export interface ModelsResponse {
+  default: string
+  effective: string
+  providers: Provider[]
+  custom: ModelOption[]
+  models: ModelOption[]
 }
 
 export interface CustomModelInput {

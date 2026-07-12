@@ -46,6 +46,9 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
   const fileRef = useRef<HTMLInputElement>(null)
 
   const model = useSettingsStore((s) => s.model)
+  const models = useSettingsStore((s) => s.models)
+  // 选择键 → 友好显示名（WB-128）：默认兜底/厂商模型/自定义；找不到时退回「默认」。
+  const modelLabel = models.find((m) => m.key === model)?.name ?? '默认'
   const perm = useSettingsStore((s) => s.perm)
   const planMode = useSettingsStore((s) => s.planMode)
   const setPlan = useSettingsStore((s) => s.setPlan)
@@ -208,7 +211,7 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
 
         <button className="ctool model" onClick={(e) => openPop('model', e)}>
           <span className="mk">🐋</span>
-          <span className="model-lb">{model}</span>
+          <span className="model-lb">{modelLabel}</span>
           <IcChevronDown style={{ width: 10, height: 10 }} />
         </button>
 

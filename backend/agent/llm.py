@@ -48,20 +48,23 @@ async def stream_chat(
     temperature: float = 0.6,
     api_base: str | None = None,
     api_key: str | None = None,
+    chat_path: str = "/chat/completions",
 ) -> AsyncIterator[Delta]:
     """Yield Delta increments from an OpenAI-compatible /chat/completions stream.
 
-    api_base/api_key override the .env defaults so a custom model (WB-124) can hit
-    its own provider. When absent, fall back to the single .env-configured provider.
+    api_base/api_key override the .env defaults so a custom model (WB-124) or a
+    built-in provider (WB-128) can hit its own endpoint. chat_path lets a
+    non-standard provider (e.g. MiniMax's /text/chatcompletion_v2) work while the
+    request/response stay OpenAI-shaped. Absent overrides fall back to the .env provider.
     """
     base = (api_base or settings.LLM_API_BASE).rstrip("/")
     key = api_key or settings.LLM_API_KEY
-    # Custom models carry their own key; a bare .env with no key is only fatal when
-    # this call also lacks an override.
+    # Custom/provider models carry their own key; a bare .env with no key is only
+    # fatal when this call also lacks an override.
     if not key or not base:
-        raise LLMError("LLM 未配置：请在 backend/.env 填入 LLM_API_KEY 与 LLM_API_BASE，或为该自定义模型填写 API Base/Key")
+        raise LLMError("LLM 未配置：请在 backend/.env 填入 LLM_API_KEY 与 LLM_API_BASE，或为该厂商/自定义模型填写 API Key")
 
-    url = f"{base}/chat/completions"
+    url = f"{base}/{chat_path.lstrip('/')}"
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
