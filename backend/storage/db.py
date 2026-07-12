@@ -385,6 +385,32 @@ def init_db() -> None:
             updated_at REAL NOT NULL
         );
 
+        -- 自定义模型（WB-124）：按 owner 隔离的多厂商模型配置。api_key 只存后端、绝不回传前端
+        -- （铁律#4，DB 已 .gitignore）。name = 用户可见显示名（per owner 唯一，作为 picker 选择键）；
+        -- model_id/api_base/api_key 三者构成一次真实的 OpenAI 兼容调用（各厂商各自的凭据）。
+        CREATE TABLE IF NOT EXISTS custom_models (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            api_base TEXT,
+            api_key TEXT,
+            icon TEXT NOT NULL DEFAULT '🧩',
+            color TEXT NOT NULL DEFAULT '',
+            mult TEXT NOT NULL DEFAULT '',
+            sort INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_models_owner_name ON custom_models(owner_id, name);
+
+        -- 隐藏的内置模型（WB-124）：用户把用不到的内置项从 picker 隐藏。存在一行 = 隐藏。
+        CREATE TABLE IF NOT EXISTS hidden_builtin_models (
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            PRIMARY KEY (owner_id, name)
+        );
+
         -- 多助理（WB-086/087）：每个助理一套独立能力配置 + 一条共享会话。
         -- mode: exec(执行,全工具) / plan(计划,只读+ask_user) / ask(问答,无工具)——权限映射（设计 §4）。
         -- workspace: default / project:<id> / dedicated（专属 workspace/assistants/<id>/）。
@@ -1768,6 +1794,122 @@ def set_channel_offset(channel: str, offset: int) -> None:
         "INSERT OR REPLACE INTO channel_state (channel,update_offset,updated_at) VALUES (?,?,?)",
         (channel, int(offset), time.time()),
     )
+    get_conn().commit()
+
+
+# ---- custom models (WB-124) --------------------------------------------
+
+def _row_to_custom_model(row: sqlite3.Row, *, include_secrets: bool) -> dict:
+    """DB 行 → dict。默认脱敏：剔除 api_key 明文，只暴露 has_key 布尔（铁律#4）。"""
+    d = dict(row)
+    key = d.pop("api_key", None)
+    if include_secrets:
+        d["api_key"] = key
+    else:
+        d["has_key"] = bool(key)
+    d["group"] = "custom"
+    return d
+
+
+def list_custom_models(owner_id: str, *, include_secrets: bool = False) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM custom_models WHERE owner_id=? ORDER BY sort, created_at",
+        (owner_id,),
+    ).fetchall()
+    return [_row_to_custom_model(r, include_secrets=include_secrets) for r in rows]
+
+
+def get_custom_model(id: str, owner_id: str, *, include_secrets: bool = False) -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT * FROM custom_models WHERE id=? AND owner_id=?", (id, owner_id)
+    ).fetchone()
+    return _row_to_custom_model(row, include_secrets=include_secrets) if row else None
+
+
+def get_custom_model_by_name(owner_id: str, name: str, *, include_secrets: bool = False) -> Optional[dict]:
+    """按显示名查（picker 选择键即 name）——用于运行时把选择解析成真实 base/key/model。"""
+    row = get_conn().execute(
+        "SELECT * FROM custom_models WHERE owner_id=? AND name=?", (owner_id, name)
+    ).fetchone()
+    return _row_to_custom_model(row, include_secrets=include_secrets) if row else None
+
+
+def create_custom_model(
+    owner_id: str, *, name: str, model_id: str,
+    api_base: str | None = None, api_key: str | None = None,
+    icon: str = "🧩", color: str = "", mult: str = "",
+) -> dict:
+    cid = new_uuid()
+    now = time.time()
+    # sort = 追加到末尾
+    row = get_conn().execute(
+        "SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM custom_models WHERE owner_id=?",
+        (owner_id,),
+    ).fetchone()
+    sort = int(row["n"]) if row else 0
+    get_conn().execute(
+        """INSERT INTO custom_models
+           (id, owner_id, name, model_id, api_base, api_key, icon, color, mult, sort, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (cid, owner_id, name, model_id, api_base or None, api_key or None,
+         icon or "🧩", color or "", mult or "", sort, now, now),
+    )
+    get_conn().commit()
+    return get_custom_model(cid, owner_id) or {}
+
+
+def update_custom_model(id: str, owner_id: str, **fields) -> Optional[dict]:
+    """部分字段更新。api_key 特殊：None/缺省 = 保持不变；空串 '' = 清空（切回默认凭据）。
+    合法字段：name/model_id/api_base/icon/color/mult/api_key。"""
+    cur = get_conn().execute(
+        "SELECT * FROM custom_models WHERE id=? AND owner_id=?", (id, owner_id)
+    ).fetchone()
+    if not cur:
+        return None
+    merged = dict(cur)
+    for k in ("name", "model_id", "api_base", "icon", "color", "mult"):
+        if fields.get(k) is not None:
+            merged[k] = fields[k]
+    if "api_key" in fields and fields["api_key"] is not None:
+        # 空串 = 显式清空；非空 = 覆盖。省略/None = 保持原 key（不覆盖）。
+        merged["api_key"] = fields["api_key"] or None
+    get_conn().execute(
+        """UPDATE custom_models
+           SET name=?, model_id=?, api_base=?, api_key=?, icon=?, color=?, mult=?, updated_at=?
+           WHERE id=? AND owner_id=?""",
+        (merged["name"], merged["model_id"], merged["api_base"], merged["api_key"],
+         merged["icon"], merged["color"], merged["mult"], time.time(), id, owner_id),
+    )
+    get_conn().commit()
+    return get_custom_model(id, owner_id)
+
+
+def delete_custom_model(id: str, owner_id: str) -> bool:
+    cur = get_conn().execute(
+        "DELETE FROM custom_models WHERE id=? AND owner_id=?", (id, owner_id)
+    )
+    get_conn().commit()
+    return cur.rowcount > 0
+
+
+def list_hidden_builtins(owner_id: str) -> list[str]:
+    rows = get_conn().execute(
+        "SELECT name FROM hidden_builtin_models WHERE owner_id=?", (owner_id,)
+    ).fetchall()
+    return [r["name"] for r in rows]
+
+
+def set_builtin_hidden(owner_id: str, name: str, hidden: bool) -> None:
+    if hidden:
+        get_conn().execute(
+            "INSERT OR IGNORE INTO hidden_builtin_models (owner_id, name) VALUES (?,?)",
+            (owner_id, name),
+        )
+    else:
+        get_conn().execute(
+            "DELETE FROM hidden_builtin_models WHERE owner_id=? AND name=?",
+            (owner_id, name),
+        )
     get_conn().commit()
 
 

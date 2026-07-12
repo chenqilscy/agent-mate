@@ -781,6 +781,23 @@ body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
 .pk-modal { width: 560px; }
 .pk-modal.wide { width: 1060px; }
 .pk-modal.mid { width: 980px; }
+
+/* 模型管理弹窗（WB-124）—— 复用 .np-* 骨架，行/表单用 mc- 前缀，全 token 化天然暗色 */
+.mc-empty { font-size: 12.5px; color: var(--text-3); line-height: 1.6; padding: 4px 2px 8px; }
+.mc-lblhint { margin-left: 8px; font-weight: 500; color: var(--text-3); font-size: 12px; }
+.mc-row { display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin-top: 8px; }
+.mc-row.off { opacity: .5; }
+.mc-ic { width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px; display: grid; place-items: center; background: var(--chip); font-size: 15px; }
+.mc-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mc-name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-sub { font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-act { flex-shrink: 0; border: none; background: none; color: var(--text-2); font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+.mc-act:hover { color: var(--brand-600); background: var(--chip); }
+.mc-act.danger:hover { color: #E5484D; }
+.mc-form { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-top: 10px; background: var(--chip); }
+.mc-frow { display: flex; gap: 8px; }
+.mc-hint { font-size: 11.5px; color: var(--text-3); margin-top: 8px; line-height: 1.5; }
+.mc-fbtns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .pk-desc { font-size: 12px; color: var(--text-3); padding: 2px 22px 10px; }
 .pkc-row { display: flex; gap: 11px; align-items: flex-start; border: 1px solid var(--border); border-radius: 12px; padding: 12px 13px; margin-bottom: 10px; cursor: pointer; transition: .13s; }
 .pkc-row:hover { border-color: var(--brand); }

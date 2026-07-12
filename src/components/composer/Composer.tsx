@@ -5,6 +5,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
 import { ModelPicker } from './ModelPicker'
+import { ModelConfigModal } from './ModelConfigModal'
 import { PermPopover } from './PermPopover'
 import { CtxPopover } from './CtxPopover'
 import { PlusMenu, type PlusActions } from './PlusMenu'
@@ -38,6 +39,7 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
   const [text, setText] = useState('')
   const [pop, setPop] = useState<PopId>(null)
   const [picker, setPicker] = useState<'exp' | 'skill' | 'conn' | null>(null)
+  const [modelConfig, setModelConfig] = useState(false)
   const [refOpen, setRefOpen] = useState(false)
   const anchorRef = useRef<HTMLElement | null>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -229,8 +231,9 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
         <PlusMenu onClose={closePop} actions={plusActions} />
       </Popover>
       <Popover open={pop === 'model'} anchor={anchorRef.current} dir="up" onClose={closePop} className="model">
-        <ModelPicker onClose={closePop} />
+        <ModelPicker onClose={closePop} onConfigure={() => { closePop(); setModelConfig(true) }} />
       </Popover>
+      {modelConfig && <ModelConfigModal onClose={() => setModelConfig(false)} />}
       <Popover open={pop === 'perm'} anchor={anchorRef.current} dir="up" onClose={closePop} className="perm-pop" minWidth={232}>
         <PermPopover />
       </Popover>

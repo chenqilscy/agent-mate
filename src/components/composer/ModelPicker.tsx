@@ -2,8 +2,9 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
 
 // Model menu content (spec 4.2). List comes from GET /api/models → settingsStore;
-// selecting persists to localStorage via setModel.
-export function ModelPicker({ onClose }: { onClose: () => void }) {
+// selecting persists to localStorage via setModel. 「配置自定义模型」opens the manager
+// modal (WB-124) via onConfigure so it survives this popover closing.
+export function ModelPicker({ onClose, onConfigure }: { onClose: () => void; onConfigure: () => void }) {
   const models = useSettingsStore((s) => s.models)
   const current = useSettingsStore((s) => s.model)
   const setModel = useSettingsStore((s) => s.setModel)
@@ -46,7 +47,7 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
       {custom.length > 0 && <div className="pop-h">自定义模型</div>}
       {custom.map(row)}
       <div className="pop-div" />
-      <div className="pop-item" onClick={() => { toast('配置自定义模型'); onClose() }}>
+      <div className="pop-item" onClick={onConfigure}>
         <span className="pi-ic">✏️</span>配置自定义模型
       </div>
     </>

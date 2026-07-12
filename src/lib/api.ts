@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, InstalledSkill, Me, Milestone, ModelOption, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, InstalledSkill, Me, Milestone, ModelOption, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -46,7 +46,15 @@ export const api = {
     send<AuthResult>('POST', '/auth/login', { name, password }),
   logout: () => send<{ ok: boolean }>('POST', '/auth/logout'),
 
-  models: () => get<{ default: string; effective: string; models: ModelOption[] }>('/models'),
+  // all=true 含隐藏的内置项（配置弹窗用）；默认只给可见项（picker 用）。WB-124。
+  models: (all = false) =>
+    get<{ default: string; effective: string; models: ModelOption[] }>(`/models${all ? '?all=true' : ''}`),
+  createCustomModel: (m: CustomModelInput) => send<ModelOption>('POST', '/models/custom', m),
+  updateCustomModel: (id: string, m: Partial<CustomModelInput>) =>
+    send<ModelOption>('PATCH', `/models/custom/${id}`, m),
+  deleteCustomModel: (id: string) => send<{ ok: boolean }>('DELETE', `/models/custom/${id}`),
+  hideBuiltinModel: (name: string, hidden: boolean) =>
+    send<{ ok: boolean }>('POST', '/models/builtin/hide', { name, hidden }),
 
   // 橱窗目录（WB-060）：原 data/catalog.ts 静态商品卡，现由后端供给。按 export 名分组的对象。
   getCatalog: () => get<Record<string, unknown>>('/catalog'),

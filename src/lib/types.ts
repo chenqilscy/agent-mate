@@ -104,6 +104,25 @@ export interface ModelOption {
   mult: string
   off: string
   group: 'builtin' | 'custom'
+  // builtin-only (WB-124): user can hide unused builtin entries from the picker
+  builtin?: boolean
+  hidden?: boolean
+  // custom-only (WB-124): its own provider. api_key never crosses to the frontend —
+  // only has_key tells whether one is stored.
+  id?: string
+  model_id?: string
+  api_base?: string
+  has_key?: boolean
+}
+
+export interface CustomModelInput {
+  name: string
+  model_id: string
+  api_base?: string
+  api_key?: string
+  icon?: string
+  color?: string
+  mult?: string
 }
 
 export interface Me {

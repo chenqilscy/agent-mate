@@ -46,14 +46,24 @@ async def stream_chat(
     model: str | None = None,
     tools: list[dict[str, Any]] | None = None,
     temperature: float = 0.6,
+    api_base: str | None = None,
+    api_key: str | None = None,
 ) -> AsyncIterator[Delta]:
-    """Yield Delta increments from an OpenAI-compatible /chat/completions stream."""
-    if not settings.llm_configured:
-        raise LLMError("LLM 未配置：请在 backend/.env 填入 LLM_API_KEY 与 LLM_API_BASE")
+    """Yield Delta increments from an OpenAI-compatible /chat/completions stream.
 
-    url = f"{settings.LLM_API_BASE}/chat/completions"
+    api_base/api_key override the .env defaults so a custom model (WB-124) can hit
+    its own provider. When absent, fall back to the single .env-configured provider.
+    """
+    base = (api_base or settings.LLM_API_BASE).rstrip("/")
+    key = api_key or settings.LLM_API_KEY
+    # Custom models carry their own key; a bare .env with no key is only fatal when
+    # this call also lacks an override.
+    if not key or not base:
+        raise LLMError("LLM 未配置：请在 backend/.env 填入 LLM_API_KEY 与 LLM_API_BASE，或为该自定义模型填写 API Base/Key")
+
+    url = f"{base}/chat/completions"
     headers = {
-        "Authorization": f"Bearer {settings.LLM_API_KEY}",
+        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
     body: dict[str, Any] = {

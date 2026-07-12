@@ -2,6 +2,7 @@
 // live context-usage number (fed by the backend `usage` SSE event in M2, seeded
 // here for M1 so the ring renders).
 import { create } from 'zustand'
+import { api } from '../lib/api'
 import type { ModelOption } from '../lib/types'
 
 type Perm = '默认权限' | '完全访问权限'
@@ -24,6 +25,7 @@ interface SettingsState {
 
   setModel: (name: string) => void
   setModels: (m: ModelOption[]) => void
+  reloadModels: () => Promise<void>
   toggleMax: () => void
   setPerm: (p: Perm) => void
   setPlan: (on: boolean) => void
@@ -47,6 +49,15 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     set({ model: name })
   },
   setModels: (models) => set({ models }),
+  // 增删改/隐藏后重拉 picker 列表（只含可见项）。WB-124。
+  reloadModels: async () => {
+    try {
+      const r = await api.models()
+      set({ models: r.models })
+    } catch {
+      /* 离线/后端不可达：保留现有列表，不清空 */
+    }
+  },
   toggleMax: () => set((s) => ({ maxMode: !s.maxMode })),
   setPerm: (perm) => set({ perm }),
   setPlan: (planMode) => set({ planMode }),

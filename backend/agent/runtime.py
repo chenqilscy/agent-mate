@@ -110,19 +110,27 @@ def submit_answers(session_id: str, answers: list[str]) -> bool:
     return False
 
 
-def resolve_model(client_model: str | None) -> str:
-    """Map the picker selection to a real provider model id.
+def resolve_model_config(owner_id: str, client_model: str | None) -> tuple[str, str | None, str | None]:
+    """Map the picker selection to a real (model_id, api_base, api_key) triple.
 
-    The picker labels custom entries as "Display:real-id"; we send the id after
-    the colon so an explicit UI pick actually switches models. Builtin labels
-    (Auto, GLM-5.2…) fall back to the authoritative .env LLM_MODEL — the picker is
-    a UI affordance until multi-routing (litellm) lands (decision A.2).
+    WB-124: a custom model (matched by its display name for this owner) carries its
+    own provider base URL + key, so an explicit pick actually reaches that provider.
+    Fallbacks, in order:
+      1. DB custom model whose name == the selection → its model_id + base/key.
+      2. Legacy "Display:real-id" custom labels → the id after the colon, on the
+         .env provider (back-compat with pre-WB-124 hardcoded entries).
+      3. Builtin labels (Auto, GLM-5.2…) → the authoritative .env LLM_MODEL.
+    api_base/api_key None means "use the .env default" (see llm.stream_chat).
     """
-    if client_model and ":" in client_model:
-        real = client_model.rsplit(":", 1)[-1].strip()
-        if real:
-            return real
-    return settings.LLM_MODEL
+    if client_model:
+        row = db.get_custom_model_by_name(owner_id, client_model, include_secrets=True)
+        if row and row.get("model_id"):
+            return row["model_id"], row.get("api_base"), row.get("api_key")
+        if ":" in client_model:
+            real = client_model.rsplit(":", 1)[-1].strip()
+            if real:
+                return real, None, None
+    return settings.LLM_MODEL, None, None
 
 
 def _approx_tokens(text: str) -> int:
@@ -352,13 +360,20 @@ async def run_chat(
                 parts.append("连接器未就绪 " + "、".join(f"{s['name']}（{s['reason']}）" for s in mcp_skipped))
             yield record({"kind": "step", "tool": "loadout", "label": "已加载 · " + " · ".join(parts)})
 
+        # Resolve the picker selection to a concrete provider once (owner-scoped so a
+        # custom model uses its own base/key). Stable across tool-loop rounds.
+        model_id, model_base, model_key = resolve_model_config(user.id, model)
+
         for _round in range(MAX_ROUNDS):
             content_buf = ""
             reasoning_buf = ""
             tool_acc: dict[int, dict[str, Any]] = {}
             think_pending = True  # emit a "深度思考" marker before acting if no reasoning shown
 
-            async for delta in stream_chat(llm_messages, model=resolve_model(model), tools=schemas):
+            async for delta in stream_chat(
+                llm_messages, model=model_id, tools=schemas,
+                api_base=model_base, api_key=model_key,
+            ):
                 if stop.is_set():
                     stopped = True
                     break
