@@ -23,7 +23,6 @@ from fastapi.responses import HTMLResponse  # noqa: E402
 _CONSOLE = Path(__file__).resolve().parent / "web" / "console.html"
 
 import db  # noqa: E402
-import skillhub_client  # noqa: E402
 import skillhub_sync  # noqa: E402
 from config import settings  # noqa: E402
 from routers import auth, catalog, comments, invites, milestones, notifications, orgs, projects, settings as settings_router, timeline, work_items  # noqa: E402
@@ -33,9 +32,14 @@ db.init_db()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """启动后台 SkillHub 目录镜像同步循环（WB-069）；无 CLI / 间隔=0 时不启。"""
+    """启动后台 SkillHub 目录镜像同步循环（WB-069）；间隔=0 时不启。
+
+    取数主路径是直连公开 HTTP（WB-094），无需本机 CLI；故不再用 `cli_available()`
+    作前置（旧逻辑会让无 CLI 环境定期同步一次都不启，WB-126）。HTTP/CLI 全不可用时
+    `rankings_all()` 优雅返回 []，本轮 upsert 0 条，不崩。
+    """
     task = None
-    if settings.SKILLHUB_SYNC_INTERVAL > 0 and skillhub_client.cli_available():
+    if settings.SKILLHUB_SYNC_INTERVAL > 0:
         task = asyncio.create_task(skillhub_sync.run_periodic())
     try:
         yield

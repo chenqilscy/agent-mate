@@ -1495,7 +1495,7 @@ function sgCathead(chips){
 }
 
 async function skillsGallery(sub){
-  sub.innerHTML = `<div style="margin-bottom:14px"><input id="sg-q" placeholder="搜索技能（实时，走 CLI）" value="${esc(SG_Q)}" style="max-width:320px"></div>
+  sub.innerHTML = `<div style="margin-bottom:14px"><input id="sg-q" placeholder="搜索技能（实时，直连）" value="${esc(SG_Q)}" style="max-width:320px"></div>
     <div id="sg-main" class="muted">加载中…</div>`;
   const qin=document.getElementById("sg-q");
   qin.onkeydown=e=>{ if(e.key==="Enter"){ SG_Q=qin.value.trim(); skillsGallery(sub); } };
@@ -1595,7 +1595,7 @@ function sgDetail(c){
 
 // SkillHub（WB-084 + WB-092 向真站对齐）：左筛选（发布来源/排序/场景）+ 右富卡片（图标/来源/★/⬇）。
 // 排序/来源只用镜像已有字段（source·score·downloads·stars·installs）；「需 API Key 筛选、近期飙升/最近上新」
-// SkillHub 榜单 feed 不提供该数据，诚实不做（见 WB-092）。搜索走 CLI 代理。
+// SkillHub 榜单 feed 不提供该数据，诚实不做（见 WB-092）。搜索经 Hub 代理直连 HTTP（CLI 兜底，WB-094）。
 let SH_Q="", SH_CAT="", SH_SRC="", SH_SORT="score";
 const SH_SORTS=[["score","推荐精选"],["downloads","下载量"],["stars","收藏量"],["installs","安装量"],["created_at","最近上新"]];
 function shNum(n){ n=n||0; return n>=10000? (n/10000).toFixed(1)+"万" : String(n); }
@@ -1604,7 +1604,7 @@ async function skillhubCat(body){
   const sideBtn=(v,l,cur)=>`<button class="line" data-v="${esc(v)}" style="text-align:left;${cur===v?'background:var(--chip)':''}">${l}</button>`;
   body.innerHTML = `
     <div class="card"><div class="row"><button id="sh-sync">手动同步 SkillHub</button><span class="muted" id="sh-msg" style="font-size:12.5px"></span></div>
-      <div class="row" style="margin-top:10px"><input id="sh-q" placeholder="搜索 SkillHub（实时，走 CLI）" value="${esc(SH_Q)}"><button class="line" id="sh-search">搜索</button><button class="ghost" id="sh-clearq">清空</button></div></div>
+      <div class="row" style="margin-top:10px"><input id="sh-q" placeholder="搜索 SkillHub（实时，直连）" value="${esc(SH_Q)}"><button class="line" id="sh-search">搜索</button><button class="ghost" id="sh-clearq">清空</button></div></div>
     <div style="display:grid;grid-template-columns:180px minmax(0,1fr);gap:14px;align-items:start">
       <div class="card">
         <div class="muted" style="font-size:11px;margin-bottom:6px">发布来源</div>
@@ -1617,7 +1617,7 @@ async function skillhubCat(body){
       <div id="sh-list" class="muted">加载中…</div>
     </div>`;
   const F=id=>document.getElementById(id);
-  F("sh-sync").onclick=async()=>{ F("sh-msg").textContent="同步中…（跑 CLI，稍候）"; try{ const r=await api("POST","/catalog/skills/sync"); F("sh-msg").textContent="已同步："+(r.inserted!=null?(r.inserted+" 条"):JSON.stringify(r)); skillhubCat(body);}catch(e){F("sh-msg").textContent=e.message;} };
+  F("sh-sync").onclick=async()=>{ F("sh-msg").textContent="同步中…（直连 SkillHub，稍候）"; try{ const r=await api("POST","/catalog/skills/sync"); F("sh-msg").textContent="已同步："+(r.inserted!=null?(r.inserted+" 条"):JSON.stringify(r)); skillhubCat(body);}catch(e){F("sh-msg").textContent=e.message;} };
   F("sh-search").onclick=()=>{ SH_Q=F("sh-q").value.trim(); skillhubCat(body); };
   F("sh-q").onkeydown=(e)=>{ if(e.key==="Enter"){ SH_Q=F("sh-q").value.trim(); skillhubCat(body); } };
   F("sh-clearq").onclick=()=>{ SH_Q=""; skillhubCat(body); };

@@ -52,10 +52,10 @@ def _score(card: dict[str, Any]) -> float:
 def sync_once() -> dict[str, Any]:
     """抓 SkillHub 榜单 → 归组 → 原子替换镜像。返回统计。
 
-    CLI 不可用或抓空（站点不可达）→ **不动库**（保留上次镜像，铁律：不造假、local-first 稳定）。
+    取数主路径是直连公开 HTTP（WB-094），无需本机 CLI；故不再用 `cli_available()` 作前置
+    （旧逻辑会让无 CLI 环境连手动同步都被拦下，WB-126）。抓空（站点不可达且 CLI 也不可用）
+    → **不动库**（保留上次镜像，铁律：不造假、local-first 稳定）。
     """
-    if not skillhub_client.cli_available():
-        return {"ok": False, "error": "skillhub CLI 未安装", "total": 0}
     cards = skillhub_client.rankings_all()
     if not cards:
         return {"ok": False, "error": "SkillHub 无数据或抓取失败（保留上次镜像）", "total": 0}
