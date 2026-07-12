@@ -63,8 +63,9 @@ export const api = {
     send<{ ok: boolean }>('PUT', '/models/meta', { model_ref, ...meta }),
   resetModelMeta: (model_ref: string) =>
     send<{ ok: boolean }>('PUT', '/models/meta', { model_ref, reset: true }),
-  hideProviderModel: (pid: string, model_id: string, hidden: boolean) =>
-    send<{ ok: boolean }>('POST', `/providers/${pid}/models/hide`, { model_id, hidden }),
+  // 删除厂商模型（WB-133，统一动作）：预置 → 内部标记移除、自加 → 删行。复用既有 /hide 端点(hidden:true)。
+  deleteProviderModel: (pid: string, model_id: string) =>
+    send<{ ok: boolean }>('POST', `/providers/${pid}/models/hide`, { model_id, hidden: true }),
   // 自由填写的自定义模型（WB-124，兜底）。
   createCustomModel: (m: CustomModelInput) => send<ModelOption>('POST', '/models/custom', m),
   updateCustomModel: (id: string, m: Partial<CustomModelInput>) =>

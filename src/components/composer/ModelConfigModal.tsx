@@ -75,10 +75,10 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
     try { await api.setProviderKey(p.id, ''); toast('已撤销'); await refresh() }
     catch { toast('操作失败') } finally { setBusy(false) }
   }
-  const toggleModel = async (p: Provider, mid: string, hidden: boolean) => {
+  const deleteModel = async (p: Provider, mid: string) => {
     if (busy) return
     setBusy(true)
-    try { await api.hideProviderModel(p.id, mid, hidden); await refresh() }
+    try { await api.deleteProviderModel(p.id, mid); await refresh() }
     catch { toast('操作失败') } finally { setBusy(false) }
   }
   const addModel = async (p: Provider) => {
@@ -257,17 +257,15 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
                       <button className="mc-act" disabled={!p.has_key || busy} onClick={() => fetchModels(p)} title={!p.has_key ? '先填 API Key' : '从厂商在线列举真实模型'}>↻ 拉取最新</button>
                     </div>
                     <div className="mc-modlist">
-                      {p.models.map((m) => {
+                      {p.models.filter((m) => !m.hidden).map((m) => {
                         const ref = `@${p.id}:${m.model_id}`
                         return (
                           <div key={m.model_id}>
-                            <div className={`mc-mod ${m.hidden ? 'off' : ''}`.trim()}>
+                            <div className="mc-mod">
                               <span className="mc-modname">{m.model_id}{!m.preset && <span className="mc-tag">自加</span>}</span>
                               {capBadges(m.meta)}
                               <button className={`mc-act ${metaEditing === ref ? 'on' : ''}`.trim()} disabled={busy} onClick={() => toggleMeta(ref, m.meta)}>能力</button>
-                              {m.preset
-                                ? <button className="mc-act" disabled={busy} onClick={() => toggleModel(p, m.model_id, !m.hidden)}>{m.hidden ? '恢复' : '隐藏'}</button>
-                                : <button className="mc-act danger" disabled={busy} onClick={() => toggleModel(p, m.model_id, true)}>删除</button>}
+                              <button className="mc-act danger" disabled={busy} onClick={() => deleteModel(p, m.model_id)}>删除</button>
                             </div>
                             {metaEditing === ref && metaEditor(ref)}
                           </div>
