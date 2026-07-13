@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useCatalog, useCatalogStore } from '../../stores/catalogStore'
+import { useKnowledgeStore } from '../../stores/knowledgeStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
@@ -145,16 +146,21 @@ export function NewProjectModal({ open, onClose, onCreated }: {
   )
 }
 
-// Multi-select picker for connectors / experts / skills.
+// Multi-select picker for connectors / experts / skills / knowledge bases.
+// 知识库（kb）是动态项：从 knowledgeStore 取真库，按 id 切换（其它三种按 name）。
 export function PickerOverlay({ kind, sel, onToggle, onClose }: {
-  kind: 'conn' | 'exp' | 'skill'
+  kind: 'conn' | 'exp' | 'skill' | 'kb'
   sel: Set<string>
   onToggle: (name: string) => void
   onClose: () => void
 }) {
   const [q, setQ] = useState('')
   const { NP_CONNS, NP_EXPERTS, SK_GRID, READY_CONNECTORS, NEEDS_TOKEN_CONNECTORS } = useCatalog()
-  const title = { conn: '添加连接器', exp: '选择专家', skill: '选择技能' }[kind]
+  const kbs = useKnowledgeStore((s) => s.kbs)
+  const kbLoaded = useKnowledgeStore((s) => s.loaded)
+  const loadKb = useKnowledgeStore((s) => s.load)
+  useEffect(() => { if (kind === 'kb' && !kbLoaded) void loadKb() }, [kind, kbLoaded, loadKb])
+  const title = { conn: '添加连接器', exp: '选择专家', skill: '选择技能', kb: '挂载知识库' }[kind]
 
   const match = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase())
 
@@ -220,6 +226,27 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
                 )
               })}
             </div>
+          )}
+          {kind === 'kb' && (
+            kbs.length === 0 ? (
+              <div className="pd" style={{ padding: '18px 4px', lineHeight: 1.7 }}>
+                {kbLoaded ? '还没有知识库。去左侧「更多 · 知识库」创建并上传文档后，即可在这里挂载。' : '加载中…'}
+              </div>
+            ) : (
+              <div className="selgrid">
+                {kbs.filter((k) => match(k.name) || match(k.description || '')).map((k) => {
+                  const on = sel.has(k.id)
+                  return (
+                    <div className={`selcard ${on ? 'sel' : ''}`.trim()} key={k.id} onClick={() => onToggle(k.id)}>
+                      <div style={{ display: 'flex', gap: 11, alignItems: 'center' }}>
+                        <div className="sc-ic">📚</div><div className="sc-n">{k.name}</div>
+                      </div>
+                      <div className="sc-d" style={{ marginTop: 9 }}>{k.description || `${k.document_size ?? 0} 个文档`}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            )
           )}
         </div>
         <div className="np-foot" style={{ justifyContent: 'flex-end', marginTop: 6 }}>

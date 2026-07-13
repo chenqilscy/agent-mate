@@ -16,17 +16,20 @@ export interface AttachedRef {
   itemId?: string
 }
 
-type Kind = 'exp' | 'skill' | 'conn'
-const KEY: Record<Kind, 'experts' | 'skills' | 'connectors'> = {
+type Kind = 'exp' | 'skill' | 'conn' | 'kb'
+const KEY: Record<Kind, 'experts' | 'skills' | 'connectors' | 'knowledgeIds'> = {
   exp: 'experts',
   skill: 'skills',
   conn: 'connectors',
+  kb: 'knowledgeIds',
 }
 
 interface LoadoutState {
   experts: string[]
   skills: string[]
   connectors: string[]
+  // 挂载的知识库 id（WB-144）：随每条消息发给后端，agent 可用 knowledge_retrieve 检索。
+  knowledgeIds: string[]
   refs: AttachedRef[]
   // 一次性草稿：下一个挂载的 Composer 读取后清空（用于「编辑技能」等预填输入框的场景）。
   draft: string
@@ -49,6 +52,7 @@ export const useLoadoutStore = create<LoadoutState>((set) => ({
   experts: [],
   skills: [],
   connectors: [],
+  knowledgeIds: [],
   refs: [],
   draft: '',
 
@@ -61,10 +65,10 @@ export const useLoadoutStore = create<LoadoutState>((set) => ({
     }),
 
   summon: (experts) =>
-    set({ experts: [...new Set(experts)], skills: [], connectors: [], refs: [], draft: '' }),
+    set({ experts: [...new Set(experts)], skills: [], connectors: [], knowledgeIds: [], refs: [], draft: '' }),
 
   summonSkills: (skills) =>
-    set({ experts: [], skills: [...new Set(skills)], connectors: [], refs: [] }),
+    set({ experts: [], skills: [...new Set(skills)], connectors: [], knowledgeIds: [], refs: [] }),
 
   addRef: (r) =>
     set((s) => (s.refs.some((x) => x.name === r.name) ? {} : { refs: [...s.refs, r] })),
@@ -72,5 +76,5 @@ export const useLoadoutStore = create<LoadoutState>((set) => ({
   clearRefs: () => set({ refs: [] }),
   setDraft: (text) => set({ draft: text }),
   clearDraft: () => set({ draft: '' }),
-  reset: () => set({ experts: [], skills: [], connectors: [], refs: [], draft: '' }),
+  reset: () => set({ experts: [], skills: [], connectors: [], knowledgeIds: [], refs: [], draft: '' }),
 }))

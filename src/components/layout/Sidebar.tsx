@@ -45,7 +45,7 @@ const NAV: { id: ViewId; label: string; icon: ReactNode; sub?: string; cls?: str
 ]
 
 function activeNav(view: ViewId): ViewId | 'more' {
-  if (view === 'inspire' || view === 'myfiles') return 'more'
+  if (view === 'inspire' || view === 'myfiles' || view === 'kdocs' || view === 'knowledge') return 'more'
   if (view === 'chat') return 'home'
   if (view === 'projexec' || view === 'project') return 'projects'
   return view
@@ -303,8 +303,8 @@ export function Sidebar() {
               <div className="more-item" onClick={() => { setView('kdocs'); setMoreOpen(false) }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>金山文档
               </div>
-              <div className="more-item" onClick={() => toast('打开 · ima知识库')}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 5h16v11H4z" /><path d="M4 20h16" /></svg>ima知识库
+              <div className="more-item" onClick={() => { setView('knowledge'); setMoreOpen(false) }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 5a2 2 0 012-2h9v16H6a2 2 0 00-2 2z" /><path d="M15 3h3a1 1 0 011 1v15" /><path d="M8 7h4M8 11h4" /></svg>知识库
               </div>
               <div className="more-item div" onClick={() => { setView('inspire'); setMoreOpen(false) }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" /></svg>灵感

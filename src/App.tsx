@@ -13,6 +13,7 @@ import { AutomationView } from './views/AutomationView'
 import { InspireView } from './views/InspireView'
 import { MyFilesView } from './views/MyFilesView'
 import { KdocsView } from './views/KdocsView'
+import { KnowledgeView } from './views/KnowledgeView'
 import { useUIStore } from './stores/uiStore'
 import { useAuthStore } from './stores/authStore'
 import { useChatStore } from './stores/chatStore'
@@ -44,6 +45,8 @@ function MainView() {
       return <MyFilesView />
     case 'kdocs':
       return <KdocsView />
+    case 'knowledge':
+      return <KnowledgeView />
     default:
       return <HomeView />
   }

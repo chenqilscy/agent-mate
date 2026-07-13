@@ -11,6 +11,7 @@ import { PlusMenu, type PlusActions } from './PlusMenu'
 import { PickerOverlay } from '../project/NewProjectModal'
 import { RefPicker } from './RefPicker'
 import { useCatalogStore } from '../../stores/catalogStore'
+import { useKnowledgeStore } from '../../stores/knowledgeStore'
 import { useVoiceInput } from './useVoiceInput'
 import { IcPlus, IcClose, IcSend, IcChevronDown, IcMic, IcShield } from '../../lib/icons'
 
@@ -38,7 +39,7 @@ const PLACEHOLDER = '今天帮你做些什么？  @ 引用对话文件，/ 调�
 export function Composer({ variant = 'home', streaming = false, onSend, onStop, placeholder, autoFocus }: ComposerProps) {
   const [text, setText] = useState('')
   const [pop, setPop] = useState<PopId>(null)
-  const [picker, setPicker] = useState<'exp' | 'skill' | 'conn' | null>(null)
+  const [picker, setPicker] = useState<'exp' | 'skill' | 'conn' | 'kb' | null>(null)
   const [refOpen, setRefOpen] = useState(false)
   const anchorRef = useRef<HTMLElement | null>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -55,8 +56,11 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
   const experts = useLoadoutStore((s) => s.experts)
   const skills = useLoadoutStore((s) => s.skills)
   const connectors = useLoadoutStore((s) => s.connectors)
+  const knowledgeIds = useLoadoutStore((s) => s.knowledgeIds)
   const refs = useLoadoutStore((s) => s.refs)
   const toggleLoad = useLoadoutStore((s) => s.toggle)
+  const kbs = useKnowledgeStore((s) => s.kbs)
+  const kbName = (id: string) => kbs.find((k) => k.id === id)?.name ?? '知识库'
   const addRef = useLoadoutStore((s) => s.addRef)
   const removeRef = useLoadoutStore((s) => s.removeRef)
 
@@ -135,7 +139,7 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
 
   const closePop = () => setPop(null)
 
-  const hasLoadout = experts.length + skills.length + connectors.length + refs.length > 0
+  const hasLoadout = experts.length + skills.length + connectors.length + knowledgeIds.length + refs.length > 0
 
   return (
     <div className="composer">
@@ -149,6 +153,9 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
           ))}
           {connectors.map((n) => (
             <span className="np-chip" key={'c' + n} title={n}><span>{iconOf('conn', n)}</span><span className="np-lbl">{n}</span><span className="x" onClick={() => toggleLoad('conn', n)}>×</span></span>
+          ))}
+          {knowledgeIds.map((id) => (
+            <span className="np-chip" key={'k' + id} title={kbName(id)}><span>📚</span><span className="np-lbl">{kbName(id)}</span><span className="x" onClick={() => toggleLoad('kb', id)}>×</span></span>
           ))}
           {refs.map((r) => {
             const truncated = r.content.length > EFFECTIVE_REF_LIMIT
@@ -176,7 +183,7 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
       {picker && (
         <PickerOverlay
           kind={picker}
-          sel={new Set(picker === 'exp' ? experts : picker === 'skill' ? skills : connectors)}
+          sel={new Set(picker === 'exp' ? experts : picker === 'skill' ? skills : picker === 'kb' ? knowledgeIds : connectors)}
           onToggle={(n) => toggleLoad(picker, n)}
           onClose={() => setPicker(null)}
         />

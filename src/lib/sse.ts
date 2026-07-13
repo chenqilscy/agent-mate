@@ -21,6 +21,7 @@ export interface ChatStreamOptions {
   experts?: string[]
   skills?: string[]
   connectors?: string[]
+  knowledgeIds?: string[]
   refs?: { name: string; content: string; kind?: 'file' | 'todo'; itemId?: string }[]
   signal?: AbortSignal
   onEvent: (ev: SSEEvent) => void
@@ -50,6 +51,7 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
         experts: opts.experts,
         skills: opts.skills,
         connectors: opts.connectors,
+        knowledge_ids: opts.knowledgeIds,
         refs: opts.refs,
       }),
       signal: opts.signal,

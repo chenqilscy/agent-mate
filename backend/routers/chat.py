@@ -30,6 +30,8 @@ class ChatBody(BaseModel):
     experts: list[str] = Field(default=[], max_length=50)
     skills: list[str] = Field(default=[], max_length=50)
     connectors: list[str] = Field(default=[], max_length=50)
+    # 挂载的 GLM 知识库 id（WB-143）：本轮 agent 可用 knowledge_retrieve 检索。
+    knowledge_ids: list[str] = Field(default=[], max_length=20)
     # Attached / referenced files: injected into this turn's context only.
     refs: list[dict] = Field(default=[], max_length=50)
 
@@ -78,6 +80,7 @@ async def chat(body: ChatBody):
             session, user, text,
             model=body.model, plan=body.plan, ask=body.ask,
             experts=body.experts, skills=body.skills, connectors=body.connectors,
+            knowledge_ids=body.knowledge_ids,
             refs=body.refs,
         ):
             yield chunk

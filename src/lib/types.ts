@@ -15,6 +15,7 @@ export type ViewId =
   | 'inspire'
   | 'myfiles'
   | 'kdocs'
+  | 'knowledge'
 
 // 金山文档面板一条文件（WB-140）— 后端 /connectors/kdocs/files 归一化后的形状。
 export interface KdocsFile {
@@ -30,6 +31,44 @@ export interface KdocsFile {
   mtime: number
   size: number
   owner: string
+}
+
+// ---- 知识库（GLM RAG · WB-144）--------------------------------------------
+
+export interface KnowledgeBase {
+  id: string
+  name: string
+  description?: string
+  embedding_id?: number
+  contextual?: number
+  icon?: string
+  background?: string
+  document_size?: number
+  word_num?: number
+  length?: number
+}
+
+export interface KbDocument {
+  id: string
+  name: string
+  word_num?: number
+  length?: number
+  // 0 处理中 · 1 成功 · 2 失败
+  embedding_stat?: number
+  failInfo?: { embedding_code?: number; embedding_msg?: string }
+  url?: string
+}
+
+export interface KbCapacity {
+  used: { word_num: number; length: number }
+  total: { word_num: number; length: number }
+}
+
+export interface KbRetrieveHit {
+  id?: string
+  text: string
+  score: number
+  metadata?: { doc_name?: string; doc_id?: string; doc_url?: string; [k: string]: unknown }
 }
 
 // ---- SSE events -----------------------------------------------------------

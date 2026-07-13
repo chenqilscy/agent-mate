@@ -311,6 +311,72 @@ def work_item_tools(plan: bool = False) -> list[Tool]:
     return [list_work_items] if plan else [list_work_items, set_work_item_status]
 
 
+# ---- knowledge_retrieve（知识库检索）— WB-143 -----------------------------
+#
+# 会话挂载的 GLM 知识库检索。与 work-item 同款 contextvar 注入：owner + 选中的
+# knowledge_ids 由 run_chat 每次运行前 set；工具真调 GLM 检索（同步，由 runtime 的
+# asyncio.to_thread 兜住）。key 只在本地：db.get_provider_key(owner, "zhipu")，绝不回前端。
+
+_kb_ctx: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("kb_ctx", default=None)
+
+
+def set_knowledge_context(owner_id: str | None, knowledge_ids: list[str] | None) -> None:
+    """Set the active owner + mounted knowledge base ids for this run (run_chat calls it)."""
+    _kb_ctx.set({"owner_id": owner_id, "knowledge_ids": knowledge_ids} if owner_id and knowledge_ids else None)
+
+
+def _knowledge_retrieve_run(args: dict[str, Any]) -> ToolOutcome:
+    from agent import glm_kb  # 延迟导入，避免与加载顺序耦合
+
+    ctx = _kb_ctx.get()
+    if not ctx:
+        return ToolOutcome(text="当前会话未挂载任何知识库。")
+    query = str(args.get("query", "")).strip()
+    if not query:
+        return ToolOutcome(text="请提供检索问题（query）。")
+    key = db.get_provider_key(ctx["owner_id"], "zhipu")
+    if not key:
+        return ToolOutcome(text="未配置智谱 API Key，无法检索知识库（去「模型管理」为「智谱 AI·GLM」配置）。")
+    try:
+        top_k = int(args.get("top_k") or 8)
+    except (TypeError, ValueError):
+        top_k = 8
+    try:
+        hits = glm_kb.retrieve(key, query=query, knowledge_ids=ctx["knowledge_ids"], top_k=max(1, min(top_k, 20)))
+    except glm_kb.GlmKbError as e:
+        return ToolOutcome(text=f"知识库检索失败：{e}")
+    if not hits:
+        return ToolOutcome(text=f"知识库中未检索到与「{query}」相关的内容。")
+    lines = [f"检索到 {len(hits)} 条相关内容（按相关度）："]
+    for i, h in enumerate(hits, 1):
+        meta = h.get("metadata") or {}
+        doc = meta.get("doc_name") or meta.get("doc_id") or "未知来源"
+        score = h.get("score")
+        text = str(h.get("text") or "").strip()
+        head = f"\n[{i}] 来源：{doc}" + (f"（相关度 {score:.3f}）" if isinstance(score, (int, float)) else "")
+        lines.append(head + "\n" + _truncate(text))
+    return ToolOutcome(text="\n".join(lines))
+
+
+knowledge_retrieve = Tool(
+    name="knowledge_retrieve",
+    description=(
+        "检索本会话挂载的知识库，返回最相关的资料片段（含来源文档名）。"
+        "遇到需要事实性/资料性依据的问题时先检索，再基于命中内容作答并注明来源。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "检索问题/关键词"},
+            "top_k": {"type": "integer", "description": "返回条数上限（1-20，默认 8）"},
+        },
+        "required": ["query"],
+    },
+    pre=lambda a: {"kind": "step", "tool": "knowledge_retrieve", "label": f"检索知识库 {str(a.get('query', ''))[:60]}"},
+    run=_knowledge_retrieve_run,
+)
+
+
 TOOLS: list[Tool] = [list_dir, read_file, write_file, run_command, update_plan]
 _BY_NAME = {t.name: t for t in TOOLS}
 

@@ -225,6 +225,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         experts: loadout.experts,
         skills: loadout.skills,
         connectors: loadout.connectors,
+        knowledgeIds: loadout.knowledgeIds,
         refs: loadout.refs,
         signal: controller.signal,
         onEvent,

@@ -9,7 +9,7 @@ import { activate } from '../../lib/a11y'
 //  · 模式 → Plan (M4) / Ask (仅问答) toggles
 //  · 专家 / 技能 / 连接器 → open a picker; picks apply to this session (M5)
 export interface PlusActions {
-  onPick: (kind: 'exp' | 'skill' | 'conn') => void
+  onPick: (kind: 'exp' | 'skill' | 'conn' | 'kb') => void
   onAddFile: () => void
   onRefFile: () => void
 }
@@ -21,6 +21,7 @@ const ICON = {
   expert: 'M12 8a4 4 0 100-8 4 4 0 000 8zM4 21c0-4 4-6 8-6s8 2 8 6',
   skillx: 'M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z',
   connx: 'M9 15l6-6M8 8L6 10a4 4 0 006 6l2-2M16 16l2-2a4 4 0 00-6-6l-2 2',
+  kbx: 'M4 5a2 2 0 012-2h9v16H6a2 2 0 00-2 2zM15 3h3a1 1 0 011 1v15',
 }
 
 function Item({ path, label, count, onClick }: { path: string; label: string; count?: number; onClick: () => void }) {
@@ -45,6 +46,7 @@ export function PlusMenu({ onClose, actions }: { onClose: () => void; actions: P
   const experts = useLoadoutStore((s) => s.experts)
   const skills = useLoadoutStore((s) => s.skills)
   const connectors = useLoadoutStore((s) => s.connectors)
+  const knowledgeIds = useLoadoutStore((s) => s.knowledgeIds)
 
   const modeLabel = planMode || askMode
     ? `（${planMode ? 'Plan' : ''}${planMode && askMode ? '·' : ''}${askMode ? 'Ask' : ''}）`
@@ -78,6 +80,7 @@ export function PlusMenu({ onClose, actions }: { onClose: () => void; actions: P
       <Item path={ICON.expert} label="专家" count={experts.length} onClick={() => { actions.onPick('exp'); onClose() }} />
       <Item path={ICON.skillx} label="技能" count={skills.length} onClick={() => { actions.onPick('skill'); onClose() }} />
       <Item path={ICON.connx} label="连接器" count={connectors.length} onClick={() => { actions.onPick('conn'); onClose() }} />
+      <Item path={ICON.kbx} label="知识库" count={knowledgeIds.length} onClick={() => { actions.onPick('kb'); onClose() }} />
     </>
   )
 }

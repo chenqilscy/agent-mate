@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, InstalledSkill, KdocsFile, Me, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, InstalledSkill, KbCapacity, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -333,6 +333,30 @@ export const api = {
       throw new Error(detail)
     }
     return r.json() as Promise<{ text: string; language: string | null }>
+  },
+
+  // ---- 知识库（GLM RAG · WB-144）。全走本地 backend /api/knowledge，key 只在后端。
+  listKb: () => get<{ list: KnowledgeBase[]; total: number }>('/knowledge'),
+  kbCapacity: () => get<KbCapacity>('/knowledge/capacity'),
+  createKb: (body: { name: string; description?: string; embedding_id?: number; contextual?: number; icon?: string; background?: string }) =>
+    send<{ id: string }>('POST', '/knowledge', body),
+  deleteKb: (id: string) => send<{ ok: boolean }>('DELETE', `/knowledge/${id}`),
+  listKbDocs: (id: string) => get<{ list: KbDocument[]; total: number }>(`/knowledge/${encodeURIComponent(id)}/documents`),
+  deleteKbDoc: (docId: string) => send<{ ok: boolean }>('DELETE', `/knowledge/documents/${docId}`),
+  retrieveKb: (body: { query: string; knowledge_ids: string[]; top_k?: number }) =>
+    send<{ data: KbRetrieveHit[] }>('POST', '/knowledge/retrieve', body),
+  // 传文件：原始 body（非 multipart），文件名走 query，仿 uploadFile 带 Bearer（后端流式读）。
+  uploadKbDoc: async (id: string, file: File | Blob, filename: string) => {
+    const q = `?filename=${encodeURIComponent(filename)}`
+    const r = await fetch(`${API_BASE}/knowledge/${encodeURIComponent(id)}/documents${q}`, {
+      method: 'POST', body: file, headers: authHeaders(),
+    })
+    if (!r.ok) {
+      let detail = `上传失败（${r.status}）`
+      try { detail = (await r.json())?.detail ?? detail } catch { /* 非 JSON */ }
+      throw new Error(detail)
+    }
+    return r.json() as Promise<{ successInfos: { documentId: string; fileName: string }[]; failedInfos: { fileName: string; failReason: string }[] }>
   },
 }
 

@@ -23,7 +23,15 @@ from agent.llm import LLMError, stream_chat
 from agent.mcp_client import call_mcp, mcp_schema, open_connectors
 from agent.sandbox import current_root, use_root, workspace_root
 from agent.skills import skill_def
-from agent.tools import ASK_USER_SCHEMA, base_tools, run_tool, set_work_context, work_item_tools
+from agent.tools import (
+    ASK_USER_SCHEMA,
+    base_tools,
+    knowledge_retrieve,
+    run_tool,
+    set_knowledge_context,
+    set_work_context,
+    work_item_tools,
+)
 from config import settings
 from storage import db, provider_seed
 from storage.models import Session, User
@@ -218,6 +226,7 @@ async def run_chat(
     experts: list[str] | None = None,
     skills: list[str] | None = None,
     connectors: list[str] | None = None,
+    knowledge_ids: list[str] | None = None,
     refs: list[dict] | None = None,
     system_extra: str | None = None,
     workspace: str | None = None,
@@ -259,6 +268,10 @@ async def run_chat(
     active_experts = _dedup(proj_experts + (experts or []))
     active_skills = _dedup(proj_skills + (skills or []))
     active_connectors = _dedup(proj_connectors + (connectors or []))
+    # 挂载的知识库（WB-143）：目前仅 per-message loadout（项目级 KB 后置）。
+    active_knowledge = _dedup(knowledge_ids or [])
+    # owner + 选中库 → knowledge_retrieve 工具读的 contextvar。ask 模式无工具，置空。
+    set_knowledge_context(user.id if (active_knowledge and not ask) else None, active_knowledge if not ask else None)
 
     # Tell the model about the plan-item tools when this run is inside a project
     # (WB-030). Plan mode is read-only, so it only gets the viewing tool.
@@ -289,6 +302,13 @@ async def run_chat(
             lines.append(f"- {name}：{instr}")
             skill_tools.extend(tools)
         system_prompt += "\n\n# 已启用技能\n" + "\n".join(lines)
+
+    if active_knowledge and not ask:
+        system_prompt += (
+            f"\n\n# 已挂载知识库（{len(active_knowledge)} 个）\n"
+            "遇到需要事实性/资料性依据的问题，先用 knowledge_retrieve 检索知识库，"
+            "再基于命中内容作答并注明来源；检索不到再用你自己的知识回答。"
+        )
 
     # Attached / referenced files (＋ menu) are prepended to THIS turn's LLM input
     # only — the persisted user message stays clean, so the bubble shows just the
@@ -357,7 +377,9 @@ async def run_chat(
         # Work-item tools only for project runs (WB-030) — ad-hoc chats have no
         # plan board to act on. Plan mode gets the read-only one (no status writes).
         wi_tools = work_item_tools(plan) if (session.project_id and not ask) else []
-        tools_list = [] if ask else base_tools(plan) + skill_tools + wi_tools
+        # 挂载了知识库 → 加 knowledge_retrieve 工具（ask 模式无工具）。
+        kb_tools = [knowledge_retrieve] if (active_knowledge and not ask) else []
+        tools_list = [] if ask else base_tools(plan) + skill_tools + wi_tools + kb_tools
         active_tools = {t.name: t for t in tools_list}
         mcp_tools = []
         mcp_skipped: list[dict[str, str]] = []
@@ -376,7 +398,7 @@ async def run_chat(
         # run are visible — including connectors that were selected but couldn't
         # load (e.g. GitHub without a token), so it isn't a silent no-op.
         connector_names = sorted({t.connector for t in mcp_tools})
-        if active_experts or active_skills or connector_names or mcp_skipped:
+        if active_experts or active_skills or connector_names or mcp_skipped or (active_knowledge and not ask):
             parts = []
             if active_experts:
                 parts.append("专家 " + "、".join(active_experts))
@@ -384,6 +406,8 @@ async def run_chat(
                 parts.append("技能 " + "、".join(active_skills))
             if connector_names:
                 parts.append("连接器 " + "、".join(connector_names))
+            if active_knowledge and not ask:
+                parts.append(f"知识库 {len(active_knowledge)} 个")
             if mcp_skipped:
                 parts.append("连接器未就绪 " + "、".join(f"{s['name']}（{s['reason']}）" for s in mcp_skipped))
             yield record({"kind": "step", "tool": "loadout", "label": "已加载 · " + " · ".join(parts)})

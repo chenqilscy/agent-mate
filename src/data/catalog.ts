@@ -454,3 +454,24 @@ export const SKILLHUB_KITS: [string, string, string, string, number][] = [
   ['📊', '#17181C', '金融投研套件', '腾讯自选股、股票价值投资、金融数据查询，覆盖行情到估值。', 5],
   ['🛡️', '#EF4444', '安全防护套件', 'SkillScan、Skill Vetter、敏感信息脱敏、渗透测试，安装前后全程护航。', 4],
 ]
+
+// 知识库模板（GLM RAG · WB-144/145）：策展的「一键建库」模板。Manager 目录管理下发覆盖本地，
+// 离线/未接 Manager 时用下面这几个真实可用的内置模板兜底（非假数据——用户可直接按模板建库）。
+export interface KbTemplate {
+  key: string
+  name: string
+  desc: string
+  icon: string
+  embedding_id: number
+  contextual: number
+  knowledge_type: number
+  sentence_size?: number
+  doc_types?: string[]
+  tags?: string[]
+}
+export const KB_TPLS: KbTemplate[] = [
+  { key: 'product-manual', name: '产品手册库', desc: '产品说明书、操作手册、FAQ——客服/售前问答用', icon: '📗', embedding_id: 11, contextual: 1, knowledge_type: 5, sentence_size: 300, doc_types: ['pdf', 'docx', 'md'], tags: ['产品', '手册'] },
+  { key: 'legal-contract', name: '法律合同库', desc: '合同、条款、法规原文——条款检索与合规问答', icon: '⚖️', embedding_id: 12, contextual: 1, knowledge_type: 5, sentence_size: 500, doc_types: ['pdf', 'docx'], tags: ['法律', '合同'] },
+  { key: 'tech-docs', name: '技术文档库', desc: 'API 文档、架构说明、研发规范——开发答疑', icon: '🛠️', embedding_id: 11, contextual: 0, knowledge_type: 5, sentence_size: 300, doc_types: ['md', 'pdf', 'txt'], tags: ['研发', '文档'] },
+  { key: 'company-kb', name: '公司知识库', desc: '规章制度、流程、培训资料——员工自助问答', icon: '🏢', embedding_id: 11, contextual: 1, knowledge_type: 5, sentence_size: 300, doc_types: ['pdf', 'docx', 'md', 'xlsx'], tags: ['制度', '流程'] },
+]
