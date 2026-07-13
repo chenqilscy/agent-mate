@@ -885,6 +885,24 @@ body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
 .set-stat-l { font-size: 12px; color: var(--text-3); }
 .set-confirm { display: flex; gap: 8px; flex-shrink: 0; }
 
+/* 智能体设置 panel（WB-150）：滑块行 */
+.set-slider { padding: 16px 0; border-bottom: 1px solid var(--border-2); }
+.set-slval { flex-shrink: 0; font-size: 15px; font-weight: 700; color: var(--brand-600); min-width: 40px; text-align: right; }
+.set-slider input[type="range"] { width: 100%; margin-top: 12px; accent-color: var(--brand); cursor: pointer; }
+
+/* 安全中心 panel（WB-152）：命令黑名单 chips + 审计行 + 徽章 */
+.set-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+.set-chip2 { display: inline-flex; align-items: center; gap: 6px; padding: 5px 6px 5px 11px; border: 1px solid var(--border); border-radius: 999px; font-size: 12.5px; color: var(--text); font-family: ui-monospace, monospace; }
+.set-chip2-x { border: none; background: transparent; color: var(--text-3); font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.set-chip2-x:hover { color: #E5484D; }
+.set-flabel code { font-family: ui-monospace, monospace; font-size: 12px; background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+.set-audit { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.set-badge { flex-shrink: 0; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.set-badge.ok { color: var(--brand-600); background: var(--brand-soft); }
+.set-badge.blk { color: #E5484D; background: rgba(229, 72, 77, .12); }
+.set-audit-d { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; }
+.set-audit-t { flex-shrink: 0; font-size: 11px; color: var(--text-3); }
+
 /* --card 不随主题翻转（恒白），暗色须显式给深色面板，否则白底白字（铁律#3，同 np-modal 约定） */
 body.dark .set-panel { background: #1F242A; }
 body.dark .set-nav-item.active { background: #1F242A; }

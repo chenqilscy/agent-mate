@@ -257,6 +257,23 @@ export interface DataSummary {
   memories: number
 }
 
+// 设置 · 智能体设置（WB-150）：工具步数上限 + 回复发散度，run_chat 真读真用。
+export interface AgentSettings {
+  max_rounds: number
+  temperature: number
+  defaults: { max_rounds: number; temperature: number }
+  limits: { max_rounds: [number, number]; temperature: [number, number] }
+}
+
+// 设置 · 安全中心（WB-152）：命令黑名单 + 审计日志。
+export interface AuditEntry {
+  id: string
+  tool: string
+  detail: string
+  action: string // 'executed' | 'blocked'
+  created_at: number
+}
+
 export interface ProjectInfo {
   id: string
   name: string

@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from agent import agent_settings
 from agent.personalization import (
     CUSTOM_MAX,
     PREF_CUSTOM,
@@ -54,3 +55,22 @@ def put_settings(body: PersonalizationBody) -> dict:
         text = body.custom_instructions.strip()[:CUSTOM_MAX]
         db.set_user_setting(owner, PREF_CUSTOM, text or None)
     return _payload(owner)
+
+
+# ---- 智能体设置（WB-150）：工具步数上限 + 回复发散度 ------------------------
+
+class AgentBody(BaseModel):
+    max_rounds: int | None = None
+    temperature: float | None = None
+
+
+@router.get("/agent")
+def get_agent_settings() -> dict:
+    return agent_settings.get_settings(current_user().id)
+
+
+@router.put("/agent")
+def put_agent_settings(body: AgentBody) -> dict:
+    owner = current_user().id
+    agent_settings.set_settings(owner, max_rounds=body.max_rounds, temperature=body.temperature)
+    return agent_settings.get_settings(owner)

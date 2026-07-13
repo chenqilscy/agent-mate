@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AppNotification, AppSettings, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, InstalledSkill, KbCapacity, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, MemoryData, MemoryItem, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, InstalledSkill, KbCapacity, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, MemoryData, MemoryItem, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -56,6 +56,18 @@ export const api = {
   dataSummary: () => get<DataSummary>('/data/summary'),
   dataExport: () => get<Record<string, unknown>>('/data/export'),
   clearConversations: () => send<{ ok: boolean; removed: number }>('POST', '/data/clear-conversations'),
+
+  // 设置 · 智能体设置（WB-150）：工具步数上限 + 回复发散度，run_chat 真读真用。
+  agentSettings: () => get<AgentSettings>('/settings/agent'),
+  saveAgentSettings: (body: { max_rounds?: number; temperature?: number }) =>
+    send<AgentSettings>('PUT', '/settings/agent', body),
+
+  // 设置 · 安全中心（WB-152）：命令黑名单(真拦截) + 审计日志(真记录)。
+  securityPolicy: () => get<{ command_blocklist: string[] }>('/security/policy'),
+  saveSecurityPolicy: (command_blocklist: string[]) =>
+    send<{ command_blocklist: string[] }>('PUT', '/security/policy', { command_blocklist }),
+  securityAudit: () => get<{ items: AuditEntry[] }>('/security/audit'),
+  clearAudit: () => send<{ ok: boolean; removed: number }>('POST', '/security/audit/clear'),
 
   register: (name: string, password: string) =>
     send<AuthResult>('POST', '/auth/register', { name, password }),

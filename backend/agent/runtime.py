@@ -18,7 +18,7 @@ import time
 from typing import Any, AsyncIterator
 
 from agent import events
-from agent import memory
+from agent import agent_settings, memory, security
 from agent.experts import persona_for
 from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
@@ -259,6 +259,8 @@ async def run_chat(
     use_root(workspace_root(workspace, session.project_id))
     # Work-item tools (WB-030) act on THIS project's plan items as this owner.
     set_work_context(session.project_id, user.id)
+    # 安全中心（WB-152）：本 owner 作为工具执行归属，run_command 据此查黑名单 + 记审计。
+    security.set_security_context(user.id)
 
     def _dedup(seq: list[str]) -> list[str]:
         return list(dict.fromkeys(seq))
@@ -422,8 +424,11 @@ async def run_chat(
         # Resolve the picker selection to a concrete provider once (owner-scoped so a
         # provider/custom model uses its own base/key/path). Stable across tool-loop rounds.
         model_id, model_base, model_key, model_path = resolve_model_config(user.id, model)
+        # 智能体设置（WB-150）：工具步数上限 + 回复发散度，按 owner 可配，本轮真读真用。
+        _max_rounds = agent_settings.get_max_rounds(user.id)
+        _temperature = agent_settings.get_temperature(user.id)
 
-        for _round in range(MAX_ROUNDS):
+        for _round in range(_max_rounds):
             content_buf = ""
             reasoning_buf = ""
             tool_acc: dict[int, dict[str, Any]] = {}
@@ -432,6 +437,7 @@ async def run_chat(
             async for delta in stream_chat(
                 llm_messages, model=model_id, tools=schemas,
                 api_base=model_base, api_key=model_key, chat_path=model_path,
+                temperature=_temperature,
             ):
                 if stop.is_set():
                     stopped = True

@@ -8,7 +8,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { ModelConfigModal } from '../composer/ModelConfigModal'
 import { toast } from '../../stores/toastStore'
 import { api } from '../../lib/api'
-import type { DataSummary, MemoryItem, StylePreset } from '../../lib/types'
+import type { AgentSettings, AuditEntry, DataSummary, MemoryItem, StylePreset } from '../../lib/types'
 
 type Tab = { id: SettingsTab; label: string; icon: ReactNode }
 
@@ -249,6 +249,130 @@ function DataPanel() {
   )
 }
 
+// 智能体设置 panel（WB-150）：工具步数上限 + 回复发散度，接 /api/settings/agent，run_chat 真读真用。
+function AgentPanel() {
+  const [s, setS] = useState<AgentSettings | null>(null)
+  const [rounds, setRounds] = useState(12)
+  const [temp, setTemp] = useState(0.6)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    api.agentSettings()
+      .then((d) => { setS(d); setRounds(d.max_rounds); setTemp(d.temperature) })
+      .catch(() => toast('加载智能体设置失败'))
+  }, [])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const d = await api.saveAgentSettings({ max_rounds: rounds, temperature: temp })
+      setS(d); setRounds(d.max_rounds); setTemp(d.temperature); setDirty(false)
+      toast('已保存智能体设置')
+    } catch { toast('保存失败') } finally { setSaving(false) }
+  }
+
+  if (!s) return <div className="set-body"><div className="set-ptitle">智能体设置</div><div className="set-pdesc">加载中…</div></div>
+  const [rMin, rMax] = s.limits.max_rounds
+  const [tMin, tMax] = s.limits.temperature
+  return (
+    <div className="set-body">
+      <div className="set-ptitle">智能体设置</div>
+      <div className="set-pdesc">调节智能体的执行行为。改动对之后新开的对话生效。</div>
+
+      <div className="set-slider">
+        <div className="set-fhd">
+          <div className="set-fname">最多连续工具步数<span className="set-fsub2">一次回答里智能体最多连续调用工具的轮数。调小更省 token，调大更能自动完成复杂任务。默认 {s.defaults.max_rounds}。</span></div>
+          <span className="set-slval">{rounds}</span>
+        </div>
+        <input type="range" min={rMin} max={rMax} step={1} value={rounds}
+          onChange={(e) => { setRounds(Number(e.target.value)); setDirty(true) }} />
+      </div>
+
+      <div className="set-slider">
+        <div className="set-fhd">
+          <div className="set-fname">回复发散度（temperature）<span className="set-fsub2">越低越稳定确定、越高越有创造性。默认 {s.defaults.temperature}。</span></div>
+          <span className="set-slval">{temp.toFixed(1)}</span>
+        </div>
+        <input type="range" min={tMin} max={tMax} step={0.1} value={temp}
+          onChange={(e) => { setTemp(Number(e.target.value)); setDirty(true) }} />
+      </div>
+
+      <div className="set-actions">
+        <button className="btn-dark" disabled={saving || !dirty} onClick={save}>{saving ? '保存中…' : '保存'}</button>
+        <button className="btn-ghost" disabled={saving} onClick={() => { setRounds(s.defaults.max_rounds); setTemp(s.defaults.temperature); setDirty(true) }}>恢复默认</button>
+      </div>
+    </div>
+  )
+}
+
+// 安全中心 panel（WB-152）：命令黑名单(真拦截 run_command) + 审计日志(真记录)。接 /api/security。
+function SecurityPanel() {
+  const [blocklist, setBlocklist] = useState<string[]>([])
+  const [audit, setAudit] = useState<AuditEntry[]>([])
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const loadAll = () => {
+    api.securityPolicy().then((p) => setBlocklist(p.command_blocklist)).catch(() => toast('加载安全策略失败'))
+    api.securityAudit().then((a) => setAudit(a.items)).catch(() => {})
+  }
+  useEffect(() => { loadAll() }, [])
+
+  const persist = async (next: string[]) => {
+    setBusy(true)
+    try { const p = await api.saveSecurityPolicy(next); setBlocklist(p.command_blocklist) }
+    catch { toast('保存失败'); loadAll() } finally { setBusy(false) }
+  }
+  const add = () => {
+    const v = draft.trim()
+    if (!v || blocklist.includes(v)) { setDraft(''); return }
+    setDraft(''); persist([...blocklist, v])
+  }
+  const remove = (p: string) => persist(blocklist.filter((x) => x !== p))
+  const clearAudit = async () => {
+    setBusy(true)
+    try { await api.clearAudit(); setAudit([]); toast('已清空审计记录') } catch { toast('清空失败') } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="set-body">
+      <div className="set-ptitle">安全中心</div>
+      <div className="set-pdesc">统一管理工作空间内的进程安全与授权。安全能力由本地运行时提供。</div>
+
+      <div className="set-flabel">命令安全策略<span className="set-fsub2">命中黑名单的命令会被真拦截、不执行（大小写不敏感的子串匹配）。规则如 <code>rm -rf</code>、<code>shutdown</code>。</span></div>
+      <div className="set-memadd">
+        <input className="np-input" placeholder="添加拦截规则（命令子串），如 rm -rf" value={draft} maxLength={200}
+          onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add() }} />
+        <button className="btn-dark" disabled={!draft.trim() || busy} onClick={add}>添加</button>
+      </div>
+      <div className="set-chips">
+        {blocklist.length === 0 && <span className="set-mem-empty">暂无拦截规则。添加后 agent 执行命中的命令会被拦截。</span>}
+        {blocklist.map((p) => (
+          <span className="set-chip2" key={p}>{p}<button className="set-chip2-x" onClick={() => remove(p)} aria-label="移除">×</button></span>
+        ))}
+      </div>
+
+      <div className="set-flabel" style={{ display: 'flex', alignItems: 'center' }}>
+        审计中心<span className="set-fsub2" style={{ flex: 1 }}>命令执行 / 拦截记录（最近 100 条）。</span>
+        {audit.length > 0 && <button className="set-link" onClick={clearAudit}>清空记录</button>}
+      </div>
+      <div className="set-memlist">
+        {audit.length === 0 && <div className="set-mem-empty">暂无审计记录。agent 执行命令后这里会出现记录。</div>}
+        {audit.map((a) => (
+          <div className="set-audit" key={a.id}>
+            <span className={`set-badge ${a.action === 'blocked' ? 'blk' : 'ok'}`.trim()}>{a.action === 'blocked' ? '已拦截' : '已执行'}</span>
+            <span className="set-audit-d" title={a.detail}>{a.tool} · {a.detail}</span>
+            <span className="set-audit-t">{new Date(a.created_at * 1000).toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
+
+      <Soon title="文件安全 · 网络域名规则 · 数据网关" desc="路径白/黑名单、网络访问域名规则、数据流转网关需执行层进一步接管，暂不做以免成为「存了不生效」的假开关。" />
+    </div>
+  )
+}
+
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const tab = useUIStore((s) => s.settingsTab)
   const setTab = useUIStore((s) => s.setSettingsTab)
@@ -339,12 +463,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               </div>
             )}
 
-            {tab === 'agent' && (
-              <Soon
-                title="智能体设置"
-                desc="智能体（agent）默认行为：工具循环轮数上限、默认权限、计划模式等。"
-              />
-            )}
+            {tab === 'agent' && <AgentPanel />}
 
             {tab === 'shortcuts' && (
               <Soon
@@ -357,13 +476,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
             {tab === 'data' && <DataPanel />}
 
-            {tab === 'security' && (
-              <Soon
-                title="安全中心"
-                desc="统一管理工作空间内的进程安全、数据安全与系统授权。部分能力由本地运行时提供。"
-                bullets={['沙箱安全：文件 / 命令 / 网络访问策略', '数据安全：安全网关、传输加密、删除保护', '系统级工具开关、内置运行时（Python/Node/Git Bash）', '审计中心：拦截 / 放行日志']}
-              />
-            )}
+            {tab === 'security' && <SecurityPanel />}
 
             {tab === 'help' && (
               <div className="set-body">

@@ -20,6 +20,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from agent import security
 from agent.sandbox import SandboxError, current_root, relpath, resolve_in_sandbox
 from storage import db
 
@@ -162,6 +163,12 @@ write_file = Tool(
 
 def _run_command_run(args: dict[str, Any]) -> ToolOutcome:
     command = args["command"]
+    # 命令安全策略（WB-152）：命中用户配置的黑名单则真拦截、不执行、记审计。
+    owner = security.current_owner()
+    allowed, pattern = security.check_command(command, owner)
+    if not allowed:
+        security.audit(owner, "run_command", command, "blocked")
+        return ToolOutcome(text=f"命令被安全策略拦截（命中规则「{pattern}」）：{command}\n如确需执行，请到「设置 · 安全中心」移除该规则。")
     try:
         proc = subprocess.run(
             command,
@@ -171,10 +178,12 @@ def _run_command_run(args: dict[str, Any]) -> ToolOutcome:
             text=True,
             timeout=CMD_TIMEOUT,
         )
+        security.audit(owner, "run_command", command, "executed")
         out = (proc.stdout or "") + (("\n[stderr]\n" + proc.stderr) if proc.stderr else "")
         out = out.strip() or "（无输出）"
         return ToolOutcome(text=f"退出码 {proc.returncode}\n{_truncate(out)}")
     except subprocess.TimeoutExpired:
+        security.audit(owner, "run_command", command, "executed")
         return ToolOutcome(text=f"命令超时（>{CMD_TIMEOUT}s）：{command}")
     except Exception as e:  # noqa: BLE001
         return ToolOutcome(text=f"命令执行失败：{e}")

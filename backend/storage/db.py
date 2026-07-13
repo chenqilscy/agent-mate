@@ -459,6 +459,17 @@ def init_db() -> None:
             PRIMARY KEY (owner_id, key)
         );
 
+        -- 安全审计日志（WB-152）：真记录工具执行/拦截（run_command、网络访问等）。按 owner 隔离。
+        -- action: 'executed'(已执行) / 'blocked'(被策略拦截)。
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            tool TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            action TEXT NOT NULL DEFAULT 'executed',
+            created_at REAL NOT NULL
+        );
+
         -- 用户记忆（WB-148）：关于用户本人、长期有效的事实，注入之后对话的系统提示（真生效）。
         -- source: 'conversation'(对话自动抽取) / 'manual'(手动添加)。按 owner 隔离。
         CREATE TABLE IF NOT EXISTS user_memories (
@@ -2029,6 +2040,41 @@ def set_user_setting(owner_id: str, key: str, value: Optional[str]) -> None:
 
 
 _DEFAULT_MODEL_KEY = "default_model"
+
+
+# ---- 安全审计日志（WB-152）----------------------------------------------
+
+_AUDIT_MAX = 500  # 每个 owner 保留的审计条数（超出裁旧）
+
+
+def add_audit(owner_id: str, tool: str, detail: str, action: str = "executed") -> None:
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO audit_log (id, owner_id, tool, detail, action, created_at) VALUES (?,?,?,?,?,?)",
+        (new_uuid(), owner_id, tool, (detail or "")[:500], action, time.time()),
+    )
+    # 裁旧：只保留最近 _AUDIT_MAX 条
+    conn.execute(
+        """DELETE FROM audit_log WHERE owner_id=? AND id NOT IN (
+               SELECT id FROM audit_log WHERE owner_id=? ORDER BY created_at DESC LIMIT ?
+           )""",
+        (owner_id, owner_id, _AUDIT_MAX),
+    )
+    conn.commit()
+
+
+def list_audit(owner_id: str, limit: int = 100) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT id, tool, detail, action, created_at FROM audit_log WHERE owner_id=? ORDER BY created_at DESC LIMIT ?",
+        (owner_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def clear_audit(owner_id: str) -> int:
+    cur = get_conn().execute("DELETE FROM audit_log WHERE owner_id=?", (owner_id,))
+    get_conn().commit()
+    return cur.rowcount
 
 
 # ---- 用户记忆（WB-148）---------------------------------------------------
