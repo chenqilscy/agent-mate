@@ -123,6 +123,89 @@ def connect() -> dict:
     return {"status": "pending", "authUrl": url}
 
 
+def _run_json(exe: str, service: str, action: str, params: dict, timeout: float = 30.0) -> tuple[bool, object]:
+    """Run one kdocs-cli <service> <action> and parse its JSON envelope.
+
+    Returns (ok, data_or_errtext). stdout carries the clean JSON envelope
+    ({code,data,message}); the upgrade-notice banner goes to stderr, so parsing
+    stdout alone is safe. exit code is 0 even on API error — trust `code`, not it.
+    """
+    args = [exe, service, action, "--output", "json", "--args", json.dumps(params, ensure_ascii=False)]
+    try:
+        p = subprocess.run(
+            args, capture_output=True, timeout=timeout, env=_safe_env(), stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"调用超时（>{int(timeout)}s）"
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)
+    text = p.stdout.decode("utf-8", "replace").strip()
+    if not text:
+        return False, (p.stderr.decode("utf-8", "replace").strip() or "kdocs-cli 无输出")
+    try:
+        obj = json.loads(text)
+    except json.JSONDecodeError:
+        return False, "kdocs-cli 返回非 JSON"
+    if isinstance(obj, dict) and obj.get("code") not in (0, None):
+        return False, f"金山文档接口错误 code={obj.get('code')}：{obj.get('message') or '未知错误'}"
+    return True, (obj.get("data") if isinstance(obj, dict) else obj)
+
+
+def _items(data: object) -> list[dict]:
+    """Dig the items[] list out of a search / latest-items result (nested envelope)."""
+    node = data
+    while isinstance(node, dict) and "items" not in node and "data" in node:
+        node = node["data"]
+    if isinstance(node, dict):
+        got = node.get("items")
+        return got if isinstance(got, list) else []
+    return []
+
+
+def _norm(it: dict) -> dict | None:
+    """Normalize one search/latest item (its `.file` sub-object) for the panel."""
+    f = it.get("file") if isinstance(it.get("file"), dict) else it
+    if not isinstance(f, dict) or f.get("type") != "file":
+        return None
+    name = str(f.get("name") or "")
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    creator = f.get("created_by") if isinstance(f.get("created_by"), dict) else {}
+    return {
+        "name": name,
+        "file_id": str(f.get("id") or ""),
+        "drive_id": str(f.get("drive_id") or ""),
+        "link_url": str(f.get("link_url") or ""),
+        "ext": ext,
+        "mtime": int(f.get("mtime") or 0),
+        "size": int(f.get("size") or 0),
+        "owner": str(creator.get("name") or ""),
+    }
+
+
+@router.get("/files")
+def files(keyword: str = "", page_size: int = 30) -> dict:
+    """List the user's 金山文档: recent docs by default, or search when keyword given.
+
+    Honest degradation (铁律#1): not installed / not authorized come back as flags
+    the panel can act on, not a 500.
+    """
+    exe = _cli()
+    if not exe:
+        return {"installed": False, "authenticated": False, "files": []}
+    if not _authed(exe):
+        return {"installed": True, "authenticated": False, "files": []}
+    size = max(1, min(int(page_size or 30), 100))
+    kw = keyword.strip()
+    if kw:
+        ok, data = _run_json(exe, "drive", "search-files", {"keyword": kw, "type": "all", "page_size": size})
+    else:
+        ok, data = _run_json(exe, "drive", "list-latest-items", {"page_size": size})
+    if not ok:
+        raise HTTPException(502, str(data))
+    out = [n for it in _items(data) if (n := _norm(it))]
+    return {"installed": True, "authenticated": True, "files": out}
+
+
 @router.post("/disconnect")
 def disconnect() -> dict:
     exe = _cli()

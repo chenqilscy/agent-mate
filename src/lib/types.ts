@@ -14,6 +14,19 @@ export type ViewId =
   | 'projexec'
   | 'inspire'
   | 'myfiles'
+  | 'kdocs'
+
+// 金山文档面板一条文件（WB-140）— 后端 /connectors/kdocs/files 归一化后的形状。
+export interface KdocsFile {
+  name: string
+  file_id: string
+  drive_id: string
+  link_url: string
+  ext: string
+  mtime: number
+  size: number
+  owner: string
+}
 
 // ---- SSE events -----------------------------------------------------------
 

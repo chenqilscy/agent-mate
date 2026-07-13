@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, InstalledSkill, Me, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, InstalledSkill, KdocsFile, Me, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -162,6 +162,12 @@ export const api = {
   kdocsConnect: () =>
     send<{ status: 'connected' | 'pending'; authUrl: string | null }>('POST', '/connectors/kdocs/connect'),
   kdocsDisconnect: () => send<{ status: string }>('POST', '/connectors/kdocs/disconnect'),
+  // 侧栏「金山文档」面板取数（WB-140）：空 keyword=最近访问文档，有则搜索。
+  // installed/authenticated 反映连接态，供面板做诚实降级引导。
+  kdocsFiles: (keyword = '') =>
+    get<{ installed: boolean; authenticated: boolean; files: KdocsFile[] }>(
+      `/connectors/kdocs/files?keyword=${encodeURIComponent(keyword)}`,
+    ),
 
   // SkillHub 技能 · 真实安装/发现/管理（WB-055）。清单来自 ~/.workbuddy/skills 磁盘扫描，
   // 安装走真实 skillhub CLI 下载解压。key = 技能目录名。
@@ -305,6 +311,21 @@ export const api = {
 
   deleteFile: (path: string, opts?: { project?: string; session?: string }) =>
     send<{ ok: boolean }>('POST', '/files/delete', { path, ...opts }),
+
+  // 语音输入本地转写（WB-139）。status 让 UI 提前知道能不能用；transcribe 把录音 Blob
+  // 直接作 body 发（非 multipart，仿 uploadFile 带 Bearer token），后端本机 ASR 转文字。
+  asrStatus: () =>
+    get<{ enabled: boolean; available: boolean; model: string; loaded: boolean; error: string | null }>('/asr/status'),
+  transcribeAudio: async (blob: Blob): Promise<{ text: string; language: string | null }> => {
+    const r = await fetch(`${API_BASE}/asr/transcribe`, { method: 'POST', body: blob, headers: authHeaders() })
+    if (!r.ok) {
+      // 后端把「依赖没装 / 模型没就绪」诚实报成 503，把原因带出来给用户看。
+      let detail = `转写失败（${r.status}）`
+      try { detail = (await r.json())?.detail ?? detail } catch { /* 非 JSON 错误 */ }
+      throw new Error(detail)
+    }
+    return r.json() as Promise<{ text: string; language: string | null }>
+  },
 }
 
 // 多助理（WB-086/087/088）。渠道 token 绝不回传，只有 has_token 布尔。

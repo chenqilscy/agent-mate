@@ -141,6 +141,11 @@
 .cicon { width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--border); background: #fff; cursor: pointer; display: grid; place-items: center; color: var(--text-2); }
 .cicon:hover { border-color: var(--brand); color: var(--brand-600); }
 .cicon svg { width: 15px; height: 15px; }
+.cicon:disabled { cursor: default; opacity: .55; }
+.cicon:disabled:hover { border-color: var(--border); color: var(--text-2); }
+/* 语音输入（WB-139）：录音态红色脉冲，转写态图标旋转。红沿用全站 #E5484D，明暗皆宜。 */
+.cicon.mic.rec { border-color: #E5484D; color: #E5484D; background: rgba(229, 72, 77, .1); animation: pul 1.1s ease-in-out infinite; }
+.cicon.mic.busy svg { animation: rot .8s linear infinite; }
 .csend { width: 34px; height: 34px; border-radius: 50%; border: none; background: var(--ink); color: #fff; cursor: pointer; display: grid; place-items: center; transition: .15s; }
 .csend:hover:not(:disabled) { background: var(--brand); }
 .csend:disabled { opacity: 1; background: #C9CDD3; cursor: not-allowed; }
@@ -629,6 +634,17 @@ body.dark .skd-ver.skd-preview { color: #E7A33E; background: #3A2E17; }
 .mf-crumb b { color: var(--text); font-weight: 600; }
 .mf-store { font-size: 12.5px; color: var(--text-2); }
 .mf-store i { font-style: normal; color: var(--text-3); cursor: pointer; }
+
+/* ---- 金山文档面板文件列表（WB-140）---- */
+.kd-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.kd-item { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border: 1px solid var(--border); border-radius: 11px; background: var(--card); cursor: pointer; transition: border-color .12s, background .12s; }
+.kd-item:hover { border-color: var(--brand); background: var(--brand-soft); }
+.kd-ic { font-size: 20px; line-height: 1; flex-shrink: 0; }
+.kd-main { flex: 1; min-width: 0; }
+.kd-name { font-size: 13.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kd-meta { font-size: 11.5px; color: var(--text-3); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kd-open { width: 15px; height: 15px; color: var(--text-3); flex-shrink: 0; }
+.kd-item:hover .kd-open { color: var(--brand); }
 
 /* ---- update banner ---- */
 .upd { position: fixed; left: 10px; bottom: 10px; width: 338px; background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-md); padding: 10px 12px; display: flex; align-items: center; gap: 8px; z-index: 90; font-size: 13px; font-weight: 600; }

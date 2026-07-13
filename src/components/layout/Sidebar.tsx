@@ -300,7 +300,7 @@ export function Sidebar() {
               <div className="more-item" onClick={() => { setModelConfigOpen(true); setMoreOpen(false) }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7h11M4 12h16M4 17h7" /><circle cx="18" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>模型管理
               </div>
-              <div className="more-item" onClick={() => toast('打开 · 金山文档')}>
+              <div className="more-item" onClick={() => { setView('kdocs'); setMoreOpen(false) }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>金山文档
               </div>
               <div className="more-item" onClick={() => toast('打开 · ima知识库')}>
