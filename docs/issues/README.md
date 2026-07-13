@@ -165,6 +165,7 @@
 | [WB-147](WB-147-personalization-backend.md) | ✅ | P1 | fullstack | 个性化真后端 —— 回复风格预设 + 自定义指令(按 owner 存 KV，注入 agent 系统提示真生效) + /api/settings 路由；系统设置里需前端基建的项(语言/字号/欢迎语)不做以免假开关 |
 | [WB-148](WB-148-memory-backend.md) | ✅ | P1 | fullstack | 记忆真后端 —— user_memories 表 + 注入 agent 系统提示(真生效) + 开启后从对话自动抽取(一次性 LLM，去重入库，默认关) + 手动增删清 + 前端记忆 tab |
 | [WB-149](WB-149-data-management-backend.md) | ✅ | P2 | fullstack | 数据管理真后端 —— 数据导出(真 dump user+settings+memories+sessions) + 清空个人对话(真删 kind=chat·级联消息·二次确认) + /api/data 路由；删除保护等策略项诚实占位 |
+| [WB-151](WB-151-glm-kb-review-fixes.md) | ✅ | P2 | fullstack | GLM 知识库 WB-141 审查修复 —— 向量化轮询闭包 bug(interval 用 openId state 恒 null→用 id 参数) + 无扩展名文件误拒 + 上传先查 key 再缓冲 body + _unwrap 2xx 空 body 当成功 + capacity 形状守卫；真机验 M2 三态 |
 
 ## 来源
 

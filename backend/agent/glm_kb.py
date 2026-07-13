@@ -42,6 +42,9 @@ def _unwrap(r: httpx.Response) -> Any:
     """解析 `{code,data,message}`：code==200 → data；否则抛 GlmKbError(message)。"""
     if r.status_code == 401 or r.status_code == 403:
         raise GlmKbError("智谱鉴权失败：请检查『模型管理』里『智谱 AI·GLM』的 API Key。")
+    # 2xx 且空 body / 204（如某些 DELETE/PUT）→ 当成功，返回 None，别误判失败（WB-151 M3）。
+    if 200 <= r.status_code < 300 and not (r.content or b"").strip():
+        return None
     try:
         body = r.json()
     except Exception as e:  # noqa: BLE001

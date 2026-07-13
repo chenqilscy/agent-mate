@@ -116,7 +116,10 @@ async def upload_document(
     parse_image: bool = False,
 ) -> dict:
     """传单文件。仿 files 路由：原始 body 流式（不引 python-multipart），文件名走 query。"""
-    ext = (filename or "").rsplit(".", 1)[-1].lower()
+    # 先查 key（WB-151 M4）：没配 key 时立刻 400，别白缓冲最多 50MB body 进内存。
+    key = _key()
+    # 扩展名校验（WB-151 M2）：用「有没有点」判断，rsplit 对无点文件名不会给空串。
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in (filename or "") else ""
     if ext and ext not in glm_kb.SUPPORTED_EXTS:
         raise HTTPException(400, f"不支持的文件类型：.{ext}（支持 {', '.join(sorted(glm_kb.SUPPORTED_EXTS))}）")
     declared = request.headers.get("content-length")
@@ -131,7 +134,7 @@ async def upload_document(
         raise HTTPException(400, "空文件。")
     content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
     return await _run(
-        glm_kb.upload_file, _key(), kb_id,
+        glm_kb.upload_file, key, kb_id,
         filename=filename or "document", content=bytes(buf), content_type=content_type,
         knowledge_type=knowledge_type, sentence_size=sentence_size, parse_image=parse_image,
     )

@@ -68,10 +68,11 @@ export function KnowledgeView() {
       const list = await listDocs(id)
       if (!alive.current) return
       setDocs(list)
-      // 还有文档在向量化 → 起轮询，全部 done 则停。
+      // 还有文档在向量化 → 起轮询，全部 done 则停。用 id 参数（不是 openId state——
+      // openDetail 调用时 openId 闭包还是旧值 null，会让轮询守卫恒假空转，WB-151）。
       const pending = list.some((d) => !docStatus(d).done)
       if (pending && !poll.current) {
-        poll.current = window.setInterval(() => { if (openId) void refreshDocs(openId) }, 4000)
+        poll.current = window.setInterval(() => { void refreshDocs(id) }, 4000)
       } else if (!pending) {
         stopPoll()
       }
@@ -122,9 +123,11 @@ export function KnowledgeView() {
     toast(on ? `已从对话取消挂载「${name}」` : `已挂载「${name}」到对话，去输入框提问即可检索`)
   }
 
-  const usedPct = capacity && capacity.total.length
-    ? Math.min(100, (capacity.used.length / capacity.total.length) * 100)
-    : 0
+  // 形状守卫（WB-151）：GLM 若返回缺字段的 capacity，别让 .length 抛 TypeError 白屏。
+  const capUsed = capacity?.used?.length ?? 0
+  const capTotal = capacity?.total?.length ?? 0
+  const capWords = capacity?.used?.word_num ?? 0
+  const usedPct = capTotal ? Math.min(100, (capUsed / capTotal) * 100) : 0
 
   return (
     <section className="view active" data-view="knowledge">
@@ -147,7 +150,7 @@ export function KnowledgeView() {
           <div style={{ marginTop: 14, padding: '10px 14px', background: 'var(--panel-2, rgba(127,127,127,.06))', borderRadius: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-2)' }}>
               <span>存储用量</span>
-              <span>{fmtBytes(capacity.used.length)} / {fmtBytes(capacity.total.length)}（{capacity.used.word_num.toLocaleString()} 字）</span>
+              <span>{fmtBytes(capUsed)} / {fmtBytes(capTotal)}（{capWords.toLocaleString()} 字）</span>
             </div>
             <div style={{ height: 6, background: 'rgba(127,127,127,.18)', borderRadius: 4, marginTop: 6, overflow: 'hidden' }}>
               <div style={{ width: `${usedPct}%`, height: '100%', background: 'var(--brand)', borderRadius: 4 }} />
