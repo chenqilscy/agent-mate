@@ -56,7 +56,8 @@ body.dark {
   --hl-built: #79c0ff;
   --hl-attr: #7ee787;
 }
-body.dark .win, body.dark .sidebar, body.dark .main, body.dark .menubar { background: #1B1F24; }
+body.dark .win, body.dark .sidebar, body.dark .main, body.dark .menubar,
+body.dark .kd-viewer, body.dark .kd-frame { background: #1B1F24; }
 body.dark .composer, body.dark .tpl, body.dark .ecard, body.dark .scard, body.dark .conn,
 body.dark .pop, body.dark .profile, body.dark .more-menu, body.dark .scene, body.dark .qchip,
 body.dark .search-box, body.dark .buddy-b, body.dark .hub-act, body.dark .btn-line,

@@ -51,6 +51,7 @@ export function KdocsView() {
   const [driveId, setDriveId] = useState('') // discovered personal-cloud drive
   const [crumbs, setCrumbs] = useState<Crumb[]>([ROOT_CRUMB])
   const [authUrl, setAuthUrl] = useState<string | null>(null)
+  const [viewing, setViewing] = useState<KdocsFile | null>(null) // 在应用内 iframe 打开的文档
   const alive = useRef(true)
   const poll = useRef<number | null>(null)
 
@@ -110,6 +111,14 @@ export function KdocsView() {
     return () => { alive.current = false; stopPoll() }
   }, [])
 
+  // Esc 关闭应用内文档预览。
+  useEffect(() => {
+    if (!viewing) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setViewing(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [viewing])
+
   const switchMode = (m: Mode) => {
     if (m === mode) return
     setMode(m)
@@ -145,16 +154,40 @@ export function KdocsView() {
   const clearSearch = () => { setKw(''); void loadFlat('') }
   const enterFolder = (f: KdocsFile) => void loadFolder([...crumbs, { id: f.file_id, name: f.name }])
   const gotoCrumb = (i: number) => { if (i < crumbs.length - 1) void loadFolder(crumbs.slice(0, i + 1)) }
+  // 点击文档：在应用内 iframe 打开（而非新标签）。无链接则提示。
   const openFile = (f: KdocsFile) => {
     if (!f.link_url) { toast('该文件暂无在线链接'); return }
-    window.open(f.link_url, '_blank', 'noopener,noreferrer')
+    setViewing(f)
   }
   const refresh = () => { if (mode === 'folder') void loadFolder(crumbs); else reloadMode(mode) }
 
   const dirs = files.filter((f) => f.is_folder).length
 
   return (
-    <section className="view active" data-view="kdocs">
+    <section className="view active" data-view="kdocs" style={{ position: 'relative' }}>
+      {viewing && (
+        <div className="kd-viewer">
+          <div className="kd-vbar">
+            <button className="kd-vback" onClick={() => setViewing(null)} title="返回（Esc）">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 6l-6 6 6 6" /></svg>返回
+            </button>
+            <span className="kd-vic">{viewing.is_folder ? '📁' : kindOf(viewing.ext)[0]}</span>
+            <span className="kd-vname" title={viewing.name}>{viewing.name}</span>
+            <span style={{ flex: 1 }} />
+            <a className="hub-act" href={viewing.link_url} target="_blank" rel="noopener noreferrer">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 5h5v5M19 5l-8 8M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" /></svg>新标签打开
+            </a>
+          </div>
+          <iframe
+            className="kd-frame"
+            src={viewing.link_url}
+            title={viewing.name}
+            // 允许同源脚本/表单/弹窗，让 WPS 文档正常渲染与交互；未登录 kdocs 的浏览器会
+            // 显示 WPS 登录页——此时用「新标签打开」兜底（凭据仍在 kdocs 侧，不经本应用）。
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads allow-modals"
+          />
+        </div>
+      )}
       <div className="page-scroll">
         <h1 style={{ fontSize: 22, fontWeight: 800 }}>📄 金山文档</h1>
         <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 6 }}>

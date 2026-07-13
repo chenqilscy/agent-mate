@@ -650,6 +650,15 @@ body.dark .skd-ver.skd-preview { color: #E7A33E; background: #3A2E17; }
 .kd-cr { cursor: pointer; color: var(--text-2); font-weight: 600; }
 .kd-cr:hover { color: var(--brand); }
 .kd-cr.cur { color: var(--text); cursor: default; }
+/* 应用内文档预览（WB-140）：覆盖整个视图的 iframe 层 */
+.kd-viewer { position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column; background: #fff; }
+.kd-vbar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.kd-vback { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--text); }
+.kd-vback:hover { border-color: var(--brand); color: var(--brand-600); }
+.kd-vback svg { width: 16px; height: 16px; }
+.kd-vic { font-size: 17px; line-height: 1; flex-shrink: 0; }
+.kd-vname { font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw; }
+.kd-frame { flex: 1; width: 100%; border: 0; background: #fff; }
 
 /* ---- update banner ---- */
 .upd { position: fixed; left: 10px; bottom: 10px; width: 338px; background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-md); padding: 10px 12px; display: flex; align-items: center; gap: 8px; z-index: 90; font-size: 13px; font-weight: 600; }

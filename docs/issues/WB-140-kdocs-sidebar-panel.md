@@ -133,4 +133,21 @@ list-latest-items/list-star-items/list-files/list-deleted-files/list-doclibs/lis
   星标模式无搜索框、纯列表 + 刷新；连接后/刷新按当前 mode 复载（reloadMode）。
 - 验证：`tsc`+`py_compile` 过；**硬重启后端后** `/files?kind=star` 返回真实收藏（本机 1 项，全为文件）；
   Playwright 实测三 tab 切换、星标 tab 高亮并列出真实星标项、星标模式无搜索框。
+- commit：e56d0db
+
+## 处理记录（2026-07-14）· 追加：应用内 iframe 文档预览（不再开新标签）
+
+用户反馈：点文档打开新标签页，希望在**应用内 iframe 嵌入查看内容**。
+
+- **可行性实测（关键）**：kdocs 分享短链 `www.kdocs.cn/l/xxx` 响应**无 X-Frame-Options / CSP frame-ancestors**，
+  不禁止被 iframe 嵌入；在已登录 kdocs 的浏览器里，iframe 直接渲染出完整的 WPS 文档（编辑器 + 正文，非登录墙）。
+  未登录 kdocs 的浏览器会显示 WPS 登录页 → 用「新标签打开」兜底（凭据仍在 kdocs 侧，不经本应用）。
+- 前端 `KdocsView`：点文件不再 `window.open`，改 `setViewing(f)` 打开应用内预览层 `.kd-viewer`
+  （`position:absolute; inset:0` 覆盖视图，侧栏仍在）：顶栏「← 返回（Esc 亦可）· 图标 · 文件名 · 新标签打开↗」+
+  `<iframe src=link_url sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads allow-modals">`。
+  文件夹仍是下钻、不进预览。
+- 样式：app.css 加 `.kd-viewer/.kd-vbar/.kd-vback/.kd-vic/.kd-vname/.kd-frame`；tokens.css 把
+  `.kd-viewer/.kd-frame` 并入 `body.dark .main` 深色背景（`#1B1F24`）。
+- 验证：`tsc` 过；Playwright 实测点「信息查询.otl」→ 应用内 iframe 完整渲染该 WPS 文档（正文/工具栏/目录），
+  顶栏「新标签打开」在；点「返回」/Esc 回到列表（30 项）；**明暗双主题**顶栏 chrome 正常（嵌入文档保留 WPS 自身浅色主题）。
 - commit：（待提交）
