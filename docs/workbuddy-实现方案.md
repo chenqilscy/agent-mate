@@ -1,11 +1,13 @@
 # WorkBuddy 真实实现方案
 
-源于腾讯的WorkBuddy桌面应用
+源于腾讯的 WorkBuddy 桌面应用形态。
 
-> 从高保真原型（`design/prototype.html`，即 workbuddy-v2.html，约 2200 行单文件）到可运行的真实产品。
+> 从高保真原型（`docs/workbuddy-v2.html`，约 2200 行单文件）到可运行的真实产品。
 > 原则：不硬编码、不模拟——所有流式输出来自真实 LLM，所有状态可持久化，所有轨迹是真实的 Agent 事件。
 >
-> **文档结构**：正文（第一～十节）是结论与蓝图，是唯一权威；文末「附录 A」是各项选型的论证依据（为什么这么选、否掉了什么、何时重估）。评审先读正文，对某项选型有疑问再查附录对应决策。
+> **文档结构**：正文（第一～十一节）是结论与蓝图，是唯一权威；文末「附录 A」是各项选型的论证依据（为什么这么选、否掉了什么、何时重估）。评审先读正文，对某项选型有疑问再查附录对应决策。
+>
+> **实现进度（活文档，截至 2026-07-07）**：M0–M4 核心闭环、M5 技能与连接器 + Tauri 2 桌面壳、§11 项目工作台 A–D、M6 打磨（⌘F 搜索 / 900px 响应式 / 主题持久化 / MSI·NSIS 安装包）、M7 协作 C1–C4（真账户 / 成员·角色·邀请 / 队友只读可见 + 动态署名 / 消息中心）**均已落地并验证**；协作架构为「共享后端即 Hub」。**未做**：M8 实时围观、更深协作（评论 / @提及 / 在线状态，需实时通道）、独立 Cloud Hub 与按需上云、打包的自动更新端点与代码签名（需用户基建 / 证书）。**下文各节内嵌的「M5 将…」「M7 才…」等未来时表述以本进度条为准——多为原始排期语气，实际已完成。**
 
 ---
 
@@ -74,7 +76,7 @@
 ╚═══════════════════════════════════════════════════════════════════╝
 ```
 
-单机模式下 Cloud Hub 不存在，auth 中间件注入固定本地用户——协作是"接上 Hub"，不是"改架构"。
+单机模式下无 token 时 auth 中间件注入固定本地用户——协作是"接上 Hub"，不是"改架构"。**M7 已落地**：当前实现以**共享后端**充当 Hub（真账户鉴权 + 成员/角色 + 队友只读可见 + 消息中心真事件已通），图中独立的 Cloud Hub、企业微信 SSO、产物按需上云仍为后续。
 
 ## 四、前端工程设计
 
@@ -92,23 +94,28 @@ workbuddy/
 │  │  ├─ panel/         # OvPanel.tsx · PePanel.tsx · FileTree.tsx · FileViewer.tsx
 │  │  ├─ layout/        # MenuBar.tsx · Sidebar.tsx · TaskItem.tsx
 │  │  └─ ui/            # Popover.tsx · Modal.tsx · Toast.tsx · Switch.tsx · Chip.tsx
-│  ├─ stores/           # zustand：chatStore · uiStore · toastStore · authStore …
+│  ├─ stores/           # zustand：chat·ui·toast·auth·settings·loadout·project
+│  │                    #   ·workItem·automation·notification
 │  ├─ platform/         # 抽象层：windowControls·tray·notify·shortcut·dialog
-│  │                    #   index.web.ts（空实现）· index.tauri.ts（M5）
+│  │                    #   index.ts：运行时探测 Tauri → 原生实现 / 浏览器 → 空实现
 │  ├─ lib/              # sse.ts · api.ts · markdown.ts · icons.tsx · api-types.ts(生成)
 │  └─ styles/           # tokens.css（设计令牌）· 各 *.module.css
 ├─ backend/
 │  ├─ main.py           # FastAPI 入口
-│  ├─ auth/             # middleware.py（M1 固定本地用户桩 → M7 真账号）· deps.py
-│  ├─ agent/            # runtime.py（薄循环→PydanticAI）· events.py · tools/
-│  ├─ routers/          # chat.py · sessions.py · projects.py · files.py · members.py
+│  ├─ auth/             # middleware.py（无 token→固定本地用户 / M7 真账户鉴权）· deps.py
+│  ├─ agent/            # runtime.py（自研薄循环）· events.py · tools.py · sandbox.py · llm.py
+│  │                    #   · skills.py · experts.py · mcp_client.py · scheduler.py
+│  ├─ routers/          # me·models·sessions·chat·files·projects·work_items·experts
+│  │                    #   ·skills·automations·auth·notifications
+│  ├─ mcp_servers/      # 内置 FastMCP：notes·clock·search·telegram（第三方经 npx 拉起）
 │  └─ storage/          # models.py（UUID·owner_id·project_id·Role 枚举）· db.py
-├─ src-tauri/           # M5 引入：tauri.conf.json · sidecar 打包配置
+├─ src-tauri/           # Tauri 2 壳（路线 A 已落地）：tauri.conf.json · src/(Rust)
+│                       #   · binaries/(sidecar) · icons/ · capabilities/ · 托盘·更新脚手架
 ├─ .env.example         # LLM_API_KEY / LLM_API_BASE
 └─ package.json         # react ^19 · zustand ^5 · marked · dompurify · highlight.js
 ```
 
-> `src-tauri/` 与 `platform/index.tauri.ts` 在 M0 只留占位，M5 才落地——但 `platform/` 抽象接口 M0 就定义好，UI 层一律走抽象、永不直接 import Tauri，保证套壳零返工。
+> `src-tauri/` 与 `platform/` 的 Tauri 实现 M0 留占位，路线 A 已落地（无边框窗口 + 托盘 + PyInstaller sidecar + MSI/NSIS 安装包 + 更新脚手架）——因 `platform/` 抽象接口 M0 就定义好、UI 层一律走抽象永不直接 import Tauri，套壳时零返工。
 
 ### 4.2 组件迁移映射（原型 → React）
 
@@ -142,21 +149,45 @@ workbuddy/
 所有路由过 auth 中间件（M1 注入固定本地用户，M7 换真实实现，路由零改动）。
 
 ```
-GET  /api/me                          # 当前用户与角色（authStore；M1 返回本地用户桩）
-GET  /api/models                      # 模型列表（含倍率/等级，驱动模型菜单）
-GET  /api/sessions?space=…            # 侧栏任务/空间
-POST /api/sessions                    # 新任务
-GET  /api/sessions/{id}/messages      # 历史回放（kdocs/wps 场景即真实历史）
-POST /api/chat                        # 发消息 → 返回 SSE 流
-POST /api/chat/{id}/answer            # 提交 AskUser 答案，恢复 Agent
-POST /api/chat/{id}/stop              # 停止键
-GET  /api/files/tree?root=workspace   # 工作空间文件树
-GET  /api/files/content?path=…        # 文件查看器内容（带 mime 判断）
-GET  /api/artifacts?session=…         # 产物列表（12 项那种）
-POST /api/projects                    # 新建项目（名称/指令/连接器/专家/技能）
-GET  /api/projects/{id}/members       # 项目成员与角色（M1 单成员，M7 多成员）
-POST /api/projects/{id}/connectors    # 项目公共连接器（Admin，secret 云端加密存储）
-GET  /api/usage/{session}             # 上下文用量明细（系统提示词/工具/消息/技能）
+# 身份与元信息
+GET  /api/me                              # 当前用户与角色（无 token 时返回固定本地用户）
+GET  /api/models                          # 模型列表（含倍率/等级，驱动模型菜单）
+POST /api/register · /login · /logout     # 真账户鉴权（M7；前端 localStorage 存 Bearer token）
+
+# 会话与对话
+GET  /api/sessions?space=…                # 侧栏任务/空间
+POST /api/sessions                        # 新任务
+GET  /api/sessions/{id}/messages          # 历史回放（队友项目会话只读可见：带 owner_name/read_only）
+PATCH·DELETE /api/sessions/{id}           # 重命名 / 删除（owner-scoped）
+POST /api/chat                            # 发消息 → 返回 SSE 流（带 loadout：experts/skills/connectors/refs）
+POST /api/chat/{id}/answer                # 提交 AskUser 答案，恢复 Agent
+POST /api/chat/{id}/stop                  # 停止键
+
+# 文件与产物（沙箱，可按 project/session 作用域）
+GET  /api/files/tree?root=…&project=…     # 工作空间文件树（含 mtime）
+GET  /api/files/content?path=…            # 文件查看器内容（带 mime 判断）
+GET  /api/files/usage?project=…           # 配额（5GB 软限制展示）
+POST /api/files/upload · GET /download    # 资产上传/下载（§11-C，带鉴权）
+POST /api/files/mkdir · /rename · /delete # 新建文件夹 / 重命名 / 删除
+
+# 项目工作台
+GET·POST /api/projects                    # 列表 / 新建（名称/指令/连接器/专家/技能）
+GET·PATCH /api/projects/{id}              # 详情（含配置）/ 编辑指令·连接器·专家·技能
+GET  /api/projects/{id}/sessions          # 项目下执行会话（左栏分组 / 动态来源）
+GET·POST /api/projects/{id}/members             # 成员与角色（M7；按 username 邀请）
+PATCH·DELETE /api/projects/{id}/members/{uid}   # 改角色 / 移除·退出（Owner/Admin 管理）
+
+# 工作项（计划看板 / 任务列表同源，§11-B）
+GET·POST /api/work-items · PATCH·DELETE /api/work-items/{id}
+
+# 自动化（路线 B）
+GET·POST /api/automations · PATCH·DELETE /{id} · POST /{id}/run · GET /{id}/runs
+
+# 专家 / 技能市场 / 消息中心
+GET·POST·DELETE /api/experts…             # 我的专家（自定义人格）
+GET /api/skills · /search · /{key} · POST /install · /uninstall · /toggle  # 技能市场
+GET  /api/notifications · POST /api/notifications/read   # 消息中心（M7 真事件 + 未读计数）
+GET  /api/usage/{session}                 # 上下文用量明细（系统提示词/工具/消息/技能）
 ```
 
 > 前后端类型契约：CI 由 FastAPI 的 OpenAPI schema 经 `openapi-typescript` 生成 `lib/api-types.ts`，跨语言端到端类型安全，杜绝手写 DTO 漂移。
@@ -174,10 +205,13 @@ GET  /api/usage/{session}             # 上下文用量明细（系统提示词/
 | `diff` | `{op:"编辑",file:"chatStore.ts",add:1,del:1}` | ✎ 编辑行 + 绿 +N / 红 -N |
 | `todo` | `{text:"Rebuild frontend…"}` | 虚线圆 todo 行 |
 | `text` | `{md:"前端构建成功！…"}` | 经 marked+DOMPurify 渲染的正文（token 级增量拼接） |
-| `ask_user` | `{questions:[{q,options[]}×3]}` | 挂载提问卡；回答走 `/answer`，摘要卡由 `qa_summary` 事件回推 |
-| `artifact` | `{name:"README.md",size:"2.4 KB",path}` | 产物卡入网格 + 面板产物区 |
+| `ask_user` | `{questions:[{q,options[]}×3]}` | 挂载提问卡；回答走 `/answer` 恢复 Agent |
+| `qa_summary` | `{qa:[{q,a}…]}` | 已答提问摘要卡（`ask_user` 之后回推，落轨迹并回放） |
+| `work_item` | `{item:{…}}` | 计划看板实时同步（工具改动工作项时发，瞬时不落轨迹，WB-031） |
+| `artifact` | `{name,size,path}` | 产物卡入网格 + 面板产物区（builder 已备；当前产物实际由 `diff` 轨迹派生） |
 | `usage` | `{pct:3.7,used:36900,detail:{…}}` | 上下文环面板实时数字 |
-| `done` | `{}` | 收流、追加操作行与消耗 meta |
+| `error` | `{message:"LLM 未配置…"}` | 错误行（如未配 Key 时的友好提示） |
+| `done` | `{message_id?}` | 收流、追加操作行与消耗 meta |
 
 ### 5.3 Agent Runtime 与权限
 
@@ -191,7 +225,7 @@ GET  /api/usage/{session}             # 上下文用量明细（系统提示词/
 
 ## 六、里程碑
 
-> **实现进度（活文档）**：M0–M4 已落地并逐项实测通过——真流式对话、事件驱动全量轨迹（think/step/diff/todo）、文件与产物面板、ask_user 双向闭环（asyncio 挂起/唤醒）、Plan 模式（只读工具）、新建项目落库 + 项目执行 + 变更列表。对照真实产品，"项目"应是**工作台**而非 M4 最小实现的"作用域对话"，深化蓝图见 **第十一节**，下一步从其**阶段 A** 开始。
+> **实现进度（活文档，截至 2026-07-07）**：**M0–M7（C1–C4）+ §11 工作台 A–D + 路线 A（Tauri 桌面壳）+ 路线 B（自动化/连接器/技能）均已落地并实测通过**。核心闭环——真流式对话、事件驱动全量轨迹（think/step/diff/todo）、文件与产物面板、ask_user 双向闭环（asyncio 挂起/唤醒）、Plan 模式（只读工具）、新建项目落库 + 项目执行 + 变更列表——自 M4 起稳定；此后逐里程碑接上真实连接器/技能/自动化/桌面壳/协作。对照真实产品，"项目"已从 M4 的"作用域对话"深化为 **§11 的工作台**（主页 + 四标签 + 项目配置侧栏 + 每项目独立沙箱）。未做见顶部进度条：M8 实时围观、更深协作、打包签名/更新端点。
 
 | 阶段 | 内容 | 验收标准 |
 |---|---|---|
@@ -199,11 +233,11 @@ GET  /api/usage/{session}             # 上下文用量明细（系统提示词/
 | **M1 对话 MVP**（1 周） | Composer + `/api/chat` 真流式 + Markdown 渲染 + 停止键 + 会话持久化(SQLite) + 侧栏任务真实增删 + **多用户数据模型预埋**（UUID/owner_id/角色枚举/auth 中间件桩） | 配好 Key 后与真实 LLM 流式对话，刷新不丢历史 |
 | **M2 轨迹系统**（1 周） | 事件协议全量落地：think/step/diff/todo/status、折叠、目录（概览含章节）、上下文用量真实统计 | koda 式执行轨迹由真实事件驱动复现 |
 | **M3 文件与产物**（3–5 天） | 工作空间树 + 文件查看器（md 渲染/行号代码）+ 产物登记与面板联动 | 点树/产物卡/轨迹蓝链均能打开真实文件 |
-| **M4 项目流程**（1 周，✅已落地最小闭环） | 新建项目全流程落库、项目执行视图、ask_user 双向闭环、Plan 模式、变更(diff)列表；框架门槛检查点（结论：维持自研薄循环，暂不升级 PydanticAI）。**项目工作台深化见 §11（阶段 A 为下一步）**；Tauri 2 壳定型顺延至 M5 | 完整重演"分析todo实现方案"剧情但全程真实 |
-| **M5 技能与连接器**（1–2 周） | MCP 客户端接入 1–2 个真实连接器（建议先腾讯文档/GitHub）、技能=可注入的提示词+工具包、专家=预设人格；**Tauri 壳集成**（无边框窗口+托盘+sidecar） | ＋菜单里的连接/调用产生真实效果 |
-| **M6 打磨** | 深色主题持久化、⌘F 对话内搜索、900px 响应式补全、安装包分发 | — |
-| **M7 协作版** | 账号/SSO、Cloud Hub、项目成员与角色、公共+个人连接器双层授权、任务共享与消息推送（消息中心真实事件） | 两名成员在同一项目下各自本地执行、互见任务与产物 |
-| **M8 实时围观** | 执行流 fan-out 只读直播 | 成员可实时旁观他人任务的轨迹流 |
+| **M4 项目流程**（✅已落地） | 新建项目全流程落库、项目执行视图、ask_user 双向闭环、Plan 模式、变更(diff)列表；框架门槛检查点（结论：维持自研薄循环，暂不升级 PydanticAI）。**项目工作台深化见 §11（A–D 均已落地）**；Tauri 2 壳定型顺延至 M5（已完成） | 完整重演"分析todo实现方案"剧情但全程真实 |
+| **M5 技能与连接器**（✅已落地） | MCP 客户端接入真实连接器（内置 本地便签/时间助手/工作区检索/Telegram + 第三方 GitHub 经 npx）、技能=可注入的提示词+**真实工具包**（Web Access→web_fetch、Excel→analyze_csv、MarkItDown→html_to_markdown）、专家=预设人格；**Tauri 2 壳集成**（无边框窗口+托盘+PyInstaller sidecar，详见 路线 A） | ＋菜单里的连接/调用产生真实效果 |
+| **M6 打磨**（✅主体已落地） | 深色主题持久化 ✅、⌘F 对话内搜索 ✅（CSS Custom Highlight API）、900px 响应式抽屉 ✅、安装包分发 ✅（MSI/NSIS）；余：更新端点 + 代码签名（需用户基建/证书） | 上述均在浏览器/桌面壳实测通过 |
+| **M7 协作版**（✅ C1–C4 已落地） | 真账户鉴权(C1)、项目成员·角色·邀请(C2)、队友项目会话只读可见 + 动态署名(C3)、消息中心真事件(C4)；架构=**共享后端即 Hub**（独立 Cloud Hub/SSO/公共连接器加密存储/按需上云为后续） | 两账户在同一项目下各自执行、互见任务与产物、Viewer 只读——2 账户 E2E 19/19 通过 |
+| **M8 实时围观**（未做） | 执行流 fan-out 只读直播（需实时通道）；与「更深协作：评论/@提及/在线状态」一并留待后续 | 成员可实时旁观他人任务的轨迹流 |
 
 ## 七、原型功能 → 实现优先级清单
 
@@ -226,33 +260,37 @@ P0 = MVP 必须，P1 = M2–M4，P2 = M5+：
 
 ## 八、工程注意事项
 
-安全上有三条硬线：LLM 输出必须经 DOMPurify 才能进 `dangerouslySetInnerHTML`；`run_cmd/edit_file` 严格锁在 workspace 沙箱且记录审计事件（对应"变更(57)"）；API Key 只存后端 `.env`，前端永不接触。性能上注意两点：长轨迹（几百个事件）用虚拟列表或分段折叠渲染；SSE 断线重连要带 `last_event_id` 续传。数据层从 M1 起按多用户预埋（UUID 主键、owner_id/project_id、角色枚举、auth 中间件桩），协作拓扑为 Local Agent + Cloud Hub（详见附录 A.3）。工程习惯上，原型文件保留为 `design/prototype.html` 进仓库——它就是活的视觉验收标准，每个组件做完对着它逐像素核对。
+安全上有三条硬线：LLM 输出必须经 DOMPurify 才能进 `dangerouslySetInnerHTML`；`run_cmd/edit_file` 严格锁在 workspace 沙箱且记录审计事件（对应"变更(57)"）；API Key 只存后端 `.env`，前端永不接触。性能上注意两点：长轨迹（几百个事件）用虚拟列表或分段折叠渲染；SSE 断线重连要带 `last_event_id` 续传。数据层从 M1 起按多用户预埋（UUID 主键、owner_id/project_id、角色枚举、auth 中间件桩），协作拓扑为 Local Agent + Cloud Hub（详见附录 A.3）。工程习惯上，原型文件保留为 `docs/workbuddy-v2.html` 进仓库——它就是活的视觉验收标准，每个组件做完对着它逐像素核对。
 
-## 九、本地启动（目标形态）
+## 九、本地启动（现行）
 
 ```bash
-# 1. 配置 API Key
-cd workbuddy/backend
-cp .env.example .env   # 填入 LLM_API_KEY 和 LLM_API_BASE
+# 1. 后端：配置 API Key（只在后端 .env，前端永不接触）
+cd backend
+cp .env.example .env                              # 填入 LLM_API_KEY / LLM_API_BASE
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt     # Windows（macOS/Linux 用 .venv/bin/pip）
 
 # 2. 启动后端
-python3.11 main.py
+.venv/Scripts/python main.py                      # → http://localhost:8000
 
-# 3. 启动前端（新终端）
-cd workbuddy && pnpm install && pnpm dev
+# 3. 启动前端（新终端，仓库根）
+pnpm install && pnpm dev                          # → http://localhost:5173
 
-# 4. 打开浏览器 → http://localhost:5173
+# 4. 打开浏览器 → http://localhost:5173（桌面壳：build_sidecar.py 后 pnpm tauri:dev）
 ```
+
+> Windows 后端默认 `reload=False`（Proactor 事件循环 + MCP 子进程约束）——改后端代码需**硬重启** `:8000`。缺 Key 时对话流式回一条友好的「LLM 未配置」错误，整条 SSE 管线照常跑。
 
 ## 十、下一步
 
-从 M0 开始：初始化仓库 → 迁移设计令牌与 MenuBar/Sidebar → 打通第一条 SSE echo。M0+M1 完成后就拥有一个"真的 WorkBuddy 核心"，剩下的是按清单逐项把原型里的每个交互接上真实数据。
+初始蓝图（已完成，留作路线回顾）：从 M0 起初始化仓库 → 迁移设计令牌与 MenuBar/Sidebar → 打通第一条 SSE echo → M0+M1 后即拥有"真的 WorkBuddy 核心" → 按优先级清单逐项把原型里的每个交互接上真实数据。
 
-> **进展更新**：M0–M4 已完成。下一阶段按第十一节的**项目工作台深化**推进，从阶段 A 起。
+> **进展更新（2026-07-07）**：M0–M7（C1–C4）+ §11 A–D + 路线 A（Tauri 桌面壳）/ 路线 B（自动化·连接器·技能）均已落地并验证。**后续候选**（择需推进）：M8 实时围观与更深协作（评论/@提及/在线状态，需实时通道）、独立 Cloud Hub 与产物按需上云、Tauri 打包的自动更新端点与代码签名（需用户基建/证书）、助理页外部渠道（企业微信等回调，需凭证）、GitHub 连接器实连（需用户 `GITHUB_TOKEN`）。
 
 ## 十一、项目工作台深化（M4+：从"作用域对话"到"工作台"）
 
-> 背景：M4 把"项目"实现为一个**作用域对话**（会话带 `project_id`、注入项目指令），这是最小闭环。对照真实产品截图，"项目"应是一个**工作台**——主页 + 四标签 + 常驻配置侧栏 + 独立工作空间，执行/对话只是项目下的一个子项。本节把这一深化定为权威蓝图。
+> 背景：M4 把"项目"实现为一个**作用域对话**（会话带 `project_id`、注入项目指令），这是最小闭环。对照真实产品截图，"项目"应是一个**工作台**——主页 + 四标签 + 常驻配置侧栏 + 独立工作空间，执行/对话只是项目下的一个子项。本节把这一深化定为权威蓝图。**阶段 A–D 均已落地并验证（见 11.4 表）。**
 
 ### 11.1 核心模型：项目 = 工作台
 
@@ -274,7 +312,7 @@ cd workbuddy && pnpm install && pnpm dev
 - 项目会话 → `backend/workspace/projects/<project_id>/`
 - 普通对话 → `backend/workspace/default/`
 - 实现：`contextvar` 按请求设置当前 workspace 根，`agent/sandbox.py` 与所有工具读它（工具签名不变）；`/api/files/*` 增加 `?session=` / `?project=` 作用域参数
-- 收益：产物 / 变更 / 文件树 / 资产都只看本项目，互不污染（当前 M4 为全局共享，是待补的简化）
+- 收益：产物 / 变更 / 文件树 / 资产都只看本项目，互不污染（M4 曾为全局共享，阶段 A 已按项目隔离）
 
 ### 11.3 数据模型与 REST 追加（并入 5.1 契约）
 
@@ -291,11 +329,11 @@ cd workbuddy && pnpm install && pnpm dev
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| **A 项目结构**（下一步先做） | ① 每项目独立工作空间（contextvar 作用域）；② 项目主页四标签壳 + 常驻「项目配置」侧栏（指令等可编辑，PATCH 落库）；③ 侧栏执行会话按项目分组；执行降为项目子视图 | 打开项目见工作台；改指令即改 Agent 行为；产物/文件只看本项目 |
-| **B 工作管理** | 计划(看板拖拽) + 任务(工作项列表)，`work_items` 落库，状态机 | 卡片可新建/流转，任务列表与看板同源 |
+| **A 项目结构**（✅已落地） | ① 每项目独立工作空间（contextvar 作用域）；② 项目主页四标签壳 + 常驻「项目配置」侧栏（指令等可编辑，PATCH 落库）；③ 侧栏执行会话按项目分组；执行降为项目子视图 | 打开项目见工作台；改指令即改 Agent 行为；产物/文件只看本项目 |
+| **B 工作管理**（✅已落地） | 计划(看板拖拽) + 任务(工作项列表)，`work_items` 落库，状态机 | 卡片可新建/流转，任务列表与看板同源 |
 | **B+ 计划补齐**（WB-026/027/028，✅已落地） | ① **待办详情弹窗**：描述可编辑、状态/截止日期下拉、附件、「添加到输入框」（经 `uiStore.composerPrefill` 一次性注入项目 Composer）；② **新建待办弹窗**：标题+描述+附件（本地文件/项目资产）+截止日期，替换列内内联输入；③ **顶部工具条**：归属/来源筛选 + 批量操作（多选改状态/删除）+ 搜索；④ **添加数据源**：TAPD/CNB/GitHub 选择器 UI 为**诚实占位**，动作提示「敬请期待」，不伪造授权/导入（真实同步为后续外部集成） | 点卡片见详情并可编辑落库；新建带描述/截止/附件；筛选/批量/搜索生效；数据源占位不产生假数据 |
-| **C 资产** | 资产标签 = 项目云盘（列表/上传/下载/重命名/删除/配额）+ 富文件查看器（操作菜单/分页/字数） | 上传/下载/改名真实生效，查看器带操作 |
-| **D 协作**（归入 M7） | 成员动态、邀请/成员与角色、共享、消息推送 | 两成员同项目互见（依赖 Cloud Hub） |
+| **C 资产**（✅已落地） | 资产标签 = 项目云盘（列表/上传/下载/重命名/删除/配额）+ 富文件查看器（操作菜单/分页/字数） | 上传/下载/改名真实生效，查看器带操作 |
+| **D 协作**（✅ 随 M7 C1–C4 落地） | 成员动态、邀请/成员与角色、共享、消息推送 | 两成员同项目互见（当前以共享后端为 Hub） |
 
 阶段 A 是骨架，也顺带解决独立工作空间；B/C 为独立大功能逐个加；D 归入 M7 协作版。
 
@@ -309,7 +347,7 @@ cd workbuddy && pnpm install && pnpm dev
 
 #### 结论
 
-**桌面能力不可妥协，但桌面"壳"可以后置**。采用 **Local-first 架构**：后端从 M0 起就是跑在用户本机的 localhost 服务，浏览器只是临时的显示器；**壳选型在 M4 定型为 Tauri 2，M5 完成集成**——修正原方案"M6 后再评估"的排期错误。
+**桌面能力不可妥协，但桌面"壳"可以后置**。采用 **Local-first 架构**：后端从 M0 起就是跑在用户本机的 localhost 服务，浏览器只是临时的显示器；**壳选型在 M4 定型为 Tauri 2，M5 完成集成**——修正原方案"M6 后再评估"的排期错误。**（路线 A 已落地：无边框窗口 + 托盘 + PyInstaller sidecar + MSI/NSIS 安装包 + 更新脚手架；余更新端点与代码签名待用户基建/证书。）**
 
 #### 论证
 
@@ -357,7 +395,7 @@ cd workbuddy && pnpm install && pnpm dev
 
 #### 论证
 
-**为什么 MVP 不上 LangChain/LangGraph 这类框架**：本产品的差异化恰恰在于**事件协议与 UI 的一一对应**（think/step/diff/todo/ask_user/artifact 十一种事件 → 原型里十一种 DOM 形态）。框架有自己的事件流（如 LangGraph 的 `astream_events`），用了框架等于要写一层"框架事件 → 我们的事件"的翻译器，抽象税双倍。而一个自研工具循环的本体只有：messages 管理、tool schema 注册、SSE 事件发射、stop 信号、token 统计——300 行级别，完全可控，权限沙箱和停止键这类产品强需求直接内嵌。
+**为什么 MVP 不上 LangChain/LangGraph 这类框架**：本产品的差异化恰恰在于**事件协议与 UI 的一一对应**（think/step/diff/todo/ask_user/artifact 等十余种事件 → 原型里对应的 DOM 形态）。框架有自己的事件流（如 LangGraph 的 `astream_events`），用了框架等于要写一层"框架事件 → 我们的事件"的翻译器，抽象税双倍。而一个自研工具循环的本体只有：messages 管理、tool schema 注册、SSE 事件发射、stop 信号、token 统计——300 行级别，完全可控，权限沙箱和停止键这类产品强需求直接内嵌。
 
 **但要写清楚什么时候必须上框架**，避免自研循环无限膨胀。框架引入门槛（满足任意两条即引入）：
 
@@ -479,7 +517,7 @@ cd workbuddy && pnpm install && pnpm dev
 
 本文各决策对里程碑的影响（完整 M0–M8 总表见主方案第六节，此处只列因决策产生的变化点）：
 
-- 决策一 → M0 新增 `platform/` 抽象层骨架；M4 定型 Tauri 壳、M5 集成（原"M6 后评估"作废）。
-- 决策二 → M4 结束设框架门槛检查点，决定 M5 前是否将薄循环升级为 PydanticAI。
-- 决策三 → M1 起数据层多用户预埋；新增 M7（协作版 L0+L1）、M8（实时围观 L2）。
-- 决策四 → 无新增里程碑；约束后端语言与 sidecar 打包方式，与决策一/二自洽。
+- 决策一 → M0 新增 `platform/` 抽象层骨架；Tauri 2 壳 路线 A **已落地**（M4 定型、M5 集成 + sidecar + 安装包 + 托盘/更新脚手架；原"M6 后评估"作废）。
+- 决策二 → M4 结束的框架门槛检查点**已过**：结论维持自研薄循环，尚未触发升级 PydanticAI（当前只需进程内挂起/唤醒）。
+- 决策三 → M1 起数据层多用户预埋；M7 协作 **C1–C4 已落地**（真账户/成员角色/只读可见/消息中心，架构=共享后端即 Hub）；M8 实时围观（L2）未做。
+- 决策四 → 无新增里程碑；约束后端语言与 sidecar 打包方式，与决策一/二自洽（Python 维持）。
