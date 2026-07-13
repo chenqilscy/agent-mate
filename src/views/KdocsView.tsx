@@ -164,35 +164,15 @@ export function KdocsView() {
   const dirs = files.filter((f) => f.is_folder).length
 
   return (
-    <section className="view active" data-view="kdocs" style={{ position: 'relative' }}>
-      {viewing && (
-        <div className="kd-viewer">
-          <div className="kd-vbar">
-            <button className="kd-vback" onClick={() => setViewing(null)} title="返回（Esc）">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 6l-6 6 6 6" /></svg>返回
-            </button>
-            <span className="kd-vic">{viewing.is_folder ? '📁' : kindOf(viewing.ext)[0]}</span>
-            <span className="kd-vname" title={viewing.name}>{viewing.name}</span>
-            <span style={{ flex: 1 }} />
-            <a className="hub-act" href={viewing.link_url} target="_blank" rel="noopener noreferrer">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 5h5v5M19 5l-8 8M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" /></svg>新标签打开
-            </a>
-          </div>
-          <iframe
-            className="kd-frame"
-            src={viewing.link_url}
-            title={viewing.name}
-            // 允许同源脚本/表单/弹窗，让 WPS 文档正常渲染与交互；未登录 kdocs 的浏览器会
-            // 显示 WPS 登录页——此时用「新标签打开」兜底（凭据仍在 kdocs 侧，不经本应用）。
-            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads allow-modals"
-          />
-        </div>
-      )}
-      <div className="page-scroll">
-        <h1 style={{ fontSize: 22, fontWeight: 800 }}>📄 金山文档</h1>
-        <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 6 }}>
-          浏览、搜索并打开你的金山云文档（WPS 云文档）。也可在对话里让 AI 直接搜、读、建你的金山文档。
-        </div>
+    <section className="view active" data-view="kdocs">
+      <div className={`kd-body ${viewing ? 'split' : ''}`.trim()}>
+        <div className="page-scroll kd-left">
+          <h1 style={{ fontSize: 22, fontWeight: 800 }}>📄 金山文档</h1>
+          {!viewing && (
+            <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 6 }}>
+              浏览、搜索并打开你的金山云文档（WPS 云文档）。也可在对话里让 AI 直接搜、读、建你的金山文档。
+            </div>
+          )}
 
         {/* ── 连接态引导（未安装 / 未授权 / 连接中）───────────────────── */}
         {conn === 'loading' && <div className="mf-empty">正在加载…</div>}
@@ -295,7 +275,7 @@ export function KdocsView() {
                 }
                 const [icon, kind] = kindOf(f.ext)
                 return (
-                  <div key={f.file_id || f.name} className="kd-item" onClick={() => openFile(f)} role="button" tabIndex={0}
+                  <div key={f.file_id || f.name} className={`kd-item ${viewing?.file_id === f.file_id ? 'active' : ''}`.trim()} onClick={() => openFile(f)} role="button" tabIndex={0}
                     onKeyDown={(e) => { if (e.key === 'Enter') openFile(f) }}>
                     <span className="kd-ic">{icon}</span>
                     <div className="kd-main">
@@ -310,6 +290,33 @@ export function KdocsView() {
               })}
             </div>
           </>
+        )}
+        </div>
+
+        {viewing && (
+          <div className="kd-right">
+            <div className="kd-vbar">
+              <button className="kd-vback" onClick={() => setViewing(null)} title="关闭（Esc）">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 6l12 12M18 6L6 18" /></svg>关闭
+              </button>
+              <span className="kd-vic">{viewing.is_folder ? '📁' : kindOf(viewing.ext)[0]}</span>
+              <span className="kd-vname" title={viewing.name}>{viewing.name}</span>
+              <span style={{ flex: 1 }} />
+              <a className="hub-act" href={viewing.link_url} target="_blank" rel="noopener noreferrer">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 5h5v5M19 5l-8 8M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" /></svg>新标签打开
+              </a>
+            </div>
+            <iframe
+              className="kd-frame"
+              // key 绑定 file_id：切换文档时强制重建 iframe，避免复用旧文档的历史/滚动位置。
+              key={viewing.file_id}
+              src={viewing.link_url}
+              title={viewing.name}
+              // 允许同源脚本/表单/弹窗，让 WPS 文档正常渲染与交互；未登录 kdocs 的浏览器会
+              // 显示 WPS 登录页——此时用「新标签打开」兜底（凭据仍在 kdocs 侧，不经本应用）。
+              sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads allow-modals"
+            />
+          </div>
         )}
       </div>
     </section>

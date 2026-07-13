@@ -150,4 +150,18 @@ list-latest-items/list-star-items/list-files/list-deleted-files/list-doclibs/lis
   `.kd-viewer/.kd-frame` 并入 `body.dark .main` 深色背景（`#1B1F24`）。
 - 验证：`tsc` 过；Playwright 实测点「信息查询.otl」→ 应用内 iframe 完整渲染该 WPS 文档（正文/工具栏/目录），
   顶栏「新标签打开」在；点「返回」/Esc 回到列表（30 项）；**明暗双主题**顶栏 chrome 正常（嵌入文档保留 WPS 自身浅色主题）。
+- commit：489cff4
+
+## 处理记录（2026-07-14）· 追加：文档预览改左右分栏（master-detail）
+
+用户反馈：文档 + 内容页想要**左右结构**（能同时看列表与打开的文档），而非 iframe 全屏盖住列表。
+
+- 前端 `KdocsView`：把预览从「绝对定位全屏覆盖」改成**左右分栏**。外层 `.kd-body`（flex row），打开文档时加
+  `.split`：左栏 `.kd-left`（原 page-scroll）收窄到 400px 并右描边、列表照常滚动；右栏 `.kd-right` 放
+  文档 iframe（顶栏「关闭(Esc)/文件名/新标签打开」）。未开文档时左栏占满、右栏不渲染，描述文案仅未分栏时显示。
+  列表里当前打开的文件加 `.active` 高亮；点另一项即时切换右栏（iframe `key={file_id}` 强制重建，不串历史）。
+- 样式：app.css 加 `.kd-body/.kd-body.split .kd-left/.kd-right/.kd-item.active`（替换旧的 `.kd-viewer` 绝对定位）；
+  tokens.css 深色背景由 `.kd-viewer` 改 `.kd-right`。
+- 验证：`tsc` 过；Playwright 实测打开「信息查询.otl」→ 左列表(400px,30 项仍在)+右文档并存、该项高亮；
+  点「cloudfare.otl」→ 右栏与高亮即时切到它（仅 1 项 active，iframe src 变）；**明暗双主题**均正常。
 - commit：（待提交）

@@ -645,13 +645,19 @@ body.dark .skd-ver.skd-preview { color: #E7A33E; background: #3A2E17; }
 .kd-meta { font-size: 11.5px; color: var(--text-3); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kd-open { width: 15px; height: 15px; color: var(--text-3); flex-shrink: 0; }
 .kd-item:hover .kd-open { color: var(--brand); }
+.kd-item.active { border-color: var(--brand); background: var(--brand-soft); }
+.kd-item.active .kd-name { color: var(--brand-600); }
 .kd-crumb { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; font-size: 13px; }
 .kd-sep { font-style: normal; color: var(--text-3); margin: 0 6px; }
 .kd-cr { cursor: pointer; color: var(--text-2); font-weight: 600; }
 .kd-cr:hover { color: var(--brand); }
 .kd-cr.cur { color: var(--text); cursor: default; }
 /* 应用内文档预览（WB-140）：覆盖整个视图的 iframe 层 */
-.kd-viewer { position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column; background: #fff; }
+/* 左右分栏（左=列表，右=文档 iframe）；未开文档时左栏占满 */
+.kd-body { display: flex; flex: 1; min-height: 0; height: 100%; }
+.kd-body .kd-left { flex: 1; min-width: 0; }
+.kd-body.split .kd-left { flex: 0 0 400px; border-right: 1px solid var(--border); padding: 18px 16px 34px; }
+.kd-right { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; }
 .kd-vbar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .kd-vback { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--text); }
 .kd-vback:hover { border-color: var(--brand); color: var(--brand-600); }
