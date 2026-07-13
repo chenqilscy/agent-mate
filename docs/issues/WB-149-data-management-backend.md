@@ -57,4 +57,14 @@ P2：数据可携（导出）与清理是设置中心的常见诉求；纯读/�
   - 后端重启后 `GET /api/data/summary` 返回真实条数（342 会话/698 消息/0 记忆）；`GET /api/data/export` 真 dump（顶层 user/settings/memories/sessions，首会话含 title/kind/messages）。
   - **clear 未在真库跑**（会删用户 342 条真会话）——改对**临时库**跑真 `db.clear_conversations`：removed=2、owner 的非 chat 会话保留(2)、他人 chat 保留(1)、被删会话消息级联清除，作用域与级联正确。
   - CDP 截图**明暗双主题**数据管理 panel 渲染无坑（统计卡/导出/清空/占位）。
-- commit：未提交（待用户确认；并发会话可能仍活跃，需用隔离 index 技术）。
+- commit：feat(WB-149) e1486e0。
+
+## 审查修复（2026-07-14 复盘）
+
+- **摘要 N+1**（P2）：`summary` 原对每个会话 `list_messages`（`SELECT *` + 反序列化 trace/usage）只为计数，
+  重度用户几十会话数千消息全构造一遍。修：新增 `db.owner_data_counts(owner)`（会话 + 消息各一条 COUNT），
+  `summary` 改用它。实测仍返回 347/706。
+- **clear_conversations 变量上限 + 冗余**（P2）：原 `DELETE FROM messages WHERE session_id IN (?,?,…)` 展开全部会话 id，
+  超 SQLite 变量上限（老版 999）会失败；而 messages 已 `ON DELETE CASCADE`（+ `PRAGMA foreign_keys=ON`），
+  手删消息本就多余。修：只 `DELETE FROM sessions ... kind='chat'`，消息靠级联删，`cur.rowcount` 计数。
+  临时库测：removed=2、非 chat 保留、消息级联清零。

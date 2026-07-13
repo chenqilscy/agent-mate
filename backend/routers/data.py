@@ -13,11 +13,10 @@ router = APIRouter(prefix="/api/data", tags=["data"])
 @router.get("/summary")
 def summary() -> dict:
     owner = current_user().id
-    sessions = db.list_sessions(owner)
-    messages = sum(len(db.list_messages(s.id)) for s in sessions)
+    counts = db.owner_data_counts(owner)  # 单查询计数，避免 N+1 拉全部消息
     return {
-        "sessions": len(sessions),
-        "messages": messages,
+        "sessions": counts["sessions"],
+        "messages": counts["messages"],
         "memories": db.count_memories(owner),
     }
 

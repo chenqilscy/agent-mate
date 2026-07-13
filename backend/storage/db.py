@@ -1036,18 +1036,13 @@ def delete_session(session_id: str) -> None:
 
 def clear_conversations(owner_id: str) -> int:
     """清空 owner 的个人对话（kind='chat'）及其消息（WB-149）。返回删除的会话数。
-    只删个人对话，不动项目执行/助理/自动化会话，避免误伤其它子系统的引用。"""
+    只删个人对话，不动项目执行/助理/自动化会话，避免误伤其它子系统的引用。
+    消息经 messages 表的 ON DELETE CASCADE（+PRAGMA foreign_keys=ON）自动删除——
+    不手动展开 id 列表删消息，既免 SQLite 变量数上限（会话很多时），也更快。"""
     conn = get_conn()
-    ids = [r["id"] for r in conn.execute(
-        "SELECT id FROM sessions WHERE owner_id=? AND kind='chat'", (owner_id,)
-    ).fetchall()]
-    if not ids:
-        return 0
-    placeholders = ",".join("?" * len(ids))
-    conn.execute(f"DELETE FROM messages WHERE session_id IN ({placeholders})", ids)
-    conn.execute("DELETE FROM sessions WHERE owner_id=? AND kind='chat'", (owner_id,))
+    cur = conn.execute("DELETE FROM sessions WHERE owner_id=? AND kind='chat'", (owner_id,))
     conn.commit()
-    return len(ids)
+    return cur.rowcount
 
 
 def _row_to_session(row: sqlite3.Row) -> Session:
@@ -2096,6 +2091,19 @@ def count_memories(owner_id: str) -> int:
     ).fetchone()[0]
 
 
+def owner_data_counts(owner_id: str) -> dict:
+    """会话数 + 消息数，各一条 COUNT 查询（WB-149 数据摘要，避免 N+1 拉全部消息只为计数）。"""
+    conn = get_conn()
+    sessions = conn.execute(
+        "SELECT COUNT(*) FROM sessions WHERE owner_id=?", (owner_id,)
+    ).fetchone()[0]
+    messages = conn.execute(
+        "SELECT COUNT(*) FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE owner_id=?)",
+        (owner_id,),
+    ).fetchone()[0]
+    return {"sessions": sessions, "messages": messages}
+
+
 def add_memory(owner_id: str, content: str, source: str = "manual") -> Optional[dict]:
     """加一条记忆；空内容或与现有记忆重复（忽略大小写/首尾空白）则跳过、返回 None。"""
     text = (content or "").strip()
@@ -2109,11 +2117,20 @@ def add_memory(owner_id: str, content: str, source: str = "manual") -> Optional[
         return None
     mem_id = new_uuid()
     ts = time.time()
-    get_conn().execute(
+    conn = get_conn()
+    conn.execute(
         "INSERT INTO user_memories (id, owner_id, content, source, created_at) VALUES (?,?,?,?,?)",
         (mem_id, owner_id, text, source, ts),
     )
-    get_conn().commit()
+    # 兑现 _MEMORY_MAX 上限：裁掉最旧的、只留最近 _MEMORY_MAX 条（否则行数无界增长、
+    # 且注入/去重只看最新 200 条会让超出的旧记忆静默失效仍占库）。
+    conn.execute(
+        """DELETE FROM user_memories WHERE owner_id=? AND id NOT IN (
+               SELECT id FROM user_memories WHERE owner_id=? ORDER BY created_at DESC LIMIT ?
+           )""",
+        (owner_id, owner_id, _MEMORY_MAX),
+    )
+    conn.commit()
     return {"id": mem_id, "content": text, "source": source, "created_at": ts}
 
 

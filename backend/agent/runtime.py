@@ -609,19 +609,23 @@ async def run_chat(
 
     db.touch_session(session_id, status="done")
 
-    # 对话记忆自动抽取（WB-148）：用户在「设置 · 记忆」开启后，从这轮对话提炼可长期记住的用户事实，
-    # 去重入库，供之后对话注入。仅正常完成且有实质回复时跑；best-effort——任何失败都不影响本轮回复。
-    if assistant_text.strip() and memory.capture_enabled(user.id):
-        try:
-            await memory.extract_and_store(
-                user.id, user_text, assistant_text,
-                model=model_id, api_base=model_base, api_key=model_key, chat_path=model_path,
-            )
-        except Exception:  # noqa: BLE001
-            pass
-
     yield _usage_event(last_prompt, total_completion, schemas, system_prompt)
     yield events.status("done", secs=secs)
     if stopped:
         yield events.text("\n\n_（已停止生成）_")
     yield events.done(message_id)
+
+    # 对话记忆自动抽取（WB-148）：用户在「设置 · 记忆」开启后，从这轮对话提炼可长期记住的用户事实，
+    # 去重入库，供之后对话注入。**放在 done 之后**——前端已解锁，不被抽取往返拖住；`wait_for` 兜底，
+    # 防抽取端点卡死（stream_chat read 超时为 None）把连接/生成器无限期挂住。best-effort，任何失败静默。
+    if assistant_text.strip() and memory.capture_enabled(user.id):
+        try:
+            await asyncio.wait_for(
+                memory.extract_and_store(
+                    user.id, user_text, assistant_text,
+                    model=model_id, api_base=model_base, api_key=model_key, chat_path=model_path,
+                ),
+                timeout=30,
+            )
+        except Exception:  # noqa: BLE001 —— 含 asyncio.TimeoutError
+            pass
