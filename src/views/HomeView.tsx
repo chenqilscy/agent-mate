@@ -1,9 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Composer } from '../components/composer/Composer'
 import { useChatStore } from '../stores/chatStore'
 import { useUIStore } from '../stores/uiStore'
+import { useProjectStore } from '../stores/projectStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
 import { useCatalog } from '../stores/catalogStore'
+import { Popover } from '../components/ui/Popover'
+import { PermPopover } from '../components/composer/PermPopover'
 
 const SCENES: [string, string, string][] = [
   ['day', '🔥', '日常办公'],
@@ -14,12 +18,29 @@ const SCENES: [string, string, string][] = [
 export function HomeView() {
   const [scene, setScene] = useState('day')
   const startDraft = useChatStore((s) => s.startDraft)
+  const startProject = useChatStore((s) => s.startProject)
   const send = useChatStore((s) => s.send)
   const setView = useUIStore((s) => s.setView)
   const { QUICK } = useCatalog()
 
+  const projects = useProjectStore((s) => s.projects)
+  const loadProjects = useProjectStore((s) => s.load)
+  const perm = useSettingsStore((s) => s.perm)
+
+  // 首页新任务的目标空间（null = 默认空间，不绑定任何项目）与两个 tray popover。
+  const [selProject, setSelProject] = useState<string | null>(null)
+  const [pop, setPop] = useState<'ws' | 'perm' | null>(null)
+  const wsAnchor = useRef<HTMLButtonElement | null>(null)
+  const permAnchor = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => { void loadProjects() }, [loadProjects])
+
+  const selName = selProject ? projects.find((p) => p.id === selProject)?.name : null
+
   const launch = (text: string) => {
-    startDraft(text.length > 26 ? text.slice(0, 26) + '…' : text)
+    const title = text.length > 26 ? text.slice(0, 26) + '…' : text
+    if (selProject && selName) startProject(selProject, title)
+    else startDraft(title)
     setView('chat')
     void send(text)
   }
@@ -77,17 +98,39 @@ export function HomeView() {
             </svg>
             <Composer variant="home" onSend={launch} autoFocus />
             <div className="ctray">
-              <button className="tray-chip" onClick={() => toast('选择工作空间')}>
+              <button
+                className="tray-chip"
+                ref={wsAnchor}
+                onClick={() => setPop((c) => (c === 'ws' ? null : 'ws'))}
+              >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
-                选择工作空间
+                {selName ?? '选择工作空间'}
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 10, height: 10 }}><path d="M6 9l6 6 6-6" /></svg>
               </button>
-              <button className="tray-chip" onClick={() => toast('默认权限')}>
+              <button
+                className="tray-chip"
+                ref={permAnchor}
+                onClick={() => setPop((c) => (c === 'perm' ? null : 'perm'))}
+              >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><circle cx="12" cy="12" r="9" /><path d="M8.5 12l2.5 2.5 4.5-5" /></svg>
-                默认权限
+                {perm}
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 10, height: 10 }}><path d="M6 9l6 6 6-6" /></svg>
               </button>
             </div>
+            <Popover open={pop === 'ws'} anchor={wsAnchor.current} dir="down" onClose={() => setPop(null)} minWidth={220}>
+              <div className="pop-item" onClick={() => { setSelProject(null); setPop(null) }}>
+                无（默认空间）{selProject === null && <span className="chk">✓</span>}
+              </div>
+              {projects.length === 0 && <div className="pop-item pop-empty">暂无工作空间</div>}
+              {projects.map((p) => (
+                <div className="pop-item" key={p.id} onClick={() => { setSelProject(p.id); setPop(null) }}>
+                  <span className="pi-ic">🗂️</span>{p.name}{selProject === p.id && <span className="chk">✓</span>}
+                </div>
+              ))}
+            </Popover>
+            <Popover open={pop === 'perm'} anchor={permAnchor.current} dir="down" onClose={() => setPop(null)} className="perm-pop" minWidth={232}>
+              <PermPopover />
+            </Popover>
           </div>
         </div>
       </div>
