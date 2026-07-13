@@ -1023,6 +1023,22 @@ def delete_session(session_id: str) -> None:
     get_conn().commit()
 
 
+def clear_conversations(owner_id: str) -> int:
+    """清空 owner 的个人对话（kind='chat'）及其消息（WB-149）。返回删除的会话数。
+    只删个人对话，不动项目执行/助理/自动化会话，避免误伤其它子系统的引用。"""
+    conn = get_conn()
+    ids = [r["id"] for r in conn.execute(
+        "SELECT id FROM sessions WHERE owner_id=? AND kind='chat'", (owner_id,)
+    ).fetchall()]
+    if not ids:
+        return 0
+    placeholders = ",".join("?" * len(ids))
+    conn.execute(f"DELETE FROM messages WHERE session_id IN ({placeholders})", ids)
+    conn.execute("DELETE FROM sessions WHERE owner_id=? AND kind='chat'", (owner_id,))
+    conn.commit()
+    return len(ids)
+
+
 def _row_to_session(row: sqlite3.Row) -> Session:
     return Session(
         id=row["id"],

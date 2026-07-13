@@ -878,6 +878,13 @@ body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
 .set-mem-x { flex-shrink: 0; width: 24px; height: 24px; border: none; background: transparent; color: var(--text-3); font-size: 17px; line-height: 1; border-radius: 6px; cursor: pointer; }
 .set-mem-x:hover { background: var(--chip); color: var(--text); }
 
+/* 数据管理 panel（WB-149）：概览统计卡 + 危险操作二次确认 */
+.set-stats { display: flex; gap: 10px; margin: 4px 0 8px; }
+.set-stat { flex: 1; border: 1px solid var(--border); border-radius: 12px; padding: 14px 12px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.set-stat-n { font-size: 22px; font-weight: 800; color: var(--text); }
+.set-stat-l { font-size: 12px; color: var(--text-3); }
+.set-confirm { display: flex; gap: 8px; flex-shrink: 0; }
+
 /* --card 不随主题翻转（恒白），暗色须显式给深色面板，否则白底白字（铁律#3，同 np-modal 约定） */
 body.dark .set-panel { background: #1F242A; }
 body.dark .set-nav-item.active { background: #1F242A; }

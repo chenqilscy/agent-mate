@@ -8,7 +8,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { ModelConfigModal } from '../composer/ModelConfigModal'
 import { toast } from '../../stores/toastStore'
 import { api } from '../../lib/api'
-import type { MemoryItem, StylePreset } from '../../lib/types'
+import type { DataSummary, MemoryItem, StylePreset } from '../../lib/types'
 
 type Tab = { id: SettingsTab; label: string; icon: ReactNode }
 
@@ -183,6 +183,72 @@ function MemoryPanel() {
   )
 }
 
+// 数据管理 panel（WB-149）：数据概览 + 导出(下载 JSON) + 清空个人对话(二次确认)。接 /api/data。
+function DataPanel() {
+  const [sum, setSum] = useState<DataSummary | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+
+  const load = () => api.dataSummary().then(setSum).catch(() => toast('加载数据概览失败'))
+  useEffect(() => { load() }, [])
+
+  const doExport = async () => {
+    setBusy(true)
+    try {
+      const data = await api.dataExport()
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `workbuddy-export-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast('已导出数据')
+    } catch { toast('导出失败') } finally { setBusy(false) }
+  }
+  const doClear = async () => {
+    setBusy(true)
+    try { const r = await api.clearConversations(); toast(`已清空 ${r.removed} 条个人对话`); setConfirming(false); load() }
+    catch { toast('清空失败') } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="set-body">
+      <div className="set-ptitle">数据管理</div>
+      <div className="set-pdesc">你的数据存在本机。可随时导出备份，或清理不再需要的记录。</div>
+
+      <div className="set-stats">
+        <div className="set-stat"><span className="set-stat-n">{sum?.sessions ?? '—'}</span><span className="set-stat-l">会话</span></div>
+        <div className="set-stat"><span className="set-stat-n">{sum?.messages ?? '—'}</span><span className="set-stat-l">消息</span></div>
+        <div className="set-stat"><span className="set-stat-n">{sum?.memories ?? '—'}</span><span className="set-stat-l">记忆</span></div>
+      </div>
+
+      <div className="set-field">
+        <div className="set-fhd">
+          <div className="set-fname">导出数据</div>
+          <div className="set-fsub">下载一份包含你的会话、设置与记忆的 JSON 备份。</div>
+        </div>
+        <button className="btn-dark" disabled={busy} onClick={doExport}>导出</button>
+      </div>
+
+      <div className="set-field">
+        <div className="set-fhd">
+          <div className="set-fname">清空个人对话记录</div>
+          <div className="set-fsub">删除全部个人对话（不含项目、助理、自动化会话）。此操作不可恢复。</div>
+        </div>
+        {confirming
+          ? <span className="set-confirm">
+              <button className="btn-ghost" disabled={busy} onClick={() => setConfirming(false)}>取消</button>
+              <button className="btn-ghost danger-b" disabled={busy} onClick={doClear}>确认清空</button>
+            </span>
+          : <button className="btn-ghost danger-b" disabled={busy || !sum} onClick={() => setConfirming(true)}>清空</button>}
+      </div>
+
+      <Soon title="删除保护 · 批量删除审批" desc="需要执行层接管删除行为才能真正生效，暂不做以免成为「存了不生效」的假开关。" />
+    </div>
+  )
+}
+
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const tab = useUIStore((s) => s.settingsTab)
   const setTab = useUIStore((s) => s.setSettingsTab)
@@ -289,13 +355,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
             {tab === 'memory' && <MemoryPanel />}
 
-            {tab === 'data' && (
-              <Soon
-                title="数据管理"
-                desc="数据导出、清空与删除保护。涉及真实删除行为，需后端接口与二次确认。"
-                bullets={['导出对话 / 工作空间', '删除保护、批量删除审批', '清空本地数据']}
-              />
-            )}
+            {tab === 'data' && <DataPanel />}
 
             {tab === 'security' && (
               <Soon

@@ -250,6 +250,13 @@ export interface MemoryData {
   items: MemoryItem[]
 }
 
+// 设置 · 数据管理（WB-149）：数据条数概览。
+export interface DataSummary {
+  sessions: number
+  messages: number
+  memories: number
+}
+
 export interface ProjectInfo {
   id: string
   name: string

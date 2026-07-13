@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AppNotification, AppSettings, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, InstalledSkill, KbCapacity, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, MemoryData, MemoryItem, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AppNotification, AppSettings, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, InstalledSkill, KbCapacity, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, MemoryData, MemoryItem, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -51,6 +51,11 @@ export const api = {
   deleteMemory: (id: string) => send<{ ok: boolean }>('DELETE', `/memory/${id}`),
   clearMemory: () => send<{ ok: boolean; removed: number }>('POST', '/memory/clear'),
   setMemoryEnabled: (enabled: boolean) => send<{ enabled: boolean }>('PUT', '/memory/enabled', { enabled }),
+
+  // 设置 · 数据管理（WB-149）：导出本人数据（下载 JSON）+ 清空个人对话。
+  dataSummary: () => get<DataSummary>('/data/summary'),
+  dataExport: () => get<Record<string, unknown>>('/data/export'),
+  clearConversations: () => send<{ ok: boolean; removed: number }>('POST', '/data/clear-conversations'),
 
   register: (name: string, password: string) =>
     send<AuthResult>('POST', '/auth/register', { name, password }),

@@ -34,7 +34,7 @@ from agent import scheduler
 from auth.middleware import AuthMiddleware
 from channels import manager as channel_manager
 from config import FROZEN, settings
-from routers import asr, auth, automations, catalog, channels, chat, experts, files, hub, kdocs, knowledge, me, memory, milestones, models, notifications, prefs, projects, sessions, skills, work_items
+from routers import asr, auth, automations, catalog, channels, chat, data, experts, files, hub, kdocs, knowledge, me, memory, milestones, models, notifications, prefs, projects, sessions, skills, work_items
 from storage import db
 
 app = FastAPI(title="WorkBuddy API", version="0.1.0")
@@ -151,6 +151,7 @@ app.include_router(asr.router)
 app.include_router(knowledge.router)
 app.include_router(prefs.router)
 app.include_router(memory.router)
+app.include_router(data.router)
 
 
 if __name__ == "__main__":

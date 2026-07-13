@@ -164,6 +164,7 @@
 | [WB-146](WB-146-settings-center-shell.md) | ✅ | P1 | frontend | 统一「设置中心」弹窗 —— 双栏外壳 + 迁移已有标签(模型/助理设置/外观·个性化) + 其余标签诚实占位「即将上线」；账号浮层加入口 |
 | [WB-147](WB-147-personalization-backend.md) | ✅ | P1 | fullstack | 个性化真后端 —— 回复风格预设 + 自定义指令(按 owner 存 KV，注入 agent 系统提示真生效) + /api/settings 路由；系统设置里需前端基建的项(语言/字号/欢迎语)不做以免假开关 |
 | [WB-148](WB-148-memory-backend.md) | ✅ | P1 | fullstack | 记忆真后端 —— user_memories 表 + 注入 agent 系统提示(真生效) + 开启后从对话自动抽取(一次性 LLM，去重入库，默认关) + 手动增删清 + 前端记忆 tab |
+| [WB-149](WB-149-data-management-backend.md) | ✅ | P2 | fullstack | 数据管理真后端 —— 数据导出(真 dump user+settings+memories+sessions) + 清空个人对话(真删 kind=chat·级联消息·二次确认) + /api/data 路由；删除保护等策略项诚实占位 |
 
 ## 来源
 
