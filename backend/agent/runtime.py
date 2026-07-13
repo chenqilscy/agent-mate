@@ -116,7 +116,7 @@ def resolve_model_config(
     """Map the picker selection to a concrete (model_id, api_base, api_key, chat_path).
 
     Resolution order (WB-136: the default no longer reads .env — it is a user choice):
-      0. Empty selection「跟随默认」→ the owner's DB default model (set in「配置模型」).
+      0. Empty selection「跟随默认」→ the owner's DB default model (set in「模型管理」).
          No default configured → raise, honestly (no silent .env fallback).
       1. Built-in provider pick `@{provider}:{model}` (WB-128) → the provider's
          base_url/chat_path (provider_seed) + the owner's key for that provider.
@@ -133,7 +133,7 @@ def resolve_model_config(
         client_model = db.get_default_model(owner_id)
         if not client_model:
             raise LLMError(
-                "还没有设置默认模型：请在「配置模型」里给某个模型点「设为默认」，"
+                "还没有设置默认模型：请在「模型管理」里给某个模型点「设为默认」，"
                 "或直接在模型菜单里选一个模型。"
             )
     if client_model.startswith("@") and ":" in client_model:
@@ -157,7 +157,7 @@ def resolve_model_config(
                 return real, None, None, default_path
     raise LLMError(
         f"模型「{client_model}」当前不可用（可能厂商 Key 已撤销、或模型已删除）。"
-        "请在「配置模型」里重新选择默认模型，或在模型菜单里换一个。"
+        "请在「模型管理」里重新选择默认模型，或在模型菜单里换一个。"
     )
 
 

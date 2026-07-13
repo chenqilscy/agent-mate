@@ -153,6 +153,8 @@
 | [WB-135](WB-135-glm-official-pricing.md) | ✅ | P2 | backend | 补齐智谱 GLM 官方定价（文本+视觉，人民币/基础档+note 标分档/缓存命中价）+ seed 对齐现役旗舰(glm-5.2/4.7/4.5-air/4.6v) + 视觉补 image/video 能力；只收 chat 模型（生成/语音/向量/重排非 chat、按次计费，如实不纳入） |
 | [WB-136](WB-136-ui-default-model-not-env.md) | ✅ | P2 | fullstack | 「默认模型」改为在「配置模型」里选择、按 owner 存 DB，彻底不读 .env：backstop 名字/运行时空选择解析都改走 DB 默认，无默认则诚实报错；新增 `PUT /api/models/default` + 配 key 时自动设默认；前端加「设为默认」+ 去掉 App.tsx 首屏回填 |
 | [WB-137](WB-137-home-ctray-stub-buttons.md) | ✅ | P2 | frontend | 首页「选择工作空间/默认权限」两个 tray 按钮是 toast 桩：接 projectStore(startProject) 做真空间选择 + 复用 PermPopover 设默认权限 |
+| [WB-138](WB-138-model-mgmt-to-left-menu.md) | ✅ | P2 | frontend | 模型管理入口从输入框模型下拉的「配置模型」移到左侧「更多」菜单（+移除账号菜单重复入口、runtime.py 报错文案改「模型管理」）；ModelPicker 只做选模型，空态文案改指向「更多·模型管理」 |
+| [WB-139](WB-139-local-voice-input-asr.md) | 🟡 | P2 | fullstack | 语音输入落地 —— 本地 ASR 小模型（faster-whisper base），按住说话松开转写：后端 /api/asr（懒加载单例·PyAV 直解 webm·依赖未装诚实 503）+ 前端 Composer 麦克风真录音（pointer 按住·红点脉冲·转写态·权限兜底）+ api.transcribeAudio；音频不出本机 |
 
 ## 来源
 

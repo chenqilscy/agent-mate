@@ -297,8 +297,11 @@ export function Sidebar() {
               <div className="more-item" onClick={() => { setView('myfiles'); setMoreOpen(false) }}>
                 <IcFolder />我的文件
               </div>
-              <div className="more-item" onClick={() => toast('打开 · 腾讯文档')}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>腾讯文档
+              <div className="more-item" onClick={() => { setModelConfigOpen(true); setMoreOpen(false) }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7h11M4 12h16M4 17h7" /><circle cx="18" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>模型管理
+              </div>
+              <div className="more-item" onClick={() => toast('打开 · 金山文档')}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>金山文档
               </div>
               <div className="more-item" onClick={() => toast('打开 · ima知识库')}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 5h16v11H4z" /><path d="M4 20h16" /></svg>ima知识库
@@ -444,9 +447,6 @@ export function Sidebar() {
               <b className={theme === 'light' ? 'on' : ''} onClick={(e) => { e.stopPropagation(); setTheme('light') }}>浅色</b>
               <b className={theme === 'dark' ? 'on' : ''} onClick={(e) => { e.stopPropagation(); setTheme('dark') }}>深色</b>
             </span>
-          </div>
-          <div className="pf-row" onClick={() => { setProfileOpen(false); setModelConfigOpen(true) }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7h11M4 12h16M4 17h7" /><circle cx="18" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>模型管理
           </div>
           <div className="pf-row" onClick={() => { toast('帮助与反馈'); setProfileOpen(false) }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 115 1c0 1.5-2.5 2-2.5 3.5M12 17h.01" /></svg>帮助与反馈

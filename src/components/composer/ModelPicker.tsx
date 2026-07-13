@@ -9,8 +9,8 @@ const CAP_ICON: Record<string, string> = { image: '🖼', audio: '🎧', video: 
 // Model menu (WB-128). Flat list from GET /api/models → settingsStore: a 默认(.env)
 // backstop, built-in provider models (grouped by vendor, only those with a key), and
 // free-form custom models. Selecting persists the entry's `key` via setModel.
-// 「配置模型」opens the manager modal (survives this popover closing) via onConfigure.
-export function ModelPicker({ onClose, onConfigure }: { onClose: () => void; onConfigure: () => void }) {
+// 模型管理入口已移到左侧「更多」菜单（WB-138），这里只负责选模型。
+export function ModelPicker({ onClose }: { onClose: () => void }) {
   const models = useSettingsStore((s) => s.models)
   const current = useSettingsStore((s) => s.model)
 
@@ -55,15 +55,11 @@ export function ModelPicker({ onClose, onConfigure }: { onClose: () => void; onC
     <>
       {def && row(def)}
       {providers.length === 0 && custom.length === 0 && (
-        <div className="mpick-empty">还没有配置可用模型。点下方「配置模型」，给某个厂商填 API Key 即可启用。</div>
+        <div className="mpick-empty">还没有配置可用模型。到左侧「更多 · 模型管理」给某个厂商填 API Key 即可启用。</div>
       )}
       {provSections}
       {custom.length > 0 && <div className="pop-h">自定义模型</div>}
       {custom.map(row)}
-      <div className="pop-div" />
-      <div className="pop-item" onClick={onConfigure}>
-        <span className="pi-ic">⚙️</span>配置模型
-      </div>
     </>
   )
 }
