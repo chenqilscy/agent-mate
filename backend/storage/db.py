@@ -459,6 +459,16 @@ def init_db() -> None:
             PRIMARY KEY (owner_id, key)
         );
 
+        -- 用户记忆（WB-148）：关于用户本人、长期有效的事实，注入之后对话的系统提示（真生效）。
+        -- source: 'conversation'(对话自动抽取) / 'manual'(手动添加)。按 owner 隔离。
+        CREATE TABLE IF NOT EXISTS user_memories (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'manual',
+            created_at REAL NOT NULL
+        );
+
         -- 厂商模型覆盖（WB-128）：hidden=1 隐藏某预置模型；hidden=0 且非预置 = 用户新增的模型名
         -- （厂商上新时补进来）。预置模型的有效列表 = 注册表 − 隐藏 ∪ 新增。
         CREATE TABLE IF NOT EXISTS provider_models (
@@ -2003,6 +2013,60 @@ def set_user_setting(owner_id: str, key: str, value: Optional[str]) -> None:
 
 
 _DEFAULT_MODEL_KEY = "default_model"
+
+
+# ---- 用户记忆（WB-148）---------------------------------------------------
+
+_MEMORY_MAX = 200  # 每个 owner 记忆条数上限，防无界增长
+
+
+def list_memories(owner_id: str, limit: int = _MEMORY_MAX) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT id, content, source, created_at FROM user_memories WHERE owner_id=? ORDER BY created_at DESC LIMIT ?",
+        (owner_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def count_memories(owner_id: str) -> int:
+    return get_conn().execute(
+        "SELECT COUNT(*) FROM user_memories WHERE owner_id=?", (owner_id,)
+    ).fetchone()[0]
+
+
+def add_memory(owner_id: str, content: str, source: str = "manual") -> Optional[dict]:
+    """加一条记忆；空内容或与现有记忆重复（忽略大小写/首尾空白）则跳过、返回 None。"""
+    text = (content or "").strip()
+    if not text:
+        return None
+    norm = text.casefold()
+    existing = get_conn().execute(
+        "SELECT content FROM user_memories WHERE owner_id=?", (owner_id,)
+    ).fetchall()
+    if any((r["content"] or "").strip().casefold() == norm for r in existing):
+        return None
+    mem_id = new_uuid()
+    ts = time.time()
+    get_conn().execute(
+        "INSERT INTO user_memories (id, owner_id, content, source, created_at) VALUES (?,?,?,?,?)",
+        (mem_id, owner_id, text, source, ts),
+    )
+    get_conn().commit()
+    return {"id": mem_id, "content": text, "source": source, "created_at": ts}
+
+
+def delete_memory(owner_id: str, mem_id: str) -> bool:
+    cur = get_conn().execute(
+        "DELETE FROM user_memories WHERE owner_id=? AND id=?", (owner_id, mem_id)
+    )
+    get_conn().commit()
+    return cur.rowcount > 0
+
+
+def clear_memories(owner_id: str) -> int:
+    cur = get_conn().execute("DELETE FROM user_memories WHERE owner_id=?", (owner_id,))
+    get_conn().commit()
+    return cur.rowcount
 
 
 def get_default_model(owner_id: str) -> str:

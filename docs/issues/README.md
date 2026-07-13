@@ -161,6 +161,9 @@
 | [WB-143](WB-143-glm-kb-agent-retrieve-tool.md) | ✅ | P1 | backend | GLM 知识库 Phase B —— knowledge_retrieve 工具接进 agent 工具循环(照抄 set_work_context contextvar) + ChatBody.knowledge_ids loadout 透传；SSE 真出 knowledge_retrieve 事件+引用来源作答 |
 | [WB-144](WB-144-glm-kb-app-frontend.md) | ✅ | P1 | frontend | GLM 知识库 Phase C —— App 前端 KnowledgeView(建库/传档/进度/用量/模板) + knowledgeStore + Composer loadout 选择器 + Sidebar 入口；CDP 实截渲染真 GLM 用量+模板 |
 | [WB-145](WB-145-glm-kb-manager-console.md) | ✅ | P2 | frontend | GLM 知识库 Phase D —— Manager console 知识库橱窗+目录管理(kb- 前缀，仿 WB-101) + catalog_items 新 category KB_TPLS 下发(零 schema 改动)；隔离 Hub CDP 实截 CRUD+橱窗 |
+| [WB-146](WB-146-settings-center-shell.md) | ✅ | P1 | frontend | 统一「设置中心」弹窗 —— 双栏外壳 + 迁移已有标签(模型/助理设置/外观·个性化) + 其余标签诚实占位「即将上线」；账号浮层加入口 |
+| [WB-147](WB-147-personalization-backend.md) | ✅ | P1 | fullstack | 个性化真后端 —— 回复风格预设 + 自定义指令(按 owner 存 KV，注入 agent 系统提示真生效) + /api/settings 路由；系统设置里需前端基建的项(语言/字号/欢迎语)不做以免假开关 |
+| [WB-148](WB-148-memory-backend.md) | ✅ | P1 | fullstack | 记忆真后端 —— user_memories 表 + 注入 agent 系统提示(真生效) + 开启后从对话自动抽取(一次性 LLM，去重入库，默认关) + 手动增删清 + 前端记忆 tab |
 
 ## 来源
 

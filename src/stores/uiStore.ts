@@ -4,6 +4,11 @@ import type { ViewId } from '../lib/types'
 
 type Theme = 'light' | 'dark'
 
+// 设置中心（WB-146）的标签页 id。顺序即左侧导航顺序。
+export type SettingsTab =
+  | 'account' | 'system' | 'agent' | 'shortcuts' | 'memory' | 'model'
+  | 'assistant' | 'personalize' | 'data' | 'security' | 'help'
+
 interface UIState {
   view: ViewId
   ovOpen: boolean
@@ -24,6 +29,9 @@ interface UIState {
   sidebarCollapsed: boolean
   // 模型管理弹窗（WB-132）：提到全局，侧栏/账号菜单与输入框模型下拉都能打开同一个。
   modelConfigOpen: boolean
+  // 设置中心弹窗（WB-146）：统一多标签设置面板，账号浮层「设置」打开。
+  settingsOpen: boolean
+  settingsTab: SettingsTab
 
   setView: (v: ViewId) => void
   toggleOv: () => void
@@ -36,6 +44,8 @@ interface UIState {
   setNavOpen: (open: boolean) => void
   setSidebarCollapsed: (collapsed: boolean) => void
   setModelConfigOpen: (open: boolean) => void
+  setSettingsOpen: (open: boolean, tab?: SettingsTab) => void
+  setSettingsTab: (tab: SettingsTab) => void
 }
 
 const THEME_KEY = 'wb.theme'
@@ -63,6 +73,8 @@ export const useUIStore = create<UIState>((set) => ({
   navOpen: false,
   sidebarCollapsed: false,
   modelConfigOpen: false,
+  settingsOpen: false,
+  settingsTab: 'account',
 
   // Switching views also dismisses the mobile nav drawer (you navigated, so the
   // drawer's job is done) and any open popover.
@@ -84,4 +96,6 @@ export const useUIStore = create<UIState>((set) => ({
   setNavOpen: (navOpen) => set({ navOpen }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
   setModelConfigOpen: (modelConfigOpen) => set({ modelConfigOpen }),
+  setSettingsOpen: (settingsOpen, tab) => set(tab ? { settingsOpen, settingsTab: tab } : { settingsOpen }),
+  setSettingsTab: (settingsTab) => set({ settingsTab }),
 }))

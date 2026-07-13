@@ -18,7 +18,9 @@ import time
 from typing import Any, AsyncIterator
 
 from agent import events
+from agent import memory
 from agent.experts import persona_for
+from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
 from agent.mcp_client import call_mcp, mcp_schema, open_connectors
 from agent.sandbox import current_root, use_root, workspace_root
@@ -245,6 +247,11 @@ async def run_chat(
     # 助理人格注入（WB-077）：外部渠道助理可在设置面板里定名字/风格，这里附加到系统提示。
     if system_extra and system_extra.strip():
         system_prompt += "\n\n# 助理设定\n" + system_extra.strip()
+    # 个性化偏好（WB-147）：用户在「设置 · 个性化」定的回复风格 + 自定义指令，注入系统提示，
+    # 全模式（exec/plan/ask）真生效。无偏好则空串。
+    system_prompt += build_personalization_prompt(user.id)
+    # 用户记忆（WB-148）：此前记住的关于用户的长期事实，注入系统提示 → 之后对话「记得」。无则空串。
+    system_prompt += memory.build_memory_prompt(user.id)
 
     # Per-project workspace (§11.2): this run's tools operate in the project's own
     # checkout (or the shared default for ad-hoc chats). WB-087: an assistant may
@@ -595,6 +602,17 @@ async def run_chat(
         message_id = msg.id
 
     db.touch_session(session_id, status="done")
+
+    # 对话记忆自动抽取（WB-148）：用户在「设置 · 记忆」开启后，从这轮对话提炼可长期记住的用户事实，
+    # 去重入库，供之后对话注入。仅正常完成且有实质回复时跑；best-effort——任何失败都不影响本轮回复。
+    if assistant_text.strip() and memory.capture_enabled(user.id):
+        try:
+            await memory.extract_and_store(
+                user.id, user_text, assistant_text,
+                model=model_id, api_base=model_base, api_key=model_key, chat_path=model_path,
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     yield _usage_event(last_prompt, total_completion, schemas, system_prompt)
     yield events.status("done", secs=secs)

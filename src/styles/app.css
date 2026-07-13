@@ -818,6 +818,70 @@ body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
 .pk-modal.wide { width: 1060px; }
 .pk-modal.mid { width: 980px; }
 
+/* 设置中心（WB-146）—— 双栏外壳，set- 前缀，全 token 化天然暗色（铁律#2/#3） */
+.set-modal { width: 880px; max-width: 100%; height: 620px; max-height: 92vh; }
+.set-layout { display: flex; height: 100%; min-height: 0; }
+.set-nav { width: 202px; flex-shrink: 0; border-right: 1px solid var(--border); padding: 16px 10px 20px; overflow-y: auto; background: var(--border-2); }
+.set-nav-title { font-size: 16px; font-weight: 800; color: var(--text); padding: 4px 10px 14px; }
+.set-nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px; font-size: 13.5px; font-weight: 600; color: var(--text-2); cursor: pointer; }
+.set-nav-item:hover { background: var(--chip); color: var(--text); }
+.set-nav-item.active { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+.set-nav-ic { width: 18px; height: 18px; display: grid; place-items: center; flex-shrink: 0; }
+.set-nav-ic svg { width: 18px; height: 18px; }
+.set-panel { flex: 1; min-width: 0; position: relative; overflow-y: auto; background: var(--card); }
+.set-x { position: absolute; top: 12px; right: 14px; z-index: 2; }
+.set-body { padding: 26px 30px; }
+.set-body--flush { padding: 18px 0 0; }
+.set-ptitle { font-size: 18px; font-weight: 800; color: var(--text); margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+.set-ptitle--pad { padding: 0 30px; }
+.set-pdesc { font-size: 13px; color: var(--text-2); line-height: 1.7; }
+.set-card { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.set-row { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid var(--border-2); font-size: 13.5px; }
+.set-row:last-child { border-bottom: 0; }
+.set-k { color: var(--text-3); }
+.set-v { color: var(--text); font-weight: 600; }
+.set-actions { margin-top: 18px; display: flex; align-items: center; gap: 12px; }
+.set-field { display: flex; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border-2); }
+.set-fhd { flex: 1; }
+.set-fname { font-size: 14px; font-weight: 700; color: var(--text); }
+.set-fsub { font-size: 12.5px; color: var(--text-3); margin-top: 3px; }
+.set-field .seg2 { margin-left: auto; }
+.set-soon { padding: 26px 30px; }
+.set-soon-pill { font-size: 11px; font-weight: 700; color: var(--brand-600); background: var(--brand-soft); padding: 3px 9px; border-radius: 999px; }
+.set-soon-list { margin: 14px 0 0; padding-left: 18px; }
+.set-soon-list li { font-size: 13px; color: var(--text-2); line-height: 1.9; }
+/* 个性化 panel（WB-147）：风格预设网格 + 自定义指令 */
+.set-flabel { font-size: 14px; font-weight: 700; color: var(--text); margin: 22px 0 10px; }
+.set-fsub2 { display: block; font-size: 12.5px; font-weight: 400; color: var(--text-3); margin-top: 4px; }
+.set-styles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.set-style { text-align: left; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: transparent; cursor: pointer; display: flex; flex-direction: column; gap: 2px; font-family: inherit; }
+.set-style:hover { border-color: var(--brand); }
+.set-style.on { border-color: var(--brand); background: var(--brand-soft); }
+.set-style-l { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.set-style.on .set-style-l { color: var(--brand-600); }
+.set-style-d { font-size: 12px; color: var(--text-3); }
+.set-body .np-ta { margin-top: 2px; }
+
+/* 记忆 panel（WB-148）：开关 + 添加行 + 记忆列表 */
+.set-switch { flex-shrink: 0; width: 42px; height: 24px; border-radius: 999px; border: none; background: var(--border); cursor: pointer; position: relative; transition: background .15s; padding: 0; }
+.set-switch.on { background: var(--brand); }
+.set-switch-dot { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px rgba(0, 0, 0, .2); }
+.set-switch.on .set-switch-dot { transform: translateX(18px); }
+.set-link { margin-left: auto; background: none; border: none; color: var(--brand-600); font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.set-memadd { display: flex; gap: 8px; margin-bottom: 12px; }
+.set-memadd .np-input { flex: 1; }
+.set-memlist { display: flex; flex-direction: column; gap: 8px; }
+.set-mem-empty { font-size: 13px; color: var(--text-3); line-height: 1.7; padding: 6px 2px; }
+.set-mem { display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.set-mem-c { flex: 1; min-width: 0; font-size: 13.5px; color: var(--text); line-height: 1.5; }
+.set-mem-src { flex-shrink: 0; font-size: 11px; color: var(--text-3); background: var(--chip); padding: 2px 8px; border-radius: 999px; }
+.set-mem-x { flex-shrink: 0; width: 24px; height: 24px; border: none; background: transparent; color: var(--text-3); font-size: 17px; line-height: 1; border-radius: 6px; cursor: pointer; }
+.set-mem-x:hover { background: var(--chip); color: var(--text); }
+
+/* --card 不随主题翻转（恒白），暗色须显式给深色面板，否则白底白字（铁律#3，同 np-modal 约定） */
+body.dark .set-panel { background: #1F242A; }
+body.dark .set-nav-item.active { background: #1F242A; }
+
 /* 模型管理弹窗（WB-124）—— 复用 .np-* 骨架，行/表单用 mc- 前缀，全 token 化天然暗色 */
 .mc-empty { font-size: 12.5px; color: var(--text-3); line-height: 1.6; padding: 4px 2px 8px; }
 .mc-lblhint { margin-left: 8px; font-weight: 500; color: var(--text-3); font-size: 12px; }

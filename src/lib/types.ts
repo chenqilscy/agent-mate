@@ -226,6 +226,30 @@ export interface Me {
   model: string
 }
 
+// 设置 · 个性化（WB-147）：回复风格 + 自定义指令。
+export interface StylePreset {
+  key: string
+  label: string
+  desc: string
+}
+export interface AppSettings {
+  style: string
+  custom_instructions: string
+  style_presets: StylePreset[]
+}
+
+// 设置 · 记忆（WB-148）：长期事实，注入之后对话。source: conversation(自动) / manual(手动)。
+export interface MemoryItem {
+  id: string
+  content: string
+  source: string
+  created_at: number
+}
+export interface MemoryData {
+  enabled: boolean
+  items: MemoryItem[]
+}
+
 export interface ProjectInfo {
   id: string
   name: string

@@ -12,6 +12,7 @@ import { LoginModal } from '../auth/LoginModal'
 import { MessageCenter } from './MessageCenter'
 import { HubConnectModal } from '../hub/HubConnectModal'
 import { ModelConfigModal } from '../composer/ModelConfigModal'
+import { SettingsModal } from '../settings/SettingsModal'
 import { useHubStore } from '../../stores/hubStore'
 import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
 
@@ -64,6 +65,8 @@ export function Sidebar() {
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
   const modelConfigOpen = useUIStore((s) => s.modelConfigOpen)
   const setModelConfigOpen = useUIStore((s) => s.setModelConfigOpen)
+  const settingsOpen = useUIStore((s) => s.settingsOpen)
+  const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const me = useAuthStore((s) => s.me)
   const loggedIn = useAuthStore((s) => s.loggedIn)
   const logout = useAuthStore((s) => s.logout)
@@ -440,6 +443,9 @@ export function Sidebar() {
             {me?.plan ?? '体验版'}<span className="up">升级</span>
           </div>
           <div className="pf-div" />
+          <div className="pf-row" onClick={() => { setSettingsOpen(true, 'account'); setProfileOpen(false) }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18" /></svg>设置
+          </div>
           <div className="pf-row" id="pfTheme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 13A9 9 0 1111 3a7 7 0 0010 10z" /></svg>
             外观
@@ -474,6 +480,7 @@ export function Sidebar() {
       {msgOpen && <MessageCenter onClose={() => setMsgOpen(false)} />}
       {hubOpen && <HubConnectModal onClose={() => { setHubOpen(false); void refreshHub() }} />}
       {modelConfigOpen && <ModelConfigModal onClose={() => setModelConfigOpen(false)} />}
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </aside>
   )
 }

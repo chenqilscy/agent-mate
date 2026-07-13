@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AppNotification, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, InstalledSkill, KbCapacity, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AppNotification, AppSettings, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, InstalledSkill, KbCapacity, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, MemoryData, MemoryItem, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -39,6 +39,18 @@ export interface AuthResult { token: string; user: { id: string; name: string; r
 
 export const api = {
   me: () => get<Me>('/me'),
+
+  // 设置 · 个性化（WB-147）：回复风格 + 自定义指令，按 owner 存后端 KV、注入 agent 系统提示。
+  settings: () => get<AppSettings>('/settings'),
+  saveSettings: (body: { style?: string; custom_instructions?: string }) =>
+    send<AppSettings>('PUT', '/settings', body),
+
+  // 设置 · 记忆（WB-148）：长期事实，注入之后对话；开启后从对话自动抽取。
+  memory: () => get<MemoryData>('/memory'),
+  addMemory: (content: string) => send<MemoryItem>('POST', '/memory', { content }),
+  deleteMemory: (id: string) => send<{ ok: boolean }>('DELETE', `/memory/${id}`),
+  clearMemory: () => send<{ ok: boolean; removed: number }>('POST', '/memory/clear'),
+  setMemoryEnabled: (enabled: boolean) => send<{ enabled: boolean }>('PUT', '/memory/enabled', { enabled }),
 
   register: (name: string, password: string) =>
     send<AuthResult>('POST', '/auth/register', { name, password }),

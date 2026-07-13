@@ -22,7 +22,8 @@ const CAPS: { k: string; label: string; icon: string }[] = [
 const capIcon = (k: string) => CAPS.find((c) => c.k === k)?.icon ?? ''
 const capLabel = (k: string) => CAPS.find((c) => c.k === k)?.label ?? k
 
-export function ModelConfigModal({ onClose }: { onClose: () => void }) {
+// embedded=true 时只渲染 np-body 内容（供「设置中心」模型 tab 内嵌，WB-146），不带自己的 overlay/标题/底栏。
+export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; embedded?: boolean }) {
   const reloadModels = useSettingsStore((s) => s.reloadModels)
   const [providers, setProviders] = useState<Provider[]>([])
   const [custom, setCustom] = useState<ModelOption[]>([])
@@ -237,10 +238,7 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
     </div>
   )
 
-  return (
-    <div className="np-overlay open" style={{ zIndex: 170 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="np-modal" role="dialog" aria-modal="true" aria-label="模型管理">
-        <div className="np-h">模型管理<button className="np-x" onClick={onClose}>×</button></div>
+  const body = (
         <div className="np-body">
           <div className="np-lbl">内置厂商<small className="mc-lblhint">填一次 API Key 即启用该厂商模型 · Key 只存本机后端</small></div>
           {providers.map((p) => {
@@ -364,6 +362,14 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
               : '还没有设置默认模型：给上面任一已启用的模型点「设为默认」。未设置时，新会话需在模型菜单里手动选一个模型。'}
           </div>
         </div>
+  )
+
+  if (embedded) return body
+  return (
+    <div className="np-overlay open" style={{ zIndex: 170 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="np-modal" role="dialog" aria-modal="true" aria-label="模型管理">
+        <div className="np-h">模型管理<button className="np-x" onClick={onClose}>×</button></div>
+        {body}
         <div className="np-foot">
           <span className="np-hint" style={{ marginRight: 'auto' }} />
           <button className="btn-dark" onClick={onClose}>完成</button>
