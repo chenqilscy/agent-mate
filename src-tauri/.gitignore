@@ -4,5 +4,7 @@
 # Sidecar binary — a ~17MB build artifact rebuilt from backend/ (see
 # backend/build_sidecar.py); don't bloat the repo with it.
 /binaries/
-# Updater signing key — PRIVATE, never commit.
-.updater-key
+# Updater signing keys — PRIVATE key must never be committed; the .pub is a
+# redundant `tauri signer generate` artifact (the pubkey is already inlined in
+# tauri.conf.json), so ignore both.
+.updater-key*
