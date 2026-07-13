@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from config import settings
@@ -237,4 +240,107 @@ def search(q: str, limit: int = 12) -> list[dict[str, Any]]:
     if not out:
         return hit[1] if hit else []  # 都失败 → 保留上次缓存
     _search_cache[key] = (time.time(), out)
+    return out
+
+
+# ── 单技能预览代理（WB-130）───────────────────────────────────────────────
+# Manager 统一对 SkillHub 取数：App 不再直连 SkillHub，改调本代理。
+#  - 富元数据（简介/标签/分类/图标/来源仓库/版本/更新日志/作者/安全报告）：直连 `/api/v1/skills/{slug}`（无需 CLI）。
+#  - SKILL.md 正文：公开 HTTP 不提供，仍需 CLI 把包下到临时目录读取（有 CLI 才有正文，读完即删、不落盘）。
+_DETAIL_URL = os.getenv("SKILLHUB_DETAIL_URL", "https://api.skillhub.cn/api/v1/skills").rstrip("/")
+_PREVIEW_TTL = 300.0
+_preview_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+def _parse_frontmatter(raw: str) -> tuple[dict[str, str], str]:
+    """极简 YAML front-matter 解析（`--- … ---`）→ (fm, body)。够预览渲染用，不引 yaml 依赖。"""
+    if raw.startswith("---"):
+        end = raw.find("\n---", 3)
+        if end != -1:
+            head, body = raw[3:end], raw[end + 4:].lstrip("\n")
+            fm: dict[str, str] = {}
+            for line in head.splitlines():
+                if ":" in line and not line.lstrip().startswith("#"):
+                    k, _, v = line.partition(":")
+                    fm[k.strip()] = v.strip().strip("\"'")
+            return fm, body
+    return {}, raw
+
+
+def _http_detail(slug: str) -> dict[str, Any]:
+    """直连 `/api/v1/skills/{slug}` 取富元数据（无 SKILL.md 正文）。失败抛，由 preview 兜底。"""
+    d = _http_json(f"{_DETAIL_URL}/{urllib.parse.quote(slug)}", _stored_key(), timeout=12)
+    if not isinstance(d, dict):
+        raise ValueError("bad detail payload")
+    return d
+
+
+def _cli_skill_md(slug: str) -> tuple[str, str, dict[str, str], list[str]]:
+    """CLI install 到临时目录读 SKILL.md（唯一能拿正文的途径）→ (markdown, body, fm, references)。
+    无 CLI / 失败 → 全空。读完即删，绝不落盘（对齐 backend preview）。"""
+    if not cli_available():
+        return "", "", {}, []
+    tmp = Path(tempfile.mkdtemp(prefix="skhub-hub-prev-"))
+    try:
+        _run_cli(["install", slug, "--dir", str(tmp), "--json", "--force"], timeout=120)
+        md = tmp / slug / "SKILL.md"
+        if not md.is_file():
+            return "", "", {}, []
+        raw = md.read_text(encoding="utf-8", errors="ignore")
+        fm, body = _parse_frontmatter(raw)
+        refs: list[str] = []
+        rd = tmp / slug / "references"
+        if rd.is_dir():
+            refs = sorted(p.name for p in rd.iterdir() if p.is_file())
+        return raw, body, fm, refs
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return "", "", {}, []
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def preview(slug: str, name: str = "") -> dict[str, Any] | None:
+    """单技能预览：HTTP 富元数据 + CLI SKILL.md 正文，合成前端可直接渲染的详情（含 references 数组）。
+    元数据与正文都取不到 → None（调用方回退本地直连）。"""
+    slug = (slug or "").strip()
+    if not slug:
+        return None
+    hit = _preview_cache.get(slug)
+    if hit and (time.time() - hit[0]) < _PREVIEW_TTL:
+        return hit[1]
+    meta: dict[str, Any] = {"slug": slug, "name": (name or slug), "description": ""}
+    try:
+        d = _http_detail(slug)
+        sk = d.get("skill") if isinstance(d.get("skill"), dict) else {}
+        lv = d.get("latestVersion") if isinstance(d.get("latestVersion"), dict) else {}
+        owner = d.get("owner") if isinstance(d.get("owner"), dict) else {}
+        meta = {
+            "slug": slug,
+            "name": str(sk.get("displayName") or name or slug).strip(),
+            "description": str(sk.get("summary_zh") or sk.get("summary") or "").strip(),
+            "category": str(sk.get("category") or "").strip(),
+            "tags": sk.get("tags") or [],
+            "labels": sk.get("labels") or [],
+            "iconUrl": str(sk.get("iconUrl") or "").strip(),
+            "source": str(sk.get("source") or "skillhub").strip(),
+            "sourceUrl": str(sk.get("sourceUrl") or sk.get("upstream_url") or "").strip(),
+            "version": str(lv.get("version") or "").strip(),
+            "changelog": str(lv.get("changelog") or "").strip(),
+            "author": str(owner.get("displayName") or owner.get("handle") or "").strip(),
+            "verified": bool(sk.get("verified")),
+            "stats": sk.get("stats") or {},
+        }
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        pass  # 元数据取不到不阻断，仍尝试 SKILL.md
+    raw, body, fm, refs = _cli_skill_md(slug)
+    if not raw and not meta.get("description") and not meta.get("version"):
+        return None  # 元数据与正文皆空 → 视为失败，让调用方回退本地
+    out: dict[str, Any] = {
+        **meta, "installed": False, "key": "", "disabled": False,
+        "markdown": raw, "body": body or meta.get("description", ""),
+        "frontmatter": fm, "references": refs,
+    }
+    if len(_preview_cache) > 64:
+        _preview_cache.clear()
+    _preview_cache[slug] = (time.time(), out)
     return out

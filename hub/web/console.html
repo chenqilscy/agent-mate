@@ -192,6 +192,7 @@
   .sg-mdesc { font-size:13px; line-height:1.7; color:var(--ink); }
   .sg-mfoot { display:flex; align-items:center; gap:10px; padding:12px 18px; border-top:1px solid var(--line); }
   .sg-mlink { font-size:12.5px; font-weight:600; color:var(--brand); text-decoration:none; white-space:nowrap; }
+  .sg-md { max-height:340px; overflow:auto; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:12px 14px; font:12px/1.6 ui-monospace,Menlo,Consolas,monospace; white-space:pre-wrap; word-break:break-word; color:var(--ink); margin-top:4px; }
   /* ---- 项目管理工作台（WB-111，Linear 风；pd-/pm- 前缀防并发撞车）---- */
   .pd-hero { display:flex; align-items:center; gap:14px; margin:14px 0 2px; }
   .pd-hero-ic { width:46px; height:46px; border-radius:13px; background:linear-gradient(135deg,var(--brand),var(--brand2)); display:grid; place-items:center; color:#fff; font-weight:800; font-size:20px; flex-shrink:0; }
@@ -1643,6 +1644,7 @@ function sgDetail(c){
     <div class="sg-mbody"><div class="sg-msec" style="margin-top:0">能力介绍</div>
       <div class="sg-mdesc">${esc(c.description||"（无简介）")}</div>
       ${(c.tags&&c.tags.length)?`<div class="sg-msec">标签</div><div class="sg-mtags">${c.tags.map(t=>`<span class="pill">${esc(t)}</span>`).join("")}</div>`:""}
+      <div id="sg-md-slot"></div>
     </div>
     <div class="sg-mfoot"><span class="muted" style="font-size:12px">Hub 门户为浏览视图；安装/试用在 WorkBuddy 客户端</span><div class="grow"></div><a class="sg-mlink" href="https://skillhub.cn" target="_blank" rel="noopener">skillhub.cn ↗</a></div>
   </div>`;
@@ -1652,6 +1654,22 @@ function sgDetail(c){
   ov.onmousedown=e=>{ if(e.target===ov) close(); };
   ov.querySelector(".sg-mx").onclick=close;
   document.addEventListener("keydown",onkey);
+  // WB-130：有 slug 的 SkillHub 技能 → 懒加载 Manager 单技能预览代理（SKILL.md + 参考文件 + 版本/来源）。
+  // Manager 统一对 SkillHub 取数；无 CLI / 取数失败 → 诚实提示，不造假（铁律#1）。
+  if(c.slug){
+    const slot=ov.querySelector("#sg-md-slot");
+    slot.innerHTML=`<div class="sg-msec">文件信息</div><div class="muted" style="font-size:12px">加载 SKILL.md…</div>`;
+    api("GET","/catalog/skills/"+encodeURIComponent(c.slug)+"/preview").then(r=>{
+      const s=r&&r.skill;
+      if(!s){ slot.innerHTML=`<div class="sg-msec">文件信息</div><div class="muted" style="font-size:12px">${r&&r.cli===false?"Manager 未装 SkillHub CLI，暂无法取 SKILL.md 正文（元数据亦无）":"未取到该技能的 SKILL.md（取数失败）"}</div>`; return; }
+      const meta=[s.version?`v${esc(s.version)}`:"", s.author?`作者 ${esc(s.author)}`:"", s.category?esc(s.category):""].filter(Boolean);
+      const refs=s.references||[];
+      slot.innerHTML =
+        (meta.length?`<div class="sg-msec">版本 / 来源</div><div class="sg-mtags">${meta.map(m=>`<span class="pill">${m}</span>`).join("")}${s.sourceUrl?` <a class="sg-mlink" href="${esc(s.sourceUrl)}" target="_blank" rel="noopener">源仓库 ↗</a>`:""}</div>`:"")+
+        (refs.length?`<div class="sg-msec">参考文件（${refs.length}）</div><div class="sg-mtags">${refs.map(x=>`<span class="pill">${esc(x)}</span>`).join("")}</div>`:"")+
+        ((s.markdown||s.body)?`<div class="sg-msec">SKILL.md</div><pre class="sg-md">${esc(s.markdown||s.body)}</pre>`:`<div class="sg-msec">SKILL.md</div><div class="muted" style="font-size:12px">Manager 无法取到正文（无 CLI 时公开 HTTP 不提供 SKILL.md）</div>`);
+    }).catch(e=>{ slot.innerHTML=`<div class="sg-msec">文件信息</div><div class="err" style="font-size:12px">${esc(e.message)}</div>`; });
+  }
 }
 
 // SkillHub（WB-084 + WB-092 向真站对齐）：左筛选（发布来源/排序/场景）+ 右富卡片（图标/来源/★/⬇）。

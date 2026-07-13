@@ -202,6 +202,17 @@ def search_skillhub(token: str, q: str, limit: int = 12) -> Optional[list[dict[s
     return res if isinstance(res, list) and res else None
 
 
+def skill_preview(token: str, slug: str, name: str = "") -> Optional[dict[str, Any]]:
+    """经 Manager 取单技能预览（SKILL.md + 富元数据，WB-130）——App 不直连 SkillHub。
+    None = 未接/不可达/Manager 无果 → 调用方回退本地 CLI 预览（离线兜底）。"""
+    path = f"/api/catalog/skills/{urllib.parse.quote(slug)}/preview"
+    if name:
+        path += "?" + urllib.parse.urlencode({"name": name})
+    d = _get(path, token)
+    sk = d.get("skill") if isinstance(d, dict) else None
+    return sk if isinstance(sk, dict) else None
+
+
 # ---- 团队计划/任务 work_items 代理（WB-091）：hub-origin 项目的看板走 Hub 权威 ----
 
 def list_work_items(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:

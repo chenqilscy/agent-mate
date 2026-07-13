@@ -47,6 +47,15 @@ def search_skillhub(q: str = "", limit: int = 12, account: Account = CurrentAcco
             "cli": skillhub_client.cli_available()}
 
 
+@router.get("/catalog/skills/{slug}/preview")
+def preview_skillhub(slug: str, name: str = "", account: Account = CurrentAccount) -> dict:
+    """单技能预览代理（WB-130）：Manager 统一对 SkillHub 取数（HTTP 富元数据 + CLI SKILL.md 正文）。
+
+    App 不再直连 SkillHub，改调本端点。`skill=None` = 元数据与正文都取不到，客户端回退本地直连。
+    """
+    return {"skill": skillhub_client.preview(slug, name), "cli": skillhub_client.cli_available()}
+
+
 @router.get("/catalog")
 def list_all_catalog(all: bool = False, account: Account = CurrentAccount) -> dict:
     """所有 builtin 目录项（跨 category），供客户端一次性下行覆盖本地。

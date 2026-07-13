@@ -50,12 +50,19 @@ def skills_rankings(type: str = "featured", category: str = "", limit: int = 0) 
 
 
 @router.get("/skills/preview")
-def preview_skill(slug: str = "", name: str = "") -> dict:
+def preview_skill(slug: str = "", name: str = "", authorization: str = Header(default="")) -> dict:
     # 安装前预览：未安装的技能也能看 SKILL.md（临时下载，不落 ~/.workbuddy/skills）。
+    # WB-130：优先经 Manager 取数（App 不直连 SkillHub）——有 slug 且已接 Hub → 走代理；
+    # 未接/不可达/Manager 无果 → 回退本地 CLI 直连预览（离线兜底）。
+    slug, name = slug.strip(), name.strip()
+    if slug and hub_client.hub_enabled():
+        proxied = hub_client.skill_preview(_bearer(authorization), slug, name)
+        if proxied:
+            return {"skill": proxied, "source": "hub"}
     d = skills_store.preview(slug=slug, name=name)
     if not d:
         raise HTTPException(404, f"SkillHub 未找到「{name or slug}」或预览失败")
-    return {"skill": d}
+    return {"skill": d, "source": "local"}
 
 
 @router.get("/skills/{key}")
