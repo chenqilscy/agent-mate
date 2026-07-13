@@ -10,7 +10,7 @@ import { toast } from '../stores/toastStore'
 
 type Conn = 'loading' | 'not_installed' | 'need_auth' | 'connecting' | 'ready'
 type Mode = 'recent' | 'star' | 'folder'
-interface Crumb { id: string; name: string }
+interface Crumb { id: string; name: string; kuid?: string } // kuid → 该层走知识库(kwiki)
 
 // 后缀 → 一个 emoji 图标 + 中文类型名，纯展示，不影响取数。
 const KIND: Record<string, [string, string]> = {
@@ -80,12 +80,14 @@ export function KdocsView() {
     }
   }
 
-  // 目录浏览：driveId 空 → 后端发现根；crumb 末项的 id 即当前 parent_id。
+  // 目录浏览：末项带 kuid → 走知识库(kwiki)；否则走云盘（driveId 空则后端发现根，id 即 parent_id）。
   const loadFolder = async (nextCrumbs: Crumb[], drive = driveId) => {
     setLoading(true)
     try {
-      const parent = nextCrumbs[nextCrumbs.length - 1].id
-      const r = await api.kdocsFolder(drive, parent)
+      const last = nextCrumbs[nextCrumbs.length - 1]
+      const r = last.kuid
+        ? await api.kdocsFolder('', '', last.kuid)
+        : await api.kdocsFolder(drive, last.id)
       if (!alive.current) return
       if (!applyConn(r)) return
       if (r.drive_id) setDriveId(r.drive_id)
@@ -152,7 +154,9 @@ export function KdocsView() {
 
   const submitSearch = () => { if (conn === 'ready') void loadFlat(kw) }
   const clearSearch = () => { setKw(''); void loadFlat('') }
-  const enterFolder = (f: KdocsFile) => void loadFolder([...crumbs, { id: f.file_id, name: f.name }])
+  // 知识库节点(is_kb)或知识库子文件夹(带 kuid) → 下钻走 kwiki（crumb 带 kuid）；否则普通云盘文件夹。
+  const enterFolder = (f: KdocsFile) =>
+    void loadFolder([...crumbs, { id: f.file_id, name: f.name, kuid: f.kuid || undefined }])
   const gotoCrumb = (i: number) => { if (i < crumbs.length - 1) void loadFolder(crumbs.slice(0, i + 1)) }
   // 点击文档：在应用内 iframe 打开（而非新标签）。无链接则提示。
   const openFile = (f: KdocsFile) => {
@@ -264,10 +268,10 @@ export function KdocsView() {
                   return (
                     <div key={f.file_id} className="kd-item" onClick={() => enterFolder(f)} role="button" tabIndex={0}
                       onKeyDown={(e) => { if (e.key === 'Enter') enterFolder(f) }}>
-                      <span className="kd-ic">📁</span>
+                      <span className="kd-ic">{f.is_kb ? '📚' : '📁'}</span>
                       <div className="kd-main">
                         <div className="kd-name">{f.name}</div>
-                        <div className="kd-meta">文件夹{f.mtime ? ` · ${fmtTime(f.mtime)}` : ''}</div>
+                        <div className="kd-meta">{f.is_kb ? '知识库' : '文件夹'}{f.mtime ? ` · ${fmtTime(f.mtime)}` : ''}</div>
                       </div>
                       <svg className="kd-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 6l6 6-6 6" /></svg>
                     </div>

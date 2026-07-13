@@ -25,6 +25,8 @@ export interface KdocsFile {
   link_url: string
   ext: string
   is_folder: boolean
+  is_kb: boolean   // 知识库节点（kwiki）——点进去走 kwiki 而非 drive
+  kuid: string     // 知识库 / 知识库子文件夹的下钻标识
   mtime: number
   size: number
   owner: string

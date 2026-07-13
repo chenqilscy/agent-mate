@@ -164,4 +164,27 @@ list-latest-items/list-star-items/list-files/list-deleted-files/list-doclibs/lis
   tokens.css 深色背景由 `.kd-viewer` 改 `.kd-right`。
 - 验证：`tsc` 过；Playwright 实测打开「信息查询.otl」→ 左列表(400px,30 项仍在)+右文档并存、该项高亮；
   点「cloudfare.otl」→ 右栏与高亮即时切到它（仅 1 项 active，iframe src 变）；**明暗双主题**均正常。
+- commit：18c2270
+
+## 处理记录（2026-07-14）· 追加：知识库(kwiki)目录点进去是空 → 真加载
+
+用户反馈：「我的云文档」里的**知识库**类目录（如 mini-chat-agent知识库）点进去显示「空文件夹」，
+但里面其实有文件。
+
+- **根因**：知识库是 `kwiki` 对象，不是云盘文件夹。它在云盘树里表现为一个 folder 节点（结构与真
+  文件夹**完全一样**，只 `shared` 略不同、不可靠），但内容不在 drive 里——`drive list-files` 一律返回 0。
+  内容要用 `kwiki list-items(kuid)` 取；kuid 来自 `kwiki list-knowledge-views`（格式 `0s_<drive_id>`）。
+- **桥接（不写死）**：云盘 folder 节点没有 kuid/group_id 可直接关联，唯一可靠桥是**名字匹配**已注册知识库
+  （list-knowledge-views 的 space_name → kuid）。故列云盘目录时，若本层有文件夹就取一次 KB 名单，把名字命中的
+  folder 标 `is_kb=True` 并挂 kuid。
+- 后端 `routers/kdocs.py`：`_kb_name_to_kuid`（name→kuid）+ `_norm_kwiki`（title→name、`doc_type=='folder'`→
+  is_folder、link_url=`kdocs.cn/l/<link_id>`、文件夹带自身 kuid 供下钻）+ `_kwiki_list`（挖嵌套 list）；
+  `/folder` 加 `kuid` 参数：给了就走 `kwiki list-items`，否则走 drive 并标注 KB 节点。`_norm` 加 `is_kb`/`kuid` 字段。
+- 前端：`KdocsFile` 加 `is_kb`/`kuid`；`api.kdocsFolder(drive,parent,kuid)`；`Crumb` 加可选 `kuid`；
+  `loadFolder` 末项带 kuid → 走 kwiki，否则走 drive；`enterFolder` 对 KB/知识库子文件夹压带 kuid 的 crumb；
+  知识库节点用 📚 图标 + 「知识库」副标。
+- 验证：`tsc`+`py_compile` 过；**硬重启后端后** `/folder?...&parent_id=<AI>` 三个知识库节点均 `is_kb=true`+kuid；
+  `/folder?kuid=0s_3117202547` 返回该库 6 篇真实文档（kdocs.cn/l 链接）。Playwright 实测：我的云文档→AI→
+  三个 📚 知识库 → 点 mini-chat-agent知识库 → 列出 6 篇文档（原来是「空文件夹」）→ 点「coding agent」→ 右栏
+  渲染其正文；点面包屑「AI」回退到云盘层（3 个 📚）。链路打通。
 - commit：（待提交）

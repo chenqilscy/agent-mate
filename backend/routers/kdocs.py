@@ -187,8 +187,69 @@ def _norm(it: dict, keep_folders: bool = False) -> dict | None:
         "link_url": str(f.get("link_url") or ""),
         "ext": ext,
         "is_folder": is_folder,
+        "is_kb": False,   # 知识库节点由 folder() 端点按名字匹配后置真
+        "kuid": "",       # 知识库 / 知识库子文件夹的下钻标识（kwiki）
         "mtime": int(f.get("mtime") or 0),
         "size": int(f.get("size") or 0),
+        "owner": str(creator.get("name") or ""),
+    }
+
+
+def _kwiki_list(data: object) -> list[dict]:
+    """Dig the item list out of a kwiki response (nested data.data.list/items)."""
+    node = data
+    seen = 0
+    while isinstance(node, dict) and seen < 6:
+        for k in ("list", "items", "files"):
+            if isinstance(node.get(k), list):
+                return node[k]
+        node = node.get("data")
+        seen += 1
+    return []
+
+
+def _kb_name_to_kuid(exe: str) -> dict[str, str]:
+    """个人知识库 space_name → kuid（来自 kwiki list-knowledge-views）。
+
+    知识库在云盘树里表现为普通 folder 节点（结构与真文件夹无异，仅 shared 略不同——
+    不可靠），唯一可靠的桥是「名字匹配已注册的知识库」。据此把云盘树里的知识库节点
+    标出来并挂上 kuid，drilling 时改走 kwiki（否则 drive list-files 一律返回 0，即空文件夹）。
+    """
+    ok, data = _run_json(exe, "kwiki", "list-knowledge-views", {})
+    if not ok:
+        return {}
+    out: dict[str, str] = {}
+    for kb in _kwiki_list(data):
+        name, kuid = kb.get("space_name"), kb.get("kuid")
+        if name and kuid:
+            out[str(name)] = str(kuid)
+    return out
+
+
+def _norm_kwiki(it: dict) -> dict | None:
+    """Normalize one kwiki (知识库) item. Docs open via link_url; folders
+    (doc_type=='folder') drill deeper via their own kuid."""
+    if not isinstance(it, dict):
+        return None
+    title = str(it.get("title") or "")
+    is_folder = it.get("doc_type") == "folder"
+    link_id = str(it.get("link_id") or "")
+    ext = "" if is_folder else str(it.get("doc_origin_type") or "")
+    creator = it.get("creator") if isinstance(it.get("creator"), dict) else {}
+    return {
+        "name": title,
+        "file_id": str(it.get("file_id") or ""),
+        "drive_id": "",
+        "parent_id": str(it.get("parent_id") or ""),
+        # kwiki 文档就是普通云文档，公开短链即 www.kdocs.cn/l/<link_id>。
+        "link_url": f"https://www.kdocs.cn/l/{link_id}" if link_id else "",
+        "ext": ext,
+        "is_folder": is_folder,
+        "is_kb": False,
+        # 文件夹带自己的 kuid 供继续下钻；文档也有 kuid 但用不到（点开走 link_url）。
+        "kuid": str(it.get("kuid") or "") if is_folder else "",
+        "mtime": int(it.get("ctime") or it.get("mtime") or 0),
+        "size": int(it.get("size") or 0),
         "owner": str(creator.get("name") or ""),
     }
 
@@ -242,29 +303,51 @@ def files(keyword: str = "", kind: str = "recent", page_size: int = 30) -> dict:
 
 
 @router.get("/folder")
-def folder(drive_id: str = "", parent_id: str = "0", page_size: int = 100) -> dict:
+def folder(drive_id: str = "", parent_id: str = "0", kuid: str = "", page_size: int = 100) -> dict:
     """Browse the 我的云文档 folder tree (mirrors the WPS web 我的云文档 sidebar).
 
-    drive_id empty → auto-discover the personal-cloud root (see _personal_root_drive)
-    and list its root (parent_id="0"); otherwise list the given folder. Folders come
-    first, then files. Returns the resolved drive_id so the client can drill deeper.
+    Two navigation modes:
+    - kuid given → list a 知识库（kwiki）目录 via `kwiki list-items`（知识库不是云盘
+      文件夹，其内容不在 drive 里——这是「知识库点进去是空」的根因）。
+    - otherwise drive mode: drive_id empty → auto-discover the personal-cloud root
+      and list its root (parent_id="0"); else list the given folder. 云盘树里名字匹配
+      到已注册知识库的 folder 节点会被标 is_kb + 挂 kuid，供前端切到 kwiki 下钻。
+    Folders come first, then files. Returns the resolved drive_id for deeper drives.
     """
     exe = _cli()
     if not exe:
         return {"installed": False, "authenticated": False, "drive_id": "", "files": []}
     if not _authed(exe):
         return {"installed": True, "authenticated": False, "drive_id": "", "files": []}
+    size = max(1, min(int(page_size or 100), 200))
+
+    # ── 知识库（kwiki）模式 ─────────────────────────────────────────
+    if kuid.strip():
+        ok, data = _run_json(exe, "kwiki", "list-items", {"kuid": kuid.strip()})
+        if not ok:
+            raise HTTPException(502, str(data))
+        items = [n for it in _kwiki_list(data) if (n := _norm_kwiki(it))]
+        items.sort(key=lambda x: (not x["is_folder"], x["name"].lower()))
+        return {"installed": True, "authenticated": True, "drive_id": "", "files": items}
+
+    # ── 云盘（drive）模式 ──────────────────────────────────────────
     drive = drive_id.strip() or _personal_root_drive(exe)
     if not drive:
         # No personal-cloud drive discoverable (e.g. empty account) — honest empty,
         # not a crash; the panel shows 暂无 and the user can still use 最近/搜索.
         return {"installed": True, "authenticated": True, "drive_id": "", "files": []}
-    size = max(1, min(int(page_size or 100), 200))
     ok, data = _run_json(exe, "drive", "list-files",
                          {"drive_id": drive, "parent_id": parent_id or "0", "page_size": size})
     if not ok:
         raise HTTPException(502, str(data))
     items = [n for it in _items(data) if (n := _norm(it, keep_folders=True))]
+    # 标出知识库节点（名字匹配 kwiki 列表）——仅当本层有文件夹时才多花一次 CLI 调用。
+    if any(i["is_folder"] for i in items):
+        kb = _kb_name_to_kuid(exe)
+        if kb:
+            for i in items:
+                if i["is_folder"] and i["name"] in kb:
+                    i["is_kb"], i["kuid"] = True, kb[i["name"]]
     items.sort(key=lambda x: (not x["is_folder"], x["name"].lower()))  # folders first
     return {"installed": True, "authenticated": True, "drive_id": drive, "files": items}
 
