@@ -645,6 +645,11 @@ body.dark .skd-ver.skd-preview { color: #E7A33E; background: #3A2E17; }
 .kd-meta { font-size: 11.5px; color: var(--text-3); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kd-open { width: 15px; height: 15px; color: var(--text-3); flex-shrink: 0; }
 .kd-item:hover .kd-open { color: var(--brand); }
+.kd-crumb { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; font-size: 13px; }
+.kd-sep { font-style: normal; color: var(--text-3); margin: 0 6px; }
+.kd-cr { cursor: pointer; color: var(--text-2); font-weight: 600; }
+.kd-cr:hover { color: var(--brand); }
+.kd-cr.cur { color: var(--text); cursor: default; }
 
 /* ---- update banner ---- */
 .upd { position: fixed; left: 10px; bottom: 10px; width: 338px; background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-md); padding: 10px 12px; display: flex; align-items: center; gap: 8px; z-index: 90; font-size: 13px; font-weight: 600; }

@@ -94,4 +94,28 @@ WPS OAuth 连接流（[routers/kdocs.py](../../backend/routers/kdocs.py)）、�
     列表切「『周报』的搜索结果 · 29 项」、出现「返回最近」按钮；**明暗双主题**均正常
     （`.kd-item` 暗色 `#22272D` 面板、白字/灰 meta，无白底白字/深底深字）。测试后已删临时截图与 `.playwright-mcp`。
   - 端到端未授权路径靠既有 WB-052 OAuth 流（本机当前已授权，走已连接分支）。
+- commit：5a49af9
+
+## 处理记录（2026-07-14）· 追加：目录树浏览（对齐金山文档网页版）
+
+用户反馈「为何没有目录结构?」并给了金山文档网页版参照（左侧「我的云文档」文件夹树）。
+原面板只有「最近访问」扁平列表（`list-latest-items` 本就跨文件夹拉平），且后端把文件夹类型过滤掉了。
+补上真实目录树浏览：
+
+- **关键坑（记牌）**：本机 Windows 后端 `main.py` 用 `reload=False`（Selector loop 不支持 MCP 子进程，
+  见注释）——**改后端不会自动生效，必须硬重启 :8000**。本次因此排查良久：代码正确但旧进程在跑。
+  另：`kdocs-cli --output json` 的 stdout 是合法 UTF-8；用 `json.load(sys.stdin)` 在 GBK 终端会误解码成
+  乱码/代理字符，须 `sys.stdin.buffer.read().decode('utf-8')`（后端 `_run_json` 已 decode utf-8，无此问题）。
+- **个人云盘根自动发现（不写死）**：CLI v2.5.11 无 `list-my-files`/根枚举动作；但 `list-latest-items` 每条带
+  `file_src.name`（位置名）。取位置为「我的云文档」那条的 `drive_id` 即个人云盘根，`list-files(drive,"0")`
+  就是树根。新增 `_personal_root_drive(exe)`。
+- 后端 `routers/kdocs.py`：`_norm` 加 `keep_folders`/`is_folder`/`parent_id`；新增 `GET /folder?drive_id=&
+  parent_id=`（drive_id 空→自动发现根并列 parent_id=0；文件夹在前，files 后）。
+- 前端：`KdocsFile` 加 `is_folder`/`parent_id`；`api.kdocsFolder`；`KdocsView` 加「最近 / 我的云文档」两个
+  tab（复用 `.mf-tabs`），目录模式带 `.kd-crumb` 面包屑（逐层下钻 + 点面包屑回退），文件夹行 📁 + chevron
+  下钻、文件行点开跳转；`.kd-crumb/.kd-cr` 样式入 app.css。
+- 验证：`py_compile`+`tsc` 过；**硬重启后**真接口 `/folder` 自动发现 drive `559663528`、列根 14 项（10 文件夹
+  在前）、下钻 AI→3 子文件夹（KODA知识库/mini-chat-agent知识库/上下文，与网页版一致）。Playwright 实测：
+  切「我的云文档」→ 树根 → 点 AI 下钻（面包屑「我的云文档 / AI」）→ 点面包屑根回退；**明暗双主题**均正常
+  （`.kd-item` 暗色面板，无白底白字）。临时截图与 `.playwright-mcp` 已清。
 - commit：（待提交）

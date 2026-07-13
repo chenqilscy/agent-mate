@@ -162,24 +162,54 @@ def _items(data: object) -> list[dict]:
     return []
 
 
-def _norm(it: dict) -> dict | None:
-    """Normalize one search/latest item (its `.file` sub-object) for the panel."""
+def _norm(it: dict, keep_folders: bool = False) -> dict | None:
+    """Normalize one item (its `.file` sub-object) for the panel.
+
+    keep_folders=False (最近/搜索): drop 文件夹, only real files.
+    keep_folders=True (目录浏览): also yield folders, flagged is_folder so the UI
+    can render a drill-in row instead of an open-link row.
+    """
     f = it.get("file") if isinstance(it.get("file"), dict) else it
-    if not isinstance(f, dict) or f.get("type") != "file":
+    if not isinstance(f, dict):
+        return None
+    typ = f.get("type")
+    is_folder = typ == "folder"
+    if typ != "file" and not (keep_folders and is_folder):
         return None
     name = str(f.get("name") or "")
-    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    ext = "" if is_folder else (name.rsplit(".", 1)[-1].lower() if "." in name else "")
     creator = f.get("created_by") if isinstance(f.get("created_by"), dict) else {}
     return {
         "name": name,
         "file_id": str(f.get("id") or ""),
         "drive_id": str(f.get("drive_id") or ""),
+        "parent_id": str(f.get("parent_id") or ""),
         "link_url": str(f.get("link_url") or ""),
         "ext": ext,
+        "is_folder": is_folder,
         "mtime": int(f.get("mtime") or 0),
         "size": int(f.get("size") or 0),
         "owner": str(creator.get("name") or ""),
     }
+
+
+def _personal_root_drive(exe: str) -> str:
+    """Discover the 我的云文档 (personal cloud) root drive_id — never hardcoded.
+
+    The installed CLI (v2.5.11) has no root-listing action, but every 最近访问 item
+    carries `file_src.name` (its location, e.g. 我的云文档 / 我的漫游箱 / <知识库>).
+    We pick the drive_id of the first item located in 我的云文档; `list-files` on it
+    with parent_id="0" is that tree's root. Empty string if none found.
+    """
+    ok, data = _run_json(exe, "drive", "list-latest-items", {"page_size": 60})
+    if not ok:
+        return ""
+    for it in _items(data):
+        f = it.get("file") if isinstance(it.get("file"), dict) else {}
+        src = it.get("file_src") if isinstance(it.get("file_src"), dict) else {}
+        if src.get("name") == "我的云文档" and f.get("drive_id"):
+            return str(f["drive_id"])
+    return ""
 
 
 @router.get("/files")
@@ -204,6 +234,34 @@ def files(keyword: str = "", page_size: int = 30) -> dict:
         raise HTTPException(502, str(data))
     out = [n for it in _items(data) if (n := _norm(it))]
     return {"installed": True, "authenticated": True, "files": out}
+
+
+@router.get("/folder")
+def folder(drive_id: str = "", parent_id: str = "0", page_size: int = 100) -> dict:
+    """Browse the 我的云文档 folder tree (mirrors the WPS web 我的云文档 sidebar).
+
+    drive_id empty → auto-discover the personal-cloud root (see _personal_root_drive)
+    and list its root (parent_id="0"); otherwise list the given folder. Folders come
+    first, then files. Returns the resolved drive_id so the client can drill deeper.
+    """
+    exe = _cli()
+    if not exe:
+        return {"installed": False, "authenticated": False, "drive_id": "", "files": []}
+    if not _authed(exe):
+        return {"installed": True, "authenticated": False, "drive_id": "", "files": []}
+    drive = drive_id.strip() or _personal_root_drive(exe)
+    if not drive:
+        # No personal-cloud drive discoverable (e.g. empty account) — honest empty,
+        # not a crash; the panel shows 暂无 and the user can still use 最近/搜索.
+        return {"installed": True, "authenticated": True, "drive_id": "", "files": []}
+    size = max(1, min(int(page_size or 100), 200))
+    ok, data = _run_json(exe, "drive", "list-files",
+                         {"drive_id": drive, "parent_id": parent_id or "0", "page_size": size})
+    if not ok:
+        raise HTTPException(502, str(data))
+    items = [n for it in _items(data) if (n := _norm(it, keep_folders=True))]
+    items.sort(key=lambda x: (not x["is_folder"], x["name"].lower()))  # folders first
+    return {"installed": True, "authenticated": True, "drive_id": drive, "files": items}
 
 
 @router.post("/disconnect")

@@ -21,8 +21,10 @@ export interface KdocsFile {
   name: string
   file_id: string
   drive_id: string
+  parent_id: string
   link_url: string
   ext: string
+  is_folder: boolean
   mtime: number
   size: number
   owner: string

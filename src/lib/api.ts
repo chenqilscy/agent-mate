@@ -168,6 +168,12 @@ export const api = {
     get<{ installed: boolean; authenticated: boolean; files: KdocsFile[] }>(
       `/connectors/kdocs/files?keyword=${encodeURIComponent(keyword)}`,
     ),
+  // 「我的云文档」目录树浏览（WB-140）：driveId 空 → 后端自动发现个人云盘根并列根目录；
+  // 传 driveId+parentId 下钻某文件夹。返回解析出的 drive_id 供继续下钻。
+  kdocsFolder: (driveId = '', parentId = '0') =>
+    get<{ installed: boolean; authenticated: boolean; drive_id: string; files: KdocsFile[] }>(
+      `/connectors/kdocs/folder?drive_id=${encodeURIComponent(driveId)}&parent_id=${encodeURIComponent(parentId)}`,
+    ),
 
   // SkillHub 技能 · 真实安装/发现/管理（WB-055）。清单来自 ~/.workbuddy/skills 磁盘扫描，
   // 安装走真实 skillhub CLI 下载解压。key = 技能目录名。
