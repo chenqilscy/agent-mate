@@ -92,6 +92,18 @@ class Settings:
     # at the end of a stream (WB-022).
     CONTEXT_WINDOW: int = max(1, int(os.getenv("CONTEXT_WINDOW", "1000000")))
 
+    # 语音输入本地 ASR（WB-139）。faster-whisper 小模型在本机把录音转文字，音频不出本机。
+    # ASR_ENABLED=0 彻底关闭端点；模型首次使用会下载到 ASR_MODEL_DIR（需联网一次）。
+    # ASR_MODEL：faster-whisper 尺寸（tiny/base/small/medium/large-v3）或本地路径，默认 base（中文够用、CPU 秒级）。
+    # ASR_DEVICE/ASR_COMPUTE_TYPE：默认 cpu + int8（无 GPU 也快、内存小）。
+    ASR_ENABLED: bool = os.getenv("ASR_ENABLED", "1").strip().lower() in ("1", "true", "yes")
+    ASR_MODEL: str = os.getenv("ASR_MODEL", "base").strip()
+    ASR_DEVICE: str = os.getenv("ASR_DEVICE", "cpu").strip()
+    ASR_COMPUTE_TYPE: str = os.getenv("ASR_COMPUTE_TYPE", "int8").strip()
+    ASR_MODEL_DIR: Path = Path(
+        os.getenv("ASR_MODEL_DIR", str(DATA_DIR / "models" / "whisper"))
+    ).resolve()
+
     # WorkBuddy Hub（中心控制平面，WB-061/062）。HUB_URL 空 = 未接 Hub = 纯本地（离线优先）：
     # 本地 backend 作为 Hub 客户端持 Hub token 调其 /api/auth/verify 等。凭据/工作区文件绝不上云。
     HUB_URL: str = os.getenv("HUB_URL", "").strip().rstrip("/")

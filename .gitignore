@@ -18,6 +18,8 @@ backend/workbuddy.db-shm
 backend/workbuddy.db-wal
 backend/workspace/
 !backend/workspace/.gitkeep
+# 本地 ASR 模型缓存（WB-139，faster-whisper 首次使用下载，~145MB，不入库）
+backend/models/
 
 # editor / os
 .DS_Store

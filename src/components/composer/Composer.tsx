@@ -11,6 +11,7 @@ import { PlusMenu, type PlusActions } from './PlusMenu'
 import { PickerOverlay } from '../project/NewProjectModal'
 import { RefPicker } from './RefPicker'
 import { useCatalogStore } from '../../stores/catalogStore'
+import { useVoiceInput } from './useVoiceInput'
 import { IcPlus, IcClose, IcSend, IcChevronDown, IcMic, IcShield } from '../../lib/icons'
 
 // Attach limits — kept in step with the backend ref caps in backend/agent/runtime.py
@@ -98,6 +99,13 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'
   }
+
+  // 语音输入（WB-139）：转写结果追加到当前文本（有内容则空格分隔），并撑高、聚焦。
+  const voice = useVoiceInput((t) => {
+    setText((cur) => (cur.trim() ? cur.replace(/\s*$/, '') + ' ' + t : t))
+    requestAnimationFrame(grow)
+    taRef.current?.focus()
+  })
 
   // 一次性草稿：某处（如「编辑技能」）在跳转前塞了 draft，本 Composer 挂载即取走并清空。
   useEffect(() => {
@@ -213,7 +221,17 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
           <IcChevronDown style={{ width: 10, height: 10 }} />
         </button>
 
-        <button className="cicon" aria-label="语音" onClick={() => toast('语音输入')}>
+        <button
+          className={`cicon mic${voice.state === 'recording' ? ' rec' : ''}${voice.state === 'transcribing' ? ' busy' : ''}`}
+          aria-label={voice.state === 'recording' ? '松开结束录音' : '按住说话'}
+          title={voice.available === false ? '语音输入不可用（后端未安装 faster-whisper）' : voice.state === 'transcribing' ? '转写中…' : '按住说话，松开转写'}
+          disabled={voice.state === 'transcribing' || streaming}
+          onPointerDown={(e) => { e.preventDefault(); voice.start() }}
+          onPointerUp={voice.stop}
+          onPointerLeave={voice.stop}
+          onPointerCancel={voice.stop}
+          onContextMenu={(e) => e.preventDefault()}
+        >
           <IcMic />
         </button>
 
