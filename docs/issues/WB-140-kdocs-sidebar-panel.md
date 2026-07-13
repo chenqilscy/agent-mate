@@ -118,4 +118,19 @@ WPS OAuth 连接流（[routers/kdocs.py](../../backend/routers/kdocs.py)）、�
   在前）、下钻 AI→3 子文件夹（KODA知识库/mini-chat-agent知识库/上下文，与网页版一致）。Playwright 实测：
   切「我的云文档」→ 树根 → 点 AI 下钻（面包屑「我的云文档 / AI」）→ 点面包屑根回退；**明暗双主题**均正常
   （`.kd-item` 暗色面板，无白底白字）。临时截图与 `.playwright-mcp` 已清。
+- commit：0b501cb
+
+## 处理记录（2026-07-14）· 追加：星标 tab（共享无对应 CLI 动作，不做假）
+
+用户要「星标/共享」。**星标**有真实动作 `drive list-star-items`，落地为第三个 tab。
+**共享**：安装的 kdocs-cli v2.5.11 **没有「共享给我 / shared-with-me」动作**（drive 只有
+list-latest-items/list-star-items/list-files/list-deleted-files/list-doclibs/list-labels），
+按铁律#1 不造假 tab，故不做（待 CLI 升级出对应动作再补）。
+
+- 后端 `routers/kdocs.py`：`GET /files` 加 `kind`（`recent` 默认=list-latest-items / `star`=list-star-items）；
+  非空 keyword 一律走搜索。
+- 前端：`api.kdocsFiles(keyword, kind)`；`KdocsView` Mode 加 `'star'`，tab「最近 / 星标 / 我的云文档」，
+  星标模式无搜索框、纯列表 + 刷新；连接后/刷新按当前 mode 复载（reloadMode）。
+- 验证：`tsc`+`py_compile` 过；**硬重启后端后** `/files?kind=star` 返回真实收藏（本机 1 项，全为文件）；
+  Playwright 实测三 tab 切换、星标 tab 高亮并列出真实星标项、星标模式无搜索框。
 - commit：（待提交）

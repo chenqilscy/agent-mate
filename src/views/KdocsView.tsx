@@ -9,7 +9,7 @@ import { toast } from '../stores/toastStore'
 // 在 WB-052 已打通，这里只是消费它的视图。未安装/未授权 → 诚实降级引导，不假装正常。
 
 type Conn = 'loading' | 'not_installed' | 'need_auth' | 'connecting' | 'ready'
-type Mode = 'recent' | 'folder'
+type Mode = 'recent' | 'star' | 'folder'
 interface Crumb { id: string; name: string }
 
 // 后缀 → 一个 emoji 图标 + 中文类型名，纯展示，不影响取数。
@@ -63,11 +63,11 @@ export function KdocsView() {
     return true
   }
 
-  // 最近 / 搜索（扁平）。也带连接标志，token 失效即翻回引导态。
-  const loadRecent = async (keyword = '') => {
+  // 最近 / 星标 / 搜索（扁平）。也带连接标志，token 失效即翻回引导态。
+  const loadFlat = async (keyword = '', kind: 'recent' | 'star' = 'recent') => {
     setLoading(true)
     try {
-      const r = await api.kdocsFiles(keyword)
+      const r = await api.kdocsFiles(keyword, kind)
       if (!alive.current) return
       if (!applyConn(r)) return
       setFiles(r.files)
@@ -97,16 +97,24 @@ export function KdocsView() {
     }
   }
 
+  // Reload whatever the current mode shows (used by connect + refresh).
+  const reloadMode = (m: Mode) => {
+    if (m === 'folder') void loadFolder([ROOT_CRUMB], '')
+    else if (m === 'star') void loadFlat('', 'star')
+    else void loadFlat(active)
+  }
+
   useEffect(() => {
     alive.current = true
-    void loadRecent('')
+    void loadFlat('')
     return () => { alive.current = false; stopPoll() }
   }, [])
 
   const switchMode = (m: Mode) => {
     if (m === mode) return
     setMode(m)
-    if (m === 'recent') void loadRecent(active)
+    if (m === 'recent') void loadFlat('')
+    else if (m === 'star') void loadFlat('', 'star')
     else void loadFolder([ROOT_CRUMB], '') // re-discover root each entry (cheap, always fresh)
   }
 
@@ -115,7 +123,7 @@ export function KdocsView() {
     try {
       const r = await api.kdocsConnect()
       if (!alive.current) return
-      const after = () => { if (mode === 'folder') void loadFolder([ROOT_CRUMB], ''); else void loadRecent('') }
+      const after = () => reloadMode(mode)
       if (r.status === 'connected') { toast('已连接 · 金山文档'); after(); return }
       if (r.authUrl) { setAuthUrl(r.authUrl); window.open(r.authUrl, '_blank', 'noopener,noreferrer') }
       toast('已打开授权页，请在浏览器完成 WPS 授权…')
@@ -133,15 +141,15 @@ export function KdocsView() {
     }
   }
 
-  const submitSearch = () => { if (conn === 'ready') void loadRecent(kw) }
-  const clearSearch = () => { setKw(''); void loadRecent('') }
+  const submitSearch = () => { if (conn === 'ready') void loadFlat(kw) }
+  const clearSearch = () => { setKw(''); void loadFlat('') }
   const enterFolder = (f: KdocsFile) => void loadFolder([...crumbs, { id: f.file_id, name: f.name }])
   const gotoCrumb = (i: number) => { if (i < crumbs.length - 1) void loadFolder(crumbs.slice(0, i + 1)) }
   const openFile = (f: KdocsFile) => {
     if (!f.link_url) { toast('该文件暂无在线链接'); return }
     window.open(f.link_url, '_blank', 'noopener,noreferrer')
   }
-  const refresh = () => { if (mode === 'recent') void loadRecent(active); else void loadFolder(crumbs) }
+  const refresh = () => { if (mode === 'folder') void loadFolder(crumbs); else reloadMode(mode) }
 
   const dirs = files.filter((f) => f.is_folder).length
 
@@ -183,6 +191,9 @@ export function KdocsView() {
             <div className="mf-tabs">
               <div className={`mf-tab ${mode === 'recent' ? 'active' : ''}`.trim()} onClick={() => switchMode('recent')}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>最近
+              </div>
+              <div className={`mf-tab ${mode === 'star' ? 'active' : ''}`.trim()} onClick={() => switchMode('star')}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.8l6.5-.9z" /></svg>星标
               </div>
               <div className={`mf-tab ${mode === 'folder' ? 'active' : ''}`.trim()} onClick={() => switchMode('folder')}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>我的云文档

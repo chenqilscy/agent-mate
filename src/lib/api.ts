@@ -164,9 +164,10 @@ export const api = {
   kdocsDisconnect: () => send<{ status: string }>('POST', '/connectors/kdocs/disconnect'),
   // 侧栏「金山文档」面板取数（WB-140）：空 keyword=最近访问文档，有则搜索。
   // installed/authenticated 反映连接态，供面板做诚实降级引导。
-  kdocsFiles: (keyword = '') =>
+  // kind: 'recent'（最近访问）| 'star'（收藏/星标）；非空 keyword 一律走搜索。
+  kdocsFiles: (keyword = '', kind: 'recent' | 'star' = 'recent') =>
     get<{ installed: boolean; authenticated: boolean; files: KdocsFile[] }>(
-      `/connectors/kdocs/files?keyword=${encodeURIComponent(keyword)}`,
+      `/connectors/kdocs/files?keyword=${encodeURIComponent(keyword)}&kind=${kind}`,
     ),
   // 「我的云文档」目录树浏览（WB-140）：driveId 空 → 后端自动发现个人云盘根并列根目录；
   // 传 driveId+parentId 下钻某文件夹。返回解析出的 drive_id 供继续下钻。

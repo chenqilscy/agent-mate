@@ -213,11 +213,14 @@ def _personal_root_drive(exe: str) -> str:
 
 
 @router.get("/files")
-def files(keyword: str = "", page_size: int = 30) -> dict:
-    """List the user's 金山文档: recent docs by default, or search when keyword given.
+def files(keyword: str = "", kind: str = "recent", page_size: int = 30) -> dict:
+    """List the user's 金山文档 (flat): recent / starred, or a search when keyword given.
 
-    Honest degradation (铁律#1): not installed / not authorized come back as flags
-    the panel can act on, not a 500.
+    kind: `recent` (list-latest-items, 最近访问) or `star` (list-star-items, 收藏/星标).
+    A non-empty keyword always searches, regardless of kind. (No 共享/shared-with-me:
+    the installed kdocs-cli has no such action — 铁律#1, so we don't fake that tab.)
+    Honest degradation: not installed / not authorized come back as flags the panel
+    can act on, not a 500.
     """
     exe = _cli()
     if not exe:
@@ -228,6 +231,8 @@ def files(keyword: str = "", page_size: int = 30) -> dict:
     kw = keyword.strip()
     if kw:
         ok, data = _run_json(exe, "drive", "search-files", {"keyword": kw, "type": "all", "page_size": size})
+    elif kind == "star":
+        ok, data = _run_json(exe, "drive", "list-star-items", {"page_size": size})
     else:
         ok, data = _run_json(exe, "drive", "list-latest-items", {"page_size": size})
     if not ok:
