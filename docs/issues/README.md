@@ -151,6 +151,8 @@
 | [WB-133](WB-133-drop-hide-restore-unify-delete.md) | ✅ | P3 | frontend | 去掉厂商模型「隐藏/恢复」二层机制，预置/自加统一为一个「删除」（删的不再显示，要用再拉取/手填加回；复用既有端点，前端过滤 hidden） |
 | [WB-134](WB-134-curated-model-defaults-tiered-pricing.md) | ✅ | P2 | fullstack | 内置厂商按官方文档建准确「能力+定价」默认表（DeepSeek/智谱，preset 优先于名字启发式）+ 定价 schema 加缓存命中价/币种 + 更新过时 seed（DeepSeek→v4-flash/pro、智谱现役 GLM）；model_meta ALTER 迁移，reset 回 preset |
 | [WB-135](WB-135-glm-official-pricing.md) | ✅ | P2 | backend | 补齐智谱 GLM 官方定价（文本+视觉，人民币/基础档+note 标分档/缓存命中价）+ seed 对齐现役旗舰(glm-5.2/4.7/4.5-air/4.6v) + 视觉补 image/video 能力；只收 chat 模型（生成/语音/向量/重排非 chat、按次计费，如实不纳入） |
+| [WB-136](WB-136-ui-default-model-not-env.md) | ✅ | P2 | fullstack | 「默认模型」改为在「配置模型」里选择、按 owner 存 DB，彻底不读 .env：backstop 名字/运行时空选择解析都改走 DB 默认，无默认则诚实报错；新增 `PUT /api/models/default` + 配 key 时自动设默认；前端加「设为默认」+ 去掉 App.tsx 首屏回填 |
+| [WB-137](WB-137-home-ctray-stub-buttons.md) | ✅ | P2 | frontend | 首页「选择工作空间/默认权限」两个 tray 按钮是 toast 桩：接 projectStore(startProject) 做真空间选择 + 复用 PermPopover 设默认权限 |
 
 ## 来源
 

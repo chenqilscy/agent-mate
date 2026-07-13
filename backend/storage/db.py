@@ -449,6 +449,16 @@ def init_db() -> None:
             PRIMARY KEY (owner_id, provider_id)
         );
 
+        -- 通用「按 owner 的偏好」KV（WB-136 起）：一格一条设置，value 存字符串。
+        -- 目前用到的 key：default_model（未显式选模型时跟随的默认模型 ref，取代 .env LLM_MODEL）。
+        CREATE TABLE IF NOT EXISTS user_settings (
+            owner_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (owner_id, key)
+        );
+
         -- 厂商模型覆盖（WB-128）：hidden=1 隐藏某预置模型；hidden=0 且非预置 = 用户新增的模型名
         -- （厂商上新时补进来）。预置模型的有效列表 = 注册表 − 隐藏 ∪ 新增。
         CREATE TABLE IF NOT EXISTS provider_models (
@@ -1966,6 +1976,43 @@ def set_builtin_hidden(owner_id: str, name: str, hidden: bool) -> None:
             (owner_id, name),
         )
     get_conn().commit()
+
+
+# ---- per-owner settings KV (WB-136) ------------------------------------
+
+def get_user_setting(owner_id: str, key: str) -> Optional[str]:
+    row = get_conn().execute(
+        "SELECT value FROM user_settings WHERE owner_id=? AND key=?", (owner_id, key)
+    ).fetchone()
+    return row["value"] if row else None
+
+
+def set_user_setting(owner_id: str, key: str, value: Optional[str]) -> None:
+    """写/覆盖一条设置；value 为 None/空串 = 删除该键（回到「未设置」）。"""
+    if value:
+        get_conn().execute(
+            """INSERT OR REPLACE INTO user_settings (owner_id, key, value, updated_at)
+               VALUES (?,?,?,?)""",
+            (owner_id, key, value, time.time()),
+        )
+    else:
+        get_conn().execute(
+            "DELETE FROM user_settings WHERE owner_id=? AND key=?", (owner_id, key)
+        )
+    get_conn().commit()
+
+
+_DEFAULT_MODEL_KEY = "default_model"
+
+
+def get_default_model(owner_id: str) -> str:
+    """未显式选模型时跟随的默认模型 ref（WB-136）。'' = 未设置。取代 .env LLM_MODEL。"""
+    return get_user_setting(owner_id, _DEFAULT_MODEL_KEY) or ""
+
+
+def set_default_model(owner_id: str, model_ref: str) -> None:
+    """设/清默认模型 ref（''=清除）。ref = 选择键：@provider:model 或自定义名。"""
+    set_user_setting(owner_id, _DEFAULT_MODEL_KEY, (model_ref or "").strip() or None)
 
 
 # ---- provider keys + model overrides (WB-128) --------------------------

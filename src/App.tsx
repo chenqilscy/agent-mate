@@ -60,11 +60,8 @@ export function App() {
       .models()
       .then((r) => {
         useSettingsStore.getState().setModels(r.models)
-        // Only seed from the backend default on first visit — otherwise this
-        // clobbers the user's saved choice every boot (WB-005).
-        if (r.default && !localStorage.getItem('wb.model')) {
-          useSettingsStore.getState().setModel(r.default)
-        }
+        // WB-136: 不再首屏回填选择——空选择（wb.model='')「跟随默认」，运行时解析到用户在
+        // 「配置模型」里设定的账号默认模型（存后端 DB）；配好厂商 key 时后端已自动设默认。
       })
       .catch(() => {})
   }, [])

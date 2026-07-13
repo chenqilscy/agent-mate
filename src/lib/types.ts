@@ -144,8 +144,8 @@ export interface Provider {
 }
 
 export interface ModelsResponse {
-  default: string
-  effective: string
+  // 用户选定的默认模型 ref（WB-136，按 owner 存后端 DB，取代 .env）。'' = 未设置。
+  default_model: string
   providers: Provider[]
   custom: ModelOption[]
   models: ModelOption[]

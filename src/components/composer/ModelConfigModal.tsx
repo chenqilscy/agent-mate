@@ -26,7 +26,8 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
   const reloadModels = useSettingsStore((s) => s.reloadModels)
   const [providers, setProviders] = useState<Provider[]>([])
   const [custom, setCustom] = useState<ModelOption[]>([])
-  const [effective, setEffective] = useState('')
+  // 账号默认模型 ref（WB-136）：未显式选模型时跟随它。'' = 未设置。
+  const [defaultRef, setDefaultRef] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({})
   const [modelDraft, setModelDraft] = useState<Record<string, string>>({})
@@ -46,7 +47,7 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
       const r = await api.models()
       setProviders(r.providers)
       setCustom(r.custom)
-      setEffective(r.effective)
+      setDefaultRef(r.default_model)
     } catch {
       toast('加载模型列表失败')
     }
@@ -54,6 +55,19 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
   useEffect(() => { load() }, [])
 
   const refresh = async () => { await load(); await reloadModels() }
+
+  // 设/清默认模型（WB-136）：再点当前默认 = 取消。写后端 DB 后刷新（picker 顶部「默认」条随之更新）。
+  const setDefault = async (ref: string) => {
+    if (busy) return
+    const next = defaultRef === ref ? '' : ref
+    setBusy(true)
+    try {
+      const r = await api.setDefaultModel(next)
+      toast(next ? '已设为默认模型' : '已取消默认模型')
+      setDefaultRef(r.default_model)
+      await reloadModels()
+    } catch { toast('操作失败') } finally { setBusy(false) }
+  }
 
   // ---- providers ----
   const saveKey = async (p: Provider) => {
@@ -271,8 +285,9 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
                         return (
                           <div key={m.model_id}>
                             <div className="mc-mod">
-                              <span className="mc-modname">{m.model_id}{!m.preset && <span className="mc-tag">自加</span>}</span>
+                              <span className="mc-modname">{m.model_id}{!m.preset && <span className="mc-tag">自加</span>}{defaultRef === ref && <span className="mc-tag on">默认</span>}</span>
                               {capBadges(m.meta)}
+                              {p.has_key && <button className={`mc-act ${defaultRef === ref ? 'on' : ''}`.trim()} disabled={busy} onClick={() => setDefault(ref)} title="未显式选模型时用它">{defaultRef === ref ? '默认 ✓' : '设为默认'}</button>}
                               <button className={`mc-act ${metaEditing === ref ? 'on' : ''}`.trim()} disabled={busy} onClick={() => toggleMeta(ref, m.meta)}>能力</button>
                               <button className="mc-act danger" disabled={busy} onClick={() => deleteModel(p, m.model_id)}>删除</button>
                             </div>
@@ -315,9 +330,10 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
               <div className="mc-row">
                 <span className="mc-ic">{m.icon}</span>
                 <span className="mc-info">
-                  <span className="mc-name">{m.name}{capBadges(m.meta)}</span>
+                  <span className="mc-name">{m.name}{defaultRef === m.key && <span className="mc-tag on">默认</span>}{capBadges(m.meta)}</span>
                   <span className="mc-sub">{m.model_id}{m.api_base ? ` · ${m.api_base}` : ''}{m.has_key ? ' · 🔑' : ''}</span>
                 </span>
+                <button className={`mc-act ${defaultRef === m.key ? 'on' : ''}`.trim()} disabled={busy} onClick={() => setDefault(m.key)} title="未显式选模型时用它">{defaultRef === m.key ? '默认 ✓' : '设为默认'}</button>
                 <button className={`mc-act ${metaEditing === m.key ? 'on' : ''}`.trim()} onClick={() => toggleMeta(m.key, m.meta)}>能力</button>
                 <button className="mc-act" onClick={() => startEdit(m)}>编辑</button>
                 <button className="mc-act danger" onClick={() => delCustom(m)}>删除</button>
@@ -342,7 +358,11 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          <div className="mc-empty" style={{ marginTop: 18 }}>选择器里的「默认 · {effective}」跟随后端 .env 配置，未选其它时就用它——始终可用。</div>
+          <div className="mc-empty" style={{ marginTop: 18 }}>
+            {defaultRef
+              ? '给某个模型点「设为默认」后，模型菜单顶部的「默认」条与未显式选模型的新会话都用它。再点一次可取消。'
+              : '还没有设置默认模型：给上面任一已启用的模型点「设为默认」。未设置时，新会话需在模型菜单里手动选一个模型。'}
+          </div>
         </div>
         <div className="np-foot">
           <span className="np-hint" style={{ marginRight: 'auto' }} />

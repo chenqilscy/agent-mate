@@ -48,6 +48,9 @@ export const api = {
 
   // 厂商预置 + 自定义兜底（WB-128）。providers 供配置弹窗分组；models 是 picker 扁平可选列表。
   models: () => get<ModelsResponse>('/models'),
+  // 默认模型（WB-136）：未显式选模型时跟随它，按 owner 存后端 DB（取代 .env）。''=清除。
+  setDefaultModel: (model_ref: string) =>
+    send<{ ok: boolean; default_model: string }>('PUT', '/models/default', { model_ref }),
   // 厂商 API Key（空串 = 撤销）；模型增删/隐藏（厂商上新/清理）。key 只后端存、绝不回前端。
   setProviderKey: (pid: string, api_key: string) =>
     send<{ ok: boolean; has_key: boolean }>('PUT', `/providers/${pid}/key`, { api_key }),

@@ -9,8 +9,9 @@ Two real sources feed the composer model picker:
   - **custom**: free-form fallback (WB-124) for anything not in the preset list.
 
 There is no fake "Auto"/multiplier anymore — a pick resolves to a real provider at run
-time (agent.runtime.resolve_model_config). The `.env` model remains the local backstop,
-surfaced honestly as a 「默认」entry.
+time (agent.runtime.resolve_model_config). The 「默认模型」(what an empty selection follows)
+is a user choice set here via PUT /models/default and stored per-owner in DB — it no longer
+reads .env's LLM_MODEL (WB-136). No default set → chat surfaces an honest error.
 """
 from __future__ import annotations
 
@@ -19,7 +20,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from auth.deps import current_user
-from config import settings
 from storage import db, provider_seed
 
 router = APIRouter(prefix="/api", tags=["models"])
@@ -83,6 +83,20 @@ def _provider_models_mgmt(owner_id: str, prov: dict) -> list[dict]:
 
 def _sel_key_provider(pid: str, model_id: str) -> str:
     return f"@{pid}:{model_id}"
+
+
+def _resolve_runnable_name(owner_id: str, ref: str) -> str | None:
+    """ref 若指向一个当前可运行的模型，返回其显示名；否则 None（WB-136 默认模型校验）。
+    可运行 = 厂商有 key 且该模型可见 ∨ 存在同名自定义模型。"""
+    if ref.startswith("@") and ":" in ref:
+        pid, _, mid = ref[1:].partition(":")
+        prov = provider_seed.PROVIDERS_BY_ID.get(pid)
+        if not prov or not mid or pid not in db.list_provider_keys(owner_id):
+            return None
+        visible = {m["model_id"] for m in _provider_models_mgmt(owner_id, prov) if not m["hidden"]}
+        return mid if mid in visible else None
+    row = db.get_custom_model_by_name(owner_id, ref, include_secrets=False)
+    return row["name"] if row else None
 
 
 def _pack_custom(row: dict) -> dict:
@@ -151,20 +165,26 @@ def list_models() -> dict:
     for cm in custom:  # WB-132: 自定义模型也附 meta（ref = 自定义名）
         cm["meta"] = _effective_meta(cm["name"], cm.get("model_id") or "", stored_meta)
 
-    # 「默认」= .env 后端配置的模型，永远可用（local-first 兜底，取代假 Auto）。key="" → resolve 回退 .env。
+    # 「默认模型」= 用户在「配置模型」里选定、按 owner 存 DB 的 ref（WB-136，取代 .env LLM_MODEL）。
+    # 校验它仍指向一个可运行模型（厂商有 key 的模型 ∨ 自定义）；失效（撤 key/删模型）则自愈清空。
+    runnable = {p["key"]: p["name"] for p in picker}
+    runnable.update({c["key"]: c["name"] for c in custom})
+    default_model = db.get_default_model(user.id)
+    if default_model and default_model not in runnable:
+        db.set_default_model(user.id, "")  # 自愈：不再可用就清掉
+        default_model = ""
+
+    # 模型菜单顶部的「默认」条：key="" 表示「跟随默认」；名字显所选默认（未设置则如实标注）。
     backstop = {
         "key": "",
-        "icon": "⚙️",
+        "icon": "⭐",
         "color": "",
-        "name": f"默认 · {settings.LLM_MODEL}",
+        "name": f"默认 · {runnable[default_model]}" if default_model else "默认（未设置）",
         "group": "default",
     }
     models = [backstop] + picker + custom
-    # 首屏默认选中：第一个可用厂商模型，否则默认兜底。
-    default = picker[0]["key"] if picker else ""
     return {
-        "default": default,
-        "effective": settings.LLM_MODEL,
+        "default_model": default_model,
         "providers": providers,
         "custom": custom,
         "models": models,
@@ -187,9 +207,32 @@ class ProviderKeyIn(BaseModel):
 @router.put("/providers/{pid}/key")
 def set_provider_key(pid: str, body: ProviderKeyIn) -> dict:
     user = current_user()
-    _require_provider(pid)
-    db.set_provider_key(user.id, pid, body.api_key.strip())
-    return {"ok": True, "provider": pid, "has_key": bool(body.api_key.strip())}
+    prov = _require_provider(pid)
+    key = body.api_key.strip()
+    db.set_provider_key(user.id, pid, key)
+    # 便利（WB-136）：刚启用一个厂商、且当前还没设默认模型 → 自动把默认设为它第一个可见模型，
+    # 这样「配好一个厂商就能直接用」，无需再手动设默认（取代旧 App.tsx 首屏回填）。
+    if key and not db.get_default_model(user.id):
+        visible = [m["model_id"] for m in _provider_models_mgmt(user.id, prov) if not m["hidden"]]
+        if visible:
+            db.set_default_model(user.id, _sel_key_provider(pid, visible[0]))
+    return {"ok": True, "provider": pid, "has_key": bool(key)}
+
+
+class DefaultModelIn(BaseModel):
+    model_ref: str = Field(default="", max_length=200)  # ''=清除默认
+
+
+@router.put("/models/default")
+def set_default_model(body: DefaultModelIn) -> dict:
+    """设/清「默认模型」（WB-136）——未显式选模型时跟随它。ref 必须是当前可运行的模型
+    （厂商有 key 的模型 ∨ 自定义模型），否则拒绝；''=清除。取代 .env LLM_MODEL。"""
+    user = current_user()
+    ref = body.model_ref.strip()
+    if ref and not _resolve_runnable_name(user.id, ref):
+        raise HTTPException(400, "该模型当前不可运行（需先给对应厂商配 Key，或选一个自定义模型）")
+    db.set_default_model(user.id, ref)
+    return {"ok": True, "default_model": ref}
 
 
 class ProviderConfigIn(BaseModel):

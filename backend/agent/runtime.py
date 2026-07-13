@@ -115,37 +115,50 @@ def resolve_model_config(
 ) -> tuple[str, str | None, str | None, str]:
     """Map the picker selection to a concrete (model_id, api_base, api_key, chat_path).
 
-    Resolution order:
+    Resolution order (WB-136: the default no longer reads .env — it is a user choice):
+      0. Empty selection「跟随默认」→ the owner's DB default model (set in「配置模型」).
+         No default configured → raise, honestly (no silent .env fallback).
       1. Built-in provider pick `@{provider}:{model}` (WB-128) → the provider's
          base_url/chat_path (provider_seed) + the owner's key for that provider.
-         If no key stored, fall through to the .env backstop so the app still runs.
-      2. DB custom model matched by display name (WB-124) → its own base/key.
-      3. Legacy "Display:real-id" custom labels → the id after the colon, on .env.
-      4. Anything else → the authoritative .env LLM_MODEL.
-    api_base/api_key None means "use the .env default" (see llm.stream_chat).
+      2. DB custom model matched by display name (WB-124) → its own base/key
+         (blank base/key intentionally means「用后端 .env 凭据」, that model's own design).
+      3. Legacy "Display:real-id" custom labels → the id after the colon.
+      4. Anything else (unknown provider / key revoked / model deleted) → raise,
+         so the user picks a valid default instead of silently running .env's model.
+    api_base/api_key None means "use the .env default" (see llm.stream_chat) — only
+    custom/legacy models opt into that; the account default resolves to a real ref.
     """
     default_path = provider_seed.DEFAULT_CHAT_PATH
-    if client_model:
-        if client_model.startswith("@") and ":" in client_model:
-            pid, _, mid = client_model[1:].partition(":")
-            prov = provider_seed.PROVIDERS_BY_ID.get(pid)
-            key = db.get_provider_key(owner_id, pid) if prov else None
-            if prov and mid and key:
-                # 有效 base/path = 用户覆盖（WB-129）∨ 预置默认。
-                cfg = db.get_provider_config(owner_id, pid) or {}
-                base = cfg.get("base_url") or prov["base_url"]
-                path = cfg.get("chat_path") or prov.get("chat_path") or default_path
-                return mid, base, key, path
-            # provider unknown / model empty / no key → .env backstop below
-        else:
-            row = db.get_custom_model_by_name(owner_id, client_model, include_secrets=True)
-            if row and row.get("model_id"):
-                return row["model_id"], row.get("api_base"), row.get("api_key"), default_path
-            if ":" in client_model:
-                real = client_model.rsplit(":", 1)[-1].strip()
-                if real:
-                    return real, None, None, default_path
-    return settings.LLM_MODEL, None, None, default_path
+    if not client_model:
+        client_model = db.get_default_model(owner_id)
+        if not client_model:
+            raise LLMError(
+                "还没有设置默认模型：请在「配置模型」里给某个模型点「设为默认」，"
+                "或直接在模型菜单里选一个模型。"
+            )
+    if client_model.startswith("@") and ":" in client_model:
+        pid, _, mid = client_model[1:].partition(":")
+        prov = provider_seed.PROVIDERS_BY_ID.get(pid)
+        key = db.get_provider_key(owner_id, pid) if prov else None
+        if prov and mid and key:
+            # 有效 base/path = 用户覆盖（WB-129）∨ 预置默认。
+            cfg = db.get_provider_config(owner_id, pid) or {}
+            base = cfg.get("base_url") or prov["base_url"]
+            path = cfg.get("chat_path") or prov.get("chat_path") or default_path
+            return mid, base, key, path
+        # provider unknown / model empty / no key → 落到下方诚实报错
+    else:
+        row = db.get_custom_model_by_name(owner_id, client_model, include_secrets=True)
+        if row and row.get("model_id"):
+            return row["model_id"], row.get("api_base"), row.get("api_key"), default_path
+        if ":" in client_model:
+            real = client_model.rsplit(":", 1)[-1].strip()
+            if real:
+                return real, None, None, default_path
+    raise LLMError(
+        f"模型「{client_model}」当前不可用（可能厂商 Key 已撤销、或模型已删除）。"
+        "请在「配置模型」里重新选择默认模型，或在模型菜单里换一个。"
+    )
 
 
 def _approx_tokens(text: str) -> int:
