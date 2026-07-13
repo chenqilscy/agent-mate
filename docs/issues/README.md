@@ -150,6 +150,7 @@
 | [WB-132](WB-132-model-capabilities-cost-meta.md) | ✅ | P2 | fullstack | 模型能力/成本元数据（模态/工具/推理 + 每百万token 输入·输出单价 + 上下文，启发式默认可编辑，为 Auto 铺路）+ 接入地址简化为仅 Base URL + 模型管理提到全局菜单入口（账号菜单，uiStore flag） |
 | [WB-133](WB-133-drop-hide-restore-unify-delete.md) | ✅ | P3 | frontend | 去掉厂商模型「隐藏/恢复」二层机制，预置/自加统一为一个「删除」（删的不再显示，要用再拉取/手填加回；复用既有端点，前端过滤 hidden） |
 | [WB-134](WB-134-curated-model-defaults-tiered-pricing.md) | ✅ | P2 | fullstack | 内置厂商按官方文档建准确「能力+定价」默认表（DeepSeek/智谱，preset 优先于名字启发式）+ 定价 schema 加缓存命中价/币种 + 更新过时 seed（DeepSeek→v4-flash/pro、智谱现役 GLM）；model_meta ALTER 迁移，reset 回 preset |
+| [WB-135](WB-135-glm-official-pricing.md) | ✅ | P2 | backend | 补齐智谱 GLM 官方定价（文本+视觉，人民币/基础档+note 标分档/缓存命中价）+ seed 对齐现役旗舰(glm-5.2/4.7/4.5-air/4.6v) + 视觉补 image/video 能力；只收 chat 模型（生成/语音/向量/重排非 chat、按次计费，如实不纳入） |
 
 ## 来源
 

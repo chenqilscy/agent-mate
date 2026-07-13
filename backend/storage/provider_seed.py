@@ -35,8 +35,8 @@ PROVIDERS: list[dict] = [
         "color": "#3859FF",
         "key_hint": "id.secret",
         "site": "https://open.bigmodel.cn",
-        # WB-134：按 model-overview 更新到现役 GLM 子集（含视觉 4.6v）。
-        "models": ["glm-4.6", "glm-4.5-air", "glm-4-flash", "glm-4.6v"],
+        # WB-135：对齐官方定价页现役旗舰（文本 + 视觉）。
+        "models": ["glm-5.2", "glm-4.7", "glm-4.5-air", "glm-4.6v"],
     },
     {
         "id": "minimax",
@@ -103,9 +103,21 @@ MODEL_DEFAULTS: dict[str, dict] = {
         "capabilities": ["text", "tools", "reasoning"], "input_cost": 3.0, "input_cost_cached": 0.025,
         "output_cost": 6.0, "context_window": 1_000_000, "currency": "CNY",
     },
-    # 智谱 GLM：能力来自 model-overview（工具/推理/视觉标志）；官方定价未在所给文档 → 留空由用户补。
-    "glm-4.6": {"capabilities": ["text", "tools", "reasoning"], "context_window": 200_000, "currency": "CNY"},
-    "glm-4.5-air": {"capabilities": ["text", "tools", "reasoning"], "context_window": 128_000, "currency": "CNY"},
-    "glm-4-flash": {"capabilities": ["text", "tools"], "context_window": 128_000, "currency": "CNY"},
-    "glm-4.6v": {"capabilities": ["text", "image", "tools", "reasoning"], "context_window": 128_000, "currency": "CNY"},
+    # 智谱 GLM（WB-135）：能力据 model-overview 矩阵，价格据官方定价页「文本模型 / 视觉理解」（人民币，2026）。
+    # 价按输入长度分档者取**基础档（最短输入）** + note 标注；免费模型价记 0；单位 = 每百万 token。
+    # 只收 chat 模型（文本+视觉，走 /chat/completions）；生成/语音/向量/重排非 chat、按次计费，不入表（见 WB-135）。
+    # —— 文本模型 ——
+    "glm-5.2": {"capabilities": ["text", "tools", "reasoning"], "input_cost": 8, "input_cost_cached": 2, "output_cost": 28, "context_window": 1_000_000, "currency": "CNY"},
+    "glm-5.1": {"capabilities": ["text", "tools", "reasoning"], "input_cost": 6, "input_cost_cached": 1.3, "output_cost": 24, "context_window": 200_000, "currency": "CNY", "note": "价按输入长度分档，此为基础档(≤32K)"},
+    "glm-5-turbo": {"capabilities": ["text", "tools", "reasoning"], "input_cost": 5, "input_cost_cached": 1.2, "output_cost": 22, "context_window": 200_000, "currency": "CNY", "note": "价按输入长度分档，此为基础档(≤32K)"},
+    "glm-5": {"capabilities": ["text", "tools", "reasoning"], "input_cost": 4, "input_cost_cached": 1, "output_cost": 18, "context_window": 200_000, "currency": "CNY", "note": "价按输入长度分档，此为基础档(≤32K)"},
+    "glm-4.7": {"capabilities": ["text", "tools", "reasoning"], "input_cost": 2, "input_cost_cached": 0.4, "output_cost": 8, "context_window": 200_000, "currency": "CNY", "note": "价按输入/输出长度分档，此为基础档"},
+    "glm-4.7-flashx": {"capabilities": ["text"], "input_cost": 0.5, "input_cost_cached": 0.1, "output_cost": 3, "context_window": 200_000, "currency": "CNY"},
+    "glm-4.7-flash": {"capabilities": ["text", "tools", "reasoning"], "input_cost": 0, "input_cost_cached": 0, "output_cost": 0, "context_window": 200_000, "currency": "CNY", "note": "限时免费"},
+    "glm-4.5-air": {"capabilities": ["text", "tools", "reasoning"], "input_cost": 0.8, "input_cost_cached": 0.16, "output_cost": 2, "context_window": 128_000, "currency": "CNY", "note": "价按输入长度分档，此为基础档(≤32K)"},
+    # —— 视觉理解（输入模态含图片/视频）——
+    "glm-5v-turbo": {"capabilities": ["text", "image", "video", "tools", "reasoning"], "input_cost": 5, "input_cost_cached": 1.2, "output_cost": 22, "context_window": 200_000, "currency": "CNY", "note": "价按输入长度分档，此为基础档(≤32K)"},
+    "glm-4.6v": {"capabilities": ["text", "image", "video", "tools", "reasoning"], "input_cost": 1, "input_cost_cached": 0.2, "output_cost": 3, "context_window": 128_000, "currency": "CNY", "note": "价按输入长度分档，此为基础档(≤32K)"},
+    "glm-4.6v-flashx": {"capabilities": ["text", "image", "video"], "input_cost": 0.15, "input_cost_cached": 0.03, "output_cost": 1.5, "context_window": 128_000, "currency": "CNY", "note": "价按输入长度分档，此为基础档(≤32K)"},
+    "glm-4.6v-flash": {"capabilities": ["text", "image", "video"], "input_cost": 0, "input_cost_cached": 0, "output_cost": 0, "context_window": 128_000, "currency": "CNY", "note": "免费"},
 }

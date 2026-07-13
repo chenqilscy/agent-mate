@@ -196,7 +196,7 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
   const capBadges = (meta?: ModelMeta) => (
     <span className="mc-caps">
       {(meta?.capabilities ?? []).map((c) => <span className="mc-cap" key={c} title={capLabel(c)}>{capIcon(c)}</span>)}
-      {meta?.input_cost != null && <span className="mc-cost" title={`每百万 token 输入/输出价${meta.input_cost_cached != null ? `（缓存命中输入 ${meta.input_cost_cached}）` : ''}`}>{cur(meta)}{meta.input_cost}/{meta.output_cost ?? '?'}</span>}
+      {meta?.input_cost != null && <span className="mc-cost" title={`每百万 token 输入/输出价${meta.input_cost_cached != null ? `（缓存命中输入 ${meta.input_cost_cached}）` : ''}${meta.note ? ' · ' + meta.note : ''}`}>{cur(meta)}{meta.input_cost}/{meta.output_cost ?? '?'}</span>}
       {meta?.source === 'preset' && <span className="mc-src" title="来自厂商官方文档的默认值，可编辑">官方</span>}
     </span>
   )
