@@ -49,14 +49,23 @@ def _default_capabilities(model_id: str) -> list[str]:
     return caps
 
 
+_META_KEYS = ("capabilities", "input_cost", "input_cost_cached", "output_cost", "context_window", "currency", "note")
+
+
 def _effective_meta(model_ref: str, model_id: str, stored: dict[str, dict]) -> dict:
-    """有效元数据 = 用户覆盖 ∨ 启发式默认。source 供 UI 判断是否可「恢复默认」。"""
+    """有效元数据，优先级：用户覆盖(custom) > 内置准确默认(preset，来自官方文档) > 名字启发式(default)。
+    source 供 UI 显示来源 / 判断可否「恢复默认」。"""
     s = stored.get(model_ref)
     if s:
-        return {**s, "source": "custom"}
+        return {**{k: s.get(k) for k in _META_KEYS}, "source": "custom"}
+    curated = provider_seed.MODEL_DEFAULTS.get((model_id or "").lower())
+    if curated:
+        out = {k: curated.get(k) for k in _META_KEYS}
+        out["capabilities"] = curated.get("capabilities") or _default_capabilities(model_id)
+        return {**out, "source": "preset"}
     return {
+        **{k: None for k in _META_KEYS},
         "capabilities": _default_capabilities(model_id),
-        "input_cost": None, "output_cost": None, "context_window": None, "note": None,
         "source": "default",
     }
 
@@ -266,10 +275,12 @@ class ModelMetaIn(BaseModel):
     model_ref: str = Field(min_length=1, max_length=200)
     capabilities: list[str] = Field(default=[], max_length=12)
     input_cost: float | None = Field(default=None, ge=0)
+    input_cost_cached: float | None = Field(default=None, ge=0)  # 缓存命中输入价（WB-134）
     output_cost: float | None = Field(default=None, ge=0)
     context_window: int | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, max_length=8)  # ¥/$ 等（WB-134）
     note: str | None = Field(default=None, max_length=300)
-    reset: bool = False  # true = 清除覆盖，回启发式默认
+    reset: bool = False  # true = 清除覆盖，回准确默认/启发式
 
 
 @router.put("/models/meta")
@@ -281,8 +292,9 @@ def set_model_meta(body: ModelMetaIn) -> dict:
     caps = [c for c in body.capabilities if c in CAPABILITIES]  # 只收白名单能力
     db.set_model_meta(
         user.id, body.model_ref,
-        capabilities=caps, input_cost=body.input_cost, output_cost=body.output_cost,
-        context_window=body.context_window, note=(body.note or None),
+        capabilities=caps, input_cost=body.input_cost, input_cost_cached=body.input_cost_cached,
+        output_cost=body.output_cost, context_window=body.context_window,
+        currency=(body.currency or None), note=(body.note or None),
     )
     return {"ok": True}
 

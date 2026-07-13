@@ -23,7 +23,8 @@ PROVIDERS: list[dict] = [
         "color": "#4D6BFE",
         "key_hint": "sk-...",
         "site": "https://platform.deepseek.com",
-        "models": ["deepseek-chat", "deepseek-reasoner"],
+        # WB-134：官方现役 v4 命名（旧 chat/reasoner 已过时）。
+        "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
     },
     {
         "id": "zhipu",
@@ -34,7 +35,8 @@ PROVIDERS: list[dict] = [
         "color": "#3859FF",
         "key_hint": "id.secret",
         "site": "https://open.bigmodel.cn",
-        "models": ["glm-4-plus", "glm-4-air", "glm-4-airx", "glm-4-flash", "glm-4-long", "glm-4v-plus"],
+        # WB-134：按 model-overview 更新到现役 GLM 子集（含视觉 4.6v）。
+        "models": ["glm-4.6", "glm-4.5-air", "glm-4-flash", "glm-4.6v"],
     },
     {
         "id": "minimax",
@@ -86,3 +88,24 @@ PROVIDERS: list[dict] = [
 
 PROVIDERS_BY_ID: dict[str, dict] = {p["id"]: p for p in PROVIDERS}
 DEFAULT_CHAT_PATH = "/chat/completions"
+
+# 内置厂商「准确默认」表（WB-134）。key = model_id（小写匹配）。来自各厂商**官方文档**，只作可编辑默认；
+# 用户覆盖最高优先，未列出的模型回退名字启发式（models.py _default_capabilities）。价格单位 = 每百万 token。
+# input_cost = 缓存未命中输入价；input_cost_cached = 缓存命中输入价（DeepSeek 两者差 ~50×，故分开）。
+# 来源：DeepSeek api-docs.deepseek.com（定价/思考/工具，2026）；智谱 docs.bigmodel.cn model-overview。
+# 说明：智谱只给了能力矩阵未给价格 → 价留空；思考对 DeepSeek 是参数开关，此处记为「具备推理能力」。
+MODEL_DEFAULTS: dict[str, dict] = {
+    "deepseek-v4-flash": {
+        "capabilities": ["text", "tools"], "input_cost": 1.0, "input_cost_cached": 0.02,
+        "output_cost": 2.0, "context_window": 1_000_000, "currency": "CNY",
+    },
+    "deepseek-v4-pro": {
+        "capabilities": ["text", "tools", "reasoning"], "input_cost": 3.0, "input_cost_cached": 0.025,
+        "output_cost": 6.0, "context_window": 1_000_000, "currency": "CNY",
+    },
+    # 智谱 GLM：能力来自 model-overview（工具/推理/视觉标志）；官方定价未在所给文档 → 留空由用户补。
+    "glm-4.6": {"capabilities": ["text", "tools", "reasoning"], "context_window": 200_000, "currency": "CNY"},
+    "glm-4.5-air": {"capabilities": ["text", "tools", "reasoning"], "context_window": 128_000, "currency": "CNY"},
+    "glm-4-flash": {"capabilities": ["text", "tools"], "context_window": 128_000, "currency": "CNY"},
+    "glm-4.6v": {"capabilities": ["text", "image", "tools", "reasoning"], "context_window": 128_000, "currency": "CNY"},
+}

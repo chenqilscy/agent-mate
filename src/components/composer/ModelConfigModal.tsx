@@ -35,7 +35,7 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   // 模型能力/成本编辑（WB-132）。metaEditing = 正在编辑的 model_ref。
   const [metaEditing, setMetaEditing] = useState<string | null>(null)
-  const [metaDraft, setMetaDraft] = useState({ caps: [] as string[], input: '', output: '', ctx: '', note: '' })
+  const [metaDraft, setMetaDraft] = useState({ caps: [] as string[], input: '', cached: '', output: '', ctx: '', currency: '', note: '' })
   // custom form
   const [editing, setEditing] = useState<ModelOption | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -116,8 +116,10 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
     setMetaDraft({
       caps: [...(meta?.capabilities ?? [])],
       input: meta?.input_cost != null ? String(meta.input_cost) : '',
+      cached: meta?.input_cost_cached != null ? String(meta.input_cost_cached) : '',
       output: meta?.output_cost != null ? String(meta.output_cost) : '',
       ctx: meta?.context_window != null ? String(meta.context_window) : '',
+      currency: meta?.currency ?? '',
       note: meta?.note ?? '',
     })
     setMetaEditing(ref)
@@ -131,8 +133,9 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
     setBusy(true)
     try {
       await api.setModelMeta(ref, {
-        capabilities: metaDraft.caps, input_cost: num(metaDraft.input), output_cost: num(metaDraft.output),
-        context_window: int(metaDraft.ctx), note: metaDraft.note.trim() || null,
+        capabilities: metaDraft.caps, input_cost: num(metaDraft.input), input_cost_cached: num(metaDraft.cached),
+        output_cost: num(metaDraft.output), context_window: int(metaDraft.ctx),
+        currency: metaDraft.currency.trim() || null, note: metaDraft.note.trim() || null,
       })
       toast('已保存能力/成本'); setMetaEditing(null); await refresh()
     } catch { toast('保存失败') } finally { setBusy(false) }
@@ -189,10 +192,12 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
     catch { toast('删除失败') } finally { setBusy(false) }
   }
 
+  const cur = (meta?: ModelMeta) => meta?.currency || ''
   const capBadges = (meta?: ModelMeta) => (
     <span className="mc-caps">
       {(meta?.capabilities ?? []).map((c) => <span className="mc-cap" key={c} title={capLabel(c)}>{capIcon(c)}</span>)}
-      {meta?.input_cost != null && <span className="mc-cost" title="每百万 token 输入/输出价">{meta.input_cost}/{meta.output_cost ?? '?'}</span>}
+      {meta?.input_cost != null && <span className="mc-cost" title={`每百万 token 输入/输出价${meta.input_cost_cached != null ? `（缓存命中输入 ${meta.input_cost_cached}）` : ''}`}>{cur(meta)}{meta.input_cost}/{meta.output_cost ?? '?'}</span>}
+      {meta?.source === 'preset' && <span className="mc-src" title="来自厂商官方文档的默认值，可编辑">官方</span>}
     </span>
   )
   const metaEditor = (ref: string) => (
@@ -204,8 +209,12 @@ export function ModelConfigModal({ onClose }: { onClose: () => void }) {
       </div>
       <div className="mc-costrow">
         <input className="np-input" inputMode="decimal" placeholder="输入价/百万tok" value={metaDraft.input} onChange={(e) => setMetaDraft((d) => ({ ...d, input: e.target.value }))} />
+        <input className="np-input" inputMode="decimal" placeholder="缓存命中输入价" value={metaDraft.cached} onChange={(e) => setMetaDraft((d) => ({ ...d, cached: e.target.value }))} />
         <input className="np-input" inputMode="decimal" placeholder="输出价/百万tok" value={metaDraft.output} onChange={(e) => setMetaDraft((d) => ({ ...d, output: e.target.value }))} />
+      </div>
+      <div className="mc-costrow">
         <input className="np-input" inputMode="numeric" placeholder="上下文 tokens" value={metaDraft.ctx} onChange={(e) => setMetaDraft((d) => ({ ...d, ctx: e.target.value }))} />
+        <input className="np-input" style={{ maxWidth: 96 }} placeholder="币种 ¥/$" maxLength={8} value={metaDraft.currency} onChange={(e) => setMetaDraft((d) => ({ ...d, currency: e.target.value }))} />
       </div>
       <div className="mc-fbtns">
         <button className="btn-ghost" disabled={busy} onClick={() => resetMeta(ref)}>恢复默认</button>

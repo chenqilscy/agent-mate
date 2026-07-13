@@ -149,6 +149,7 @@
 | [WB-131](WB-131-manager-nav-ia-redesign.md) | ✅ | P2 | frontend | WorkBuddy Manager 导航/IA 专业化重构 —— 扁平混杂菜单改分区侧栏(工作区/目录/系统)+顶栏(组织切换·通知铃铛·账号)+新增概览页+收编 SkillHub/高级JSON、去运营黑话；纯前端 console.html，沿用现有 token（关联 epic WB-112 管理端定位） |
 | [WB-132](WB-132-model-capabilities-cost-meta.md) | ✅ | P2 | fullstack | 模型能力/成本元数据（模态/工具/推理 + 每百万token 输入·输出单价 + 上下文，启发式默认可编辑，为 Auto 铺路）+ 接入地址简化为仅 Base URL + 模型管理提到全局菜单入口（账号菜单，uiStore flag） |
 | [WB-133](WB-133-drop-hide-restore-unify-delete.md) | ✅ | P3 | frontend | 去掉厂商模型「隐藏/恢复」二层机制，预置/自加统一为一个「删除」（删的不再显示，要用再拉取/手填加回；复用既有端点，前端过滤 hidden） |
+| [WB-134](WB-134-curated-model-defaults-tiered-pricing.md) | ✅ | P2 | fullstack | 内置厂商按官方文档建准确「能力+定价」默认表（DeepSeek/智谱，preset 优先于名字启发式）+ 定价 schema 加缓存命中价/币种 + 更新过时 seed（DeepSeek→v4-flash/pro、智谱现役 GLM）；model_meta ALTER 迁移，reset 回 preset |
 
 ## 来源
 

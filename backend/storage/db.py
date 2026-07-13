@@ -429,8 +429,10 @@ def init_db() -> None:
             model_ref TEXT NOT NULL,
             capabilities TEXT NOT NULL DEFAULT '[]',
             input_cost REAL,
+            input_cost_cached REAL,
             output_cost REAL,
             context_window INTEGER,
+            currency TEXT,
             note TEXT,
             updated_at REAL NOT NULL,
             PRIMARY KEY (owner_id, model_ref)
@@ -565,6 +567,12 @@ def _migrate_columns() -> None:
     have_p = {r["name"] for r in conn.execute("PRAGMA table_info(projects)").fetchall()}
     if "origin" not in have_p:
         conn.execute("ALTER TABLE projects ADD COLUMN origin TEXT NOT NULL DEFAULT 'local'")
+
+    # WB-134: model_meta 增缓存命中输入价 + 币种（定价分档 / ¥·$ 区分）。
+    have_mm = {r["name"] for r in conn.execute("PRAGMA table_info(model_meta)").fetchall()}
+    for col, ddl in (("input_cost_cached", "input_cost_cached REAL"), ("currency", "currency TEXT")):
+        if col not in have_mm:
+            conn.execute(f"ALTER TABLE model_meta ADD COLUMN {ddl}")
     conn.commit()
 
 
@@ -2003,9 +2011,12 @@ def _row_to_model_meta(row: sqlite3.Row) -> dict:
     return d
 
 
+_META_COLS = "capabilities, input_cost, input_cost_cached, output_cost, context_window, currency, note"
+
+
 def get_model_meta(owner_id: str, model_ref: str) -> Optional[dict]:
     row = get_conn().execute(
-        "SELECT capabilities, input_cost, output_cost, context_window, note FROM model_meta WHERE owner_id=? AND model_ref=?",
+        f"SELECT {_META_COLS} FROM model_meta WHERE owner_id=? AND model_ref=?",
         (owner_id, model_ref),
     ).fetchone()
     return _row_to_model_meta(row) if row else None
@@ -2014,7 +2025,7 @@ def get_model_meta(owner_id: str, model_ref: str) -> Optional[dict]:
 def list_model_meta(owner_id: str) -> dict[str, dict]:
     """本 owner 所有已存 meta，键为 model_ref（GET 批量附上用）。"""
     rows = get_conn().execute(
-        "SELECT model_ref, capabilities, input_cost, output_cost, context_window, note FROM model_meta WHERE owner_id=?",
+        f"SELECT model_ref, {_META_COLS} FROM model_meta WHERE owner_id=?",
         (owner_id,),
     ).fetchall()
     out: dict[str, dict] = {}
@@ -2025,14 +2036,16 @@ def list_model_meta(owner_id: str) -> dict[str, dict]:
 
 
 def set_model_meta(owner_id: str, model_ref: str, *, capabilities: list[str],
-                   input_cost: float | None, output_cost: float | None,
-                   context_window: int | None, note: str | None) -> dict:
+                   input_cost: float | None, input_cost_cached: float | None,
+                   output_cost: float | None, context_window: int | None,
+                   currency: str | None, note: str | None) -> dict:
     get_conn().execute(
         """INSERT OR REPLACE INTO model_meta
-           (owner_id, model_ref, capabilities, input_cost, output_cost, context_window, note, updated_at)
-           VALUES (?,?,?,?,?,?,?,?)""",
-        (owner_id, model_ref, json.dumps(capabilities), input_cost, output_cost,
-         context_window, note, time.time()),
+           (owner_id, model_ref, capabilities, input_cost, input_cost_cached, output_cost,
+            context_window, currency, note, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (owner_id, model_ref, json.dumps(capabilities), input_cost, input_cost_cached,
+         output_cost, context_window, currency, note, time.time()),
     )
     get_conn().commit()
     return get_model_meta(owner_id, model_ref) or {}

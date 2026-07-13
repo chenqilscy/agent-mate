@@ -59,7 +59,7 @@ export const api = {
   addProviderModel: (pid: string, model_id: string) =>
     send<{ ok: boolean }>('POST', `/providers/${pid}/models`, { model_id }),
   // 模型能力/成本元数据（WB-132）。model_ref = 选择键（@provider:model 或自定义名）。
-  setModelMeta: (model_ref: string, meta: { capabilities: string[]; input_cost: number | null; output_cost: number | null; context_window: number | null; note: string | null }) =>
+  setModelMeta: (model_ref: string, meta: { capabilities: string[]; input_cost: number | null; input_cost_cached: number | null; output_cost: number | null; context_window: number | null; currency: string | null; note: string | null }) =>
     send<{ ok: boolean }>('PUT', '/models/meta', { model_ref, ...meta }),
   resetModelMeta: (model_ref: string) =>
     send<{ ok: boolean }>('PUT', '/models/meta', { model_ref, reset: true }),

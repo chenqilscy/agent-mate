@@ -101,11 +101,13 @@ export interface SessionInfo {
 // 模型能力/成本元数据（WB-132，为 Auto 铺路）。source: 'default'=启发式默认 · 'custom'=用户已存。
 export interface ModelMeta {
   capabilities: string[] // text/image/audio/video/tools/reasoning 子集
-  input_cost: number | null // 每百万 token 输入价
+  input_cost: number | null // 每百万 token 输入价（缓存未命中）
+  input_cost_cached: number | null // 缓存命中输入价（WB-134）
   output_cost: number | null
   context_window: number | null
+  currency: string | null // ¥/$ 等（WB-134）
   note: string | null
-  source?: 'default' | 'custom'
+  source?: 'default' | 'preset' | 'custom' // default=名字启发式 · preset=官方文档默认 · custom=用户覆盖
 }
 
 export interface ModelOption {
