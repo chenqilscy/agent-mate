@@ -811,7 +811,10 @@ def update_work_item(wid: str, **fields: Any) -> Optional[dict]:
 
 def delete_work_item(wid: str) -> bool:
     conn = get_conn()
-    conn.execute("DELETE FROM work_items WHERE parent_id=?", (wid,))       # 连带子任务
+    row = conn.execute("SELECT project_id FROM work_items WHERE id=?", (wid,)).fetchone()
+    if row is not None:
+        # 只在同项目内连带子任务，绝不跨项目级联（WB-157）。
+        conn.execute("DELETE FROM work_items WHERE parent_id=? AND project_id=?", (wid, row["project_id"]))
     conn.execute("DELETE FROM work_item_activity WHERE work_item_id=?", (wid,))
     cur = conn.execute("DELETE FROM work_items WHERE id=?", (wid,))
     conn.commit()
@@ -864,7 +867,11 @@ def update_milestone(mid: str, **fields: Any) -> Optional[dict]:
 
 def delete_milestone(mid: str) -> bool:
     conn = get_conn()
-    conn.execute("UPDATE work_items SET milestone_id='' WHERE milestone_id=?", (mid,))  # 解绑任务
+    row = conn.execute("SELECT project_id FROM milestones WHERE id=?", (mid,)).fetchone()
+    if row is not None:
+        # 只解绑同项目任务，不碰别项目里恰好同 id 引用（WB-157）。
+        conn.execute("UPDATE work_items SET milestone_id='' WHERE milestone_id=? AND project_id=?",
+                     (mid, row["project_id"]))
     cur = conn.execute("DELETE FROM milestones WHERE id=?", (mid,))
     conn.commit()
     return cur.rowcount > 0

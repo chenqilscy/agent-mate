@@ -46,6 +46,9 @@ def accept_invite(code: str, account: Account = CurrentAccount) -> dict:
         raise HTTPException(404, "invite not found")
     if inv.expires_at and time.time() > inv.expires_at:
         raise HTTPException(410, "invite expired")
+    # 单次使用：一个邀请码接受一次即作废，否则泄漏后可被反复用于自助入项目（WB-156）。
+    if inv.accepted_by is not None:
+        raise HTTPException(409, "邀请码已被使用")
     p = db.get_project(inv.project_id)
     if not p:
         raise HTTPException(404, "project no longer exists")

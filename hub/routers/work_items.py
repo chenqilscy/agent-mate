@@ -54,6 +54,19 @@ def _decorate(item: dict, by_id: dict) -> dict:
     return item
 
 
+def _sanitize_refs(project_id: str, self_id: str | None, changes: dict) -> None:
+    """把 parent_id/milestone_id 归一到「同项目存在的行」，否则置空 —— 防跨项目引用（删除时
+    会跨租户级联）与指向不存在/自身导致任务从所有视图消失的幽灵父任务（WB-157）。"""
+    if "parent_id" in changes:
+        pid = (changes.get("parent_id") or "").strip()
+        p = db.get_work_item(pid) if pid and pid != self_id else None
+        changes["parent_id"] = pid if (p and p["project_id"] == project_id) else ""
+    if "milestone_id" in changes:
+        mid = (changes.get("milestone_id") or "").strip()
+        m = db.get_milestone(mid) if mid else None
+        changes["milestone_id"] = mid if (m and m["project_id"] == project_id) else ""
+
+
 @router.get("/projects/{project_id}/work-items")
 def list_items(project_id: str, account: Account = CurrentAccount) -> dict:
     _access(project_id, account)
@@ -83,12 +96,14 @@ def create_item(project_id: str, body: CreateBody, account: Account = CurrentAcc
     status = body.status if body.status in _STATUSES else "todo"
     priority = body.priority if body.priority in _PRIORITIES else ""
     by_id, by_name = _members_maps(project_id)
+    refs = {"parent_id": body.parent_id, "milestone_id": body.milestone_id}
+    _sanitize_refs(project_id, None, refs)
     item = db.create_work_item(
         project_id=project_id, title=body.title.strip(), status=status,
         source=body.source, assignee=_norm_assignee(body.assignee, by_id, by_name),
         description=body.description,
         priority=priority, due_date=body.due_date, start_date=body.start_date,
-        labels=body.labels, parent_id=body.parent_id, milestone_id=body.milestone_id,
+        labels=body.labels, parent_id=refs["parent_id"], milestone_id=refs["milestone_id"],
         estimate_h=body.estimate_h, spent_h=body.spent_h,
     )
     db.log_work_item_activity(project_id=project_id, work_item_id=item["id"],
@@ -124,6 +139,7 @@ def update_item(project_id: str, wid: str, body: UpdateBody, account: Account = 
     changes = body.model_dump(exclude_unset=True)
     if "priority" in changes and changes["priority"] not in _PRIORITIES:
         changes["priority"] = ""    # 宽松：非法优先级归空，不打断 App 同步
+    _sanitize_refs(project_id, wid, changes)  # 跨项目/幽灵父任务引用归空（WB-157）
     by_id, by_name = _members_maps(project_id)
     if "assignee" in changes:
         changes["assignee"] = _norm_assignee(changes["assignee"], by_id, by_name)

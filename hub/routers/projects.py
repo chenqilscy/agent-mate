@@ -26,8 +26,12 @@ def create_project(body: CreateProjectBody, account: Account = CurrentAccount) -
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "empty project name")
-    if body.org_id and db.org_role(body.org_id, account.id) is None:
-        raise HTTPException(404, "org not found")  # 只能在自己有权的组织下建项目
+    if body.org_id:
+        org_r = db.org_role(body.org_id, account.id)
+        if org_r is None:
+            raise HTTPException(404, "org not found")  # 只能在自己有权的组织下建项目
+        if not can_write(org_r):
+            raise HTTPException(403, "只读组织成员不能建项目")  # WB-156
     p = db.create_project(
         name=name, owner_id=account.id, org_id=body.org_id, instruction=body.instruction,
         connectors=body.connectors, experts=body.experts, skills=body.skills,

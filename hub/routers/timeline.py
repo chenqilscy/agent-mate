@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 import db
 from auth import CurrentAccount
-from models import Account
+from models import Account, can_write
 
 router = APIRouter(prefix="/api", tags=["timeline"])
 
@@ -24,8 +24,12 @@ class TimelineEventBody(BaseModel):
 
 @router.post("/projects/{project_id}/timeline")
 def post_event(project_id: str, body: TimelineEventBody, account: Account = CurrentAccount) -> dict:
-    if db.project_access_role(project_id, account.id) is None:
+    # 时间线镜像的是真实本地执行产出；只读成员（Viewer）不得灌入伪造事件（WB-156）。
+    role = db.project_access_role(project_id, account.id)
+    if role is None:
         raise HTTPException(404, "project not found")
+    if not can_write(role):
+        raise HTTPException(403, "只读成员不能上报时间线")
     created = db.add_timeline_event(
         project_id=project_id, actor_id=account.id, actor_name=account.name,
         kind=body.kind, title=body.title, summary=body.summary, ext_id=body.ext_id,

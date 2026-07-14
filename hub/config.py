@@ -18,8 +18,9 @@ class Settings:
     PORT: int = int(os.getenv("HUB_PORT", "8100"))
     # pbkdf2 迭代次数（与 backend 一致的口令散列强度）。
     PBKDF2_ITERS: int = int(os.getenv("HUB_PBKDF2_ITERS", "100000"))
-    # 邀请码有效期（秒）；0 = 永不过期。
-    INVITE_TTL: int = int(os.getenv("HUB_INVITE_TTL", "0"))
+    # 邀请码有效期（秒）；默认 7 天，避免久留可被反复利用的活码（WB-156，配合单次使用）。
+    # 显式设 HUB_INVITE_TTL=0 可回到永不过期（部署自担风险）。
+    INVITE_TTL: int = int(os.getenv("HUB_INVITE_TTL", "604800"))
 
     # SkillHub 目录镜像（WB-069）：Hub 复用本机 skillhub CLI 抓取，定时同步进 catalog。
     SKILLHUB_CLI: Path = Path(
