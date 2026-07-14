@@ -1,6 +1,7 @@
 // workItemStore — kanban / task items for the active project (§11 阶段 B).
 import { create } from 'zustand'
 import { api } from '../lib/api'
+import { toast } from './toastStore'
 import type { Milestone, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from '../lib/types'
 
 export interface NewWorkItem {
@@ -88,27 +89,38 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
   add: async (input) => {
     const pid = get().projectId
     if (!pid || !input.title.trim()) return null
-    const wi = await api.createWorkItem({
-      project_id: pid,
-      title: input.title.trim(),
-      status: input.status,
-      description: input.description,
-      due_date: input.due_date,
-      attachments: input.attachments,
-      priority: input.priority,
-      start_date: input.start_date,
-      labels: input.labels,
-      parent_id: input.parent_id,
-      milestone_id: input.milestone_id,
-    })
-    set({ items: [...get().items, wi] })
-    return wi
+    try {
+      const wi = await api.createWorkItem({
+        project_id: pid,
+        title: input.title.trim(),
+        status: input.status,
+        description: input.description,
+        due_date: input.due_date,
+        attachments: input.attachments,
+        priority: input.priority,
+        start_date: input.start_date,
+        labels: input.labels,
+        parent_id: input.parent_id,
+        milestone_id: input.milestone_id,
+      })
+      // 只在仍停留在同一项目时才落到当前看板，防迟到响应写错项目（WB-159）。
+      if (get().projectId === pid) set({ items: [...get().items, wi] })
+      return wi
+    } catch {
+      toast('新建任务失败，请重试')
+      return null
+    }
   },
 
   // Generic patch for the 待办详情 modal (description / status / due date / attachments).
   update: async (id, patch) => {
-    const wi = await api.updateWorkItem(id, patch)
-    set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
+    const pid = get().projectId
+    try {
+      const wi = await api.updateWorkItem(id, patch)
+      if (get().projectId === pid) set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
+    } catch {
+      toast('保存失败，请重试')
+    }
   },
 
   applyRemote: (item) => {
@@ -118,19 +130,43 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
   },
 
   // Optimistic move so the drag feels instant; reconcile from the server.
+  // On failure roll the card back so the board doesn't silently drift out of sync
+  // with the server until a reload (WB-159).
   move: async (id, status) => {
+    const pid = get().projectId
+    const prev = get().items.find((i) => i.id === id)?.status
     set({ items: get().items.map((i) => (i.id === id ? { ...i, status } : i)) })
-    const wi = await api.updateWorkItem(id, { status })
-    set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
+    try {
+      const wi = await api.updateWorkItem(id, { status })
+      if (get().projectId === pid) set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
+    } catch {
+      if (get().projectId === pid && prev) {
+        set({ items: get().items.map((i) => (i.id === id ? { ...i, status: prev } : i)) })
+      }
+      toast('移动失败，已回滚')
+    }
   },
 
   rename: async (id, title) => {
-    const wi = await api.updateWorkItem(id, { title })
-    set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
+    const pid = get().projectId
+    try {
+      const wi = await api.updateWorkItem(id, { title })
+      if (get().projectId === pid) set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
+    } catch {
+      toast('重命名失败，请重试')
+    }
   },
 
   remove: async (id) => {
+    const pid = get().projectId
+    const prev = get().items
     set({ items: get().items.filter((i) => i.id !== id) })
-    await api.deleteWorkItem(id).catch(() => {})
+    try {
+      await api.deleteWorkItem(id)
+    } catch {
+      // 删除失败 → 恢复，别让下次 reload 卡片「诈尸」还无提示（WB-159）。
+      if (get().projectId === pid) set({ items: prev })
+      toast('删除失败，已恢复')
+    }
   },
 }))

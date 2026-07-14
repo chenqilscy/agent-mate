@@ -13,6 +13,7 @@ import { useSettingsStore } from './settingsStore'
 import { useLoadoutStore } from './loadoutStore'
 import { useUIStore } from './uiStore'
 import { useWorkItemStore } from './workItemStore'
+import { toast } from './toastStore'
 
 function uuid(): string {
   return crypto.randomUUID ? crypto.randomUUID() : String(Math.random())
@@ -239,7 +240,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // failed/stopped send keeps the refs for retry (WB-006). Personas/skills/
       // connectors stay across sends regardless.
       if (doneOk) useLoadoutStore.getState().clearRefs()
-      set({ streaming: false, abort: null, pending: null })
+      // 只有仍是本流的 controller 时才复位流状态，否则被 stop 后一个已被取代的旧流的 finally
+      // 会把新流的 streaming/abort/pending 一起清掉（WB-159，与 onEvent 的迟到帧守卫同源）。
+      set((s) => (s.abort === controller ? { streaming: false, abort: null, pending: null } : {}))
       get().loadSessions()
     }
   },
@@ -250,7 +253,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { activeId, pending } = get()
     if (!activeId || !pending) return
     set({ pending: null })
-    api.answer(activeId, answers).catch(() => {})
+    // 提交失败 → 还原问题卡，否则卡片消失但后端 agent 仍挂在 asyncio.Event 上等答，流挂死（WB-159）。
+    api.answer(activeId, answers).catch(() => {
+      set({ pending })
+      toast('提交回答失败，请重试')
+    })
   },
 
   stop: () => {

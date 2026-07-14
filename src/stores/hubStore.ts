@@ -32,7 +32,9 @@ export const useHubStore = create<HubState>((set) => ({
     const r = await api.hubLogin(name.trim(), password, register) // 401/不可达 → 抛错，调用方显示
     localStorage.setItem(TOKEN_KEY, r.token) // 以 Hub 账号身份操作
     try { await api.hubPull() } catch { /* 拉镜像失败不阻断 */ }
-    await useHubStore.getState().refreshStatus()
+    // 换了身份 token（后端据此识别用户）→ reload，让 projects/sessions/notifications 等 per-user
+    // store 在新身份下重新拉取，否则残留旧（本地）身份的陈旧数据（对齐 authStore.login/logout，WB-159）。
+    window.location.reload()
   },
   disconnect: () => {
     localStorage.removeItem(TOKEN_KEY)
