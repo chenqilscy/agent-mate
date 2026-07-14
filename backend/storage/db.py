@@ -2225,6 +2225,15 @@ def supersede_memory(owner_id: str, old_id: str, new_id: str) -> bool:
     return cur.rowcount > 0
 
 
+def find_superseded_by(owner_id: str, new_id: str) -> Optional[dict]:
+    """找被 new_id 取代的那条旧记忆（superseded_by=new_id）；无则 None。溯源链用。"""
+    r = get_conn().execute(
+        f"SELECT {_MEM_COLS} FROM user_memories WHERE owner_id=? AND superseded_by=?",
+        (owner_id, new_id),
+    ).fetchone()
+    return _mem_dict(r) if r else None
+
+
 def set_memory_status(owner_id: str, mem_id: str, status: str) -> Optional[dict]:
     """改状态（archive: active→archived；rollback: archived/superseded→active，回滚时清 superseded_by 链）。"""
     conn = get_conn()

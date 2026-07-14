@@ -182,6 +182,73 @@ def decay_gc(owner_id: str) -> int:
     return archived
 
 
+# ---- 白盒管理（WB-168 档三）----------------------------------------------
+
+def strength_of(m: dict) -> float:
+    """一条记忆的现算强度（对外，四舍五入 4 位）。"""
+    return round(_strength_of(m, time.time()), 4)
+
+
+def _with_strength(m: dict, now_s: float) -> dict:
+    """给一条记忆补上现算 strength，并去掉 embedding BLOB（不回前端）。"""
+    d = {k: v for k, v in m.items() if k != "embedding"}
+    d["strength"] = round(_strength_of(m, now_s), 4)
+    return d
+
+
+def list_with_strength(owner_id: str, status: str = "active") -> list[dict]:
+    """列某状态的记忆（默认 active），每条带现算 strength。"""
+    now_s = time.time()
+    return [_with_strength(m, now_s) for m in db.list_memories(owner_id, limit=10**9, status=status)]
+
+
+def memory_stats(owner_id: str) -> dict:
+    """概览：各状态计数 + 平均强度 + 衰退中(strength<0.1)数 + 语义是否可用。"""
+    now_s = time.time()
+    active = db.list_memories(owner_id, limit=10**9)
+    strengths = [_strength_of(m, now_s) for m in active]
+    avg = round(sum(strengths) / len(strengths), 4) if strengths else 0.0
+    return {
+        "active": len(active),
+        "archived": db.count_memories(owner_id, status="archived"),
+        "superseded": db.count_memories(owner_id, status="superseded"),
+        "total": db.count_memories(owner_id, status=None),
+        "avg_strength": avg,
+        "decaying": sum(1 for s in strengths if s < 0.1),
+        "semantic": mem_embed.available(),
+    }
+
+
+def search_memories(owner_id: str, query: str, top_k: int = 8) -> dict:
+    """检索 playground（只读）。本地嵌入可用 → 语义相似度检索，返回 sim/strength/score；
+    否则关键词子串兜底（similarity=None）。"""
+    now_s = time.time()
+    qvec = mem_embed.embed(query) if query else None
+
+    def _row(m: dict, sim, strength: float) -> dict:
+        d = {k: m[k] for k in ("id", "content", "source", "importance", "usage_count", "status",
+                               "last_used_at", "created_at")}
+        d["similarity"] = None if sim is None else round(sim, 4)
+        d["strength"] = round(strength, 4)
+        d["score"] = round(retrieval_score(sim, strength) if sim is not None else strength, 4)
+        return d
+
+    if qvec is not None:
+        mems = db.list_active_with_embedding(owner_id)
+        _ensure_embeddings(owner_id, mems)
+        qa = np.asarray(qvec, dtype=np.float32)
+        hits = [_row(m, mem_embed.cosine(qa, mem_embed.from_blob(m.get("embedding"))), _strength_of(m, now_s))
+                for m in mems]
+        hits.sort(key=lambda x: x["score"], reverse=True)
+        return {"semantic": True, "hits": hits[:top_k]}
+    # 关键词兜底
+    q = (query or "").strip().casefold()
+    hits = [_row(m, None, _strength_of(m, now_s)) for m in db.list_memories(owner_id, limit=10**9)
+            if q and q in (m["content"] or "").casefold()]
+    hits.sort(key=lambda x: x["strength"], reverse=True)
+    return {"semantic": False, "hits": hits[:top_k]}
+
+
 # ---- 从对话抽取（结构化操作 add / update→supersede）-----------------------
 
 _EXTRACT_SYS = (

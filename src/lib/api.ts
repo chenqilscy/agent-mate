@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, InstalledSkill, KbCapacity, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, MemoryData, MemoryItem, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, InstalledSkill, KbCapacity, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -45,13 +45,19 @@ export const api = {
   saveSettings: (body: { style?: string; custom_instructions?: string }) =>
     send<AppSettings>('PUT', '/settings', body),
 
-  // 设置 · 记忆（WB-148）：长期事实，注入之后对话；开启后从对话自动抽取。
-  memory: () => get<MemoryData>('/memory'),
+  // 设置 · 记忆（WB-148；WB-166/167 认知记忆；WB-168 白盒管理）。
+  memory: (status?: string) => get<MemoryData>(status ? `/memory?status=${status}` : '/memory'),
   addMemory: (content: string) => send<MemoryItem>('POST', '/memory', { content }),
   editMemory: (id: string, content: string) => send<MemoryItem>('PUT', `/memory/${id}`, { content }),
   deleteMemory: (id: string) => send<{ ok: boolean }>('DELETE', `/memory/${id}`),
   clearMemory: () => send<{ ok: boolean; removed: number }>('POST', '/memory/clear'),
   setMemoryEnabled: (enabled: boolean) => send<{ enabled: boolean }>('PUT', '/memory/enabled', { enabled }),
+  memoryStats: () => get<MemoryStats>('/memory/stats'),
+  searchMemory: (query: string, top_k = 8) => send<MemorySearchResult>('POST', '/memory/search', { query, top_k }),
+  setMemoryImportance: (id: string, importance: number) => send<MemoryItem>('PATCH', `/memory/${id}/importance`, { importance }),
+  archiveMemory: (id: string) => send<MemoryItem>('POST', `/memory/${id}/archive`),
+  rollbackMemory: (id: string) => send<MemoryItem>('POST', `/memory/${id}/rollback`),
+  memoryDetail: (id: string) => get<MemoryTrace>(`/memory/${id}`),
 
   // 设置 · 数据管理（WB-149）：导出本人数据（下载 JSON）+ 清空个人对话。
   dataSummary: () => get<DataSummary>('/data/summary'),

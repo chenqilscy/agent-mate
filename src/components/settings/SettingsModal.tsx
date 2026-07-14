@@ -8,7 +8,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { ModelConfigModal } from '../composer/ModelConfigModal'
 import { toast } from '../../stores/toastStore'
 import { api } from '../../lib/api'
-import type { AgentSettings, AuditEntry, DataSummary, MemoryItem, StylePreset } from '../../lib/types'
+import type { AgentSettings, AuditEntry, DataSummary, MemoryItem, MemorySearchHit, MemoryStats, MemoryTrace, StylePreset } from '../../lib/types'
 
 type Tab = { id: SettingsTab; label: string; icon: ReactNode }
 
@@ -110,35 +110,49 @@ function PersonalizePanel() {
   )
 }
 
-// 记忆 panel（WB-148）：生成对话记忆开关 + 记忆列表(增删清) + 从其他 AI 导入(占位)。接 /api/memory。
+// 记忆 panel（WB-148 + 认知记忆 WB-166/167 + 白盒管理 WB-168）：开关 + 概览 + 语义检索 playground +
+// 活跃/已归档/已更替视图 + 每条记忆的强度条·重要度可调·状态·归档/回滚·溯源。接 /api/memory。
+type MemView = 'active' | 'archived' | 'superseded'
+const pct = (x: number | undefined) => Math.round((x ?? 0) * 100)
+
 function MemoryPanel() {
   const [enabled, setEnabled] = useState(false)
   const [items, setItems] = useState<MemoryItem[]>([])
+  const [stats, setStats] = useState<MemoryStats | null>(null)
+  const [view, setView] = useState<MemView>('active')
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [adding, setAdding] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
+  const [query, setQuery] = useState('')
+  const [hits, setHits] = useState<MemorySearchHit[] | null>(null)
+  const [hitsSemantic, setHitsSemantic] = useState(true)
+  const [searching, setSearching] = useState(false)
+  const [traceId, setTraceId] = useState<string | null>(null)
+  const [trace, setTrace] = useState<MemoryTrace | null>(null)
 
-  const load = () => api.memory()
-    .then((m) => { setEnabled(m.enabled); setItems(m.items); setLoaded(true) })
+  const load = (v: MemView = view) => api.memory(v)
+    .then((m) => { setEnabled(m.enabled); setItems(m.items); if (m.stats) setStats(m.stats); setLoaded(true) })
     .catch(() => { setLoaded(true); toast('加载记忆失败') })
-  useEffect(() => { load() }, [])
+  useEffect(() => { load('active') }, [])
+  const refreshStats = () => api.memoryStats().then(setStats).catch(() => {})
 
   const toggle = async () => {
     const next = !enabled
     setEnabled(next)
     try { await api.setMemoryEnabled(next) } catch { setEnabled(!next); toast('操作失败') }
   }
+  const switchView = (v: MemView) => { setView(v); setLoaded(false); setTraceId(null); load(v) }
   const add = async () => {
     const text = adding.trim()
     if (!text || busy) return
     setBusy(true)
-    try { const row = await api.addMemory(text); setItems((xs) => [row, ...xs]); setAdding('') }
+    try { const row = await api.addMemory(text); setItems((xs) => [row, ...xs]); setAdding(''); refreshStats() }
     catch { toast('添加失败（可能与已有记忆重复）') } finally { setBusy(false) }
   }
   const del = async (id: string) => {
-    try { await api.deleteMemory(id); setItems((xs) => xs.filter((x) => x.id !== id)) } catch { toast('删除失败') }
+    try { await api.deleteMemory(id); setItems((xs) => xs.filter((x) => x.id !== id)); refreshStats() } catch { toast('删除失败') }
   }
   const startEdit = (m: MemoryItem) => { setEditingId(m.id); setEditText(m.content) }
   const cancelEdit = () => { setEditingId(null); setEditText('') }
@@ -147,15 +161,42 @@ function MemoryPanel() {
     if (!text) return
     try {
       const row = await api.editMemory(id, text)
-      setItems((xs) => xs.map((x) => (x.id === id ? row : x)))
+      setItems((xs) => xs.map((x) => (x.id === id ? { ...x, ...row } : x)))
       cancelEdit()
     } catch { toast('保存失败（内容为空或与已有记忆重复）') }
   }
   const clear = async () => {
-    if (!items.length || busy) return
+    if (busy || !window.confirm('清空全部记忆（含归档）？此操作不可撤销。')) return
     setBusy(true)
-    try { await api.clearMemory(); setItems([]); toast('已清空记忆') } catch { toast('清空失败') } finally { setBusy(false) }
+    try { await api.clearMemory(); setItems([]); refreshStats(); toast('已清空记忆') } catch { toast('清空失败') } finally { setBusy(false) }
   }
+  const setImpLocal = (id: string, p: number) =>
+    setItems((xs) => xs.map((x) => (x.id === id ? { ...x, importance: p / 100 } : x)))
+  const commitImp = async (id: string, p: number) => {
+    try { const row = await api.setMemoryImportance(id, p / 100); setItems((xs) => xs.map((x) => (x.id === id ? { ...x, ...row } : x))); refreshStats() }
+    catch { toast('调整重要度失败') }
+  }
+  const archive = async (id: string) => {
+    try { await api.archiveMemory(id); setItems((xs) => xs.filter((x) => x.id !== id)); refreshStats() } catch { toast('归档失败') }
+  }
+  const rollback = async (id: string) => {
+    try { await api.rollbackMemory(id); setItems((xs) => xs.filter((x) => x.id !== id)); refreshStats() } catch { toast('恢复失败') }
+  }
+  const doSearch = async () => {
+    const q = query.trim()
+    if (!q || searching) return
+    setSearching(true)
+    try { const r = await api.searchMemory(q); setHits(r.hits); setHitsSemantic(r.semantic) }
+    catch { toast('检索失败') } finally { setSearching(false) }
+  }
+  const showTrace = async (id: string) => {
+    if (traceId === id) { setTraceId(null); return }
+    try { const t = await api.memoryDetail(id); setTrace(t); setTraceId(id) } catch { toast('溯源失败') }
+  }
+
+  const emptyHint = view === 'active'
+    ? (enabled ? '聊几轮后这里会出现从对话中提取的记忆。' : '开启上面的开关可从对话中自动积累，也可手动添加。')
+    : (view === 'archived' ? '没有已归档的记忆。强度过低的记忆会自动归档到这里，可随时恢复。' : '没有被更替的记忆。当新事实覆盖旧记忆时，旧的会移到这里（保留溯源）。')
 
   return (
     <div className="set-body">
@@ -165,25 +206,63 @@ function MemoryPanel() {
       <div className="set-field" style={{ marginTop: 16 }}>
         <div className="set-fhd">
           <div className="set-fname">生成对话记忆</div>
-          <div className="set-fsub">开启后，WorkBuddy 会从对话中提取并记住相关事实，供未来对话更连贯、个性化。</div>
+          <div className="set-fsub">开启后，WorkBuddy 会从对话中提取并记住相关事实，供未来对话按相关性注入。</div>
         </div>
         <button className={`set-switch ${enabled ? 'on' : ''}`.trim()} onClick={toggle} role="switch" aria-checked={enabled} aria-label="生成对话记忆">
           <span className="set-switch-dot" />
         </button>
       </div>
 
-      <div className="set-flabel" style={{ display: 'flex', alignItems: 'center' }}>
+      {stats && (
+        <div className="set-mstat">
+          <span><b>{stats.active}</b> 条活跃</span>
+          <span>平均强度 <b>{pct(stats.avg_strength)}%</b></span>
+          {stats.decaying > 0 && <span><b>{stats.decaying}</b> 条衰退中</span>}
+          <span>语义检索 <b>{stats.semantic ? '已启用' : '未启用'}</b></span>
+        </div>
+      )}
+
+      <div className="set-flabel">检索 · 看哪些记忆与一句话最相关</div>
+      <div className="set-msearch">
+        <input className="np-input" placeholder="输入一句话，检索最相关的记忆…" value={query} maxLength={300}
+          onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') doSearch() }} />
+        <button className="btn-dark" disabled={!query.trim() || searching} onClick={doSearch}>检索</button>
+        {hits && <button className="set-link" onClick={() => { setHits(null); setQuery('') }}>清除</button>}
+      </div>
+      {hits && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="set-pdesc" style={{ margin: '0 0 6px' }}>{hitsSemantic ? '语义检索（按 相似度×强度 排序）' : '关键词匹配（未启用语义检索）'}</div>
+          {hits.length === 0 && <div className="set-mem-empty">无匹配记忆。</div>}
+          {hits.map((h) => (
+            <div className="set-mhit" key={h.id}>
+              <span className="set-mhit-c">{h.content}</span>
+              <span className="set-mhit-s">{h.similarity != null ? `相似 ${pct(h.similarity)}% · ` : ''}强度 {pct(h.strength)}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="set-flabel" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         记忆内容
-        {items.length > 0 && <button className="set-link" style={{ marginLeft: 'auto' }} onClick={clear}>清空</button>}
+        <div className="set-mviews">
+          <button className={`set-mview ${view === 'active' ? 'on' : ''}`} onClick={() => switchView('active')}>活跃{stats ? ` (${stats.active})` : ''}</button>
+          <button className={`set-mview ${view === 'archived' ? 'on' : ''}`} onClick={() => switchView('archived')}>已归档{stats ? ` (${stats.archived})` : ''}</button>
+          {stats && stats.superseded > 0 && <button className={`set-mview ${view === 'superseded' ? 'on' : ''}`} onClick={() => switchView('superseded')}>已更替 ({stats.superseded})</button>}
+        </div>
+        {stats && stats.total > 0 && <button className="set-link" onClick={clear}>清空</button>}
       </div>
-      <div className="set-memadd">
-        <input className="np-input" placeholder="手动添加一条记忆，如「我是一名前端工程师」" value={adding}
-          maxLength={300} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add() }} />
-        <button className="btn-dark" disabled={!adding.trim() || busy} onClick={add}>添加</button>
-      </div>
+
+      {view === 'active' && (
+        <div className="set-memadd">
+          <input className="np-input" placeholder="手动添加一条记忆，如「我是一名前端工程师」" value={adding}
+            maxLength={300} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add() }} />
+          <button className="btn-dark" disabled={!adding.trim() || busy} onClick={add}>添加</button>
+        </div>
+      )}
+
       <div className="set-memlist">
         {!loaded && <div className="set-pdesc">加载中…</div>}
-        {loaded && items.length === 0 && <div className="set-mem-empty">暂无记忆内容。{enabled ? '聊几轮后这里会出现从对话中提取的记忆。' : '开启上面的开关可从对话中自动积累。'}</div>}
+        {loaded && items.length === 0 && <div className="set-mem-empty">{emptyHint}</div>}
         {items.map((m) => (
           editingId === m.id ? (
             <div className="set-mem" key={m.id}>
@@ -195,10 +274,38 @@ function MemoryPanel() {
             </div>
           ) : (
             <div className="set-mem" key={m.id}>
-              <span className="set-mem-c">{m.content}</span>
-              <span className="set-mem-src">{m.source === 'conversation' ? '来自对话' : '手动'}</span>
-              <button className="set-mem-x" onClick={() => startEdit(m)} aria-label="编辑">✎</button>
-              <button className="set-mem-x" onClick={() => del(m.id)} aria-label="删除">×</button>
+              <div className="set-mem-col">
+                <span className="set-mem-c">{m.content}</span>
+                <div className="set-mem-meta">
+                  <div className="set-strength" title={`强度 ${pct(m.strength)}%（重要度 × 新鲜度 × 使用）`}><i style={{ width: `${pct(m.strength)}%` }} /></div>
+                  <input type="range" className="set-mem-imp" min={0} max={100} value={pct(m.importance ?? 0.5)}
+                    title={`重要度 ${pct(m.importance ?? 0.5)}%`} aria-label="重要度"
+                    onChange={(e) => setImpLocal(m.id, Number(e.target.value))}
+                    onMouseUp={(e) => commitImp(m.id, Number((e.target as HTMLInputElement).value))}
+                    onTouchEnd={(e) => commitImp(m.id, Number((e.target as HTMLInputElement).value))} />
+                  <span className="set-mem-src">{m.source === 'conversation' ? '来自对话' : '手动'}</span>
+                  {m.status === 'superseded' && <span className="set-badge">已更替</span>}
+                  {m.status === 'archived' && <span className="set-badge">已归档</span>}
+                  {view === 'active' ? (
+                    <>
+                      <button className="set-mem-x" onClick={() => startEdit(m)} title="编辑" aria-label="编辑">✎</button>
+                      <button className="set-mem-x" onClick={() => archive(m.id)} title="归档" aria-label="归档">⊟</button>
+                      <button className="set-mem-x" onClick={() => del(m.id)} title="删除" aria-label="删除">×</button>
+                    </>
+                  ) : (
+                    <>
+                      {view === 'superseded' && <button className="set-mem-x" onClick={() => showTrace(m.id)} title="溯源" aria-label="溯源">↪</button>}
+                      <button className="set-mem-x" onClick={() => rollback(m.id)} title="恢复为活跃" aria-label="恢复">↩</button>
+                      <button className="set-mem-x" onClick={() => del(m.id)} title="删除" aria-label="删除">×</button>
+                    </>
+                  )}
+                </div>
+                {traceId === m.id && trace && (
+                  <div className="set-mtrace">
+                    {trace.superseded_by ? <>被新记忆取代：「{trace.superseded_by.content}」</> : '暂无取代它的更新记忆。'}
+                  </div>
+                )}
+              </div>
             </div>
           )
         ))}

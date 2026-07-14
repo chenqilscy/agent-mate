@@ -244,10 +244,39 @@ export interface MemoryItem {
   content: string
   source: string
   created_at: number
+  importance?: number
+  usage_count?: number
+  status?: string
+  superseded_by?: string | null
+  last_used_at?: number | null
+  strength?: number
+}
+export interface MemoryStats {
+  active: number
+  archived: number
+  superseded: number
+  total: number
+  avg_strength: number
+  decaying: number
+  semantic: boolean
 }
 export interface MemoryData {
   enabled: boolean
   items: MemoryItem[]
+  stats?: MemoryStats
+}
+export interface MemorySearchHit extends MemoryItem {
+  similarity: number | null
+  score: number
+}
+export interface MemorySearchResult {
+  semantic: boolean
+  hits: MemorySearchHit[]
+}
+export interface MemoryTrace {
+  memory: MemoryItem
+  superseded_by: MemoryItem | null
+  superseded: MemoryItem | null
 }
 
 // 设置 · 数据管理（WB-149）：数据条数概览。

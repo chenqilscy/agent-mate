@@ -4,7 +4,7 @@ title: 认知记忆机制移植（参考 AgentOS）—— 强度/衰减/使用�
 severity: P2
 area: fullstack
 origin: 既有实现
-status: in-progress
+status: fixed
 files:
   - backend/agent/memory.py
   - backend/storage/db.py
@@ -51,3 +51,14 @@ P2：功能可用不阻塞。但这是一次质变——注入从「最近一批
 
 各子 issue 分别验证；epic 关闭条件 = WB-166/167/168 全 fixed 且端到端实测：
 开启记忆→多轮对话→记忆按相关性注入→矛盾事实自动更替→弱记忆随衰减归档→白盒 UI 可查可管，明暗双主题。
+
+## 处理记录（2026-07-14）
+
+三档全部 fixed：
+- **WB-166 档一**（commit 6df2071）：强度(importance×recency衰减×usage)排序注入+命中强化 + 软状态生命周期(active/superseded/archived 不硬删) + decay_gc；隔离 DB 单测 36 项全 PASS。
+- **WB-167 档二**（commit ee9ddc0）：本地嵌入 fastembed(bge-small-zh) + 语义去重/自动更替 + 按当前对话相关性 top-K 注入 + 遗留记忆回填；端到端隔离测全 PASS（近义 0.907 vs 无关 0.283），降级(无依赖)不崩。
+- **WB-168 档三**（本提交）：白盒 API(stats/search/importance/archive/rollback/trace/decaying) + 设置·记忆面板升级；live API 全通、白盒 UI 明暗双主题实测。
+- **epic 收尾 live 端到端**：真 /chat 问「我最喜欢的编程语言」→ 模型「根据记忆，是 Rust」（该事实仅存于被语义注入的记忆）→ 证明整条注入链路真生效。
+- 裁剪项（未移植，见上）：layer 分层 / scope / dream 睡眠整合。
+- 全程在共享工作树下用私有 GIT_INDEX_FILE + commit-tree + update-ref CAS 提交，未误伤并发会话（WB-163/164）的工作；一次检出并发 commit 清掉了我方 README 行，已检测并补回。
+
