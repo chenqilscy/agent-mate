@@ -12,3 +12,6 @@ starlette==0.41.3
 # 首次使用会下载模型到 ASR_MODEL_DIR（需联网一次）。可选：不用语音就不必装（端点会诚实 503）。
 faster-whisper==1.1.1
 requests>=2.31  # faster-whisper utils 依赖它下载模型，1.1.1 未自动拉，显式列出
+# 本地记忆语义检索（WB-167 认知记忆 档二）。fastembed = ONNX runtime 的文本嵌入，无 torch、CPU 快、离线零成本，
+# 默认 BAAI/bge-small-zh-v1.5（首用下载模型到缓存，需联网一次）。可选：不装则记忆退回档一「按强度排序」非语义模式。
+fastembed>=0.3

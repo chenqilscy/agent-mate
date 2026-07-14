@@ -251,7 +251,8 @@ async def run_chat(
     # 全模式（exec/plan/ask）真生效。无偏好则空串。
     system_prompt += build_personalization_prompt(user.id)
     # 用户记忆（WB-148）：此前记住的关于用户的长期事实，注入系统提示 → 之后对话「记得」。无则空串。
-    system_prompt += memory.build_memory_prompt(user.id)
+    # WB-167：本地嵌入可用时按【当前这轮 user_text】的语义相关性检索 top-N（否则按强度排序）。
+    system_prompt += memory.build_memory_prompt(user.id, query_text=user_text)
 
     # Per-project workspace (§11.2): this run's tools operate in the project's own
     # checkout (or the shared default for ad-hoc chats). WB-087: an assistant may

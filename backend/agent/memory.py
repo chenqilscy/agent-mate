@@ -14,8 +14,11 @@ from __future__ import annotations
 import json
 import time
 
+import numpy as np
+
+from agent import mem_embed
 from agent.llm import stream_chat
-from agent.mem_decay import compute_strength, should_archive
+from agent.mem_decay import compute_strength, retrieval_score, should_archive
 from storage import db
 
 # user_settings KV 键：是否从对话自动抽取记忆（"1"=开）。默认关。
@@ -23,6 +26,10 @@ MEM_CAPTURE_KEY = "pref.memory_capture"
 MAX_PER_TURN = 3        # 每轮最多几个操作，避免一次灌太多
 INJECT_CHAR_BUDGET = 1500   # 注入 system prompt 的记忆总字符预算，防随库增长无界膨胀
 EXTRACT_CTX_BUDGET = 1500   # 回喂抽取器的「已有记忆」上下文字符预算
+# 语义阈值（档二 WB-167，参考 AgentOS）：≥DEDUPE 且同文→强化既有；≥CONFLICT 且异文→插新+旧 supersede。
+DEDUPE_THRESHOLD = 0.98
+CONFLICT_THRESHOLD = 0.90
+EMBED_BACKFILL_CAP = 64     # 单次注入最多给几条缺 embedding 的旧记忆补嵌入（一次性、持久化）
 
 
 def capture_enabled(owner_id: str) -> bool:
@@ -63,23 +70,59 @@ def _rank_by_strength(mems: list[dict], now_s: float) -> list[dict]:
     return sorted(mems, key=lambda m: _strength_of(m, now_s), reverse=True)
 
 
+def _ensure_embeddings(owner_id: str, mems: list[dict], cap: int = EMBED_BACKFILL_CAP) -> None:
+    """给缺 embedding 的 active 记忆补嵌入（持久化、一次性）；就地写回 mems 的 'embedding'。
+    仅在本地嵌入可用时调用。有上限，避免一次补太多拖住注入。"""
+    changed = 0
+    for m in mems:
+        if m.get("embedding") or changed >= cap:
+            continue
+        vec = mem_embed.embed(m.get("content") or "")
+        if vec is not None:
+            blob = mem_embed.to_blob(vec)
+            db.set_memory_embedding(owner_id, m["id"], blob)
+            m["embedding"] = blob
+            changed += 1
+
+
+def _rank_by_relevance(owner_id: str, mems: list[dict], qvec: list[float], now_s: float) -> list[dict]:
+    """按 retrieval_score(相似度, 强度) 降序（档二）。mems 需含 'embedding' bytes。"""
+    _ensure_embeddings(owner_id, mems)
+    qa = np.asarray(qvec, dtype=np.float32)
+    scored = []
+    for m in mems:
+        mv = mem_embed.from_blob(m.get("embedding"))
+        sim = mem_embed.cosine(qa, mv) if mv is not None else 0.0
+        scored.append((retrieval_score(sim, _strength_of(m, now_s)), m))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [m for _, m in scored]
+
+
 def build_memory_prompt(owner_id: str, query_text: str | None = None) -> str:
     """把已存记忆拼成注入 system prompt 的段；无记忆则空串。
 
-    档一：active 记忆按强度排序 → 取字符预算内 top-N → **命中强化** → 拼段。
-    query_text 预留给档二（WB-167）做按当前对话语义相关性检索；档一忽略之。
+    档二（WB-167）：本地嵌入可用且有 query_text → embed(当前对话) → 按 相似度×强度 取相关性 top-N。
+    档一回退：按强度排序取 top-N。两者都取字符预算内、并**命中强化**。
     """
-    mems = db.list_memories(owner_id)  # active，created_at DESC
-    if not mems:
-        return ""
     now_s = time.time()
-    picked, omitted = _within_budget(_rank_by_strength(mems, now_s), INJECT_CHAR_BUDGET)
+    qvec = mem_embed.embed(query_text) if query_text else None
+    if qvec is not None:
+        mems = db.list_active_with_embedding(owner_id)
+        if not mems:
+            return ""
+        ranked = _rank_by_relevance(owner_id, mems, qvec, now_s)
+    else:
+        mems = db.list_memories(owner_id)  # active，created_at DESC
+        if not mems:
+            return ""
+        ranked = _rank_by_strength(mems, now_s)
+    picked, omitted = _within_budget(ranked, INJECT_CHAR_BUDGET)
     if not picked:
         return ""
     for m in picked:  # 命中强化：被注入即视为「用到」，refresh usage/last_used
         db.reinforce_memory(owner_id, m["id"], now_s)
     lines = "\n".join(f"- {(m['content'] or '').strip()}" for m in picked)
-    tail = f"\n（另有 {omitted} 条较弱记忆已省略）" if omitted > 0 else ""
+    tail = f"\n（另有 {omitted} 条较弱/不相关记忆已省略）" if omitted > 0 else ""
     return (
         "\n\n# 关于用户的记忆\n"
         "以下是你此前记住的、关于该用户的长期事实。作答时自然地纳入考量，不要生硬复述：\n"
@@ -90,15 +133,42 @@ def build_memory_prompt(owner_id: str, query_text: str | None = None) -> str:
 # ---- 落库（去重/强化/更替）------------------------------------------------
 
 def store_memory(owner_id: str, content: str, source: str, importance: float = 0.5) -> dict | None:
-    """落库一条记忆：精确重复既有 active 则强化并返回既有；否则插入新记忆。
-    档二（WB-167）会在此加语义相似度去重/自动更替。"""
+    """落库一条记忆。
+
+    档二（本地嵌入可用）：embed(content) → 与 active 记忆取最相似一条。
+      ≥DEDUPE 且同文 → 强化既有并返回；≥CONFLICT 且异文 → 插新 + 旧 supersede（自动更替）；否则纯插入。
+    档一回退（无嵌入）：精确字符串去重 → 命中强化 / 否则插入。
+    """
     text = (content or "").strip()
     if not text:
         return None
-    dup = db.find_active_memory_by_content(owner_id, text)
-    if dup is not None:
-        return db.reinforce_memory(owner_id, dup["id"])
-    return db.insert_memory(owner_id, text, source, importance)
+    vec = mem_embed.embed(text)
+    if vec is None:  # 档一回退
+        dup = db.find_active_memory_by_content(owner_id, text)
+        if dup is not None:
+            return db.reinforce_memory(owner_id, dup["id"])
+        return db.insert_memory(owner_id, text, source, importance)
+
+    # 档二语义路径
+    qa = np.asarray(vec, dtype=np.float32)
+    actives = db.list_active_with_embedding(owner_id)
+    _ensure_embeddings(owner_id, actives)
+    best, best_sim = None, -1.0
+    for m in actives:
+        mv = mem_embed.from_blob(m.get("embedding"))
+        if mv is None:
+            continue
+        sim = mem_embed.cosine(qa, mv)
+        if sim > best_sim:
+            best, best_sim = m, sim
+    # 完全重复（语义极高 + 同文）→ 强化既有
+    if best is not None and best_sim >= DEDUPE_THRESHOLD and (best["content"] or "").strip() == text:
+        return db.reinforce_memory(owner_id, best["id"])
+    new = db.insert_memory(owner_id, text, source, importance, embedding=mem_embed.to_blob(vec))
+    # 语义高度相近但异文 → 自动更替：旧记忆软置 superseded（留链）
+    if best is not None and best_sim >= CONFLICT_THRESHOLD and (best["content"] or "").strip() != text:
+        db.supersede_memory(owner_id, best["id"], new["id"])
+    return new
 
 
 def decay_gc(owner_id: str) -> int:

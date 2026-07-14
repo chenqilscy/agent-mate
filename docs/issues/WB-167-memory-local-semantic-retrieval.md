@@ -4,7 +4,7 @@ title: 认知记忆 档二 —— 本地嵌入 + 语义去重/自动更替 + 相
 severity: P2
 area: backend
 origin: 既有实现
-status: open
+status: fixed
 files:
   - backend/agent/mem_embed.py
   - backend/agent/memory.py
@@ -37,3 +37,23 @@ created: 2026-07-14
 - 无 fastembed 时回退档一，不报错（embed 返回 None、走强度排序）。
 - 模型首次下载需联网一次；离线且未缓存 → 诚实降级。
 - 装依赖后需**硬重启** backend（Windows 无 reload）。
+
+## 处理记录（2026-07-14）
+
+- 改动：
+  - `backend/agent/mem_embed.py`（新）：懒加载 fastembed 单例（默认 `BAAI/bge-small-zh-v1.5`，ONNX、离线、零 API 成本），
+    `embed`/`available`/`to_blob`/`from_blob`/`cosine`；没装/加载失败 → `_unavailable` 置真、`embed` 返回 None（诚实降级）。
+  - `backend/agent/memory.py`：`store_memory` 加语义路径——embed(content) → 与 active 取最相似：≥0.98 且同文→强化；
+    ≥0.90 且异文→插新 + 旧 supersede；否则纯插入。无嵌入回退档一精确去重。`build_memory_prompt` 加 `_rank_by_relevance`
+    （embed(query) → retrieval_score(sim,strength) 重排）+ `_ensure_embeddings`（给缺 embedding 的旧记忆一次性回填，上限 64）；
+    无 query/嵌入不可用回退档一强度排序。
+  - `backend/agent/runtime.py`：注入传 `query_text=user_text`（按当前这轮对话检索）。
+  - `backend/requirements.txt`：加可选依赖 `fastembed>=0.3`（注释说明没装则退档一）。
+- 验证：
+  - `py_compile` 过；`pip install fastembed==0.8.0` 成功；fastembed 支持 `BAAI/bge-small-zh-v1.5`。
+  - 隔离 DB 端到端**全 PASS**：近义相似度 0.907 vs 无关 0.283；语义同文→强化不新增；语义近义异文→旧记忆 supersede 留链；
+    无关事实各自保留；相关性检索（问「用什么编程语言」→ Rust 那条排最前）；遗留无-embedding 记忆注入时回填；无 query 回退档一。
+  - **降级验证**：`MEM_EMBED_MODEL=bogus` → `available()=False`、`embed()=None` → store 精确去重 / 注入按强度，均不崩。
+  - 端到端 live（真 /chat 语义注入）+ 硬重启在 epic 收尾统一实测。
+- commit：（隔离 index，待提交）
+
