@@ -30,7 +30,16 @@ _BACKOFF = 5
 _pollers: dict[str, asyncio.Task] = {}       # channel_id -> poll task
 _running_token: dict[str, str] = {}          # channel_id -> token the poller was started with
 _busy: set[str] = set()                       # "channel_id:chat_id" 处理中，防同 chat 并发
+_session_locks: dict[str, asyncio.Lock] = {}  # session_id -> 串行化同一助理会话上的 run（WB-155）
 _bot_cache: dict[str, tuple[float, Optional[str]]] = {}  # token -> (at, username)
+
+
+def _session_lock(session_id: str) -> asyncio.Lock:
+    lock = _session_locks.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _session_locks[session_id] = lock
+    return lock
 
 # 渠道类型注册表：决定前端「新增渠道」能选什么、每类型可用与否（不造假——只 Telegram available）。
 CHANNEL_TYPES = [
@@ -65,7 +74,6 @@ async def _run_agent(a: dict, session_id: str, text: str) -> str:
     session = db.get_session(session_id)
     if user is None or session is None:
         return "（本机用户或会话缺失，无法处理。）"
-    before = {m.id for m in db.list_messages(session_id)}
     mode = a.get("mode") or "exec"
 
     async def _drive() -> None:
@@ -79,16 +87,21 @@ async def _run_agent(a: dict, session_id: str, text: str) -> str:
         ):
             pass
 
-    try:
-        await asyncio.wait_for(_drive(), timeout=RUN_TIMEOUT)
-    except asyncio.TimeoutError:
-        return "（处理超时，请把任务拆小一点再试。）"
-    except Exception as e:  # noqa: BLE001 — 单条消息失败不该杀掉 poller
-        log.exception("驱动 agent 失败")
-        return f"（处理失败：{str(e)[:300]}）"
-    for m in reversed(db.list_messages(session_id)):
-        if m.role == "assistant" and m.id not in before and (m.content or "").strip():
-            return m.content
+    # 一个助理的 App + 所有渠道共写同一 session。若两个渠道（或 say + 入站）在同一 session 上
+    # 并发跑，transcript 会交错，且下面「before/after diff 取新回复」会把别人的回复当成自己的
+    # 发出去（跨用户串信）。按 session 串行化，让 before 快照能正确归属本次运行（WB-155）。
+    async with _session_lock(session_id):
+        before = {m.id for m in db.list_messages(session_id)}
+        try:
+            await asyncio.wait_for(_drive(), timeout=RUN_TIMEOUT)
+        except asyncio.TimeoutError:
+            return "（处理超时，请把任务拆小一点再试。）"
+        except Exception as e:  # noqa: BLE001 — 单条消息失败不该杀掉 poller
+            log.exception("驱动 agent 失败")
+            return f"（处理失败：{str(e)[:300]}）"
+        for m in reversed(db.list_messages(session_id)):
+            if m.role == "assistant" and m.id not in before and (m.content or "").strip():
+                return m.content
     return "（助手这次没有产生文本回复。）"
 
 
