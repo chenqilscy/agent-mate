@@ -168,6 +168,15 @@
 | [WB-150](WB-150-agent-settings-backend.md) | ✅ | P2 | fullstack | 智能体设置真后端 —— 工具步数上限 + 回复发散度(temperature)，按 owner 存 KV 且 run_chat 真读真用(暗号读取实验证明步数上限 govern 循环) + /api/settings/agent |
 | [WB-151](WB-151-glm-kb-review-fixes.md) | ✅ | P2 | fullstack | GLM 知识库 WB-141 审查修复 —— 向量化轮询闭包 bug(interval 用 openId state 恒 null→用 id 参数) + 无扩展名文件误拒 + 上传先查 key 再缓冲 body + _unwrap 2xx 空 body 当成功 + capacity 形状守卫；真机验 M2 三态 |
 | [WB-152](WB-152-security-center-backend.md) | ✅ | P2 | fullstack | 安全中心真后端 —— 命令安全策略(黑名单·真拦截 run_command) + 审计日志(真记录执行/拦截，audit_log 表) + /api/security；文件/网络域名/数据网关诚实占位 |
+| [WB-153](WB-153-shared-backend-project-access-control.md) | ✅ | P0 | backend | 共享后端多用户隔离漏洞 —— 会话可绑他人项目、Viewer 可执行/写、/stop·/answer 无 owner 校验 |
+| [WB-154](WB-154-inproc-connector-sandbox-leak.md) | ✅ | P1 | backend | 内置连接器经 os.environ 传 workspace 目录 —— 并发 run 串项目沙箱 |
+| [WB-155](WB-155-assistant-shared-session-cross-user-reply.md) | ✅ | P1 | backend | 助理多渠道共享 session —— 并发 run 交错 + before 快照把他人回复当自己的返回（跨用户串信） |
+| [WB-156](WB-156-hub-invite-reuse-and-viewer-writes.md) | ✅ | P1 | backend | Hub 访问控制 —— 邀请码可无限重用/永不失效 + Viewer 越权（timeline 上报 / org 建项目） |
+| [WB-157](WB-157-hub-pm-referential-integrity.md) | ✅ | P2 | backend | Hub PM 引用完整性 —— parent_id/milestone_id 跨项目未校验 + 级联删除/清空无 project 过滤 |
+| [WB-158](WB-158-hub-origin-offline-write-data-loss.md) | ✅ | P2 | backend | hub-origin 项目离线新建 work_item/milestone 被下次镜像删除（数据丢失） |
+| [WB-159](WB-159-frontend-store-robustness.md) | ✅ | P2 | frontend | 前端 store 健壮性 —— 看板乐观更新不回滚 / answer 失败挂起 agent / send finally 无流守卫 / connect 不 reload |
+| [WB-160](WB-160-backend-hardening-tail.md) | 🟡 | P2 | backend | 后端加固尾集 —— 通知空 ids 误清全部 / MCP 超时孤儿进程 / 邮件先标已读丢信 / 流出错丢回复 / SSRF / slug 校验（邮件项 deferred） |
+| [WB-161](WB-161-authoritative-docs-correction.md) | ✅ | P2 | misc | 权威现状文档纠偏 —— CLAUDE.md/README/实现方案 对 Hub/auth/LLM key/CSS/Tauri 的错误陈述 |
 
 ## 来源
 

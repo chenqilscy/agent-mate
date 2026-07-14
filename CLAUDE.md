@@ -26,7 +26,7 @@ WB-063 迁移与 local-first 回退（存量导入 Hub、LOCAL_USER↔Hub 映射
 1. **不硬编码、不模拟**。所有流式输出来自真实 LLM；所有状态真持久化（SQLite）；所有 trace 来自真实工具事件。不要为了「看起来能跑」而造假数据。
 2. **视觉零重设计**。CSS class 名与设计 token 逐字沿用原型；样式在 `src/styles/{tokens,app}.css`。新组件要**复用既有 class 与 token**，不要引入不协调的硬编码间距/圆角/颜色。
 3. **暗色主题 = `body.dark` 上的变量覆盖**。切忌用 `var(--ink)` 之类会在暗色翻转成浅色的 token 当深色背景、或写死浅底深字 —— 这类「白底白字/深底深字」是本项目反复出现的坑（见 WB-004、WB-008）。加了会随主题翻转的组件后，务必在**明暗双主题**下都看一眼。
-4. **密钥只存后端、绝不提交**。LLM API Key **只存** `backend/.env`（`LLM_API_KEY`/`LLM_API_BASE`/`LLM_MODEL`）、**绝不进前端**、不透传给子进程环境（见 WB-011）。连接器 / 机器人 token（如 Telegram bot token）存后端 **DB**（已 `.gitignore`、绝不提交）；作为 local-first 本机应用（后端只绑 `127.0.0.1`、token 不出本机），它在**本机设置 UI 内可见可改**（用户显式选择，见 WB-077/093）。
+4. **密钥只存后端、绝不提交**。LLM API Key 只存**后端**——`backend/.env`（`LLM_API_KEY` 等）**或按 owner 存本机 DB**（模型管理 WB-124/128/136：各厂商 base/key 按用户入库，运行时按 owner 解析；`backend/storage/db.py` `get_provider_key`/`set_provider_key`），两者都**绝不进前端**、不透传给子进程环境（见 WB-011）。连接器 / 机器人 token（如 Telegram bot token）存后端 **DB**（已 `.gitignore`、绝不提交）；作为 local-first 本机应用（后端只绑 `127.0.0.1`、token 不出本机），它在**本机设置 UI 内可见可改**（用户显式选择，见 WB-077/093）。
 5. **SSE 协议是前后端契约**。一种事件类型 ⇄ 一种 UI 形态。定义在 `backend/agent/events.py`，消费在 `src/stores/chatStore.ts`。加新事件要两端同步。
 6. **先登记 issue，再处理**。见下方「Issue 流程」。
 
@@ -42,8 +42,8 @@ WB-063 迁移与 local-first 回退（存量导入 Hub、LOCAL_USER↔Hub 映射
 - **沙箱**：`sandbox.py` 用 contextvar 按 project 切工作区根（`workspace/projects/<id>/` 或 `default/`）；路径穿越防护（`resolve()`+`parents` 判定）是可靠的，别绕过它。
 - **loadout**：会话级 experts/skills/connectors 由前端 `loadoutStore` 提供，后端 `run_chat` 与项目自身 loadout 合并；ask 模式无任何工具；refs（引用文件）只注入本轮 LLM 输入、不进持久化的 user 消息。
 - **ask_user**：agent 调 `ask_user` → runtime 在 `asyncio.Event` 上挂起 → `POST /api/chat/{id}/answer` 在同一条 SSE 流上唤醒，多轮。
-- **多用户预埋**：UUID/owner_id/project_id/Role 已进数据模型，但当前 auth 是桩（`backend/auth/`），**路由尚未按 owner 过滤**（见 WB-013）。
-- **平台抽象**：UI 不直接 import Tauri，走 `src/platform/`（web 空实现，Tauri 待接）。
+- **多用户**：UUID/owner_id/project_id/Role 已进数据模型；M7 起 auth 是**真 Bearer 鉴权**（`backend/auth/`），路由**已按 owner/成员过滤**（WB-013 fixed）——项目/文件/会话按访问权与角色（Owner/Admin/Member/Viewer，Viewer 只读）门禁；共享后端多用户下的隔离加固见 WB-153。纯单机默认注入 `LOCAL_USER`。
+- **平台抽象**：UI 不直接 import Tauri，走 `src/platform/`（web 空实现 + 完整 `tauriPlatform` 已接：窗口控制/更新检查，见 `src/platform/index.ts`）。
 
 ## 目录
 

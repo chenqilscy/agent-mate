@@ -7,7 +7,15 @@ following the plan in [`docs/workbuddy-实现方案.md`](docs/workbuddy-实现�
 **Principle: nothing faked.** All streaming output comes from a real LLM, all
 state is persisted, all sidebar tasks are real sessions.
 
-## Status: M0 + M1 + M2 + M3 + M4 complete
+## Status: M0–M7 + Hub + Manager 全部落地（活台账见 `docs/issues/`）
+
+> 里程碑 M0–M4 的原始说明在下方保留（对这些阶段仍准确）。此后已落地：M5（专家/技能/真 MCP 连接器）、
+> M6（对话内搜索/响应式）、M7 协作（真账户鉴权 + 项目成员·角色·邀请 + 队友只读可见 + 消息中心）、
+> Tauri 2 桌面外壳（路线 A）、自动化/连接器补全（路线 B）、**WorkBuddy Hub**（云端控制平面，独立 `hub/`
+> 服务 :8100）、**WorkBuddy Manager**（Web 管理门户 + 专业 PM）、统一设置中心、GLM 知识库 RAG、模型管理、
+> 多助理·多渠道（Telegram/邮件）、语音输入 ASR、金山文档面板等。逐条进度以 `docs/issues/` 台账为准。
+
+### M0–M4（历史说明，仍准确）
 
 - **M0 — scaffold**: all 8 views switchable; styling migrated verbatim from the
   prototype (design tokens + component CSS); Windows menubar, sidebar, view routing.
@@ -42,7 +50,7 @@ state is persisted, all sidebar tasks are real sessions.
     project's instruction injected as background; its side panel has 产物 /
     工作空间文件 / 变更 tabs (变更 = the real diff list).
 
-Later milestones (MCP connectors, Tauri shell, collaboration) are scoped in the plan.
+M5+（MCP 连接器 / Tauri 外壳 / 协作 / Hub / Manager / 知识库 / 多助理 …）均已落地——见上方状态段与 `docs/issues/` 台账。
 
 ## Architecture (Local-first)
 
@@ -134,6 +142,8 @@ docs/                # implementation plan + prototype (visual spec)
 
 One event type ⇄ one UI shape. Defined in `backend/agent/events.py` and consumed
 in `src/stores/chatStore.ts`: `session · status · text · think · step · file_read ·
-diff · todo · usage · artifact · ask_user · error · done`. M2 emits the full trace
-path (think/step/file_read/diff/todo) from real tool calls; `artifact` (panel) and
-`ask_user` (project flow) land in M3/M4.
+diff · todo · ask_user · qa_summary · work_item · usage · error · done`. M2 emits the
+full trace path (think/step/file_read/diff/todo) from real tool calls; `ask_user` +
+`qa_summary` drive the project ask/answer flow (M4); `work_item` live-syncs the kanban
+when the agent changes a plan item (WB-031). (`artifact` has a builder reserved for a
+future 产物 push but isn't yielded yet.)
