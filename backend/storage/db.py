@@ -1557,16 +1557,18 @@ def unread_notification_count(user_id: str) -> int:
 
 
 def mark_notifications_read(user_id: str, ids: Optional[list[str]] = None) -> None:
-    """Mark the user's notifications read — all of them, or just `ids`."""
+    """Mark the user's notifications read — all of them when ids is None, or just
+    `ids`. An empty list marks NONE (WB-160): the API contract is None=all, so `[]`
+    must not fall through to marking everything read."""
     conn = get_conn()
-    if ids:
+    if ids is None:
+        conn.execute("UPDATE notifications SET read=1 WHERE user_id=?", (user_id,))
+    elif ids:
         placeholders = ",".join("?" * len(ids))
         conn.execute(
             f"UPDATE notifications SET read=1 WHERE user_id=? AND id IN ({placeholders})",
             (user_id, *ids),
         )
-    else:
-        conn.execute("UPDATE notifications SET read=1 WHERE user_id=?", (user_id,))
     conn.commit()
 
 

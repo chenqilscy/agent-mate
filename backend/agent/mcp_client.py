@@ -171,15 +171,16 @@ async def open_connectors(
             continue
 
         # ── Built-in server: run IN-PROCESS via MCP's in-memory transport (no
-        #    subprocess). Works in dev and in a frozen bundle alike. The server
-        #    reads WORKBUDDY_NOTES_DIR at call time, so set it for this run first.
+        #    subprocess). Works in dev and in a frozen bundle alike. The server task
+        #    is created here, inside this run's context, so it reads the per-run
+        #    workspace root from the sandbox contextvar (current_root) at call time.
+        #    We must NOT stash the dir in process-global os.environ — two concurrent
+        #    runs in different projects would clobber each other's dir (WB-154).
         if spec.get("builtin_server"):
             fastmcp = _builtin_fastmcp(spec["builtin_server"])
             if fastmcp is None:
                 skipped.append({"name": name, "reason": "内置服务缺失"})
                 continue
-            if env and env.get("WORKBUDDY_NOTES_DIR"):
-                os.environ["WORKBUDDY_NOTES_DIR"] = env["WORKBUDDY_NOTES_DIR"]
             try:
                 session = await stack.enter_async_context(
                     create_connected_server_and_client_session(fastmcp._mcp_server)
@@ -212,13 +213,23 @@ async def open_connectors(
             },
         )
         try:
-            async def _connect() -> tuple[ClientSession, Any]:
-                read, write = await stack.enter_async_context(stdio_client(params))
-                session = await stack.enter_async_context(ClientSession(read, write))
-                await session.initialize()
-                return session, await session.list_tools()
+            async def _connect() -> tuple[ClientSession, Any, AsyncExitStack]:
+                # Own the spawn in a LOCAL stack: if wait_for times out and cancels us
+                # mid-handshake, tear the child process down HERE instead of orphaning
+                # it (a cleanup not yet registered on the run-level stack would leak —
+                # WB-160).
+                local = AsyncExitStack()
+                try:
+                    read, write = await local.enter_async_context(stdio_client(params))
+                    session = await local.enter_async_context(ClientSession(read, write))
+                    await session.initialize()
+                    return session, await session.list_tools(), local
+                except BaseException:
+                    await local.aclose()
+                    raise
 
-            session, listed = await asyncio.wait_for(_connect(), timeout=_CONNECT_TIMEOUT)
+            session, listed, local = await asyncio.wait_for(_connect(), timeout=_CONNECT_TIMEOUT)
+            await stack.enter_async_context(local)  # 交给 run 级 stack 统一在结束时关闭
             _collect(name, idx, session, listed)
         except asyncio.TimeoutError:
             skipped.append({"name": name, "reason": "启动超时"})

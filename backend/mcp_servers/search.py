@@ -17,9 +17,18 @@ mcp = FastMCP("workspace-search")
 
 
 def _root() -> Path:
-    # Resolved at call time (not import) so this works both as a spawned subprocess
-    # (env set at spawn) and in-process (env set per run).
-    return Path(os.environ.get("WORKBUDDY_NOTES_DIR", ".")).resolve()
+    # Resolved at call time (not import). Spawned-subprocess (standalone) honors the
+    # WORKBUDDY_NOTES_DIR the parent injects at spawn; in-process reads the per-run
+    # sandbox contextvar, which stays isolated across concurrent runs (a global env
+    # would let two runs clobber each other's dir — WB-154).
+    env = os.environ.get("WORKBUDDY_NOTES_DIR")
+    if env:
+        return Path(env).resolve()
+    try:
+        from agent.sandbox import current_root
+        return current_root().resolve()
+    except Exception:
+        return Path(".").resolve()
 
 
 # Skip huge files and obvious binaries so a search stays fast and text-only.

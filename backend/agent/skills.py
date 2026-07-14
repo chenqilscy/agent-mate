@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import csv
 import io
+import ipaddress
 import re
+import socket
 import statistics
 from html.parser import HTMLParser
+from urllib.parse import urlparse
 
 import httpx
 
@@ -24,12 +27,50 @@ from agent.tools import Tool, ToolOutcome
 _MAX = 6000
 
 
+def _is_blocked_host(host: str) -> bool:
+    """主机是否解析到 loopback/私网/链路本地/保留地址 —— 挡 SSRF（打本机 API、内网服务、
+    云元数据 169.254.169.254 等）。解析不了也保守拒绝（WB-160）。"""
+    host = (host or "").strip().strip("[]")
+    if not host:
+        return True
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:  # noqa: BLE001 — 解析失败 → 拒绝
+        return True
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0].split("%")[0])
+        except ValueError:
+            return True
+        if (addr.is_loopback or addr.is_private or addr.is_link_local
+                or addr.is_multicast or addr.is_reserved or addr.is_unspecified):
+            return True
+    return False
+
+
+def _guarded_get(url: str) -> httpx.Response:
+    """带 SSRF 防护的 GET：仅 http(s)，逐跳（含重定向）校验目标主机不指向本机/内网（WB-160）。"""
+    for _ in range(5):  # 最多跟 5 跳重定向
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("仅支持 http(s) URL")
+        if _is_blocked_host(parsed.hostname or ""):
+            raise ValueError("拒绝访问本机/内网地址")
+        r = httpx.get(url, timeout=15, follow_redirects=False, headers={"User-Agent": "WorkBuddy/0.1"})
+        loc = r.headers.get("location")
+        if r.is_redirect and loc:
+            url = str(r.url.join(loc))
+            continue
+        return r
+    raise ValueError("重定向过多")
+
+
 def _web_fetch_run(args: dict) -> ToolOutcome:
     url = (args.get("url") or "").strip()
     if not url.startswith(("http://", "https://")):
         return ToolOutcome(text="请提供 http(s) URL")
     try:
-        r = httpx.get(url, timeout=15, follow_redirects=True, headers={"User-Agent": "WorkBuddy/0.1"})
+        r = _guarded_get(url)
         body = r.text
         body = body if len(body) <= _MAX else body[:_MAX] + f"\n… [截断，共 {len(body)} 字符]"
         return ToolOutcome(text=f"HTTP {r.status_code} {url}\n{body}")
@@ -172,7 +213,7 @@ def _html_to_md_run(args: dict) -> ToolOutcome:
     if not url.startswith(("http://", "https://")):
         return ToolOutcome(text="请提供 http(s) URL。")
     try:
-        r = httpx.get(url, timeout=15, follow_redirects=True, headers={"User-Agent": "WorkBuddy/0.1"})
+        r = _guarded_get(url)
     except Exception as e:  # noqa: BLE001
         return ToolOutcome(text=f"抓取失败：{e}")
     parser = _MdParser()

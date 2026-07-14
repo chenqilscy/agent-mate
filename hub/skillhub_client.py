@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,14 @@ from pathlib import Path
 from typing import Any
 
 from config import settings
+
+# 技能 slug 白名单：仅字母数字与 . _ - ；杜绝路径分隔符与 `..`，因为 slug 会拼进临时目录路径
+# 与 `skillhub install <slug>` 子进程参数（WB-160，路径穿越/参数注入面）。
+_SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _valid_slug(slug: str) -> bool:
+    return bool(slug) and ".." not in slug and _SLUG_RE.match(slug) is not None
 
 # 白名单转发（与 backend 一致）：绝不把整个 os.environ（含密钥）透传给子进程（铁律#4 / WB-011）。
 _SAFE_ENV_KEYS = {
@@ -303,7 +312,7 @@ def preview(slug: str, name: str = "") -> dict[str, Any] | None:
     """单技能预览：HTTP 富元数据 + CLI SKILL.md 正文，合成前端可直接渲染的详情（含 references 数组）。
     元数据与正文都取不到 → None（调用方回退本地直连）。"""
     slug = (slug or "").strip()
-    if not slug:
+    if not _valid_slug(slug):
         return None
     hit = _preview_cache.get(slug)
     if hit and (time.time() - hit[0]) < _PREVIEW_TTL:

@@ -16,10 +16,24 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("notes")
 
 
+def _dir() -> Path:
+    # Resolved at call time (not import). As a spawned subprocess (standalone
+    # testing) the parent injects WORKBUDDY_NOTES_DIR at spawn — honor it. In-process
+    # (the real path) nothing sets that env; read the per-run workspace root from the
+    # sandbox contextvar instead, which is correctly isolated across concurrent runs
+    # — a process-global env would let two runs clobber each other's dir (WB-154).
+    env = os.environ.get("WORKBUDDY_NOTES_DIR")
+    if env:
+        return Path(env).resolve()
+    try:
+        from agent.sandbox import current_root
+        return current_root().resolve()
+    except Exception:
+        return Path(".").resolve()
+
+
 def _file() -> Path:
-    # Resolved at call time (not import) so this server works both as a spawned
-    # subprocess (env set at spawn) and in-process (env set per run).
-    return Path(os.environ.get("WORKBUDDY_NOTES_DIR", ".")).resolve() / "notes.json"
+    return _dir() / "notes.json"
 
 
 def _load() -> list[str]:

@@ -372,6 +372,19 @@ async def run_chat(
         trace_items.append(item)
         return _trace_to_sse(item)
 
+    def _persist_partial() -> str | None:
+        # Persist whatever text/trace already streamed before the run errored out,
+        # else on reload the user sees their message with no assistant reply at all
+        # (WB-160). Best-effort usage (may be approximate on the error path).
+        if assistant_text.strip() or trace_items:
+            msg = db.add_message(
+                session_id=session_id, role="assistant", content=assistant_text,
+                actor="assistant", trace=trace_items,
+                usage={"prompt": last_prompt, "completion": total_completion or _approx_tokens(assistant_text)},
+            )
+            return msg.id
+        return None
+
     # Once the run is registered, everything runs inside the try so a client
     # disconnect (CancelledError / GeneratorExit) anywhere — including the connector
     # spawn `await` — still hits `finally`: the session status is reset and connector
@@ -566,15 +579,17 @@ async def run_chat(
         finished_ok = True  # loop completed normally (incl. user-stop)
     except LLMError as e:
         yield events.error(str(e))
+        mid = _persist_partial()  # 保留已流式的半截回复（WB-160）
         db.touch_session(session_id, status="idle")
         finished_ok = True  # status settled; don't let finally override it
-        yield events.done()
+        yield events.done(mid)
         return
     except Exception as e:  # noqa: BLE001 — surface any hiccup to the UI
         yield events.error(f"执行出错：{e}")
+        mid = _persist_partial()  # 保留已流式的半截回复（WB-160）
         db.touch_session(session_id, status="idle")
         finished_ok = True
-        yield events.done()
+        yield events.done(mid)
         return
     finally:
         _unregister_run(session_id, run_id)
