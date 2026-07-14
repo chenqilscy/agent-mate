@@ -9,6 +9,7 @@ import hub_sync
 from agent import events, runtime
 from auth.deps import current_user
 from storage import db
+from storage.models import Role
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -60,9 +61,15 @@ async def chat(body: ChatBody):
     else:
         # New session: if it targets a project, the caller must have access to it,
         # else a stranger could drive a run inside that project's workspace sandbox
-        # (WB-050). Mirrors the owner-scoping of the session_id branch above.
-        if body.project_id and db.project_access_role(body.project_id, user.id) is None:
-            raise HTTPException(404, "project not found")
+        # (WB-050). Mirrors the owner-scoping of the session_id branch above. A Viewer
+        # is read-only (M7 C2): a project run executes write_file/run_command in the
+        # project sandbox, which a Viewer must not do (WB-153).
+        if body.project_id:
+            role = db.project_access_role(body.project_id, user.id)
+            if role is None:
+                raise HTTPException(404, "project not found")
+            if role == Role.VIEWER:
+                raise HTTPException(403, "只读成员不能在此项目中执行")
         title = (body.title or text)[:26]
         session = db.create_session(
             owner_id=user.id,
@@ -98,6 +105,10 @@ async def chat(body: ChatBody):
 
 @router.post("/chat/{session_id}/stop")
 def stop(session_id: str) -> dict:
+    # Owner-scoped: a teammate who can READ a session id (M7 C3) must not be able to
+    # abort someone else's in-flight run (WB-153).
+    if not db.get_session(session_id, owner_id=current_user().id):
+        raise HTTPException(404, "session not found")
     stopped = runtime.request_stop(session_id)
     return {"stopped": stopped}
 
@@ -110,5 +121,9 @@ class AnswerBody(BaseModel):
 async def answer(session_id: str, body: AnswerBody) -> dict:
     # Deliver the ask_user answers and wake the suspended agent (same SSE stream).
     # Async so submit_answers runs on the event loop (asyncio.Event.set()).
+    # Owner-scoped so a teammate can't inject text into another user's suspended
+    # ask_user turn (WB-153).
+    if not db.get_session(session_id, owner_id=current_user().id):
+        raise HTTPException(404, "session not found")
     ok = runtime.submit_answers(session_id, body.answers)
     return {"ok": ok}

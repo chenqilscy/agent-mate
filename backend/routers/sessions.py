@@ -51,6 +51,11 @@ def list_sessions(space: str | None = None) -> dict:
 @router.post("/sessions")
 def create_session(body: CreateSessionBody) -> dict:
     user = current_user()
+    # If the session targets a project, the caller must have access to it — else the
+    # session becomes a back-door handle to read/write that project's workspace via
+    # ?session= on the files endpoints (WB-153; mirrors chat.py + files._select_root).
+    if body.project_id and db.project_access_role(body.project_id, user.id) is None:
+        raise HTTPException(404, "project not found")
     s = db.create_session(
         owner_id=user.id,
         title=body.title,

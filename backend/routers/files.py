@@ -60,6 +60,15 @@ def _select_root(session: str | None, project: str | None, write: bool = False) 
         s = db.get_session(session, owner_id=user.id)
         if not s:
             raise HTTPException(404, "session not found")
+        # A session may point at a project; re-derive project access so a session
+        # can't be a back-door into a project the caller can't reach or may only
+        # read (defense-in-depth for WB-153 — the primary gate is at session create).
+        if s.project_id:
+            role = db.project_access_role(s.project_id, user.id)
+            if role is None:
+                raise HTTPException(404, "project not found")
+            if write and role == Role.VIEWER:
+                raise HTTPException(403, "只读成员不能修改项目文件")
         use_root(project_root(s.project_id))
         return
     use_root(project_root(None))
