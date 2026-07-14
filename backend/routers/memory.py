@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from agent import memory
+from agent import memory, mem_embed
 from auth.deps import current_user
 from storage import db
 
@@ -30,6 +30,10 @@ class SearchBody(BaseModel):
 
 class ImportanceBody(BaseModel):
     importance: float = Field(ge=0.0, le=1.0)
+
+
+class EmbedBackendBody(BaseModel):
+    backend: str  # 'local' | 'glm'
 
 
 _VALID_STATUS = {"active", "archived", "superseded"}
@@ -87,6 +91,17 @@ def set_enabled(body: EnabledBody) -> dict:
     owner = current_user().id
     memory.set_capture_enabled(owner, body.enabled)
     return {"enabled": memory.capture_enabled(owner)}
+
+
+@router.put("/embed-backend")
+def set_embed_backend(body: EmbedBackendBody) -> dict:
+    """选记忆嵌入后端（WB-170）：'local'（本地 fastembed）| 'glm'（在线 GLM embedding-3）。
+    返回各后端可用性；切换后旧向量下次注入/检索时惰性重嵌入迁移。"""
+    if body.backend not in ("local", "glm"):
+        raise HTTPException(status_code=400, detail="backend 必须是 local 或 glm")
+    owner = current_user().id
+    mem_embed.set_backend(owner, body.backend)
+    return mem_embed.backends_status(owner)
 
 
 @router.get("/{mem_id}")

@@ -616,6 +616,9 @@ def _migrate_columns() -> None:
         ("superseded_by", "superseded_by TEXT"),
         ("last_used_at", "last_used_at REAL"),
         ("embedding", "embedding BLOB"),
+        # WB-170：产生该向量的嵌入模型标签（如 local:bge-small-zh-v1.5 / glm:embedding-3）。
+        # 跨模型余弦无意义，检索/去重只比对同 tag；切后端后旧 tag 向量被重嵌入回填。
+        ("embedding_model", "embedding_model TEXT"),
     ):
         if col not in have_mem:
             conn.execute(f"ALTER TABLE user_memories ADD COLUMN {ddl}")
@@ -2170,16 +2173,17 @@ def add_memory(owner_id: str, content: str, source: str = "manual",
 
 
 def insert_memory(owner_id: str, content: str, source: str, importance: float = 0.5,
-                  *, embedding: Optional[bytes] = None, now: Optional[float] = None) -> dict:
+                  *, embedding: Optional[bytes] = None, embedding_model: Optional[str] = None,
+                  now: Optional[float] = None) -> dict:
     """无条件插入一条 active 记忆（不去重；去重由调用方决定）。返回标量 dict。"""
     text = (content or "").strip()
     mem_id = new_uuid()
     ts = now if now is not None else time.time()
     get_conn().execute(
         "INSERT INTO user_memories (id, owner_id, content, source, created_at, "
-        "importance, usage_count, status, superseded_by, last_used_at, embedding) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        (mem_id, owner_id, text, source, ts, importance, 0, "active", None, ts, embedding),
+        "importance, usage_count, status, superseded_by, last_used_at, embedding, embedding_model) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (mem_id, owner_id, text, source, ts, importance, 0, "active", None, ts, embedding, embedding_model),
     )
     get_conn().commit()
     return {"id": mem_id, "content": text, "source": source, "created_at": ts,
@@ -2260,22 +2264,26 @@ def set_memory_importance(owner_id: str, mem_id: str, importance: float) -> Opti
 
 
 def list_active_with_embedding(owner_id: str) -> list[dict]:
-    """内部用：active 记忆连 embedding 原始 bytes 一起返回（档二语义检索/去重）。"""
+    """内部用：active 记忆连 embedding 原始 bytes + embedding_model tag 一起返回（语义检索/去重）。"""
     rows = get_conn().execute(
-        f"SELECT {_MEM_COLS}, embedding FROM user_memories WHERE owner_id=? AND status='active'",
+        f"SELECT {_MEM_COLS}, embedding, embedding_model FROM user_memories "
+        "WHERE owner_id=? AND status='active'",
         (owner_id,),
     ).fetchall()
     out = []
     for r in rows:
         d = _mem_dict(r)
-        d["embedding"] = r["embedding"]  # bytes | None
+        d["embedding"] = r["embedding"]              # bytes | None
+        d["embedding_model"] = r["embedding_model"]  # str | None
         out.append(d)
     return out
 
 
-def set_memory_embedding(owner_id: str, mem_id: str, embedding: Optional[bytes]) -> None:
+def set_memory_embedding(owner_id: str, mem_id: str, embedding: Optional[bytes],
+                         embedding_model: Optional[str] = None) -> None:
     get_conn().execute(
-        "UPDATE user_memories SET embedding=? WHERE owner_id=? AND id=?", (embedding, owner_id, mem_id),
+        "UPDATE user_memories SET embedding=?, embedding_model=? WHERE owner_id=? AND id=?",
+        (embedding, embedding_model, owner_id, mem_id),
     )
     get_conn().commit()
 

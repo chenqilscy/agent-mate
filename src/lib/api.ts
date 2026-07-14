@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, InstalledSkill, KbCapacity, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbCapacity, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -52,6 +52,7 @@ export const api = {
   deleteMemory: (id: string) => send<{ ok: boolean }>('DELETE', `/memory/${id}`),
   clearMemory: () => send<{ ok: boolean; removed: number }>('POST', '/memory/clear'),
   setMemoryEnabled: (enabled: boolean) => send<{ enabled: boolean }>('PUT', '/memory/enabled', { enabled }),
+  setEmbedBackend: (backend: string) => send<EmbedStatus>('PUT', '/memory/embed-backend', { backend }),
   memoryStats: () => get<MemoryStats>('/memory/stats'),
   searchMemory: (query: string, top_k = 8) => send<MemorySearchResult>('POST', '/memory/search', { query, top_k }),
   setMemoryImportance: (id: string, importance: number) => send<MemoryItem>('PATCH', `/memory/${id}/importance`, { importance }),

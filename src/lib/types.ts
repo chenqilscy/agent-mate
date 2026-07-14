@@ -251,6 +251,12 @@ export interface MemoryItem {
   last_used_at?: number | null
   strength?: number
 }
+export interface EmbedStatus {
+  configured: string      // 用户所选后端 'local' | 'glm'
+  active: string | null   // 实际生效后端（所选不可用会回退）
+  local: boolean          // 本地 fastembed 是否可用
+  glm: boolean            // 在线 GLM（是否配了智谱密钥）
+}
 export interface MemoryStats {
   active: number
   archived: number
@@ -259,6 +265,7 @@ export interface MemoryStats {
   avg_strength: number
   decaying: number
   semantic: boolean
+  embed?: EmbedStatus
 }
 export interface MemoryData {
   enabled: boolean

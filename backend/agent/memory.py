@@ -71,27 +71,33 @@ def _rank_by_strength(mems: list[dict], now_s: float) -> list[dict]:
 
 
 def _ensure_embeddings(owner_id: str, mems: list[dict], cap: int = EMBED_BACKFILL_CAP) -> None:
-    """给缺 embedding 的 active 记忆补嵌入（持久化、一次性）；就地写回 mems 的 'embedding'。
-    仅在本地嵌入可用时调用。有上限，避免一次补太多拖住注入。"""
-    changed = 0
-    for m in mems:
-        if m.get("embedding") or changed >= cap:
-            continue
-        vec = mem_embed.embed(m.get("content") or "")
-        if vec is not None:
-            blob = mem_embed.to_blob(vec)
-            db.set_memory_embedding(owner_id, m["id"], blob)
-            m["embedding"] = blob
-            changed += 1
+    """给缺 embedding / 或 embedding 由【其他后端】产生（tag 不符当前后端）的 active 记忆，用当前后端
+    （重）嵌入并持久化，就地写回 mems 的 'embedding'/'embedding_model'。批量调用省 GLM 请求。有上限。
+    WB-170：这是切换嵌入后端后旧向量惰性迁移的入口。"""
+    tag = mem_embed.model_tag(owner_id)
+    if tag is None:
+        return
+    todo = [m for m in mems if (not m.get("embedding")) or m.get("embedding_model") != tag][:cap]
+    if not todo:
+        return
+    vecs = mem_embed.embed_batch(owner_id, [m.get("content") or "" for m in todo])
+    if not vecs or len(vecs) != len(todo):
+        return
+    for m, vec in zip(todo, vecs):
+        blob = mem_embed.to_blob(vec)
+        db.set_memory_embedding(owner_id, m["id"], blob, tag)
+        m["embedding"] = blob
+        m["embedding_model"] = tag
 
 
 def _rank_by_relevance(owner_id: str, mems: list[dict], qvec: list[float], now_s: float) -> list[dict]:
-    """按 retrieval_score(相似度, 强度) 降序（档二）。mems 需含 'embedding' bytes。"""
+    """按 retrieval_score(相似度, 强度) 降序（档二）。mems 需含 'embedding' bytes。只比对与当前后端同 tag 的向量。"""
     _ensure_embeddings(owner_id, mems)
+    tag = mem_embed.model_tag(owner_id)
     qa = np.asarray(qvec, dtype=np.float32)
     scored = []
     for m in mems:
-        mv = mem_embed.from_blob(m.get("embedding"))
+        mv = mem_embed.from_blob(m.get("embedding")) if m.get("embedding_model") == tag else None
         sim = mem_embed.cosine(qa, mv) if mv is not None else 0.0
         scored.append((retrieval_score(sim, _strength_of(m, now_s)), m))
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -105,7 +111,7 @@ def build_memory_prompt(owner_id: str, query_text: str | None = None) -> str:
     档一回退：按强度排序取 top-N。两者都取字符预算内、并**命中强化**。
     """
     now_s = time.time()
-    qvec = mem_embed.embed(query_text) if query_text else None
+    qvec = mem_embed.embed(owner_id, query_text) if query_text else None
     if qvec is not None:
         mems = db.list_active_with_embedding(owner_id)
         if not mems:
@@ -142,19 +148,22 @@ def store_memory(owner_id: str, content: str, source: str, importance: float = 0
     text = (content or "").strip()
     if not text:
         return None
-    vec = mem_embed.embed(text)
-    if vec is None:  # 档一回退
+    vec = mem_embed.embed(owner_id, text)
+    if vec is None:  # 档一回退（无可用嵌入后端）
         dup = db.find_active_memory_by_content(owner_id, text)
         if dup is not None:
             return db.reinforce_memory(owner_id, dup["id"])
         return db.insert_memory(owner_id, text, source, importance)
 
     # 档二语义路径
+    tag = mem_embed.model_tag(owner_id)
     qa = np.asarray(vec, dtype=np.float32)
     actives = db.list_active_with_embedding(owner_id)
-    _ensure_embeddings(owner_id, actives)
+    _ensure_embeddings(owner_id, actives)  # 把旧后端/缺失向量迁到当前后端，才能同 tag 比对
     best, best_sim = None, -1.0
     for m in actives:
+        if m.get("embedding_model") != tag:
+            continue
         mv = mem_embed.from_blob(m.get("embedding"))
         if mv is None:
             continue
@@ -164,7 +173,8 @@ def store_memory(owner_id: str, content: str, source: str, importance: float = 0
     # 完全重复（语义极高 + 同文）→ 强化既有
     if best is not None and best_sim >= DEDUPE_THRESHOLD and (best["content"] or "").strip() == text:
         return db.reinforce_memory(owner_id, best["id"])
-    new = db.insert_memory(owner_id, text, source, importance, embedding=mem_embed.to_blob(vec))
+    new = db.insert_memory(owner_id, text, source, importance,
+                           embedding=mem_embed.to_blob(vec), embedding_model=tag)
     # 语义高度相近但异文 → 自动更替：旧记忆软置 superseded（留链）
     if best is not None and best_sim >= CONFLICT_THRESHOLD and (best["content"] or "").strip() != text:
         db.supersede_memory(owner_id, best["id"], new["id"])
@@ -215,7 +225,8 @@ def memory_stats(owner_id: str) -> dict:
         "total": db.count_memories(owner_id, status=None),
         "avg_strength": avg,
         "decaying": sum(1 for s in strengths if s < 0.1),
-        "semantic": mem_embed.available(),
+        "semantic": mem_embed.available(owner_id),
+        "embed": mem_embed.backends_status(owner_id),  # WB-170：所配/生效后端 + 各后端可用性
     }
 
 
@@ -223,7 +234,7 @@ def search_memories(owner_id: str, query: str, top_k: int = 8) -> dict:
     """检索 playground（只读）。本地嵌入可用 → 语义相似度检索，返回 sim/strength/score；
     否则关键词子串兜底（similarity=None）。"""
     now_s = time.time()
-    qvec = mem_embed.embed(query) if query else None
+    qvec = mem_embed.embed(owner_id, query) if query else None
 
     def _row(m: dict, sim, strength: float) -> dict:
         d = {k: m[k] for k in ("id", "content", "source", "importance", "usage_count", "status",
@@ -234,11 +245,14 @@ def search_memories(owner_id: str, query: str, top_k: int = 8) -> dict:
         return d
 
     if qvec is not None:
+        tag = mem_embed.model_tag(owner_id)
         mems = db.list_active_with_embedding(owner_id)
         _ensure_embeddings(owner_id, mems)
         qa = np.asarray(qvec, dtype=np.float32)
-        hits = [_row(m, mem_embed.cosine(qa, mem_embed.from_blob(m.get("embedding"))), _strength_of(m, now_s))
-                for m in mems]
+        hits = []
+        for m in mems:
+            mv = mem_embed.from_blob(m.get("embedding")) if m.get("embedding_model") == tag else None
+            hits.append(_row(m, mem_embed.cosine(qa, mv) if mv is not None else 0.0, _strength_of(m, now_s)))
         hits.sort(key=lambda x: x["score"], reverse=True)
         return {"semantic": True, "hits": hits[:top_k]}
     # 关键词兜底

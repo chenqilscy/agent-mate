@@ -185,6 +185,7 @@
 | [WB-167](WB-167-memory-local-semantic-retrieval.md) | ✅ | P2 | backend | 认知记忆 档二 —— 本地嵌入(fastembed bge-small-zh·可选依赖懒加载) + 语义去重/自动更替 + 按当前对话相关性 top-K 注入 |
 | [WB-168](WB-168-memory-whitebox-management-ui.md) | ✅ | P2 | fullstack | 认知记忆 档三 —— 白盒管理(API: stats/search/importance/archive/rollback/trace/decaying + 设置·记忆面板升级) |
 | [WB-169](WB-169-console-kb-tpl-dim-slice-dropdowns.md) | ✅ | P2 | frontend | Manager 知识库模板编辑器 —— 新增「向量维度」联动下拉(跟随模型·真实生效·不碰铁律#1) + 切片方式改下拉(GLM 真实枚举) + 切片字数仅自定义切片时显示 |
+| [WB-170](WB-170-memory-embedding-backend-configurable.md) | ✅ | P2 | fullstack | 记忆嵌入后端可配置 —— 本地(fastembed bge-small-zh) ⇄ 在线(GLM embedding-3) 用户可选 + 跨模型 tag 惰性重嵌入迁移（知识库档位选择 WB-144/169 已就绪，本条只补记忆侧） |
 
 ## 来源
 

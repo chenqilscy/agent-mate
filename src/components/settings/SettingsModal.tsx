@@ -143,6 +143,13 @@ function MemoryPanel() {
     setEnabled(next)
     try { await api.setMemoryEnabled(next) } catch { setEnabled(!next); toast('操作失败') }
   }
+  const changeBackend = async (backend: string) => {
+    try {
+      const embed = await api.setEmbedBackend(backend)
+      setStats((s) => (s ? { ...s, embed, semantic: embed.active != null } : s))
+      toast(embed.active === 'glm' ? '已切换到在线 GLM embedding-3' : embed.active === 'local' ? '已切换到本地嵌入' : '当前无可用嵌入后端')
+    } catch { toast('切换失败') }
+  }
   const switchView = (v: MemView) => { setView(v); setLoaded(false); setTraceId(null); load(v) }
   const add = async () => {
     const text = adding.trim()
@@ -213,12 +220,27 @@ function MemoryPanel() {
         </button>
       </div>
 
+      <div className="set-field">
+        <div className="set-fhd">
+          <div className="set-fname">记忆嵌入</div>
+          <div className="set-fsub">
+            本地：离线、零成本（fastembed · bge-small-zh）。在线：GLM embedding-3（需在「模型管理」为智谱 GLM 配置密钥）。切换后旧记忆会在后续对话里自动重新嵌入。
+            {stats?.embed?.configured === 'glm' && !stats.embed.glm && <span style={{ color: '#e5484d' }}>　未配置 GLM 密钥，当前暂用本地。</span>}
+          </div>
+        </div>
+        <select className="np-input" style={{ width: 190, flexShrink: 0 }}
+          value={stats?.embed?.configured ?? 'local'} onChange={(e) => changeBackend(e.target.value)}>
+          <option value="local">本地（离线）</option>
+          <option value="glm">在线 · GLM embedding-3</option>
+        </select>
+      </div>
+
       {stats && (
         <div className="set-mstat">
           <span><b>{stats.active}</b> 条活跃</span>
           <span>平均强度 <b>{pct(stats.avg_strength)}%</b></span>
           {stats.decaying > 0 && <span><b>{stats.decaying}</b> 条衰退中</span>}
-          <span>语义检索 <b>{stats.semantic ? '已启用' : '未启用'}</b></span>
+          <span>语义检索 <b>{stats.embed?.active === 'glm' ? '在线 GLM' : stats.embed?.active === 'local' ? '本地' : '未启用'}</b></span>
         </div>
       )}
 
