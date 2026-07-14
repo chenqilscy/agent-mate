@@ -642,5 +642,7 @@ async def run_chat(
                 ),
                 timeout=30,
             )
+            # 衰退 GC（WB-166）：抽取后顺手归档强度过低的旧记忆（软状态，不硬删）。纯 DB、快，best-effort。
+            memory.decay_gc(user.id)
         except Exception:  # noqa: BLE001 —— 含 asyncio.TimeoutError
             pass

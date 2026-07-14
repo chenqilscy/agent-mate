@@ -178,6 +178,10 @@
 | [WB-160](WB-160-backend-hardening-tail.md) | 🟡 | P2 | backend | 后端加固尾集 —— 通知空 ids 误清全部 / MCP 超时孤儿进程 / 邮件先标已读丢信 / 流出错丢回复 / SSRF / slug 校验（邮件项 deferred） |
 | [WB-161](WB-161-authoritative-docs-correction.md) | ✅ | P2 | misc | 权威现状文档纠偏 —— CLAUDE.md/README/实现方案 对 Hub/auth/LLM key/CSS/Tauri 的错误陈述 |
 | [WB-162](WB-162-memory-mechanism-optimization.md) | ✅ | P2 | fullstack | 记忆机制优化 —— 注入预算化(优先手动+最近·超预算截断) + 结构化抽取(add/update 合并·更替过时矛盾) + 抽取输入预算 + 手动编辑一条(PUT+内联编辑 UI) |
+| [WB-165](WB-165-cognitive-memory-epic.md) | 🟡 | P2 | fullstack | 认知记忆机制移植(参考 AgentOS·epic) —— 强度/衰减/使用强化 + 本地语义检索 + 白盒管理（WB-166~168 三档累加） |
+| [WB-166](WB-166-memory-strength-decay-lifecycle.md) | ✅ | P2 | backend | 认知记忆 档一 —— 强度(importance×recency衰减×usage)排序注入+命中强化 + 软状态生命周期(active/superseded/archived 不硬删) + decay_gc（无嵌入） |
+| [WB-167](WB-167-memory-local-semantic-retrieval.md) | ⬜ | P2 | backend | 认知记忆 档二 —— 本地嵌入(fastembed bge-small-zh·可选依赖懒加载) + 语义去重/自动更替 + 按当前对话相关性 top-K 注入 |
+| [WB-168](WB-168-memory-whitebox-management-ui.md) | ⬜ | P2 | fullstack | 认知记忆 档三 —— 白盒管理(API: stats/search/importance/archive/rollback/trace/decaying + 设置·记忆面板升级) |
 
 ## 来源
 

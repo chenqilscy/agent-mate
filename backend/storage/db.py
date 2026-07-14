@@ -604,6 +604,21 @@ def _migrate_columns() -> None:
     for col, ddl in (("input_cost_cached", "input_cost_cached REAL"), ("currency", "currency TEXT")):
         if col not in have_mm:
             conn.execute(f"ALTER TABLE model_meta ADD COLUMN {ddl}")
+
+    # WB-166 认知记忆：user_memories 增强度/衰减/软状态字段（参考 AgentOS）。
+    # importance 0..1 重要度、usage_count 命中次数（强化）、status active/superseded/archived（软状态，不硬删）、
+    # superseded_by 更替留链、last_used_at 最近命中时间（衰减/强化基准）、embedding 本地嵌入向量 BLOB（档二 WB-167 填）。
+    have_mem = {r["name"] for r in conn.execute("PRAGMA table_info(user_memories)").fetchall()}
+    for col, ddl in (
+        ("importance", "importance REAL NOT NULL DEFAULT 0.5"),
+        ("usage_count", "usage_count INTEGER NOT NULL DEFAULT 0"),
+        ("status", "status TEXT NOT NULL DEFAULT 'active'"),
+        ("superseded_by", "superseded_by TEXT"),
+        ("last_used_at", "last_used_at REAL"),
+        ("embedding", "embedding BLOB"),
+    ):
+        if col not in have_mem:
+            conn.execute(f"ALTER TABLE user_memories ADD COLUMN {ddl}")
     conn.commit()
 
 
@@ -2074,22 +2089,58 @@ def clear_audit(owner_id: str) -> int:
     return cur.rowcount
 
 
-# ---- 用户记忆（WB-148）---------------------------------------------------
+# ---- 用户记忆（WB-148；认知记忆 WB-166：强度/衰减/软状态）------------------
 
-_MEMORY_MAX = 200  # 每个 owner 记忆条数上限，防无界增长
-
-
-def list_memories(owner_id: str, limit: int = _MEMORY_MAX) -> list[dict]:
-    rows = get_conn().execute(
-        "SELECT id, content, source, created_at FROM user_memories WHERE owner_id=? ORDER BY created_at DESC LIMIT ?",
-        (owner_id, limit),
-    ).fetchall()
-    return [dict(r) for r in rows]
+_MEMORY_MAX = 200  # 单 owner 列举/注入默认上限（软上限；不再硬删最旧，弱记忆改由 decay_gc 软归档）
+# 记忆标量列（不含 embedding BLOB），供列表/详情/注入读取。
+_MEM_COLS = (
+    "id, content, source, created_at, importance, usage_count, "
+    "status, superseded_by, last_used_at"
+)
 
 
-def count_memories(owner_id: str) -> int:
+def _mem_dict(r) -> dict:
+    """sqlite Row → dict（标量字段，不含 embedding BLOB）。"""
+    return {
+        "id": r["id"], "content": r["content"], "source": r["source"],
+        "created_at": r["created_at"], "importance": r["importance"],
+        "usage_count": r["usage_count"], "status": r["status"],
+        "superseded_by": r["superseded_by"], "last_used_at": r["last_used_at"],
+    }
+
+
+def list_memories(owner_id: str, limit: int = _MEMORY_MAX, status: Optional[str] = "active") -> list[dict]:
+    """列记忆（默认仅 active；status=None 则不限状态）。按 created_at DESC。"""
+    conn = get_conn()
+    if status is None:
+        rows = conn.execute(
+            f"SELECT {_MEM_COLS} FROM user_memories WHERE owner_id=? ORDER BY created_at DESC LIMIT ?",
+            (owner_id, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            f"SELECT {_MEM_COLS} FROM user_memories WHERE owner_id=? AND status=? "
+            "ORDER BY created_at DESC LIMIT ?",
+            (owner_id, status, limit),
+        ).fetchall()
+    return [_mem_dict(r) for r in rows]
+
+
+def get_memory(owner_id: str, mem_id: str) -> Optional[dict]:
+    r = get_conn().execute(
+        f"SELECT {_MEM_COLS} FROM user_memories WHERE owner_id=? AND id=?",
+        (owner_id, mem_id),
+    ).fetchone()
+    return _mem_dict(r) if r else None
+
+
+def count_memories(owner_id: str, status: Optional[str] = "active") -> int:
+    if status is None:
+        return get_conn().execute(
+            "SELECT COUNT(*) FROM user_memories WHERE owner_id=?", (owner_id,)
+        ).fetchone()[0]
     return get_conn().execute(
-        "SELECT COUNT(*) FROM user_memories WHERE owner_id=?", (owner_id,)
+        "SELECT COUNT(*) FROM user_memories WHERE owner_id=? AND status=?", (owner_id, status)
     ).fetchone()[0]
 
 
@@ -2106,62 +2157,142 @@ def owner_data_counts(owner_id: str) -> dict:
     return {"sessions": sessions, "messages": messages}
 
 
-def add_memory(owner_id: str, content: str, source: str = "manual") -> Optional[dict]:
-    """加一条记忆；空内容或与现有记忆重复（忽略大小写/首尾空白）则跳过、返回 None。"""
+def add_memory(owner_id: str, content: str, source: str = "manual",
+               importance: float = 0.5) -> Optional[dict]:
+    """加一条 active 记忆；空内容、或与现有【active】记忆精确重复（忽略大小写/首尾空白）则跳过、返回 None。
+    WB-166：不再硬删最旧（弱记忆改由 decay_gc 软归档）。语义去重/更替见 memory.store_memory（档二）。"""
     text = (content or "").strip()
     if not text:
         return None
-    norm = text.casefold()
-    existing = get_conn().execute(
-        "SELECT content FROM user_memories WHERE owner_id=?", (owner_id,)
-    ).fetchall()
-    if any((r["content"] or "").strip().casefold() == norm for r in existing):
+    if find_active_memory_by_content(owner_id, text) is not None:
         return None
+    return insert_memory(owner_id, text, source, importance)
+
+
+def insert_memory(owner_id: str, content: str, source: str, importance: float = 0.5,
+                  *, embedding: Optional[bytes] = None, now: Optional[float] = None) -> dict:
+    """无条件插入一条 active 记忆（不去重；去重由调用方决定）。返回标量 dict。"""
+    text = (content or "").strip()
     mem_id = new_uuid()
-    ts = time.time()
+    ts = now if now is not None else time.time()
+    get_conn().execute(
+        "INSERT INTO user_memories (id, owner_id, content, source, created_at, "
+        "importance, usage_count, status, superseded_by, last_used_at, embedding) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (mem_id, owner_id, text, source, ts, importance, 0, "active", None, ts, embedding),
+    )
+    get_conn().commit()
+    return {"id": mem_id, "content": text, "source": source, "created_at": ts,
+            "importance": importance, "usage_count": 0, "status": "active",
+            "superseded_by": None, "last_used_at": ts}
+
+
+def find_active_memory_by_content(owner_id: str, content: str) -> Optional[dict]:
+    """在 active 记忆里按归一化内容找完全重复的一条（忽略大小写/首尾空白）；无则 None。"""
+    norm = (content or "").strip().casefold()
+    if not norm:
+        return None
+    rows = get_conn().execute(
+        f"SELECT {_MEM_COLS} FROM user_memories WHERE owner_id=? AND status='active'",
+        (owner_id,),
+    ).fetchall()
+    for r in rows:
+        if (r["content"] or "").strip().casefold() == norm:
+            return _mem_dict(r)
+    return None
+
+
+def reinforce_memory(owner_id: str, mem_id: str, now: Optional[float] = None) -> Optional[dict]:
+    """命中强化：usage_count++、last_used_at=now。返回更新后标量 dict（不存在则 None）。"""
+    ts = now if now is not None else time.time()
+    cur = get_conn().execute(
+        "UPDATE user_memories SET usage_count = usage_count + 1, last_used_at=? "
+        "WHERE owner_id=? AND id=?",
+        (ts, owner_id, mem_id),
+    )
+    get_conn().commit()
+    return get_memory(owner_id, mem_id) if cur.rowcount else None
+
+
+def supersede_memory(owner_id: str, old_id: str, new_id: str) -> bool:
+    """把旧记忆置 superseded 并记取代它的新记忆 id（软状态，不硬删，可回滚）。"""
+    cur = get_conn().execute(
+        "UPDATE user_memories SET status='superseded', superseded_by=? "
+        "WHERE owner_id=? AND id=? AND status='active'",
+        (new_id, owner_id, old_id),
+    )
+    get_conn().commit()
+    return cur.rowcount > 0
+
+
+def set_memory_status(owner_id: str, mem_id: str, status: str) -> Optional[dict]:
+    """改状态（archive: active→archived；rollback: archived/superseded→active，回滚时清 superseded_by 链）。"""
     conn = get_conn()
-    conn.execute(
-        "INSERT INTO user_memories (id, owner_id, content, source, created_at) VALUES (?,?,?,?,?)",
-        (mem_id, owner_id, text, source, ts),
-    )
-    # 兑现 _MEMORY_MAX 上限：裁掉最旧的、只留最近 _MEMORY_MAX 条（否则行数无界增长、
-    # 且注入/去重只看最新 200 条会让超出的旧记忆静默失效仍占库）。
-    conn.execute(
-        """DELETE FROM user_memories WHERE owner_id=? AND id NOT IN (
-               SELECT id FROM user_memories WHERE owner_id=? ORDER BY created_at DESC LIMIT ?
-           )""",
-        (owner_id, owner_id, _MEMORY_MAX),
-    )
+    if status == "active":
+        conn.execute(
+            "UPDATE user_memories SET status='active', superseded_by=NULL WHERE owner_id=? AND id=?",
+            (owner_id, mem_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE user_memories SET status=? WHERE owner_id=? AND id=?", (status, owner_id, mem_id),
+        )
     conn.commit()
-    return {"id": mem_id, "content": text, "source": source, "created_at": ts}
+    return get_memory(owner_id, mem_id)
+
+
+def set_memory_importance(owner_id: str, mem_id: str, importance: float) -> Optional[dict]:
+    imp = min(1.0, max(0.0, float(importance)))
+    cur = get_conn().execute(
+        "UPDATE user_memories SET importance=? WHERE owner_id=? AND id=?", (imp, owner_id, mem_id),
+    )
+    get_conn().commit()
+    return get_memory(owner_id, mem_id) if cur.rowcount else None
+
+
+def list_active_with_embedding(owner_id: str) -> list[dict]:
+    """内部用：active 记忆连 embedding 原始 bytes 一起返回（档二语义检索/去重）。"""
+    rows = get_conn().execute(
+        f"SELECT {_MEM_COLS}, embedding FROM user_memories WHERE owner_id=? AND status='active'",
+        (owner_id,),
+    ).fetchall()
+    out = []
+    for r in rows:
+        d = _mem_dict(r)
+        d["embedding"] = r["embedding"]  # bytes | None
+        out.append(d)
+    return out
+
+
+def set_memory_embedding(owner_id: str, mem_id: str, embedding: Optional[bytes]) -> None:
+    get_conn().execute(
+        "UPDATE user_memories SET embedding=? WHERE owner_id=? AND id=?", (embedding, owner_id, mem_id),
+    )
+    get_conn().commit()
 
 
 def update_memory(owner_id: str, mem_id: str, content: str) -> Optional[dict]:
-    """原地更替一条记忆的内容（保留 id 与 source/created_at）。WB-162：供对话抽取「更替过时/矛盾事实」
-    与前端手动编辑复用。空内容、记忆不存在、或更成与【他条】重复（忽略大小写/首尾空白）则不改、返回 None。"""
+    """原地更替一条记忆的内容（保留 id/source/created_at/强度等）。WB-162 手动编辑复用。
+    空内容、记忆不存在、或更成与【其他 active 记忆】重复（忽略大小写/首尾空白）则不改、返回 None。"""
     text = (content or "").strip()
     if not text:
         return None
     conn = get_conn()
     row = conn.execute(
-        "SELECT id, source, created_at FROM user_memories WHERE owner_id=? AND id=?",
-        (owner_id, mem_id),
+        "SELECT id FROM user_memories WHERE owner_id=? AND id=?", (owner_id, mem_id),
     ).fetchone()
     if row is None:
         return None
     norm = text.casefold()
     others = conn.execute(
-        "SELECT content FROM user_memories WHERE owner_id=? AND id<>?",
+        "SELECT content FROM user_memories WHERE owner_id=? AND id<>? AND status='active'",
         (owner_id, mem_id),
     ).fetchall()
     if any((r["content"] or "").strip().casefold() == norm for r in others):
         return None
-    conn.execute(
-        "UPDATE user_memories SET content=? WHERE owner_id=? AND id=?",
-        (text, owner_id, mem_id),
-    )
+    conn.execute("UPDATE user_memories SET content=? WHERE owner_id=? AND id=?", (text, owner_id, mem_id))
     conn.commit()
-    return {"id": mem_id, "content": text, "source": row["source"], "created_at": row["created_at"]}
+    return get_memory(owner_id, mem_id)
 
 
 def delete_memory(owner_id: str, mem_id: str) -> bool:

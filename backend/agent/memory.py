@@ -1,23 +1,28 @@
-"""用户记忆（WB-148；机制优化 WB-162）：长期事实的存取、注入对话、以及从对话自动抽取。
+"""用户记忆（WB-148；机制优化 WB-162；认知记忆 WB-166/167 参考 AgentOS）。
 
-- 已存记忆注入 system prompt → 之后对话「记得」用户（真生效）。注入**按预算**取（手动优先+最近优先），
-  避免随记忆数无界膨胀（WB-162）。
-- 开启「生成对话记忆」后，每轮结束跑一次性 LLM 抽取，产出**结构化操作**（add 新增 / update 更替过时·矛盾的
-  某条既有记忆），去重入库（默认关：local-first 尊重 API 花费）。回喂抽取器的「已有记忆」上下文也按预算截断。
+长期事实的存取、注入对话、从对话自动抽取。核心机制：
+- **强度**：每条记忆有 strength = importance × recency(指数衰减) × usage(对数强化)，见 mem_decay。
+- **注入**：active 记忆按强度排序、取字符预算内 top-N 注入 system prompt，**命中即强化**（档二 WB-167 起改为
+  按当前对话语义相关性检索）。
+- **抽取**：开启后每轮跑一次性 LLM 抽取，产出结构化操作（add 新增 / update 更替）；update 走 **supersede**
+  （旧记忆软置 superseded、留 superseded_by 链，不原地覆盖）。默认关：local-first 尊重 API 花费。
+- **衰退 GC**：强度低于阈值的记忆软归档（archived），不硬删，可回滚。
 记忆是纯文本用户事实，绝不放密钥/凭据。
 """
 from __future__ import annotations
 
 import json
+import time
 
 from agent.llm import stream_chat
+from agent.mem_decay import compute_strength, should_archive
 from storage import db
 
 # user_settings KV 键：是否从对话自动抽取记忆（"1"=开）。默认关。
 MEM_CAPTURE_KEY = "pref.memory_capture"
 MAX_PER_TURN = 3        # 每轮最多几个操作，避免一次灌太多
-INJECT_CHAR_BUDGET = 1500   # 注入 system prompt 的记忆总字符预算，防随库增长无界膨胀（WB-162）
-EXTRACT_CTX_BUDGET = 1500   # 回喂抽取器的「已有记忆」上下文字符预算（同理，抽取输入也不该无界）
+INJECT_CHAR_BUDGET = 1500   # 注入 system prompt 的记忆总字符预算，防随库增长无界膨胀
+EXTRACT_CTX_BUDGET = 1500   # 回喂抽取器的「已有记忆」上下文字符预算
 
 
 def capture_enabled(owner_id: str) -> bool:
@@ -28,11 +33,13 @@ def set_capture_enabled(owner_id: str, on: bool) -> None:
     db.set_user_setting(owner_id, MEM_CAPTURE_KEY, "1" if on else None)
 
 
-def _prioritize(mems: list[dict]) -> list[dict]:
-    """注入/回喂优先级：手动记忆优先，其次按最近（mems 已按 created_at DESC）。稳定、无随机。"""
-    manual = [m for m in mems if m.get("source") == "manual"]
-    convo = [m for m in mems if m.get("source") != "manual"]
-    return manual + convo
+# ---- 强度与预算 -----------------------------------------------------------
+
+def _strength_of(m: dict, now_s: float) -> float:
+    """一条记忆的当前强度。recency 以「最近一次使用」为基准（回退创建时间）：常用旧记忆不被误衰减。"""
+    basis_s = max(m["created_at"], m.get("last_used_at") or m["created_at"])
+    age_ms = max(0.0, (now_s - basis_s) * 1000.0)
+    return compute_strength(m.get("importance", 0.5), age_ms, m.get("usage_count", 0) or 0)
 
 
 def _within_budget(mems: list[dict], budget: int) -> tuple[list[dict], int]:
@@ -51,22 +58,61 @@ def _within_budget(mems: list[dict], budget: int) -> tuple[list[dict], int]:
     return picked, len(mems) - len(picked)
 
 
-def build_memory_prompt(owner_id: str) -> str:
-    """把已存记忆拼成注入 system prompt 的段；无记忆则空串。按预算取（手动优先+最近优先），超预算截断并注明。"""
-    mems = db.list_memories(owner_id)
+def _rank_by_strength(mems: list[dict], now_s: float) -> list[dict]:
+    """按强度降序（稳定：同分保持原顺序，即 created_at DESC）。"""
+    return sorted(mems, key=lambda m: _strength_of(m, now_s), reverse=True)
+
+
+def build_memory_prompt(owner_id: str, query_text: str | None = None) -> str:
+    """把已存记忆拼成注入 system prompt 的段；无记忆则空串。
+
+    档一：active 记忆按强度排序 → 取字符预算内 top-N → **命中强化** → 拼段。
+    query_text 预留给档二（WB-167）做按当前对话语义相关性检索；档一忽略之。
+    """
+    mems = db.list_memories(owner_id)  # active，created_at DESC
     if not mems:
         return ""
-    picked, omitted = _within_budget(_prioritize(mems), INJECT_CHAR_BUDGET)
+    now_s = time.time()
+    picked, omitted = _within_budget(_rank_by_strength(mems, now_s), INJECT_CHAR_BUDGET)
     if not picked:
         return ""
+    for m in picked:  # 命中强化：被注入即视为「用到」，refresh usage/last_used
+        db.reinforce_memory(owner_id, m["id"], now_s)
     lines = "\n".join(f"- {(m['content'] or '').strip()}" for m in picked)
-    tail = f"\n（另有 {omitted} 条较早记忆已省略）" if omitted > 0 else ""
+    tail = f"\n（另有 {omitted} 条较弱记忆已省略）" if omitted > 0 else ""
     return (
         "\n\n# 关于用户的记忆\n"
         "以下是你此前记住的、关于该用户的长期事实。作答时自然地纳入考量，不要生硬复述：\n"
         + lines + tail
     )
 
+
+# ---- 落库（去重/强化/更替）------------------------------------------------
+
+def store_memory(owner_id: str, content: str, source: str, importance: float = 0.5) -> dict | None:
+    """落库一条记忆：精确重复既有 active 则强化并返回既有；否则插入新记忆。
+    档二（WB-167）会在此加语义相似度去重/自动更替。"""
+    text = (content or "").strip()
+    if not text:
+        return None
+    dup = db.find_active_memory_by_content(owner_id, text)
+    if dup is not None:
+        return db.reinforce_memory(owner_id, dup["id"])
+    return db.insert_memory(owner_id, text, source, importance)
+
+
+def decay_gc(owner_id: str) -> int:
+    """衰退 GC：强度低于阈值的 active 记忆软归档（archived，不硬删）。返回归档数。best-effort。"""
+    now_s = time.time()
+    archived = 0
+    for m in db.list_memories(owner_id, limit=10**9):  # 全部 active
+        if should_archive(_strength_of(m, now_s)):
+            db.set_memory_status(owner_id, m["id"], "archived")
+            archived += 1
+    return archived
+
+
+# ---- 从对话抽取（结构化操作 add / update→supersede）-----------------------
 
 _EXTRACT_SYS = (
     "你是一个记忆抽取器。从给定的一轮对话里，提炼关于【用户本人】、且长期有效的稳定事实"
@@ -132,10 +178,11 @@ async def extract_and_store(
     api_key: str | None,
     chat_path: str,
 ) -> list[dict]:
-    """一次性抽取本轮记忆 → 结构化操作（add/update）入库。返回本轮实际变更的记忆。
+    """一次性抽取本轮记忆 → 结构化操作（add / update→supersede）入库。返回本轮实际变更的记忆。
     best-effort：调用方吞异常。"""
-    # 回喂抽取器的「已有记忆」按预算截断并编号；ctx 的序号(1-based) ↔ 记忆 用于 update 定位。
-    ctx, _ = _within_budget(_prioritize(db.list_memories(owner_id)), EXTRACT_CTX_BUDGET)
+    # 回喂抽取器的「已有记忆」按强度排序 + 预算截断并编号；ctx 序号(1-based) ↔ 记忆 用于 update 定位。
+    now_s = time.time()
+    ctx, _ = _within_budget(_rank_by_strength(db.list_memories(owner_id), now_s), EXTRACT_CTX_BUDGET)
     if ctx:
         known_lines = "\n".join(f"{i + 1}. {(m['content'] or '').strip()}" for i, m in enumerate(ctx))
         known = "已有记忆（带序号，据此判断是新增还是更替；不要重复 add 已有事实）：\n" + known_lines
@@ -158,15 +205,14 @@ async def extract_and_store(
             acc += delta.content
     stored: list[dict] = []
     for op in _parse_ops(acc)[:MAX_PER_TURN]:
+        row = store_memory(owner_id, op["content"], "conversation")
+        if row is None:
+            continue
         if op["op"] == "update":
             idx = op["ref"] - 1
-            if 0 <= idx < len(ctx):
-                row = db.update_memory(owner_id, ctx[idx]["id"], op["content"])
-                if row:
-                    stored.append(row)
-                    continue
-            # ref 越界 / 更替被去重守卫挡下 → 退化为 add（下方）
-        row = db.add_memory(owner_id, op["content"], source="conversation")
-        if row:
-            stored.append(row)
+            old = ctx[idx] if 0 <= idx < len(ctx) else None
+            # 新记忆更替旧记忆：旧的软置 superseded（留链）。同一条（内容没变→dedup 回既有）则不 supersede。
+            if old and old["id"] != row["id"] and row.get("status") == "active":
+                db.supersede_memory(owner_id, old["id"], row["id"])
+        stored.append(row)
     return stored
