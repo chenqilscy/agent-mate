@@ -96,6 +96,39 @@ def hub_login(name: str, password: str, register: bool = False) -> Optional[dict
     return _post("/api/auth/register" if register else "/api/auth/login", "", {"name": name, "password": password})
 
 
+def hub_login_ex(name: str, password: str, register: bool = False) -> tuple[str, Optional[dict[str, Any]]]:
+    """判别式登录/注册（WB-164）：区分 Manager 的**明确拒绝**与**不可达**，让调用方能
+    「Manager 权威 + 离线兜底」——rejected 时不回退（避免密码错被本地放行），unreachable 时才回退。
+
+    返回 `(status, payload)`：
+      - `("ok", {token, account})` —— Manager 200 通过；
+      - `("rejected", {"code": <4xx>, "detail": <消息>})` —— Manager 明确拒绝（401 密码错 / 409 重名 / 400）；
+      - `("unreachable", None)` —— 未接 Hub / 网络错 / 超时 / 5xx（本地应回退或诚实报错）。
+    绝不抛异常。"""
+    if not settings.HUB_URL:
+        return ("unreachable", None)
+    path = "/api/auth/register" if register else "/api/auth/login"
+    try:
+        r = httpx.post(f"{settings.HUB_URL}{path}", json={"name": name, "password": password}, timeout=_TIMEOUT)
+    except Exception:  # noqa: BLE001 —— 网络/超时任何错都当不可达 → 兜底
+        return ("unreachable", None)
+    if r.status_code == 200:
+        try:
+            data = r.json()
+        except Exception:  # noqa: BLE001
+            return ("unreachable", None)
+        return ("ok", data) if isinstance(data, dict) and data.get("token") else ("unreachable", None)
+    if 400 <= r.status_code < 500:
+        detail = ""
+        try:
+            body = r.json()
+            detail = body.get("detail", "") if isinstance(body, dict) else ""
+        except Exception:  # noqa: BLE001
+            detail = ""
+        return ("rejected", {"code": r.status_code, "detail": detail if isinstance(detail, str) else ""})
+    return ("unreachable", None)  # 5xx 等 → 当 Manager 暂时不可达
+
+
 def list_comments(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
     d = _get(f"/api/projects/{project_id}/comments", token)
     c = d.get("comments") if isinstance(d, dict) else None

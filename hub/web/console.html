@@ -345,7 +345,7 @@ function render(){
           ${nvItem("catalog","专家","experts")}${nvItem("catalog","连接器","connectors")}${nvItem("catalog","技能","skills")}${nvItem("catalog","知识库","knowledge")}
         </div>`:""}
         ${admin?`<div class="nv-group"><div class="nv-gtitle">系统</div>
-          ${nvItem("settings","设置")}${nvItem("catalog","高级 JSON","raw")}
+          ${nvItem("users","用户")}${nvItem("settings","设置")}${nvItem("catalog","高级 JSON","raw")}
         </div>`:""}
       </div>
       <div class="main" id="main"></div>
@@ -359,6 +359,7 @@ function render(){
   if(VIEW==="overview") overviewView(m);
   else if(VIEW==="projects") CUR? projectDetail(m) : projectsView(m);
   else if(VIEW==="orgs") orgsView(m);
+  else if(VIEW==="users") usersView(m);
   else if(VIEW==="notifs") notifsView(m);
   else if(VIEW==="catalog") catalogView(m);
   else if(VIEW==="settings") settingsView(m);
@@ -1094,6 +1095,130 @@ async function orgsView(m){
   try{ const {orgs} = await api("GET","/orgs");
     document.getElementById("o-list").innerHTML = orgs.length? orgs.map(o=>`<div class="list-item"><div style="flex:1"><div class="t">${esc(o.name)}</div><div class="d">${esc(o.role)}</div></div></div>`).join("") : '<div class="muted">还没有组织</div>';
   }catch(e){ document.getElementById("o-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+}
+
+// ---------- 用户管理（WB-163）：平台管理员维护全部账号（列表/建/改/重置密码/删）。 ----------
+// Manager 是账号权威源（App 登录经此验证，WB-164）。全部 um- 前缀防撞（并发共享树）。
+// 视觉零重设计：复用 .card/.list-item/.field/.pill/.badge 与 .np-* 弹窗骨架（expModal/expClose）。
+let UM_ACCTS = [];
+async function usersView(m){
+  m.innerHTML = `<h1>用户</h1><div class="sub">平台账号总览 · 仅平台管理员可见（Manager 是账号权威源，App 登录经此验证）</div>
+    <div class="card"><h3>新建账号</h3>
+      <div class="field"><label>用户名</label><input id="um-name" autocomplete="off"></div>
+      <div class="row">
+        <div class="field grow"><label>密码（≥4 位）</label><input id="um-pw" type="password" autocomplete="new-password"></div>
+        <div class="field grow"><label>套餐</label><input id="um-plan" placeholder="体验版"></div>
+      </div>
+      <div class="field"><label>邮箱（可选）</label><input id="um-email"></div>
+      <label class="row" style="gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="um-admin" style="width:auto"> 设为平台管理员</label>
+      <div class="err" id="um-err"></div>
+      <button id="um-create">创建账号</button></div>
+    <div class="row" style="margin:14px 0 8px"><b>全部账号</b><div class="grow"></div><input id="um-q" placeholder="搜索用户名…" style="max-width:240px"></div>
+    <div id="um-list" class="muted">加载中…</div>`;
+  const reload = async ()=>{
+    try{ const {accounts} = await api("GET","/accounts"); UM_ACCTS = accounts||[]; umRenderList(reload); }
+    catch(e){ document.getElementById("um-list").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  };
+  document.getElementById("um-create").onclick = async ()=>{
+    const err = document.getElementById("um-err"); err.textContent = "";
+    try{
+      await api("POST","/accounts",{
+        name: document.getElementById("um-name").value.trim(),
+        password: document.getElementById("um-pw").value,
+        email: document.getElementById("um-email").value.trim(),
+        plan: document.getElementById("um-plan").value.trim(),
+        is_platform_admin: document.getElementById("um-admin").checked,
+      });
+      document.getElementById("um-name").value=""; document.getElementById("um-pw").value="";
+      document.getElementById("um-email").value=""; document.getElementById("um-plan").value=""; document.getElementById("um-admin").checked=false;
+      await reload();
+    }catch(e){ err.textContent = e.message; }
+  };
+  document.getElementById("um-q").oninput = ()=> umRenderList(reload);
+  await reload();
+}
+
+function umRenderList(reload){
+  const list = document.getElementById("um-list"); if(!list) return;
+  const q = (document.getElementById("um-q")?.value||"").trim().toLowerCase();
+  const rows = UM_ACCTS.filter(a=> !q || (a.name||"").toLowerCase().includes(q));
+  list.className = "";
+  list.innerHTML = rows.length ? rows.map(a=>{
+    const self = a.id===ME.id;
+    const badges = [
+      a.is_platform_admin?'<span class="badge admin">平台管理员</span>':'',
+      a.online?'<span class="pill">🟢 在线</span>':(a.last_seen?`<span class="pill">最近 ${ago(a.last_seen)}</span>`:'<span class="pill">从未登录</span>'),
+      `<span class="pill">${esc(a.plan||'—')}</span>`,
+      `<span class="pill">项目 ${a.owned_projects}${a.member_projects?('+'+a.member_projects):''}</span>`,
+      self?'<span class="pill">你</span>':'',
+    ].join("");
+    return `<div class="list-item"><div style="flex:1;min-width:0">
+        <div class="t">${esc(a.name)} ${badges}</div>
+        <div class="d">${esc(a.email||'无邮箱')} · 创建于 ${ago(a.created_at)||'—'} · id ${esc(String(a.id).slice(0,8))}</div></div>
+        <button class="line" data-edit="${a.id}">编辑</button>
+        <button class="line" data-pw="${a.id}">重置密码</button>
+        <button class="danger" data-del="${a.id}">删除</button></div>`;
+  }).join("") : '<div class="muted">没有匹配的账号</div>';
+  const byId = id=> UM_ACCTS.find(x=>x.id===id);
+  list.querySelectorAll("[data-edit]").forEach(b=> b.onclick=()=> umEditModal(byId(b.dataset.edit), reload));
+  list.querySelectorAll("[data-pw]").forEach(b=> b.onclick=()=> umPasswordModal(byId(b.dataset.pw), reload));
+  list.querySelectorAll("[data-del]").forEach(b=> b.onclick=()=> umDeleteModal(byId(b.dataset.del), reload));
+}
+
+function umEditModal(a, reload){
+  if(!a) return;
+  const ov = expModal(`
+    <div class="np-h">编辑账号 · ${esc(a.name)}<button class="np-x" data-close>×</button></div>
+    <div class="np-body">
+      <div class="field"><label>用户名</label><input id="ume-name" value="${esc(a.name)}"></div>
+      <div class="field"><label>邮箱</label><input id="ume-email" value="${esc(a.email||'')}"></div>
+      <div class="field"><label>套餐</label><input id="ume-plan" value="${esc(a.plan||'')}"></div>
+      <label class="row" style="gap:6px;font-size:13px"><input type="checkbox" id="ume-admin" ${a.is_platform_admin?'checked':''} style="width:auto"> 平台管理员</label>
+      <div class="err" id="ume-err" style="margin-top:8px"></div>
+    </div>
+    <div class="np-foot"><div class="grow"></div><button class="line" data-close>取消</button><button id="ume-save">保存</button></div>`);
+  ov.querySelector("#ume-save").onclick = async ()=>{
+    const err = ov.querySelector("#ume-err"); err.textContent="";
+    try{
+      await api("PATCH","/accounts/"+a.id,{
+        name: ov.querySelector("#ume-name").value.trim(),
+        email: ov.querySelector("#ume-email").value.trim(),
+        plan: ov.querySelector("#ume-plan").value.trim(),
+        is_platform_admin: ov.querySelector("#ume-admin").checked,
+      });
+      expClose(ov); await reload();
+    }catch(e){ err.textContent = e.message; }
+  };
+}
+
+function umPasswordModal(a, reload){
+  if(!a) return;
+  const ov = expModal(`
+    <div class="np-h">重置密码 · ${esc(a.name)}<button class="np-x" data-close>×</button></div>
+    <div class="np-body">
+      <div class="field"><label>新密码（≥4 位）</label><input id="ump-pw" type="password" autocomplete="new-password"></div>
+      <div class="err" id="ump-err"></div>
+    </div>
+    <div class="np-foot"><div class="grow"></div><button class="line" data-close>取消</button><button id="ump-save">重置</button></div>`);
+  ov.querySelector("#ump-save").onclick = async ()=>{
+    const err = ov.querySelector("#ump-err"); err.textContent="";
+    try{ await api("POST","/accounts/"+a.id+"/password",{password: ov.querySelector("#ump-pw").value}); expClose(ov); await reload(); }
+    catch(e){ err.textContent = e.message; }
+  };
+}
+
+function umDeleteModal(a, reload){
+  if(!a) return;
+  const ov = expModal(`
+    <div class="np-h">删除账号<button class="np-x" data-close>×</button></div>
+    <div class="np-body"><p>确定删除账号 <b>${esc(a.name)}</b>？此操作不可撤销，将清除其登录令牌与项目成员身份。</p>
+      <div class="err" id="umd-err"></div></div>
+    <div class="np-foot"><div class="grow"></div><button class="line" data-close>取消</button><button class="danger" id="umd-go">确认删除</button></div>`);
+  ov.querySelector("#umd-go").onclick = async ()=>{
+    const err = ov.querySelector("#umd-err"); err.textContent="";
+    try{ await api("DELETE","/accounts/"+a.id); expClose(ov); await reload(); }
+    catch(e){ err.textContent = e.message; }
+  };
 }
 
 // ---------- notifications ----------

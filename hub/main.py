@@ -25,7 +25,7 @@ _CONSOLE = Path(__file__).resolve().parent / "web" / "console.html"
 import db  # noqa: E402
 import skillhub_sync  # noqa: E402
 from config import settings  # noqa: E402
-from routers import auth, catalog, comments, invites, milestones, notifications, orgs, projects, settings as settings_router, timeline, work_items  # noqa: E402
+from routers import accounts, auth, catalog, comments, invites, milestones, notifications, orgs, projects, settings as settings_router, timeline, work_items  # noqa: E402
 
 db.init_db()
 
@@ -74,6 +74,7 @@ def health() -> dict:
 
 
 app.include_router(auth.router)
+app.include_router(accounts.router)
 app.include_router(orgs.router)
 app.include_router(projects.router)
 app.include_router(invites.router)

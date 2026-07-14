@@ -340,6 +340,76 @@ def find_account_by_name(name: str) -> Optional[Account]:
     return _row_to_account(r) if r else None
 
 
+# ---- accounts admin（WB-163 平台用户管理）--------------------------------
+# 仅平台管理员经 routers/accounts.py 调用；返回富字典（含 last_seen/online/项目数），供管理台账。
+
+def owned_projects_count(account_id: str) -> int:
+    return get_conn().execute("SELECT COUNT(*) FROM projects WHERE owner_id=?", (account_id,)).fetchone()[0]
+
+
+def member_projects_count(account_id: str) -> int:
+    return get_conn().execute("SELECT COUNT(*) FROM project_members WHERE account_id=?", (account_id,)).fetchone()[0]
+
+
+def count_platform_admins() -> int:
+    return get_conn().execute("SELECT COUNT(*) FROM accounts WHERE is_platform_admin=1").fetchone()[0]
+
+
+def _account_admin_view(a: Account, last_seen: float) -> dict:
+    """账号 + 在线状态 + 项目数（owner + 成员），供管理台账。绝不含 password_hash。"""
+    d = a.to_dict()
+    d["last_seen"] = last_seen
+    d["online"] = bool(last_seen) and (time.time() - last_seen) < _ONLINE_WINDOW
+    d["owned_projects"] = owned_projects_count(a.id)
+    d["member_projects"] = member_projects_count(a.id)
+    return d
+
+
+def list_accounts() -> list[dict]:
+    """全部平台账号（按创建时间），含在线/项目数的富视图。"""
+    rows = get_conn().execute("SELECT * FROM accounts ORDER BY created_at").fetchall()
+    return [_account_admin_view(_row_to_account(r), (r["last_seen"] if "last_seen" in r.keys() else 0) or 0) for r in rows]
+
+
+def get_account_admin_view(account_id: str) -> Optional[dict]:
+    r = get_conn().execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+    return _account_admin_view(_row_to_account(r), (r["last_seen"] if "last_seen" in r.keys() else 0) or 0) if r else None
+
+
+def update_account(account_id: str, *, name: Optional[str] = None, email: Optional[str] = None,
+                   plan: Optional[str] = None, is_platform_admin: Optional[bool] = None) -> Optional[Account]:
+    """局部更新账号可改字段。name 唯一约束由调用方先查重（撞了这里 sqlite 会抛）。"""
+    sets: list[str] = []
+    vals: list[Any] = []
+    if name is not None:
+        sets.append("name=?"); vals.append(name[:60])
+    if email is not None:
+        sets.append("email=?"); vals.append(email[:120])
+    if plan is not None:
+        sets.append("plan=?"); vals.append(plan[:40])
+    if is_platform_admin is not None:
+        sets.append("is_platform_admin=?"); vals.append(int(is_platform_admin))
+    if sets:
+        vals.append(account_id)
+        get_conn().execute(f"UPDATE accounts SET {','.join(sets)} WHERE id=?", vals)
+        get_conn().commit()
+    return get_account(account_id)
+
+
+def set_account_password(account_id: str, password: str) -> None:
+    get_conn().execute("UPDATE accounts SET password_hash=? WHERE id=?", (hash_password(password), account_id))
+    get_conn().commit()
+
+
+def delete_account(account_id: str) -> None:
+    """删账号并级联清其 token / 项目成员行。调用方须已守卫（非自己/非最后管理员/不拥有项目）。"""
+    c = get_conn()
+    c.execute("DELETE FROM hub_tokens WHERE account_id=?", (account_id,))
+    c.execute("DELETE FROM project_members WHERE account_id=?", (account_id,))
+    c.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+    c.commit()
+
+
 # ---- orgs ---------------------------------------------------------------
 
 def _row_to_org(r: sqlite3.Row) -> Org:
