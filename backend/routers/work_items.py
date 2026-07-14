@@ -205,7 +205,9 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
             if items is not None:
                 db.mirror_hub_work_items(body.project_id, items)  # 让新项本地可定位
             return _hub_view(created)
-        # Hub 不可达 → 回退本地
+        # hub-origin 项目 + Hub 不可达：别造一条会被下次 list 的镜像 DELETE 抹掉的本地行
+        # （静默数据丢失 + 假成功，违反铁律#1）。如实报错让前端提示重试（WB-158）。
+        raise HTTPException(503, "Hub 暂不可达，任务未创建，请稍后重试")
     wi = db.create_work_item(
         project_id=body.project_id, owner_id=user.id, title=title, status=status, source=body.source,
         description=(body.description or "").strip(), due_date=(body.due_date or None),
@@ -245,7 +247,9 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
                 if items is not None:
                     db.mirror_hub_work_items(existing.project_id, items)
                 return _hub_view(up)
-        # Hub 不可达 → 回退本地
+            # hub-origin + Hub 不可达：本地改动会被下次镜像还原，如实报错（WB-158）。
+            raise HTTPException(503, "Hub 暂不可达，改动未保存，请稍后重试")
+        # patch 为空（仅本地字段如附件）→ 落到下方本地更新即可。
     # due_date / start_date nullable: 显式 null 清空，省略则不动。
     fields = body.model_fields_set
     wi = db.update_work_item(
@@ -283,6 +287,7 @@ def delete_item(item_id: str, authorization: str = Header(default="")) -> dict:
             if items is not None:
                 db.mirror_hub_work_items(existing.project_id, items)
             return {"ok": True}
-        # Hub 不可达 → 回退本地
+        # hub-origin + Hub 不可达：本地删除会被下次镜像还原，如实报错（WB-158）。
+        raise HTTPException(503, "Hub 暂不可达，未删除，请稍后重试")
     db.delete_work_item(item_id)
     return {"ok": True}

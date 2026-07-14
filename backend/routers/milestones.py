@@ -93,7 +93,8 @@ def create_item(body: CreateMilestoneBody, authorization: str = Header(default="
             if items is not None:
                 db.mirror_hub_milestones(body.project_id, items)
             return created
-        # Hub 不可达 → 回退本地
+        # hub-origin + Hub 不可达：别造会被下次镜像抹掉的本地里程碑，如实报错（WB-158）。
+        raise HTTPException(503, "Hub 暂不可达，里程碑未创建，请稍后重试")
     return db.create_milestone(
         project_id=body.project_id, name=name, description=body.description,
         due_date=(body.due_date or None), status=status,
@@ -119,7 +120,8 @@ def update_item(mid: str, body: UpdateMilestoneBody, authorization: str = Header
                 if items is not None:
                     db.mirror_hub_milestones(existing["project_id"], items)
                 return up
-        # Hub 不可达 → 回退本地
+            # hub-origin + Hub 不可达：本地改动会被下次镜像还原，如实报错（WB-158）。
+            raise HTTPException(503, "Hub 暂不可达，改动未保存，请稍后重试")
     updated = db.update_milestone(mid, **body.model_dump(exclude_unset=True))
     if not updated:
         raise HTTPException(404, "milestone not found")
@@ -140,6 +142,7 @@ def delete_item(mid: str, authorization: str = Header(default="")) -> dict:
             if items is not None:
                 db.mirror_hub_milestones(existing["project_id"], items)
             return {"ok": True}
-        # Hub 不可达 → 回退本地
+        # hub-origin + Hub 不可达：本地删除会被下次镜像还原，如实报错（WB-158）。
+        raise HTTPException(503, "Hub 暂不可达，未删除，请稍后重试")
     db.delete_milestone(mid)
     return {"ok": True}
