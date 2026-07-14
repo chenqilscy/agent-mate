@@ -48,6 +48,7 @@ export const api = {
   // 设置 · 记忆（WB-148）：长期事实，注入之后对话；开启后从对话自动抽取。
   memory: () => get<MemoryData>('/memory'),
   addMemory: (content: string) => send<MemoryItem>('POST', '/memory', { content }),
+  editMemory: (id: string, content: string) => send<MemoryItem>('PUT', `/memory/${id}`, { content }),
   deleteMemory: (id: string) => send<{ ok: boolean }>('DELETE', `/memory/${id}`),
   clearMemory: () => send<{ ok: boolean; removed: number }>('POST', '/memory/clear'),
   setMemoryEnabled: (enabled: boolean) => send<{ enabled: boolean }>('PUT', '/memory/enabled', { enabled }),

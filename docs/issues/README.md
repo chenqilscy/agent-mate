@@ -177,6 +177,7 @@
 | [WB-159](WB-159-frontend-store-robustness.md) | ✅ | P2 | frontend | 前端 store 健壮性 —— 看板乐观更新不回滚 / answer 失败挂起 agent / send finally 无流守卫 / connect 不 reload |
 | [WB-160](WB-160-backend-hardening-tail.md) | 🟡 | P2 | backend | 后端加固尾集 —— 通知空 ids 误清全部 / MCP 超时孤儿进程 / 邮件先标已读丢信 / 流出错丢回复 / SSRF / slug 校验（邮件项 deferred） |
 | [WB-161](WB-161-authoritative-docs-correction.md) | ✅ | P2 | misc | 权威现状文档纠偏 —— CLAUDE.md/README/实现方案 对 Hub/auth/LLM key/CSS/Tauri 的错误陈述 |
+| [WB-162](WB-162-memory-mechanism-optimization.md) | ✅ | P2 | fullstack | 记忆机制优化 —— 注入预算化(优先手动+最近·超预算截断) + 结构化抽取(add/update 合并·更替过时矛盾) + 抽取输入预算 + 手动编辑一条(PUT+内联编辑 UI) |
 
 ## 来源
 

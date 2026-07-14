@@ -15,6 +15,10 @@ class AddBody(BaseModel):
     content: str = Field(max_length=300)
 
 
+class EditBody(BaseModel):
+    content: str = Field(max_length=300)
+
+
 class EnabledBody(BaseModel):
     enabled: bool
 
@@ -59,3 +63,13 @@ def set_enabled(body: EnabledBody) -> dict:
     owner = current_user().id
     memory.set_capture_enabled(owner, body.enabled)
     return {"enabled": memory.capture_enabled(owner)}
+
+
+@router.put("/{mem_id}")
+def edit(mem_id: str, body: EditBody) -> dict:
+    """原地编辑一条记忆（WB-162）。内容为空 / 记忆不存在 / 与已有记忆重复 → 400。"""
+    owner = current_user().id
+    row = db.update_memory(owner, mem_id, body.content)
+    if row is None:
+        raise HTTPException(status_code=400, detail="内容为空、记忆不存在或与已有记忆重复")
+    return row

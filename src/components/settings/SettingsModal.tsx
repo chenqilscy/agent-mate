@@ -117,6 +117,8 @@ function MemoryPanel() {
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [adding, setAdding] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
 
   const load = () => api.memory()
     .then((m) => { setEnabled(m.enabled); setItems(m.items); setLoaded(true) })
@@ -137,6 +139,17 @@ function MemoryPanel() {
   }
   const del = async (id: string) => {
     try { await api.deleteMemory(id); setItems((xs) => xs.filter((x) => x.id !== id)) } catch { toast('删除失败') }
+  }
+  const startEdit = (m: MemoryItem) => { setEditingId(m.id); setEditText(m.content) }
+  const cancelEdit = () => { setEditingId(null); setEditText('') }
+  const saveEdit = async (id: string) => {
+    const text = editText.trim()
+    if (!text) return
+    try {
+      const row = await api.editMemory(id, text)
+      setItems((xs) => xs.map((x) => (x.id === id ? row : x)))
+      cancelEdit()
+    } catch { toast('保存失败（内容为空或与已有记忆重复）') }
   }
   const clear = async () => {
     if (!items.length || busy) return
@@ -172,11 +185,22 @@ function MemoryPanel() {
         {!loaded && <div className="set-pdesc">加载中…</div>}
         {loaded && items.length === 0 && <div className="set-mem-empty">暂无记忆内容。{enabled ? '聊几轮后这里会出现从对话中提取的记忆。' : '开启上面的开关可从对话中自动积累。'}</div>}
         {items.map((m) => (
-          <div className="set-mem" key={m.id}>
-            <span className="set-mem-c">{m.content}</span>
-            <span className="set-mem-src">{m.source === 'conversation' ? '来自对话' : '手动'}</span>
-            <button className="set-mem-x" onClick={() => del(m.id)} aria-label="删除">×</button>
-          </div>
+          editingId === m.id ? (
+            <div className="set-mem" key={m.id}>
+              <input className="np-input" style={{ flex: 1, minWidth: 0 }} value={editText} maxLength={300} autoFocus
+                onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(m.id); if (e.key === 'Escape') cancelEdit() }} />
+              <button className="set-mem-x" onClick={() => saveEdit(m.id)} disabled={!editText.trim()} aria-label="保存">✓</button>
+              <button className="set-mem-x" onClick={cancelEdit} aria-label="取消">×</button>
+            </div>
+          ) : (
+            <div className="set-mem" key={m.id}>
+              <span className="set-mem-c">{m.content}</span>
+              <span className="set-mem-src">{m.source === 'conversation' ? '来自对话' : '手动'}</span>
+              <button className="set-mem-x" onClick={() => startEdit(m)} aria-label="编辑">✎</button>
+              <button className="set-mem-x" onClick={() => del(m.id)} aria-label="删除">×</button>
+            </div>
+          )
         ))}
       </div>
     </div>

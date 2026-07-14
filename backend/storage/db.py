@@ -2136,6 +2136,34 @@ def add_memory(owner_id: str, content: str, source: str = "manual") -> Optional[
     return {"id": mem_id, "content": text, "source": source, "created_at": ts}
 
 
+def update_memory(owner_id: str, mem_id: str, content: str) -> Optional[dict]:
+    """原地更替一条记忆的内容（保留 id 与 source/created_at）。WB-162：供对话抽取「更替过时/矛盾事实」
+    与前端手动编辑复用。空内容、记忆不存在、或更成与【他条】重复（忽略大小写/首尾空白）则不改、返回 None。"""
+    text = (content or "").strip()
+    if not text:
+        return None
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id, source, created_at FROM user_memories WHERE owner_id=? AND id=?",
+        (owner_id, mem_id),
+    ).fetchone()
+    if row is None:
+        return None
+    norm = text.casefold()
+    others = conn.execute(
+        "SELECT content FROM user_memories WHERE owner_id=? AND id<>?",
+        (owner_id, mem_id),
+    ).fetchall()
+    if any((r["content"] or "").strip().casefold() == norm for r in others):
+        return None
+    conn.execute(
+        "UPDATE user_memories SET content=? WHERE owner_id=? AND id=?",
+        (text, owner_id, mem_id),
+    )
+    conn.commit()
+    return {"id": mem_id, "content": text, "source": row["source"], "created_at": row["created_at"]}
+
+
 def delete_memory(owner_id: str, mem_id: str) -> bool:
     cur = get_conn().execute(
         "DELETE FROM user_memories WHERE owner_id=? AND id=?", (owner_id, mem_id)
