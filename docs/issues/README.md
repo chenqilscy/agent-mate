@@ -186,6 +186,8 @@
 | [WB-168](WB-168-memory-whitebox-management-ui.md) | ✅ | P2 | fullstack | 认知记忆 档三 —— 白盒管理(API: stats/search/importance/archive/rollback/trace/decaying + 设置·记忆面板升级) |
 | [WB-169](WB-169-console-kb-tpl-dim-slice-dropdowns.md) | ✅ | P2 | frontend | Manager 知识库模板编辑器 —— 新增「向量维度」联动下拉(跟随模型·真实生效·不碰铁律#1) + 切片方式改下拉(GLM 真实枚举) + 切片字数仅自定义切片时显示 |
 | [WB-170](WB-170-memory-embedding-backend-configurable.md) | ✅ | P2 | fullstack | 记忆嵌入后端可配置 —— 本地(fastembed bge-small-zh) ⇄ 在线(GLM embedding-3) 用户可选 + 跨模型 tag 惰性重嵌入迁移（知识库档位选择 WB-144/169 已就绪，本条只补记忆侧） |
+| [WB-171](WB-171-hub-knowledge-base-document-backend.md) | ✅ | P2 | backend | Hub 真·知识库 + 文档后端(项目级) —— 建库/传档(字节存 Hub)/文档管理 + 有文档后锁向量维度(400 拦截)；Manager 不算向量(向量化交执行面，且只调 GLM 嵌入接口、不用 GLM 知识库功能) |
+| [WB-172](WB-172-manager-project-knowledge-base-tab.md) | ✅ | P2 | frontend | Manager 项目「知识库」tab —— 真·建库(向量维度联动下拉/切片方式下拉)+文档上传/列/删+有文档后维度 select 锁定+诚实未向量化状态(kbm- 前缀)；配 WB-171 |
 
 ## 来源
 

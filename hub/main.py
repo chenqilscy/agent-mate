@@ -25,7 +25,7 @@ _CONSOLE = Path(__file__).resolve().parent / "web" / "console.html"
 import db  # noqa: E402
 import skillhub_sync  # noqa: E402
 from config import settings  # noqa: E402
-from routers import accounts, auth, catalog, comments, invites, milestones, notifications, orgs, projects, settings as settings_router, timeline, work_items  # noqa: E402
+from routers import accounts, auth, catalog, comments, invites, knowledge, milestones, notifications, orgs, projects, settings as settings_router, timeline, work_items  # noqa: E402
 
 db.init_db()
 
@@ -84,6 +84,7 @@ app.include_router(comments.router)
 app.include_router(notifications.router)
 app.include_router(work_items.router)
 app.include_router(milestones.router)
+app.include_router(knowledge.router)
 app.include_router(settings_router.router)
 
 

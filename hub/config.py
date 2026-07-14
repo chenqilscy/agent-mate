@@ -1,7 +1,9 @@
 """WorkBuddy Hub 配置（WB-061）—— 独立于 backend/config.py。
 
 Hub 是中心控制平面服务（账号/组织/项目/成员/邀请的权威源）。可自托管的单体：
-默认 SQLite（hub.db），规模上来可换 Postgres。绝不承载 LLM 凭据 / 沙箱文件（那些永远只在本地）。
+默认 SQLite（hub.db），规模上来可换 Postgres。绝不承载 LLM 凭据（那永远只在本地）。
+唯一落盘的用户内容是知识库文档（WB-171，STORAGE_DIR）——那是用户**显式**放入共享控制面的
+团队资料（类比 WB-093 把连接器 token 存 Hub），不同于绝不上云的 agent 沙箱工作区文件。
 """
 from __future__ import annotations
 
@@ -14,6 +16,8 @@ HUB_DIR = Path(__file__).resolve().parent
 class Settings:
     # HUB_DB 覆盖库路径（隔离测试 / 第二实例）。
     DB_PATH: Path = Path(os.getenv("HUB_DB", str(HUB_DIR / "hub.db")))
+    # 知识库文档字节的落盘根（WB-171）；HUB_STORAGE 覆盖（隔离测试 / 第二实例）。已 .gitignore。
+    STORAGE_DIR: Path = Path(os.getenv("HUB_STORAGE", str(HUB_DIR / "storage")))
     HOST: str = os.getenv("HUB_HOST", "127.0.0.1")
     PORT: int = int(os.getenv("HUB_PORT", "8100"))
     # pbkdf2 迭代次数（与 backend 一致的口令散列强度）。

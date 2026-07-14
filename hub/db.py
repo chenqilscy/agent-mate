@@ -223,6 +223,43 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_wi_activity_item ON work_item_activity(work_item_id, created_at);
 
+        -- 真·知识库 + 文档（WB-171）：项目级团队知识库。Manager 只管理元数据+文档字节，
+        -- 绝不算向量（向量化是执行面的事）。embedding_dim 服务端由 embedding_id 派生。
+        CREATE TABLE IF NOT EXISTS knowledge_bases (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            icon TEXT NOT NULL DEFAULT '📚',
+            embedding_id INTEGER NOT NULL DEFAULT 11,
+            embedding_dim INTEGER NOT NULL DEFAULT 2048,
+            knowledge_type INTEGER NOT NULL DEFAULT 5,
+            sentence_size INTEGER NOT NULL DEFAULT 300,
+            contextual INTEGER NOT NULL DEFAULT 0,
+            tags TEXT NOT NULL DEFAULT '[]',
+            sort INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_kb_project ON knowledge_bases(project_id, sort);
+
+        -- 文档：字节存磁盘（storage_path），此表存元数据。vector_status 0 未向量化·1 已·2 失败；
+        -- Hub 永不设 1（诚实，执行面将来回写）。
+        CREATE TABLE IF NOT EXISTS kb_documents (
+            id TEXT PRIMARY KEY,
+            kb_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            size INTEGER NOT NULL DEFAULT 0,
+            content_type TEXT NOT NULL DEFAULT '',
+            doc_type TEXT NOT NULL DEFAULT '',
+            storage_path TEXT NOT NULL DEFAULT '',
+            vector_status INTEGER NOT NULL DEFAULT 0,
+            fail_msg TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_kbdoc_kb ON kb_documents(kb_id, created_at);
+
         CREATE TABLE IF NOT EXISTS settings (
             k TEXT PRIMARY KEY,
             v TEXT NOT NULL DEFAULT '',
@@ -889,6 +926,144 @@ def delete_work_item(wid: str) -> bool:
     cur = conn.execute("DELETE FROM work_items WHERE id=?", (wid,))
     conn.commit()
     return cur.rowcount > 0
+
+
+# ---- 真·知识库 + 文档 knowledge_bases / kb_documents（WB-171）------------------
+# 向量维度由 embedding 模型唯一决定（GLM 建库只吃 embedding_id）；DAO 层强制派生，
+# 绝不信客户端传来的 dim（对齐 console.html 的 KB_EMB_DIMS / 铁律#1）。
+KB_EMB_DIMS = {3: 1024, 11: 2048, 12: 2048}
+
+
+def kb_embedding_dim(embedding_id: int) -> int:
+    return KB_EMB_DIMS.get(int(embedding_id or 11), 2048)
+
+
+def _row_to_kb(r: sqlite3.Row) -> dict:
+    d = dict(r)
+    try:
+        d["tags"] = json.loads(d.get("tags") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        d["tags"] = []
+    return d
+
+
+def create_kb(*, project_id: str, name: str, description: str = "", icon: str = "📚",
+              embedding_id: int = 11, knowledge_type: int = 5, sentence_size: int = 300,
+              contextual: int = 0, tags: Optional[list[str]] = None) -> dict:
+    kid = new_uuid(); now = time.time()
+    mx = get_conn().execute(
+        "SELECT COALESCE(MAX(sort),0) FROM knowledge_bases WHERE project_id=?", (project_id,)
+    ).fetchone()[0]
+    get_conn().execute(
+        "INSERT INTO knowledge_bases (id,project_id,name,description,icon,embedding_id,embedding_dim,"
+        "knowledge_type,sentence_size,contextual,tags,sort,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (kid, project_id, name, description, icon, int(embedding_id), kb_embedding_dim(embedding_id),
+         int(knowledge_type), int(sentence_size), 1 if contextual else 0,
+         json.dumps(tags or [], ensure_ascii=False), mx + 1, now, now),
+    )
+    get_conn().commit()
+    return get_kb(kid)  # type: ignore[return-value]
+
+
+def list_kbs(project_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM knowledge_bases WHERE project_id=? ORDER BY sort, created_at", (project_id,)
+    ).fetchall()
+    out = []
+    for r in rows:
+        kb = _row_to_kb(r)
+        kb["doc_count"] = count_kb_documents(kb["id"])
+        out.append(kb)
+    return out
+
+
+def get_kb(kid: str) -> Optional[dict]:
+    r = get_conn().execute("SELECT * FROM knowledge_bases WHERE id=?", (kid,)).fetchone()
+    if not r:
+        return None
+    kb = _row_to_kb(r)
+    kb["doc_count"] = count_kb_documents(kid)
+    return kb
+
+
+def update_kb(kid: str, **fields: Any) -> Optional[dict]:
+    allowed = {"name", "description", "icon", "embedding_id", "knowledge_type",
+               "sentence_size", "contextual", "tags", "sort"}
+    sets, vals = [], []
+    for k, v in fields.items():
+        if k in allowed and v is not None:
+            if k == "tags":
+                v = json.dumps(v, ensure_ascii=False)
+            elif k == "contextual":
+                v = 1 if v else 0
+            sets.append(f"{k}=?"); vals.append(v)
+    if "embedding_id" in fields and fields["embedding_id"] is not None:
+        # 维度随模型强派生，绝不独立可改。
+        sets.append("embedding_dim=?"); vals.append(kb_embedding_dim(fields["embedding_id"]))
+    if not sets:
+        return get_kb(kid)
+    sets.append("updated_at=?"); vals.append(time.time())
+    vals.append(kid)
+    cur = get_conn().execute(f"UPDATE knowledge_bases SET {', '.join(sets)} WHERE id=?", vals)
+    get_conn().commit()
+    return get_kb(kid) if cur.rowcount else None
+
+
+def delete_kb(kid: str) -> list[str]:
+    """删库 + 级联删文档行。返回该库所有文档的 storage_path（供路由删磁盘文件）。库不存在返回 []。"""
+    conn = get_conn()
+    if conn.execute("SELECT 1 FROM knowledge_bases WHERE id=?", (kid,)).fetchone() is None:
+        return []
+    paths = [r["storage_path"] for r in
+             conn.execute("SELECT storage_path FROM kb_documents WHERE kb_id=?", (kid,)).fetchall()
+             if r["storage_path"]]
+    conn.execute("DELETE FROM kb_documents WHERE kb_id=?", (kid,))
+    conn.execute("DELETE FROM knowledge_bases WHERE id=?", (kid,))
+    conn.commit()
+    return paths
+
+
+def count_kb_documents(kid: str) -> int:
+    return get_conn().execute(
+        "SELECT COUNT(*) FROM kb_documents WHERE kb_id=?", (kid,)
+    ).fetchone()[0]
+
+
+def create_kb_document(*, kb_id: str, project_id: str, filename: str, size: int,
+                       content_type: str = "", doc_type: str = "", storage_path: str = "",
+                       doc_id: Optional[str] = None) -> dict:
+    did = doc_id or new_uuid(); now = time.time()
+    get_conn().execute(
+        "INSERT INTO kb_documents (id,kb_id,project_id,filename,size,content_type,doc_type,"
+        "storage_path,vector_status,fail_msg,created_at) VALUES (?,?,?,?,?,?,?,?,0,'',?)",
+        (did, kb_id, project_id, filename, int(size), content_type, doc_type, storage_path, now),
+    )
+    get_conn().commit()
+    return get_kb_document(did)  # type: ignore[return-value]
+
+
+def list_kb_documents(kb_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM kb_documents WHERE kb_id=? ORDER BY created_at DESC", (kb_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_kb_document(did: str) -> Optional[dict]:
+    r = get_conn().execute("SELECT * FROM kb_documents WHERE id=?", (did,)).fetchone()
+    return dict(r) if r else None
+
+
+def delete_kb_document(did: str) -> Optional[str]:
+    """删单文档行，返回其 storage_path（供路由删磁盘文件）；不存在返回 None。"""
+    conn = get_conn()
+    r = conn.execute("SELECT storage_path FROM kb_documents WHERE id=?", (did,)).fetchone()
+    if r is None:
+        return None
+    conn.execute("DELETE FROM kb_documents WHERE id=?", (did,))
+    conn.commit()
+    return r["storage_path"] or ""
 
 
 # ---- 里程碑 milestones（WB-104）---------------------------------------

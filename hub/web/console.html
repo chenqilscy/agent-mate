@@ -311,6 +311,18 @@ async function api(method, path, body){
   if(!r.ok){ const msg = (data&&data.detail)? (typeof data.detail==="string"?data.detail:JSON.stringify(data.detail)) : ("HTTP "+r.status); throw new Error(msg); }
   return data;
 }
+// 文件上传（WB-172）：发原始文件字节（配 Hub 后端 request.stream()，免 multipart），文件名走 query。
+// 现有 api() 只发 JSON，故单开此助手；鉴权头/错误处理与 api() 一致。
+async function apiUpload(path, file){
+  const r = await fetch(API+"/api"+path+(path.includes("?")?"&":"?")+"filename="+encodeURIComponent(file.name), {
+    method:"POST",
+    headers: Object.assign({}, tok()?{Authorization:"Bearer "+tok()}:{}),
+    body: file,
+  });
+  let data=null; try{ data = await r.json(); }catch(e){}
+  if(!r.ok){ const msg = (data&&data.detail)? (typeof data.detail==="string"?data.detail:JSON.stringify(data.detail)) : ("HTTP "+r.status); throw new Error(msg); }
+  return data;
+}
 
 // ---------- auth ----------
 async function boot(){
@@ -454,6 +466,7 @@ let PD = null;              // { pid, name, instruction, role, ro }
 let PD_TAB = "overview";   // overview | tasks | collab | config
 async function projectDetail(m){
   const pid = CUR.id;
+  KBM_OPEN = null;  // 进项目从知识库列表开始（WB-172）
   m.innerHTML = `<button class="line" id="back">← 返回项目</button>
     <div id="pd-shell"><div class="muted" style="padding:22px 0">加载中…</div></div>`;
   document.getElementById("back").onclick=()=>{ CUR=null; PD=null; render(); };
@@ -473,6 +486,7 @@ async function projectDetail(m){
     <div class="pm-tabs2" id="pd-tabs">
       ${pdTabBtn("overview","概览")}
       ${pdTabBtn("tasks","任务",taskN)}
+      ${pdTabBtn("knowledge","知识库")}
       ${pdTabBtn("collab","协作")}
       ${pdTabBtn("config","配置")}
     </div>
@@ -485,9 +499,135 @@ function pdRenderTab(){
   const body = document.getElementById("pd-body"); if(!body) return;
   const pid = PD.pid;
   if(PD_TAB==="tasks"){ body.innerHTML = `<div id="pd-work"><div class="muted">加载中…</div></div>`; loadWorkItems(pid, PD.ro); }
+  else if(PD_TAB==="knowledge"){ body.innerHTML = `<div id="kbm-root"><div class="muted">加载中…</div></div>`; kbmRender(document.getElementById("kbm-root"), pid, PD.ro); }
   else if(PD_TAB==="collab") pdTabCollab(body, pid);
   else if(PD_TAB==="config"){ body.innerHTML = `<div class="card" id="pd-cfg"><h3>配置</h3><div class="muted">加载中…</div></div>`; loadConfig(pid); }
   else pdTabOverview(body, pid);
+}
+
+// ── 真·知识库 + 文档（WB-172，kbm- 前缀）：项目级团队知识库。建库(向量维度/切片方式下拉)+传文档(真字节，
+//    经 WB-171 存 Hub)+有文档后锁维度。Manager 不算向量：文档状态诚实标「未向量化」，绝不伪造「已向量化」。
+//    复用 WB-169 已在文件里的 KB_EMBEDDINGS/KB_EMB_DIMS/kbDim/KB_KTYPES（见下方目录管理段）。
+let KBM_OPEN = null;   // 打开的知识库 id（null = 库列表）
+const KBM_EXTS = "txt,doc,docx,pdf,md,ppt,pptx,xls,xlsx,csv";
+function kbmDocStatus(d){
+  if(d.vector_status===1) return '<span class="pill">✓ 已向量化</span>';
+  if(d.vector_status===2) return `<span class="pill">✗ ${esc(d.fail_msg||"向量化失败")}</span>`;
+  return '<span class="pill">未向量化 · 待执行面处理</span>';
+}
+function kbmRender(root, pid, ro){ (KBM_OPEN? kbmDetail : kbmList)(root, pid, KBM_OPEN, ro, KBM_OPEN); }
+async function kbmList(root, pid, _o, ro){
+  root.innerHTML = `
+    ${ro?'':`<div class="card"><h3>新建知识库</h3>
+      <div class="grid2">
+        <div class="field"><label>图标 emoji</label><input id="kbm-icon" placeholder="📚"></div>
+        <div class="field"><label>名称</label><input id="kbm-name" placeholder="产品手册库"></div>
+      </div>
+      <div class="field"><label>用途简介</label><textarea id="kbm-desc" placeholder="放什么资料、给谁用"></textarea></div>
+      <div class="grid2">
+        <div class="field"><label>向量模型</label><select id="kbm-emb"><option value="11">Embedding-3（推荐）</option><option value="12">Embedding-3-pro</option><option value="3">Embedding-2</option></select></div>
+        <div class="field"><label>向量维度</label><select id="kbm-dim" disabled></select><span class="muted" style="font-size:12px">跟随模型 · 有文档后锁定</span></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>切片方式 knowledge_type</label><select id="kbm-kt">${Object.entries(KB_KTYPES).map(([v,l])=>`<option value="${v}"${v==="5"?" selected":""}>${v}=${esc(l)}</option>`).join("")}</select></div>
+        <div class="field"><label><input id="kbm-ctx" type="checkbox"> 开启上下文增强 contextual</label></div>
+      </div>
+      <div class="field" id="kbm-ss-wrap"><label>切片字数 sentence_size</label><input id="kbm-ss" type="number" value="300" min="20" max="2000" style="width:120px"><span class="muted" style="font-size:12px">20–2000，仅「自定义切片」用</span></div>
+      <div class="field"><label>标签（逗号分隔，可空）</label><input id="kbm-tags" placeholder="产品, 手册"></div>
+      <div class="row"><div class="grow"></div><button class="ghost" id="kbm-clear">清空</button><button id="kbm-save">保存</button></div>
+      <div class="err" id="kbm-err"></div></div>`}
+    <div class="row" style="margin-top:${ro?'0':'14px'}"><b>知识库</b><div class="grow"></div></div>
+    <div id="kbm-list" class="muted">加载中…</div>`;
+  const F = id=>document.getElementById(id);
+  if(!ro){
+    const syncDim=()=>{ const eid=Number(F("kbm-emb").value)||11, ds=(KB_EMB_DIMS[eid]||[2048]); F("kbm-dim").innerHTML=ds.map(x=>`<option value="${x}">${x} 维</option>`).join(""); };
+    const syncSs=()=>{ F("kbm-ss-wrap").style.display=(Number(F("kbm-kt").value)===5)?"":"none"; };
+    F("kbm-emb").onchange=syncDim; F("kbm-kt").onchange=syncSs; syncDim(); syncSs();
+    F("kbm-clear").onclick=()=>{ ["kbm-icon","kbm-name","kbm-desc","kbm-tags"].forEach(i=>F(i).value=""); F("kbm-emb").value="11"; F("kbm-kt").value="5"; F("kbm-ss").value="300"; F("kbm-ctx").checked=false; syncDim(); syncSs(); F("kbm-err").textContent=""; };
+    F("kbm-save").onclick=async()=>{
+      F("kbm-err").textContent="";
+      const name=F("kbm-name").value.trim(); if(!name){ F("kbm-err").textContent="名称必填"; return; }
+      const body={ name, description:F("kbm-desc").value.trim(), icon:F("kbm-icon").value.trim()||"📚",
+        embedding_id:Number(F("kbm-emb").value)||11, knowledge_type:Number(F("kbm-kt").value)||5,
+        sentence_size:Number(F("kbm-ss").value)||300, contextual:F("kbm-ctx").checked?1:0,
+        tags:F("kbm-tags").value.split(",").map(x=>x.trim()).filter(Boolean) };
+      try{ await api("POST","/projects/"+pid+"/knowledge-bases",body); F("kbm-clear").click(); loadList(); }
+      catch(e){ F("kbm-err").textContent=e.message; }
+    };
+  }
+  async function loadList(){
+    const el=F("kbm-list");
+    try{ const {items}=await api("GET","/projects/"+pid+"/knowledge-bases");
+      if(!items.length){ el.className="muted"; el.innerHTML=`<div style="padding:14px 0">${ro?"还没有知识库":"还没有知识库，用上面的表单新建"}</div>`; return; }
+      el.className="";
+      el.innerHTML=items.map(k=>{ const emb=KB_EMBEDDINGS[k.embedding_id]||"Embedding-3"; return `<div class="list-item"><span style="font-size:20px">${esc(k.icon||"📚")}</span><div style="flex:1;min-width:0"><div class="t">${esc(k.name)} <span class="pill">${esc(emb)} · ${k.embedding_dim}维</span> <span class="pill">${k.doc_count} 文档</span>${k.contextual?' <span class="pill">增强</span>':''}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(k.description||"")}</div></div><button class="line" data-open="${k.id}">打开</button>${ro?'':`<button class="danger" data-del="${k.id}">删除</button>`}</div>`; }).join("");
+      el.querySelectorAll("[data-open]").forEach(b=> b.onclick=()=>{ KBM_OPEN=b.dataset.open; kbmRender(root,pid,ro); });
+      el.querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ const k=items.find(x=>x.id===b.dataset.del); if(!confirm(`删除知识库「${k?k.name:""}」及其全部文档？此操作不可撤销。`))return; try{ await api("DELETE","/projects/"+pid+"/knowledge-bases/"+b.dataset.del); loadList(); }catch(e){ alert(e.message); } });
+    }catch(e){ el.className=""; el.innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+  }
+  loadList();
+}
+async function kbmDetail(root, pid, _o, ro, kbId){
+  root.innerHTML='<button class="line" id="kbm-back">← 返回知识库</button><div id="kbm-d" class="muted" style="padding:16px 0">加载中…</div>';
+  document.getElementById("kbm-back").onclick=()=>{ KBM_OPEN=null; kbmRender(root,pid,ro); };
+  const F=id=>document.getElementById(id);
+  const box=document.getElementById("kbm-d");
+  let kb; try{ kb=await api("GET","/projects/"+pid+"/knowledge-bases/"+kbId); }
+  catch(e){ box.className=""; box.innerHTML=`<div class="err">${esc(e.message)}</div>`; return; }
+  const locked = kb.doc_count>0;
+  box.className="";
+  box.innerHTML=`
+    <div class="pd-hero" style="margin-top:12px"><div class="pd-hero-ic">${esc(kb.icon||"📚")}</div>
+      <div style="flex:1;min-width:0"><h1 style="margin:0;font-size:20px">${esc(kb.name)}</h1>
+        <div class="sub" style="margin:3px 0 0">${esc(KB_EMBEDDINGS[kb.embedding_id]||"Embedding-3")} · ${kb.embedding_dim}维 · 切片 ${kb.knowledge_type}=${esc(KB_KTYPES[kb.knowledge_type]||"?")} · ${kb.doc_count} 文档 ${locked?'<span class="pill">维度已锁</span>':''}</div></div></div>
+    <div class="card"><h3>配置 ${ro?'<span class="pill">只读</span>':''}</h3>
+      <div class="grid2">
+        <div class="field"><label>图标</label><input id="kbm-e-icon" value="${esc(kb.icon||"📚")}" ${ro?"disabled":""}></div>
+        <div class="field"><label>名称</label><input id="kbm-e-name" value="${esc(kb.name)}" ${ro?"disabled":""}></div>
+      </div>
+      <div class="field"><label>用途简介</label><textarea id="kbm-e-desc" ${ro?"disabled":""}>${esc(kb.description||"")}</textarea></div>
+      <div class="grid2">
+        <div class="field"><label>向量模型</label><select id="kbm-e-emb" ${(ro||locked)?"disabled":""}>${[[11,"Embedding-3（推荐）"],[12,"Embedding-3-pro"],[3,"Embedding-2"]].map(o=>`<option value="${o[0]}"${o[0]===kb.embedding_id?" selected":""}>${o[1]}</option>`).join("")}</select></div>
+        <div class="field"><label>向量维度</label><select id="kbm-e-dim" disabled></select><span class="muted" style="font-size:12px">${locked?"已有文档 · 锁定":"跟随模型"}</span></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>切片方式</label><select id="kbm-e-kt" ${ro?"disabled":""}>${Object.entries(KB_KTYPES).map(([v,l])=>`<option value="${v}"${Number(v)===kb.knowledge_type?" selected":""}>${v}=${esc(l)}</option>`).join("")}</select></div>
+        <div class="field"><label><input id="kbm-e-ctx" type="checkbox" ${kb.contextual?"checked":""} ${ro?"disabled":""}> 上下文增强</label></div>
+      </div>
+      <div class="field" id="kbm-e-ss-wrap"><label>切片字数</label><input id="kbm-e-ss" type="number" value="${kb.sentence_size}" min="20" max="2000" style="width:120px" ${ro?"disabled":""}></div>
+      <div class="field"><label>标签（逗号分隔）</label><input id="kbm-e-tags" value="${esc((kb.tags||[]).join(", "))}" ${ro?"disabled":""}></div>
+      ${ro?'':'<div class="row"><div class="grow"></div><button id="kbm-e-save">保存配置</button></div>'}
+      <div class="err" id="kbm-e-err"></div></div>
+    <div class="card"><h3>文档 <span class="muted" style="font-size:12px;font-weight:400">Manager 不算向量；文档字节存 Hub，向量化交执行面</span></h3>
+      ${ro?'':`<div class="row"><input type="file" id="kbm-file" accept=".${KBM_EXTS.split(",").join(",.")}" style="display:none"><button class="ghost" id="kbm-up">上传文档</button><span class="muted" id="kbm-up-st" style="font-size:12px"></span></div>`}
+      <div id="kbm-docs" class="muted" style="margin-top:10px">加载中…</div></div>`;
+  const syncEDim=()=>{ const eid=Number(F("kbm-e-emb").value)||11, ds=(KB_EMB_DIMS[eid]||[2048]); F("kbm-e-dim").innerHTML=ds.map(x=>`<option value="${x}">${x} 维</option>`).join(""); };
+  syncEDim(); if(!ro && !locked) F("kbm-e-emb").onchange=syncEDim;
+  const syncESs=()=>{ F("kbm-e-ss-wrap").style.display=(Number(F("kbm-e-kt").value)===5)?"":"none"; };
+  syncESs(); if(!ro) F("kbm-e-kt").onchange=syncESs;
+  if(!ro){
+    F("kbm-e-save").onclick=async()=>{
+      F("kbm-e-err").textContent="";
+      const body={ name:F("kbm-e-name").value.trim(), description:F("kbm-e-desc").value.trim(), icon:F("kbm-e-icon").value.trim()||"📚",
+        knowledge_type:Number(F("kbm-e-kt").value)||5, sentence_size:Number(F("kbm-e-ss").value)||300,
+        contextual:F("kbm-e-ctx").checked?1:0, tags:F("kbm-e-tags").value.split(",").map(x=>x.trim()).filter(Boolean) };
+      if(!locked) body.embedding_id=Number(F("kbm-e-emb").value)||11;
+      try{ await api("PATCH","/projects/"+pid+"/knowledge-bases/"+kbId,body); kbmDetail(root,pid,null,ro,kbId); }
+      catch(e){ F("kbm-e-err").textContent=e.message; }
+    };
+    const fileEl=F("kbm-file");
+    F("kbm-up").onclick=()=>fileEl.click();
+    fileEl.onchange=async()=>{ const f=fileEl.files[0]; if(!f)return; const st=F("kbm-up-st"); st.textContent="上传中…";
+      try{ await apiUpload("/projects/"+pid+"/knowledge-bases/"+kbId+"/documents", f); fileEl.value=""; kbmDetail(root,pid,null,ro,kbId); }
+      catch(e){ st.textContent=""; F("kbm-e-err").textContent=e.message; } };
+  }
+  const dbox=F("kbm-docs");
+  try{ const {items}=await api("GET","/projects/"+pid+"/knowledge-bases/"+kbId+"/documents");
+    if(!items.length){ dbox.className="muted"; dbox.innerHTML='<div style="padding:8px 0">还没有文档</div>'; return; }
+    dbox.className="";
+    dbox.innerHTML=items.map(d=>`<div class="list-item"><div style="flex:1;min-width:0"><div class="t">${esc(d.filename)} ${kbmDocStatus(d)}</div><div class="d">${(d.size/1024).toFixed(1)} KB · ${esc(d.doc_type||"")}</div></div>${ro?'':`<button class="danger" data-deldoc="${d.id}">删除</button>`}</div>`).join("");
+    dbox.querySelectorAll("[data-deldoc]").forEach(b=> b.onclick=async()=>{ if(!confirm("删除该文档？"))return; try{ await api("DELETE","/projects/"+pid+"/knowledge-bases/"+kbId+"/documents/"+b.dataset.deldoc); kbmDetail(root,pid,null,ro,kbId); }catch(e){ alert(e.message); } });
+  }catch(e){ dbox.className=""; dbox.innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 // 概览：健康度统计 + 进度条 + 里程碑进度 + 近期任务活动。
 async function pdTabOverview(body, pid){
