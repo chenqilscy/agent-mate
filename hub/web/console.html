@@ -1594,6 +1594,13 @@ async function connectorsManage(body){
 // 不建真库（铁律#4）——只维护模板元数据，App 端 pull 后可「按模板一键建库」。子切换「浏览橱窗 | 目录管理」，
 // 复用连接器同款 cg-* 橱窗 + 通用 manage 组件（视觉一致；纯前端，无后端改）。
 const KB_EMBEDDINGS = {3:"Embedding-2", 11:"Embedding-3", 12:"Embedding-3-pro"};
+// 向量维度由 embedding 模型唯一决定——GLM 建库接口只吃 embedding_id、无独立维度参数（backend/agent/glm_kb.py:create_kb）。
+// 故维度不作独立可改字段（那会喂 GLM 不消费的值 = 假配置，铁律#1），只与模型「联动」：选模型即定维度。
+// App 端建库后模型不可改（KnowledgeView 无编辑流）→「有文件后维度锁定」天然成立。
+const KB_EMB_DIMS = {3:[1024], 11:[2048], 12:[2048]};
+const kbDim = eid => (KB_EMB_DIMS[eid] || [2048])[0];
+// GLM 切片方式（knowledge_type）真实枚举；仅 5=自定义切片 用 sentence_size（20–2000）。
+const KB_KTYPES = {1:"按标题段落切", 2:"按问答对切片", 3:"按行切片", 5:"自定义切片", 6:"按页切片", 7:"按单个切片"};
 async function knowledgeCat(body){
   body.innerHTML = `
     <div class="tabs" style="margin-bottom:14px">
@@ -1632,6 +1639,8 @@ function knowledgeDetail(it){
   const d=it.data||{};
   const off = it.enabled?"":'<span class="cg-badge off">停用</span>';
   const emb = KB_EMBEDDINGS[d.embedding_id]||"（默认 Embedding-3）";
+  const dim = kbDim(d.embedding_id||11);  // 维度由模型派生（不信可能漂移的存储值）
+  const kt = d.knowledge_type??5, ktLabel = KB_KTYPES[kt] ? (kt+"="+KB_KTYPES[kt]) : String(kt);
   const dts = d.doc_types||[], tags = d.tags||[];
   const ov = document.createElement("div"); ov.className="cg-overlay";
   ov.innerHTML = `<div class="cg-modal" role="dialog" aria-modal="true" aria-label="${esc(d.name||"知识库模板")}">
@@ -1641,7 +1650,7 @@ function knowledgeDetail(it){
       <button class="cg-x" aria-label="关闭">×</button></div>
     <div class="cg-mb">
       <div class="cg-sec">用途</div><div class="cg-mdesc">${esc(d.desc||"（无简介）")}</div>
-      <div class="cg-sec">建库参数</div><div class="cg-mdesc"><code>向量模型：${esc(emb)}　切片：${d.knowledge_type??5}${d.sentence_size?(" · "+d.sentence_size+" 字/段"):""}　上下文增强：${d.contextual?"开":"关"}</code></div>
+      <div class="cg-sec">建库参数</div><div class="cg-mdesc"><code>向量模型：${esc(emb)} · ${dim} 维　切片：${esc(ktLabel)}${(kt===5&&d.sentence_size)?(" · "+d.sentence_size+" 字/段"):""}　上下文增强：${d.contextual?"开":"关"}</code></div>
       ${dts.length?`<div class="cg-sec">建议文档类型</div><div class="cg-mtags">${dts.map(t=>`<span class="pill">${esc(t)}</span>`).join("")}</div>`:""}
       ${tags.length?`<div class="cg-sec">标签</div><div class="cg-mtags">${tags.map(t=>`<span class="pill">${esc(t)}</span>`).join("")}</div>`:""}
     </div>
@@ -1666,12 +1675,13 @@ async function knowledgeManage(body){
       <div class="field"><label>用途简介</label><textarea id="kb-desc" placeholder="放什么资料、给谁用"></textarea></div>
       <div class="grid2">
         <div class="field"><label>向量模型</label><select id="kb-emb"><option value="11">Embedding-3（推荐）</option><option value="12">Embedding-3-pro</option><option value="3">Embedding-2</option></select></div>
-        <div class="field"><label>切片方式 knowledge_type</label><input id="kb-kt" type="number" value="5" style="width:100px"><span class="muted" style="font-size:12px">5=自定义切片</span></div>
+        <div class="field"><label>向量维度</label><select id="kb-dim"></select><span class="muted" style="font-size:12px">跟随模型 · 建库后锁定</span></div>
       </div>
       <div class="grid2">
-        <div class="field"><label>切片字数 sentence_size</label><input id="kb-ss" type="number" value="300" style="width:100px"></div>
+        <div class="field"><label>切片方式 knowledge_type</label><select id="kb-kt">${Object.entries(KB_KTYPES).map(([v,l])=>`<option value="${v}"${v==="5"?" selected":""}>${v}=${esc(l)}</option>`).join("")}</select></div>
         <div class="field"><label><input id="kb-ctx" type="checkbox"> 开启上下文增强 contextual</label></div>
       </div>
+      <div class="field" id="kb-ss-wrap"><label>切片字数 sentence_size</label><input id="kb-ss" type="number" value="300" min="20" max="2000" style="width:120px"><span class="muted" style="font-size:12px">20–2000，仅「自定义切片」用</span></div>
       <div class="field"><label>建议文档类型（逗号分隔，可空）</label><input id="kb-dts" placeholder="pdf, docx, md"></div>
       <div class="field"><label>标签（逗号分隔，可空）</label><input id="kb-tags" placeholder="产品, 手册"></div>
       <div class="row"><input id="kb-sort" type="number" value="0" style="width:80px"><span class="muted" style="font-size:12px">排序</span><div class="grow"></div><button class="ghost" id="kb-clear">清空</button><button id="kb-save">保存</button></div>
@@ -1679,20 +1689,32 @@ async function knowledgeManage(body){
     <div id="kb-list" class="muted">加载中…</div>`;
   const F = id=>document.getElementById(id);
   const csv = s => s.split(",").map(x=>x.trim()).filter(Boolean);
+  // 维度下拉跟随向量模型：选模型即重建维度选项并选中（维度全程由 embedding_id 派生）。
+  function syncDim(){
+    const eid = Number(F("kb-emb").value)||11, dims = KB_EMB_DIMS[eid] || [kbDim(eid)], cur = F("kb-dim").value;
+    F("kb-dim").innerHTML = dims.map(x=>`<option value="${x}">${x} 维</option>`).join("");
+    F("kb-dim").value = dims.map(String).includes(cur) ? cur : String(dims[0]);
+  }
+  // 切片字数仅在「5=自定义切片」时有意义，其余切片方式隐藏。
+  function syncSs(){ F("kb-ss-wrap").style.display = (Number(F("kb-kt").value)===5) ? "" : "none"; }
   function fill(it){
     const d = it? (it.data||{}) : {};
     F("kb-id").value = it? it.id : "";
     F("kb-icon").value=d.icon||""; F("kb-name").value=d.name||""; F("kb-desc").value=d.desc||"";
-    F("kb-emb").value=String(d.embedding_id||11); F("kb-kt").value=d.knowledge_type??5; F("kb-ss").value=d.sentence_size??300;
+    F("kb-emb").value=String(d.embedding_id||11); F("kb-kt").value=String(d.knowledge_type??5); F("kb-ss").value=d.sentence_size??300;
     F("kb-ctx").checked=!!d.contextual; F("kb-dts").value=(d.doc_types||[]).join(", "); F("kb-tags").value=(d.tags||[]).join(", ");
     F("kb-sort").value = it? it.sort : 0; F("kb-h").textContent = it? "编辑知识库模板":"新增知识库模板";
+    syncDim(); syncSs();
   }
+  F("kb-emb").onchange = syncDim; F("kb-kt").onchange = syncSs;
+  syncDim(); syncSs();  // 首次渲染即按默认值（Embedding-3→2048 / 5=自定义切片）填好
   F("kb-clear").onclick=()=>fill(null);
   F("kb-save").onclick = async ()=>{
     F("kb-err").textContent="";
     const name=F("kb-name").value.trim(); if(!name){ F("kb-err").textContent="名称必填"; return; }
+    const eid=Number(F("kb-emb").value)||11;
     const data={ key:(F("kb-name").value.trim().toLowerCase().replace(/\s+/g,"-")), name, desc:F("kb-desc").value.trim(),
-      icon:F("kb-icon").value.trim()||"📚", embedding_id:Number(F("kb-emb").value)||11,
+      icon:F("kb-icon").value.trim()||"📚", embedding_id:eid, embedding_dim:kbDim(eid),
       knowledge_type:Number(F("kb-kt").value)||5, sentence_size:Number(F("kb-ss").value)||300,
       contextual:F("kb-ctx").checked?1:0, doc_types:csv(F("kb-dts").value), tags:csv(F("kb-tags").value) };
     const id=F("kb-id").value, sort=Number(F("kb-sort").value)||0;
@@ -1700,7 +1722,7 @@ async function knowledgeManage(body){
     catch(e){ F("kb-err").textContent=e.message; }
   };
   try{ const {items} = await api("GET","/catalog/KB_TPLS?all=true");
-    F("kb-list").innerHTML = items.length? items.map(it=>{ const d=it.data||{}; const emb=KB_EMBEDDINGS[d.embedding_id]||"Embedding-3"; return `<div class="list-item"><span style="font-size:20px">${esc(d.icon||"📚")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d.name||"?")} <span class="pill">${esc(emb)}</span>${d.contextual?' <span class="pill">增强</span>':''} ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.desc||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`; }).join("") : '<div class="muted">还没有知识库模板</div>';
+    F("kb-list").innerHTML = items.length? items.map(it=>{ const d=it.data||{}; const emb=KB_EMBEDDINGS[d.embedding_id]||"Embedding-3"; return `<div class="list-item"><span style="font-size:20px">${esc(d.icon||"📚")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d.name||"?")} <span class="pill">${esc(emb)} · ${kbDim(d.embedding_id||11)}维</span>${d.contextual?' <span class="pill">增强</span>':''} ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.desc||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`; }).join("") : '<div class="muted">还没有知识库模板</div>';
     F("kb-list").querySelectorAll("[data-ed]").forEach(b=> b.onclick=()=>{ fill(items.find(x=>x.id===b.dataset.ed)); window.scrollTo(0,0); });
     F("kb-list").querySelectorAll("[data-tog]").forEach(b=> b.onclick=async()=>{ const [id,en]=b.dataset.tog.split(":"); try{ await api("PATCH","/catalog/item/"+id,{enabled:!!+en}); knowledgeManage(body);}catch(e){F("kb-err").textContent=e.message;} });
     F("kb-list").querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); knowledgeManage(body);}catch(e){F("kb-err").textContent=e.message;} });
