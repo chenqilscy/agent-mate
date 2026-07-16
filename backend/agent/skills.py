@@ -17,6 +17,7 @@ import re
 import socket
 import statistics
 from html.parser import HTMLParser
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -248,6 +249,20 @@ SKILLS: dict[str, tuple[str, list[Tool]]] = {
     "Excel 文件处理": ("处理表格数据时：对工作区里的 CSV 用 analyze_csv 获取行列/数值列统计，再基于真实数据作答；输出用清晰的表格结构。", [analyze_csv]),
     "股票综合分析器": ("做股票分析时分三维展开：基本面、消息面、资金面，结论先行并提示风险。", []),
 }
+
+
+def builtin_list() -> list[dict[str, Any]]:
+    """内置技能清单（名字 / 描述 / 工具名）——供前端 loadout 选择器（WB-180）。
+
+    它们**不在磁盘上**（不是从 SkillHub 装的），只存在于上面的 SKILLS dict，因此
+    `GET /api/skills` 的磁盘扫描列不出它们。前端此前只能靠静态 SK_GRID 里的名字恰好
+    撞上 SKILLS 的 key 才选得到 —— 这里给它一个真实来源。
+    `tools` 为空 = 纯提示词技能（按本项目定义「技能 = 提示词 + 工具包」，这也是真技能）。
+    """
+    return [
+        {"name": n, "description": instr, "tools": [t.name for t in tools]}
+        for n, (instr, tools) in SKILLS.items()
+    ]
 
 
 def skill_def(name: str) -> tuple[str, list[Tool]]:

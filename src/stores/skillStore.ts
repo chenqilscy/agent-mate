@@ -13,8 +13,17 @@ export function matchSkill(installed: InstalledSkill[], name: string): Installed
   return installed.find((s) => s.name === name || s.slug === name || s.key === name)
 }
 
+// 内置技能（WB-180）：不在磁盘上，`GET /api/skills` 的磁盘扫描列不出，只能问 /skills/builtin。
+// tools 为空 = 纯提示词技能（按本项目定义「技能 = 提示词 + 工具包」，同样是真技能）。
+export interface BuiltinSkill {
+  name: string
+  description: string
+  tools: string[]
+}
+
 interface SkillState {
   installed: InstalledSkill[]
+  builtin: BuiltinSkill[]
   loaded: boolean
   loading: boolean
   cliAvailable: boolean
@@ -28,6 +37,7 @@ interface SkillState {
 
 export const useSkillStore = create<SkillState>((set, get) => ({
   installed: [],
+  builtin: [],
   loaded: false,
   loading: false,
   cliAvailable: true,
@@ -39,6 +49,11 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     try {
       const { skills, cli } = await api.listSkills()
       set({ installed: skills, cliAvailable: cli, loaded: true })
+      // 内置技能另取（WB-180）：它们不在磁盘上，listSkills 的扫描列不出。失败不影响已装清单。
+      try {
+        const r = await fetch(`${API_BASE}/skills/builtin`, { headers: authHeaders() })
+        if (r.ok) set({ builtin: ((await r.json()) as { skills?: BuiltinSkill[] }).skills ?? [] })
+      } catch { /* 内置清单拿不到就只列已装，不阻塞 */ }
     } catch {
       /* 后端未连接：保留现状 */
     } finally {

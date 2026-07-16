@@ -9,7 +9,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 import hub_client
-from agent import skills_store
+from agent import skills, skills_store
 
 router = APIRouter(prefix="/api", tags=["skills"])
 
@@ -30,6 +30,15 @@ class ToggleBody(BaseModel):
 @router.get("/skills")
 def list_installed() -> dict:
     return {"skills": skills_store.scan(), "cli": skills_store.cli_available()}
+
+
+@router.get("/skills/builtin")
+def list_builtin() -> dict:
+    """内置技能（真工具包 / 真提示词），不在磁盘上，磁盘扫描列不出 —— 供 loadout 选择器（WB-180）。
+
+    路由顺序：必须定义在 `/skills/{key}` 之前，否则会被它当成 key="builtin" 吃掉。
+    """
+    return {"skills": skills.builtin_list()}
 
 
 @router.get("/skills/search")

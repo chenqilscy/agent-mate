@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCatalog, useCatalogStore } from '../../stores/catalogStore'
 import { useKnowledgeStore } from '../../stores/knowledgeStore'
 import { useProjectStore } from '../../stores/projectStore'
+import { useSkillStore } from '../../stores/skillStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
 import type { ProjectInfo } from '../../lib/types'
@@ -160,6 +161,36 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
   const kbLoaded = useKnowledgeStore((s) => s.loaded)
   const loadKb = useKnowledgeStore((s) => s.load)
   useEffect(() => { if (kind === 'kb' && !kbLoaded) void loadKb() }, [kind, kbLoaded, loadKb])
+
+  // 技能（WB-180）：只列**真的会生效**的 —— 内置技能（skills.py 的真工具/真提示词）+
+  // 已安装且未停用的磁盘技能（后端注入其真实 SKILL.md）。此前这里读的是静态 SK_GRID，
+  // 导致用户真装的技能选不到，而选中的假卡只会让后端回一句兜底话术。
+  const installedSkills = useSkillStore((s) => s.installed)
+  const builtinSkills = useSkillStore((s) => s.builtin)
+  const skillsLoaded = useSkillStore((s) => s.loaded)
+  const loadSkills = useSkillStore((s) => s.load)
+  useEffect(() => { if (kind === 'skill' && !skillsLoaded) void loadSkills() }, [kind, skillsLoaded, loadSkills])
+
+  const skillItems = useMemo(() => {
+    const icon = (n: string) => SK_GRID.find((s) => s[1] === n)?.[0] ?? '🧩'
+    const built = builtinSkills.map((b) => ({
+      name: b.name,
+      desc: b.description,
+      icon: icon(b.name),
+      tag: '内置',
+    }))
+    // 停用的不列：后端 instructions_for 对 disabled 返回 None，列出来等于骗用户（铁律#1）。
+    const inst = installedSkills
+      .filter((s) => !s.disabled && !built.some((b) => b.name === s.name))
+      .map((s) => ({
+        name: s.name,
+        desc: s.description || `${s.source === 'skillhub' ? 'SkillHub' : '本地'} 技能${s.version ? ' · v' + s.version : ''}`,
+        icon: icon(s.name),
+        tag: '已安装',
+      }))
+    return [...built, ...inst]
+  }, [builtinSkills, installedSkills, SK_GRID])
+
   const title = { conn: '添加连接器', exp: '选择专家', skill: '选择技能', kb: '挂载知识库' }[kind]
 
   const match = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase())
@@ -213,19 +244,30 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
             </div>
           )}
           {kind === 'skill' && (
-            <div className="selgrid">
-              {SK_GRID.filter((s) => match(s[1]) || match(s[2])).map((s) => {
-                const on = sel.has(s[1])
-                return (
-                  <div className={`selcard ${on ? 'sel' : ''}`.trim()} key={s[1]} onClick={() => onToggle(s[1])}>
-                    <div style={{ display: 'flex', gap: 11, alignItems: 'center' }}>
-                      <div className="sc-ic">{s[0]}</div><div className="sc-n">{s[1]}</div>
+            skillItems.length === 0 ? (
+              <div className="pd" style={{ padding: '18px 4px', lineHeight: 1.7 }}>
+                {skillsLoaded
+                  ? '还没有可用的技能。去左侧「技能」页安装后，即可在这里挂载。'
+                  : '加载中…'}
+              </div>
+            ) : (
+              <div className="selgrid">
+                {skillItems.filter((s) => match(s.name) || match(s.desc)).map((s) => {
+                  const on = sel.has(s.name)
+                  return (
+                    <div className={`selcard ${on ? 'sel' : ''}`.trim()} key={s.name} onClick={() => onToggle(s.name)}>
+                      <div style={{ display: 'flex', gap: 11, alignItems: 'center' }}>
+                        <div className="sc-ic">{s.icon}</div>
+                        {/* tag 内联在 .sc-n 内 —— 同连接器 picker 的 .pn 用法；.conn-tag 是
+                            margin-left + vertical-align 的内联样式，当 flex 子项会被挤成竖排。 */}
+                        <div className="sc-n" title={s.name}>{s.name}<span className="conn-tag rdy">{s.tag}</span></div>
+                      </div>
+                      <div className="sc-d" style={{ marginTop: 9 }}>{s.desc}</div>
                     </div>
-                    <div className="sc-d" style={{ marginTop: 9 }}>{s[2]}</div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            )
           )}
           {kind === 'kb' && (
             kbs.length === 0 ? (
