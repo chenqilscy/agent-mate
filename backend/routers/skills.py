@@ -43,10 +43,20 @@ def search_skills(q: str = "", limit: int = 8, authorization: str = Header(defau
 
 
 @router.get("/skills/rankings")
-def skills_rankings(type: str = "featured", category: str = "", limit: int = 0) -> dict:
+def skills_rankings(
+    type: str = "featured", category: str = "", limit: int = 0, authorization: str = Header(default="")
+) -> dict:
     # skillhub.cn 实时目录（WB-064）：featured/hot/recommended/newest/trending/all/paid。
-    # 供「分层」方案里 skillhub.cn 实时那一层用；WB-060 的 Hub-DB 目录层可消费此端点做整合+兜底。
-    return {"type": type, "skills": skills_store.rankings(type, category, limit)}
+    # WB-186：与 search/preview 同口径（WB-130「App 不直连 SkillHub，统一经 Manager」）——
+    # 接了 Hub 就走代理；未接/不可达/无果 → 回退本地 CLI 直连（离线兜底）。
+    # Manager 走 HTTP showcase 无需 CLI，故本机没装 CLI 时也能拿到真实榜单（此前只能吃前端静态假数据）。
+    if hub_client.hub_enabled():
+        proxied = hub_client.skill_rankings(_bearer(authorization), type, 0)
+        if proxied:
+            # 「已安装」是本机磁盘的知识，Manager 给不出来 → 本地加工后再返回。
+            return {"type": type, "skills": skills_store.decorate_cards(proxied, category, limit),
+                    "source": "hub"}
+    return {"type": type, "skills": skills_store.rankings(type, category, limit), "source": "local"}
 
 
 @router.get("/skills/preview")

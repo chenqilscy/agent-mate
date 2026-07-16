@@ -3,7 +3,7 @@ id: WB-186
 title: 技能后端一致性尾集 —— plan 模式不约束技能工具 / rankings 绕过 Manager 违反 WB-130 / 预览缓存无 TTL / schema 不去重
 severity: P3
 area: backend
-status: open
+status: in-progress
 origin: 既有实现
 files:
   - backend/agent/runtime.py:418
@@ -71,3 +71,85 @@ P3（第 1 项本身接近 P2）。各自独立、中低危，合并为一组一
 - 断开 Hub → rankings 仍能出内容（CLI 兜底）；接上 Hub → 走 Hub 代理（日志/抓包确认）。
 - 预览缓存：mock 一次预览 → 等 TTL 过 → 再次预览确认重新取数。
 - 造一个与 base 工具重名的技能工具 → 确认发给 LLM 的 schemas 只有一份。
+
+## 处理记录（2026-07-16）
+
+5 项中**修 3 项（2/3/5）**，**第 1、4 项 ⏸ deferred**（理由见下）。
+
+### ⏸ 第 1 项的前提被推翻 —— 原描述有误，在此更正
+
+原文写「plan 模式的『只读』承诺对技能工具不成立」，**这个判断是错的**。查了 plan 模式的
+实际契约，三处注释口径一致：
+
+- `runtime.py:52` —— "Plan mode (spec 5.3): plan, don't execute."
+- `runtime.py:290` —— "Plan mode is read-only, so it only gets the viewing tool."
+- `tools.py:551` —— "Plan mode = read-only tools + ask_user (**no write_file / run_command**)."
+
+`web_fetch` / `html_to_markdown` 是 **HTTP GET = 读**，不执行、不改任何状态，既不是
+`write_file` 也不是 `run_command` —— **它们在 plan 模式下可用是符合契约的**。反过来把它们
+过滤掉才是错的：规划时查不了资料，规划质量更差。
+
+实测确认今天**零实害**：
+```
+skill 工具 = {web_fetch, html_to_markdown, analyze_csv}  ← 全是只读
+base 工具  = {list_dir, read_file, run_command, update_plan, write_file}
+交集 = 空                                                  ← 第 4 项今天也不会重复发 schema
+```
+
+**真实的缺口是结构性的**：`skill_tools` 完全绕过 plan 过滤，**没有任何机制表达某个技能
+工具是否 plan-safe**。今天恰好 3 个都只读所以没暴雷；一旦有会写/会执行的技能工具落地，
+就会静默地在 plan 模式下跑起来，破坏「plan, don't execute」。
+
+**故 deferred，归入 WB-183**：那条 issue 本就要把技能定义迁进 `catalog_skills`、重构
+`slug → tools` 绑定，届时给 `Tool` 加 `readonly` 标记（默认 False = 保守）才真正有用武之地。
+现在单独做是个**行为上的 no-op**，却要动 `runtime.py`/`tools.py` —— 而这两个文件正被并发
+会话（WB-177/188 WeKnora）占用，为一个 no-op 去争用文件不划算。第 4 项（schema 去重）同理：
+今天无重名，随 WB-183 一并做。
+
+### ✅ 第 2 项：rankings 补齐 Manager 代理（含 Hub 侧）
+
+`/api/skills/rankings` 原先**绕过 Manager 直连 skillhub.cn**（本地 CLI），与同文件
+`search`/`preview` 遵循的 WB-130 口径自相矛盾，且 Hub 侧压根没有对应端点。
+
+- `hub/skillhub_client.py` 加 `rankings(rtype, limit)` —— 按榜单类型直连
+  `showcase/{rtype}`（复用既有 `_normalize_card`/`_stored_key`），失败回退 `_cli_rankings()`，
+  300s TTL 缓存；`all` 走既有 `rankings_all()`。
+- `hub/routers/catalog.py` 加 `GET /catalog/skills/rankings`（放在 `{slug}/preview` 之前，避免路由歧义）。
+- `backend/hub_client.py` 加 `skill_rankings()`，与 `search_skillhub`/`skill_preview` 同范式。
+- `backend/routers/skills.py` 改「Hub 优先 → 本地 CLI 兜底」，返回 `source` 字段。
+- `backend/agent/skills_store.py` 把「标记已安装 + 分类过滤 + 截断」抽成 `decorate_cards()`
+  —— **「已安装」是本机磁盘的知识，Manager 给不出来**，所以经 Hub 取回的榜单也要过这一步。
+
+**顺带的实际收益**：Hub 走 HTTP showcase **无需 CLI**（WB-094），而 App 侧 `rankings()` 被
+`cli_available()` 卡着。所以本机没装 skillhub CLI 的用户此前 rankings **一条都拿不到**，
+只能吃前端的静态假数据；现在能拿到真实榜单（正面响应铁律#1）。
+
+### ✅ 第 3 项：预览缓存加 TTL
+
+`_preview_cache` 从 `{slug: detail}` 改为 `{slug: (ts, detail)}` + `_PREVIEW_TTL = 300.0`，
+与 `hub/skillhub_client.py:_PREVIEW_TTL` 对齐（此前 App 侧无过期，技能发新版后本进程
+永远返回旧预览）。`> 64` 的整体封顶保留。
+
+### ✅ 第 5 项：合并冗余分支
+
+`rankings()` 里 `items = cached[1] if cached else []` 原在 `elif`/`else` 两分支重复写，
+提到前面一次赋值（兼作缓存命中 / CLI 缺失 / 取数失败三种情况的兜底）。
+
+### 验证
+
+- `py_compile` 过（`skills_store.py` / `routers/skills.py` / `hub_client.py` /
+  `hub/skillhub_client.py` / `hub/routers/catalog.py`）。
+- **Hub 侧真连 skillhub.cn**：`rankings('hot'/'featured'/'newest'/'paid')` 各取到真实卡；
+  `rankings('all')` → 338 条（6 榜并集）；非法 type 回落 featured；二次调用 0.0ms（TTL 缓存命中）。
+- **App 侧隔离 TestClient 打真路由**（未重启共享 :8000）16 项断言全过：
+  - 第 5 项回归：本地 CLI 路径仍出真实卡、`installed` 标记在、`limit`/`category` 过滤生效、非法 type 回落；
+  - 第 3 项：TTL 内命中缓存、过期后不再返回陈旧值；
+  - 第 2 项：未接 Hub → `source=local`；接 Hub 有果 → `source=hub` **且仍被本机加工出 installed**
+    （已装的 `github` 标 True、未装的标 False）；接 Hub 无果 → 回退 `source=local`；
+    Hub 路径的 `category` 过滤能命中也能滤空。
+
+### 状态
+
+`in-progress` —— 第 1、4 项 deferred 归 WB-183，其余已修。
+
+- commit：未提交（待用户确认）。

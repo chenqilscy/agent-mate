@@ -234,8 +234,11 @@ def _installed_dir_for_slug(slug: str) -> Path | None:
     return None
 
 
-# 安装前预览缓存（slug → detail），避免重复下载。小 local 应用，简单封顶即可。
-_preview_cache: dict[str, dict[str, Any]] = {}
+# 安装前预览缓存（slug → (ts, detail)），避免重复下载。
+# 必须有 TTL：否则技能在 SkillHub 发了新版，本进程会永远返回旧预览（WB-186）。
+# 300s 与 hub/skillhub_client.py 的 _PREVIEW_TTL 对齐，避免两侧行为不一致。
+_PREVIEW_TTL = 300.0
+_preview_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
 def preview(slug: str = "", name: str = "") -> dict[str, Any] | None:
@@ -250,8 +253,9 @@ def preview(slug: str = "", name: str = "") -> dict[str, Any] | None:
     inst = _installed_dir_for_slug(slug)
     if inst:
         return _build_detail(inst, installed=True)
-    if slug in _preview_cache:
-        return _preview_cache[slug]
+    hit = _preview_cache.get(slug)
+    if hit and (time.time() - hit[0]) < _PREVIEW_TTL:
+        return hit[1]
     if not cli_available():
         return None
     tmp = Path(tempfile.mkdtemp(prefix="skhub-prev-"))
@@ -266,7 +270,7 @@ def preview(slug: str = "", name: str = "") -> dict[str, Any] | None:
             det["slug"] = slug
             if len(_preview_cache) > 64:
                 _preview_cache.clear()
-            _preview_cache[slug] = det
+            _preview_cache[slug] = (time.time(), det)
         return det
     except (subprocess.TimeoutExpired, OSError):
         return None
@@ -390,12 +394,10 @@ def rankings(rtype: str = "featured", category: str = "", limit: int = 0) -> lis
     if rtype not in _VALID_RANK_TYPES:
         rtype = "featured"
     cached = _rankings_cache.get(rtype)
+    items = cached[1] if cached else []  # 缓存命中 / CLI 缺失 / 取数失败，都以它兜底
     if cached and (time.time() - cached[0]) < _RANKINGS_TTL:
-        items = cached[1]
-    elif not cli_available():
-        items = cached[1] if cached else []
-    else:
-        items = cached[1] if cached else []
+        pass
+    elif cli_available():
         try:
             cp = _run_cli(["skill", "rankings", "--type", rtype], timeout=30)
             d = json.loads((cp.stdout or "").strip())
@@ -406,7 +408,17 @@ def rankings(rtype: str = "featured", category: str = "", limit: int = 0) -> lis
         except (subprocess.TimeoutExpired, OSError, ValueError):
             pass  # 保留上次缓存（items 已置为 cached）
 
-    # 标记本地已安装（让前端在实时卡上显示已装态）
+    return decorate_cards(items, category, limit)
+
+
+def decorate_cards(
+    items: list[dict[str, Any]], category: str = "", limit: int = 0
+) -> list[dict[str, Any]]:
+    """给商品卡按本机状态加工：标记已安装 + 按分类过滤 + 截断。
+
+    「已安装」是**本机磁盘**的知识，Manager 给不出来，所以经 Hub 代理取回的榜单
+    也要过这一步（WB-186）。
+    """
     inst = scan()
     inst_keys = {s["slug"] for s in inst} | {s["name"] for s in inst}
     cat = category.strip().lower()
@@ -420,7 +432,7 @@ def rankings(rtype: str = "featured", category: str = "", limit: int = 0) -> lis
             ]).lower()
             if cat not in hay:
                 continue
-        out.append({**it, "installed": it["slug"] in inst_keys or it["name"] in inst_keys})
+        out.append({**it, "installed": it.get("slug") in inst_keys or it.get("name") in inst_keys})
     return out[:limit] if limit and limit > 0 else out
 
 

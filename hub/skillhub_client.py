@@ -169,6 +169,53 @@ def rankings_all() -> list[dict[str, Any]]:
         return _cli_rankings()
 
 
+# 按榜单类型的实时目录代理（WB-186）：App 原先绕过 Manager 直连 skillhub.cn（本地 CLI），
+# 与 search/preview 遵循的 WB-130「App 不直连 SkillHub、统一经 Manager」自相矛盾。
+# 这里补齐 Manager 侧的对应能力。顺带：Hub 走 HTTP 无需 CLI，故没装 CLI 的 App 也能拿到真实榜单。
+_RANKINGS_TTL = 300.0  # 秒；榜单变化慢
+_rankings_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+
+
+def rankings(rtype: str = "featured", limit: int = 0) -> list[dict[str, Any]]:
+    """单个榜单（hot/featured/newest/recommended/trending/paid，或 all=6 榜并集）。
+
+    优先直连 `showcase/{rtype}`；失败回退 CLI 的全量榜单再按需截断。站点不可达时返回
+    上次缓存（有则），否则空列表 —— 空即让 App 侧回退本地 CLI 直连（离线兜底）。
+    """
+    rtype = (rtype or "featured").strip().lower()
+    if rtype != "all" and rtype not in _SHOWCASE:
+        rtype = "featured"
+
+    hit = _rankings_cache.get(rtype)
+    if hit and (time.time() - hit[0]) < _RANKINGS_TTL:
+        out = hit[1]
+    else:
+        out = hit[1] if hit else []
+        try:
+            if rtype == "all":
+                out = rankings_all()
+            else:
+                d = _http_json(f"{_API_BASE}/api/v1/showcase/{rtype}?limit=500", _stored_key())
+                raw = (d.get("skills") or d.get("featured_paid_skills") or []) if isinstance(d, dict) else []
+                seen: set[str] = set()
+                cards = []
+                for x in raw:
+                    if not isinstance(x, dict):
+                        continue
+                    slug = str(x.get("slug") or "").strip()
+                    if not slug or slug in seen:
+                        continue
+                    seen.add(slug)
+                    cards.append(_normalize_card(x))
+                out = cards or _cli_rankings()  # showcase 空 → CLI 兜底
+            if out:
+                _rankings_cache[rtype] = (time.time(), out)
+        except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+            pass  # 保留上次缓存（out 已置为 hit）
+
+    return out[:limit] if limit and limit > 0 else out
+
+
 def _cli_rankings() -> list[dict[str, Any]]:
     """回退：跑 `skill rankings --type all` → 展平 6 榜单、按 slug 去重、归一化。失败返回 []。
 

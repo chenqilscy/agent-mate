@@ -235,6 +235,16 @@ def search_skillhub(token: str, q: str, limit: int = 12) -> Optional[list[dict[s
     return res if isinstance(res, list) and res else None
 
 
+def skill_rankings(token: str, rtype: str = "featured", limit: int = 0) -> Optional[list[dict[str, Any]]]:
+    """经 Manager 取实时榜单（WB-186）——App 不直连 SkillHub，与 search/preview 同口径（WB-130）。
+    Manager 走 HTTP showcase 无需 CLI，故没装 CLI 的本机也能拿到真实榜单。
+    None = 未接/不可达/无结果 → 调用方回退本地 CLI 直连（离线兜底）。"""
+    qs = urllib.parse.urlencode({"type": rtype, "limit": limit})
+    d = _get(f"/api/catalog/skills/rankings?{qs}", token)
+    res = d.get("skills") if isinstance(d, dict) else None
+    return res if isinstance(res, list) and res else None
+
+
 def skill_preview(token: str, slug: str, name: str = "") -> Optional[dict[str, Any]]:
     """经 Manager 取单技能预览（SKILL.md + 富元数据，WB-130）——App 不直连 SkillHub。
     None = 未接/不可达/Manager 无果 → 调用方回退本地 CLI 预览（离线兜底）。"""

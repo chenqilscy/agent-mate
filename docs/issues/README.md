@@ -197,7 +197,7 @@
 | [WB-183](WB-183-catalog-skills-to-db.md) | ⬜ | P2 | fullstack | 技能目录/定义未入库 —— WB-059 漏项：专家人格/连接器进了 DB，技能仍硬编码在 skills.py；设计过的 catalog_skills 表从未建 + 63 条孤儿静态数据 + 分类映射双份硬编码 |
 | [WB-184](WB-184-skill-browse-sources-convergence.md) | ⬜ | P2 | frontend | 技能浏览四套数据源 + 两套分类体系并存（精选/推荐/SkillHub/套件；SK_CATS vs SKILLHUB_CATS）+ 兜底链竞态 + SK_RECO 死代码 —— 收敛为一个面板一套分类 |
 | [WB-185](WB-185-skills-api-attack-surface.md) | ✅ | P2 | backend | /api/skills 攻击面 —— App 侧 install/preview 的 slug 未校验（WB-160 第6项只修了 hub 孪生站点，App 侧漏网）已修+两侧口径统一+顺带硬化前导`-`（实测 CLI argparse 真被 `--dir` 噎住）；零鉴权项 ⏸ deferred（current_user 从不拒绝，需共享后端鉴权策略横切决策） |
-| [WB-186](WB-186-skills-backend-consistency-tail.md) | ⬜ | P3 | backend | 技能后端一致性尾集 —— plan 模式不约束技能工具(只读模式仍出网) / rankings 绕过 Manager 违反 WB-130 / 预览缓存无 TTL(与 Hub 侧不一致) / schema 不去重 |
+| [WB-186](WB-186-skills-backend-consistency-tail.md) | 🟡 | P3 | backend | 技能后端一致性尾集 —— rankings 补齐 Manager 代理(顺带：Hub 走 HTTP 无需 CLI，没装 CLI 的本机终于能拿真实榜单而非静态假数据) + 预览缓存 TTL 对齐 Hub + 合冗余分支，均已修；plan 过滤/schema 去重两项经实测为今日无实害的结构性预防(web_fetch 是 GET 不违反 plan 契约)，⏸ 归 WB-183 一并做 |
 | [WB-187](WB-187-resolve-slug-installs-wrong-skill.md) | ✅ | P2 | backend | 按名安装取搜索首条 —— 名字不存在时静默装上无关技能并贴上用户输入的名字（截图里「腾讯微云」的＋号实测会装成 self-improving-agent，真微云技能在搜索第4条被跳过）；resolve_slug 改仅精确命中，实测 38 张静态卡 37 命中/1 诚实404 |
 
 ## 来源

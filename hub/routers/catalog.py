@@ -47,6 +47,17 @@ def search_skillhub(q: str = "", limit: int = 12, account: Account = CurrentAcco
             "cli": skillhub_client.cli_available()}
 
 
+@router.get("/catalog/skills/rankings")
+def rankings_skillhub(type: str = "featured", limit: int = 0, account: Account = CurrentAccount) -> dict:
+    """实时榜单代理（WB-186）：补齐 Manager 侧的 rankings —— App 原先绕过 Manager 直连
+    skillhub.cn（本地 CLI），与 search/preview 的 WB-130 口径矛盾。
+
+    Manager 走 HTTP showcase（无需 CLI），故没装 CLI 的 App 也能拿到真实榜单。
+    `skills=[]` = 取不到，客户端据此回退本地 CLI 直连（离线兜底）。
+    """
+    return {"type": type, "skills": skillhub_client.rankings(type, limit)}
+
+
 @router.get("/catalog/skills/{slug}/preview")
 def preview_skillhub(slug: str, name: str = "", account: Account = CurrentAccount) -> dict:
     """单技能预览代理（WB-130）：Manager 统一对 SkillHub 取数（HTTP 富元数据 + CLI SKILL.md 正文）。

@@ -60,6 +60,14 @@ P2。不阻塞使用，但它是 WB-179 身份统一的**前置**（slug ↔ 定
 5. **分类映射去重**：`catalogStore.ts:17-22` 的快照删掉，改从 Hub 下发的 `skill-category` 取；
    `hub/skillhub_sync.py:22-36` 保留为 Hub 侧唯一来源（并加注释说明它是快照、需人工维护）。
 
+6. **一并做 WB-186 deferred 过来的两项**（它们等的就是本条的重构）：
+   - 给 `Tool` 加 `readonly` 标记（默认 `False` = 保守），`runtime.py:418` 的 `skill_tools`
+     也过 plan 过滤 —— 现状是 `skill_tools` 完全绕过 `base_tools(plan)`，**没有机制表达某个
+     技能工具是否 plan-safe**。今天 3 个技能工具恰好全只读（`web_fetch`/`html_to_markdown`
+     是 GET、`analyze_csv` 是本地读）所以无实害，但技能定义一旦可运营就会暴雷。
+   - `runtime.py:427` 的 `schemas` 改从已去重的 `active_tools.values()` 生成（今天技能工具与
+     base 工具无重名，可运营后重名风险上升）。
+
 **注意复活陷阱**（WB-176 教训）：前端静态兜底 / 后端种子 / 运行库三层要同步改。
 
 ## 验证
