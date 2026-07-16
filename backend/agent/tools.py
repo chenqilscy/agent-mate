@@ -16,6 +16,7 @@ commands behind ask_user authorization.
 from __future__ import annotations
 
 import contextvars
+import mimetypes
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -26,6 +27,7 @@ from storage import db
 
 MAX_OUTPUT = 6000
 CMD_TIMEOUT = 30
+KB_MAX_UPLOAD = 50 * 1024 * 1024  # 50 MB/文件，与知识库路由一致
 
 
 @dataclass
@@ -384,6 +386,72 @@ knowledge_retrieve = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "knowledge_retrieve", "label": f"检索知识库 {str(a.get('query', ''))[:60]}"},
     run=_knowledge_retrieve_run,
+)
+
+
+# ---- knowledge_add（把工作区文件加入知识库）— WB-175 -----------------------
+#
+# 会话内把工作区文件沉淀进挂载的 WeKnora 知识库（原来只能检索、不能加，功能不完整）。
+# 复用沙箱读文件 + weknora.upload_file（异步解析，parse_status pending→completed 后可被检索）。
+
+def _knowledge_add_run(args: dict[str, Any]) -> ToolOutcome:
+    from agent import weknora  # 延迟导入
+
+    ctx = _kb_ctx.get()
+    if not ctx:
+        return ToolOutcome(text="当前会话未挂载任何知识库，无法添加文件。请先在「知识库」页把目标库挂载到对话。")
+    if not weknora.configured():
+        return ToolOutcome(text="尚未接入知识库（后端 .env 未配 WEKNORA_API_KEY），无法添加。见 docs/weknora-部署.md。")
+    kb_ids = ctx.get("knowledge_ids") or []
+    kb_id = str(args.get("knowledge_id") or "").strip()
+    if kb_id:
+        if kb_id not in kb_ids:
+            return ToolOutcome(text=f"知识库 {kb_id} 未挂载到本会话。已挂载：{', '.join(kb_ids) or '（无）'}。")
+    elif len(kb_ids) == 1:
+        kb_id = kb_ids[0]
+    else:
+        return ToolOutcome(text=f"本会话挂载了多个知识库（{', '.join(kb_ids)}），请用 knowledge_id 指定要加入哪个。")
+
+    path = str(args.get("path") or "").strip()
+    if not path:
+        return ToolOutcome(text="请提供 path：要加入知识库的工作区文件（相对工作区路径）。")
+    try:
+        target = resolve_in_sandbox(path)
+    except SandboxError as e:
+        return ToolOutcome(text=f"路径不合法：{e}")
+    if not target.exists() or not target.is_file():
+        return ToolOutcome(text=f"文件不存在：{path}")
+    ext = target.suffix.lstrip(".").lower()
+    if ext and ext not in weknora.SUPPORTED_EXTS:
+        return ToolOutcome(text=f"知识库不支持的文件类型：.{ext}（支持 {', '.join(sorted(weknora.SUPPORTED_EXTS))}）。")
+    size = target.stat().st_size
+    if size > KB_MAX_UPLOAD:
+        return ToolOutcome(text=f"文件超过 50MB 上限（约 {size // (1024 * 1024)}MB），无法加入知识库。")
+    content = target.read_bytes()
+    ct = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+    try:
+        weknora.upload_file(kb_id, filename=target.name, content=content, content_type=ct)
+    except weknora.WeKnoraError as e:
+        return ToolOutcome(text=f"加入知识库失败：{e}")
+    return ToolOutcome(text=f"已把「{target.name}」加入知识库（正在后台解析并向量化，稍后即可用 knowledge_retrieve 检索到）。")
+
+
+knowledge_add = Tool(
+    name="knowledge_add",
+    description=(
+        "把工作区里的一个文件加入本会话挂载的知识库（WeKnora 会解析/切片/向量化，之后可被 knowledge_retrieve 检索）。"
+        "当用户要求把某个文档「加入/上传/沉淀到知识库」时用。支持 pdf/doc(x)/ppt(x)/xls(x)/txt/md/html/csv/图片，单文件≤50MB。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "要加入知识库的工作区文件（相对工作区路径）"},
+            "knowledge_id": {"type": "string", "description": "目标知识库 id；本会话挂载了多个库时必填，仅一个库时可省略"},
+        },
+        "required": ["path"],
+    },
+    pre=lambda a: {"kind": "step", "tool": "knowledge_add", "label": f"加入知识库 {str(a.get('path', ''))[:60]}"},
+    run=_knowledge_add_run,
 )
 
 

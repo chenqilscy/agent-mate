@@ -28,6 +28,7 @@ from agent.skills import skill_def
 from agent.tools import (
     ASK_USER_SCHEMA,
     base_tools,
+    knowledge_add,
     knowledge_retrieve,
     run_tool,
     set_knowledge_context,
@@ -318,6 +319,7 @@ async def run_chat(
             f"\n\n# 已挂载知识库（{len(active_knowledge)} 个）\n"
             "遇到需要事实性/资料性依据的问题，先用 knowledge_retrieve 检索知识库，"
             "再基于命中内容作答并注明来源；检索不到再用你自己的知识回答。"
+            "需要把工作区里的文件沉淀进知识库（用户说「加入/上传/添加到知识库」）时，用 knowledge_add。"
         )
 
     # Attached / referenced files (＋ menu) are prepended to THIS turn's LLM input
@@ -400,8 +402,8 @@ async def run_chat(
         # Work-item tools only for project runs (WB-030) — ad-hoc chats have no
         # plan board to act on. Plan mode gets the read-only one (no status writes).
         wi_tools = work_item_tools(plan) if (session.project_id and not ask) else []
-        # 挂载了知识库 → 加 knowledge_retrieve 工具（ask 模式无工具）。
-        kb_tools = [knowledge_retrieve] if (active_knowledge and not ask) else []
+        # 挂载了知识库 → 加 knowledge_retrieve（检索）+ knowledge_add（把工作区文件加入库）工具（ask 模式无工具）。
+        kb_tools = [knowledge_retrieve, knowledge_add] if (active_knowledge and not ask) else []
         tools_list = [] if ask else base_tools(plan) + skill_tools + wi_tools + kb_tools
         active_tools = {t.name: t for t in tools_list}
         mcp_tools = []
