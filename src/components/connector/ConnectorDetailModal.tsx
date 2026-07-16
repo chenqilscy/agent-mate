@@ -6,11 +6,14 @@ import { useLoadoutStore } from '../../stores/loadoutStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
+import { WeKnoraConfigForm } from './WeKnoraConfigForm'
 
 // 连接器详情弹窗（套现有 .np-overlay/.np-modal 骨架，天然继承暗色覆盖）。
 // OAuth 连接器（如金山文档）走真实授权流：点「连接」→ 后端 spawn `kdocs-cli auth login`
 // → 跳转 WPS 授权页 → 成功后 Token 存本机密钥链；前端轮询状态直到已连接，再展示去试试/添加。
-// 非 OAuth 连接器沿用「添加到本会话 / 去试试」展示型交互。
+// 表单型连接器（meta.configKind，如 WeKnora · WB-188）：「启用方式」渲染成真配置表单，
+// 填完存后端 DB（不用改 .env），徽标按真实连接态实时切换。
+// 其余非 OAuth 连接器沿用「添加到本会话 / 去试试」展示型交互。
 
 // 把连接器接入本会话 loadout（非破坏式，只在未选中时加），可选携一个试用 prompt 直接发起。
 function engage(name: string, prompt?: string) {
@@ -40,6 +43,9 @@ export function ConnectorDetailModal(
   const meta: ConnMeta | undefined = CONN_META[name]
   const intro = meta?.fullDesc || desc
   const isOAuth = !!meta?.oauth
+  // 表单型连接器（WB-188）：配置表单自己上报真实连接态，驱动徽标与「试试这样问我」。
+  const isForm = !!meta?.configKind
+  const [formOk, setFormOk] = useState(false)
 
   // OAuth 连接状态（仅 oauth 连接器用）。
   const [conn, setConn] = useState<ConnState>(isOAuth ? 'unknown' : 'connected')
@@ -115,9 +121,13 @@ export function ConnectorDetailModal(
       : conn === 'not_installed'
         ? <span className="conn-tag tok">未安装 CLI</span>
         : <span className="conn-tag tok">{conn === 'connecting' ? '连接中…' : '需连接'}</span>
-    : meta
-      ? <span className={`conn-tag ${meta.status}`}>{meta.statusLabel}</span>
-      : null
+    : isForm
+      ? (formOk
+          ? <span className="conn-tag rdy">● 已连接</span>
+          : <span className="conn-tag tok">{meta?.statusLabel ?? '需连接'}</span>)
+      : meta
+        ? <span className={`conn-tag ${meta.status}`}>{meta.statusLabel}</span>
+        : null
 
   return (
     <div className="np-overlay open" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
@@ -145,6 +155,10 @@ export function ConnectorDetailModal(
               <div className="sec-title" style={{ margin: '18px 0 8px' }}>启用方式</div>
               <div className="ec-d" style={{ fontSize: 12.5, lineHeight: 1.65, color: 'var(--text-3)' }}>{meta.setup}</div>
             </>
+          )}
+          {/* 表单型连接器：配置项就地填、就地存（WB-188），不用改配置文件 */}
+          {meta?.configKind === 'weknora' && (
+            <WeKnoraConfigForm onChange={(c) => setFormOk(c.configured)} />
           )}
 
           {/* OAuth 连接过程中的提示 + 手动打开授权页兜底 */}
@@ -185,8 +199,8 @@ export function ConnectorDetailModal(
             </>
           )}
 
-          {/* 试用问法：非 oauth 或已连接时可用 */}
-          {meta?.prompts && meta.prompts.length > 0 && (!isOAuth || conn === 'connected') && (
+          {/* 试用问法：未接入时不给（点了必然失败），故 oauth 看授权态、表单型看配置态 */}
+          {meta?.prompts && meta.prompts.length > 0 && (isOAuth ? conn === 'connected' : (!isForm || formOk)) && (
             <>
               <div className="sec-title" style={{ margin: '18px 0 8px' }}>试试这样问我</div>
               {meta.prompts.map((p) => (

@@ -2336,6 +2336,48 @@ def set_default_model(owner_id: str, model_ref: str) -> None:
     set_user_setting(owner_id, _DEFAULT_MODEL_KEY, (model_ref or "").strip() or None)
 
 
+# ---- WeKnora 知识库连接配置（WB-188）------------------------------------
+#
+# 从「只能改 backend/.env + 重启」改为按 owner 入库，运行时 DB 优先、.env 兜底
+# （解析在 agent/weknora.py，本层只管存取）。刻意复用既有两张表，不新建表：
+# - api_key → provider_keys：项目指定的密钥存放处。set_provider_key 已有「空串=撤销」，
+#   list_provider_keys 只回 id 集合 —— 天然满足「只写不回读」（同厂商 Key）。不放通用 KV
+#   user_settings，免得将来有人加「KV 整表导出」把密钥带出去。
+# - url / embedding_model_id（非密钥）→ user_settings KV。
+
+WEKNORA_PROVIDER = "weknora"
+_WEKNORA_URL_KEY = "weknora_url"
+_WEKNORA_EMBED_KEY = "weknora_embedding_model_id"
+
+# 「不传 = 不改」与「传空串 = 清除」的区分（照 WB-124 自定义模型 PATCH 的语义）。
+_KEEP = object()
+
+
+def get_weknora_conf(owner_id: str) -> dict[str, str]:
+    """本 owner 存在 DB 里的 WeKnora 配置。未设过的字段 = ''（由调用方回退 .env）。
+    含明文 api_key —— 仅后端用，绝不回前端。"""
+    return {
+        "url": get_user_setting(owner_id, _WEKNORA_URL_KEY) or "",
+        "api_key": get_provider_key(owner_id, WEKNORA_PROVIDER) or "",
+        "embedding_model_id": get_user_setting(owner_id, _WEKNORA_EMBED_KEY) or "",
+    }
+
+
+def set_weknora_conf(
+    owner_id: str,
+    url: Any = _KEEP,
+    api_key: Any = _KEEP,
+    embedding_model_id: Any = _KEEP,
+) -> None:
+    """写 WeKnora 配置。每个字段：不传 = 不改；'' = 清除该字段（回退 .env/默认）；非空 = 覆盖。"""
+    if url is not _KEEP:
+        set_user_setting(owner_id, _WEKNORA_URL_KEY, (url or "").strip().rstrip("/") or None)
+    if api_key is not _KEEP:
+        set_provider_key(owner_id, WEKNORA_PROVIDER, (api_key or "").strip())
+    if embedding_model_id is not _KEEP:
+        set_user_setting(owner_id, _WEKNORA_EMBED_KEY, (embedding_model_id or "").strip() or None)
+
+
 # ---- provider keys + model overrides (WB-128) --------------------------
 
 def get_provider_key(owner_id: str, provider_id: str) -> Optional[str]:

@@ -54,7 +54,9 @@ class Settings:
     PORT: int = int(os.getenv("PORT", "8000"))
 
     # 知识库改用自托管 WeKnora（WB-173）：后端当 WeKnora 客户端，X-API-Key 打其 REST /api/v1。
-    # 只存后端 .env，绝不回前端（铁律#4）。未配 WEKNORA_API_KEY → 知识库接口 400 引导去配置。
+    # 这三个只是**兜底**（WB-188）：连接配置现在按 owner 存 DB（UI 表单填，见 agent/weknora.py
+    # 的 conf()：DB 优先、这里兜底），故存量 .env 用户零破坏、新用户不必碰配置文件。
+    # 无论存哪，key 都只在后端解析、绝不回前端（铁律#4）；都没配 → 知识库接口 400 引导去表单。
     # WEKNORA_API_KEY = WeKnora :80 注册账号后账号页拿到的租户 API Key（sk-...），非 WeKnora .env 里的那个。
     # 部署见 docs/weknora-部署.md。
     WEKNORA_URL: str = os.getenv("WEKNORA_URL", "http://localhost:8080").strip().rstrip("/")

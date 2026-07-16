@@ -44,6 +44,18 @@ export interface KnowledgeBase {
   word_num?: number
 }
 
+// WeKnora 连接配置（WB-188）。**没有 api_key 字段**：密钥只写不回读，
+// 后端只回 has_key 布尔（同厂商 Key 的做法）。*_source: 该字段来自 UI 表单('db')
+// 还是 backend/.env('env')，''=未配 —— 用于如实提示「这项是 .env 配的」。
+export interface KnowledgeConfig {
+  configured: boolean
+  url: string
+  has_key: boolean
+  embedding_model_id: string
+  key_source: 'db' | 'env' | ''
+  url_source: 'db' | 'env' | ''
+}
+
 export interface KbDocument {
   id: string
   name: string

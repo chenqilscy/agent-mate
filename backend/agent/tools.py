@@ -326,35 +326,45 @@ def work_item_tools(plan: bool = False) -> list[Tool]:
 #
 # 会话挂载的知识库检索，改用自托管 WeKnora（腾讯开源 RAG）。与 work-item 同款
 # contextvar 注入：owner + 选中的 knowledge_ids 由 run_chat 每次运行前 set；工具真调
-# WeKnora 检索（同步，由 runtime 的 asyncio.to_thread 兜住）。WeKnora 的 API Key 只在
-# 后端 .env（settings.WEKNORA_API_KEY），绝不回前端。owner_id 仍随上下文携带（备用），
-# 但 WeKnora 单租户模型下检索不需要它。
+# WeKnora 检索（同步，由 runtime 的 asyncio.to_thread 兜住）。
+# WB-188 起 owner_id 是**必需**的（不再是「备用」）：连接配置按 owner 存 DB（.env 兜底），
+# 故 owner 决定打哪个 WeKnora、用谁的 key。key 只在后端解析，绝不回前端。
+# 注意：knowledge_add 不要求挂载知识库（WB-175），所以 owner 必须**无条件** set，
+# 「有没有挂库」只看 knowledge_ids 是否为空。
 
 _kb_ctx: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("kb_ctx", default=None)
 
 
 def set_knowledge_context(owner_id: str | None, knowledge_ids: list[str] | None) -> None:
-    """Set the active owner + mounted knowledge base ids for this run (run_chat calls it)."""
-    _kb_ctx.set({"owner_id": owner_id, "knowledge_ids": knowledge_ids} if owner_id and knowledge_ids else None)
+    """Set the active owner + mounted knowledge base ids for this run (run_chat calls it).
+
+    owner 无条件携带（knowledge_add 不需要挂库也要用它解析连接配置）；未挂库 → knowledge_ids=[]。"""
+    _kb_ctx.set({"owner_id": owner_id, "knowledge_ids": knowledge_ids or []} if owner_id else None)
+
+
+def _kb_owner() -> str | None:
+    ctx = _kb_ctx.get()
+    return ctx["owner_id"] if ctx else None
 
 
 def _knowledge_retrieve_run(args: dict[str, Any]) -> ToolOutcome:
     from agent import weknora  # 延迟导入，避免与加载顺序耦合
 
     ctx = _kb_ctx.get()
-    if not ctx:
+    if not ctx or not ctx["knowledge_ids"]:
         return ToolOutcome(text="当前会话未挂载任何知识库。")
     query = str(args.get("query", "")).strip()
     if not query:
         return ToolOutcome(text="请提供检索问题（query）。")
-    if not weknora.configured():
-        return ToolOutcome(text="尚未接入知识库（后端 .env 未配 WEKNORA_API_KEY），无法检索。见 docs/weknora-部署.md。")
+    owner = ctx["owner_id"]
+    if not weknora.configured(owner):
+        return ToolOutcome(text=weknora.NOT_CONFIGURED)
     try:
         top_k = int(args.get("top_k") or 8)
     except (TypeError, ValueError):
         top_k = 8
     try:
-        hits = weknora.search(query=query, knowledge_ids=ctx["knowledge_ids"], top_k=max(1, min(top_k, 20)))
+        hits = weknora.search(owner, query=query, knowledge_ids=ctx["knowledge_ids"], top_k=max(1, min(top_k, 20)))
     except weknora.WeKnoraError as e:
         return ToolOutcome(text=f"知识库检索失败：{e}")
     if not hits:
@@ -400,14 +410,14 @@ def _fmt_kbs(kbs: dict[str, str]) -> str:
     return "；".join(f"{n or '(无名)'}={i}" for i, n in kbs.items()) or "（无）"
 
 
-def _resolve_add_kb(weknora, args: dict[str, Any], mounted: list[str]) -> tuple[str | None, str]:
+def _resolve_add_kb(weknora, owner: str | None, args: dict[str, Any], mounted: list[str]) -> tuple[str | None, str]:
     """定位要加入的知识库。返回 (kb_id, note)。kb_id=None → 需用户澄清（note 是提示文案）。
     优先级：显式 knowledge_id > 显式 kb_name > 会话挂载的唯一库 > 现存唯一库 > 让用户指定。"""
     want_id = str(args.get("knowledge_id") or "").strip()
     want_name = str(args.get("kb_name") or "").strip()
 
     def _load() -> dict[str, str]:
-        return {str(k.get("id")): (k.get("name") or "") for k in weknora.list_kb() if k.get("id")}
+        return {str(k.get("id")): (k.get("name") or "") for k in weknora.list_kb(owner) if k.get("id")}
 
     if want_id:
         kbs = _load()
@@ -438,8 +448,9 @@ def _resolve_add_kb(weknora, args: dict[str, Any], mounted: list[str]) -> tuple[
 def _knowledge_add_run(args: dict[str, Any]) -> ToolOutcome:
     from agent import weknora  # 延迟导入
 
-    if not weknora.configured():
-        return ToolOutcome(text="尚未接入知识库（后端 .env 未配 WEKNORA_API_KEY），无法添加。见 docs/weknora-部署.md。")
+    owner = _kb_owner()
+    if not weknora.configured(owner):
+        return ToolOutcome(text=weknora.NOT_CONFIGURED)
     path = str(args.get("path") or "").strip()
     if not path:
         return ToolOutcome(text="请提供 path：要加入知识库的工作区文件（相对工作区路径）。")
@@ -458,7 +469,7 @@ def _knowledge_add_run(args: dict[str, Any]) -> ToolOutcome:
 
     mounted = (_kb_ctx.get() or {}).get("knowledge_ids") or []
     try:
-        kb_id, note = _resolve_add_kb(weknora, args, mounted)
+        kb_id, note = _resolve_add_kb(weknora, owner, args, mounted)
     except weknora.WeKnoraError as e:
         return ToolOutcome(text=f"读取知识库列表失败：{e}")
     if kb_id is None:
@@ -467,7 +478,7 @@ def _knowledge_add_run(args: dict[str, Any]) -> ToolOutcome:
     content = target.read_bytes()
     ct = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
     try:
-        weknora.upload_file(kb_id, filename=target.name, content=content, content_type=ct)
+        weknora.upload_file(owner, kb_id, filename=target.name, content=content, content_type=ct)
     except weknora.WeKnoraError as e:
         return ToolOutcome(text=f"加入知识库失败：{e}")
     tail = "" if (kb_id in mounted) else "（该库未挂载到本会话；如需在对话中检索它，去「知识库」页点『挂载到对话』）"

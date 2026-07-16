@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -373,6 +373,13 @@ export const api = {
   },
 
   // ---- 知识库（自托管 WeKnora RAG · WB-173/174）。全走本地 backend /api/knowledge，API Key 只在后端。
+  // 连接配置（WB-188）：表单填 → 后端按 owner 入库（.env 兜底）。**响应绝不含 api_key**，
+  // 只有 has_key 布尔；保存时 api_key 省略=不改 / ''=撤销 / 非空=覆盖。
+  knowledgeConfig: () => get<KnowledgeConfig>('/knowledge/config'),
+  saveKnowledgeConfig: (body: { url?: string; api_key?: string; embedding_model_id?: string }) =>
+    send<KnowledgeConfig>('PUT', '/knowledge/config', body),
+  testKnowledgeConfig: () =>
+    send<{ ok: boolean; error?: string; url?: string; kb_count?: number }>('POST', '/knowledge/config/test'),
   listKb: () => get<{ list: KnowledgeBase[]; total: number }>('/knowledge'),
   createKb: (body: { name: string; description?: string; icon?: string }) =>
     send<{ id: string }>('POST', '/knowledge', body),

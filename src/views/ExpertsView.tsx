@@ -592,11 +592,15 @@ function ConnectorsPane() {
   const [detail, setDetail] = useState<[string, string, string] | null>(null)
   const { CONNS, CONN_META } = useCatalog()
   const connectors = useLoadoutStore((s) => s.connectors)
-  // OAuth 连接器（当前仅金山文档）的实时连接态，卡片上以「● 已连接」展示。
+  // 真实连接态 → 卡片上的「● 已连接」。两类：OAuth（金山文档，问 kdocs 授权态）与
+  // 表单型（WeKnora · WB-188，问 /api/knowledge/config 是否已配 key）。
   const [authed, setAuthed] = useState<Record<string, boolean>>({})
   const refreshAuth = () => {
     if (CONN_META['金山文档']?.oauth) {
       api.kdocsStatus().then((s) => setAuthed((m) => ({ ...m, 金山文档: s.authenticated }))).catch(() => {})
+    }
+    if (CONN_META['WeKnora知识库']?.configKind) {
+      api.knowledgeConfig().then((c) => setAuthed((m) => ({ ...m, WeKnora知识库: c.configured }))).catch(() => {})
     }
   }
   useEffect(() => { refreshAuth() }, [])
@@ -608,8 +612,8 @@ function ConnectorsPane() {
           const meta = CONN_META[n]
           const added = connectors.includes(n)
           const open = () => setDetail([ic, n, d])
-          // oauth 连接器显示实时连接态；其它显示静态标签。
-          const badge = meta && (meta.oauth
+          // oauth / 表单型连接器显示实时连接态；其它显示静态标签。
+          const badge = meta && ((meta.oauth || meta.configKind)
             ? (authed[n]
                 ? <span className="conn-tag rdy">● 已连接</span>
                 : <span className="conn-tag tok">{meta.statusLabel}</span>)

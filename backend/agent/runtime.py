@@ -18,7 +18,7 @@ import time
 from typing import Any, AsyncIterator
 
 from agent import events
-from agent import agent_settings, memory, security
+from agent import agent_settings, memory, security, weknora
 from agent.experts import persona_for
 from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
@@ -281,8 +281,10 @@ async def run_chat(
     active_connectors = _dedup(proj_connectors + (connectors or []))
     # 挂载的知识库（WB-143）：目前仅 per-message loadout（项目级 KB 后置）。
     active_knowledge = _dedup(knowledge_ids or [])
-    # owner + 选中库 → knowledge_retrieve 工具读的 contextvar。ask 模式无工具，置空。
-    set_knowledge_context(user.id if (active_knowledge and not ask) else None, active_knowledge if not ask else None)
+    # owner + 选中库 → knowledge_* 工具读的 contextvar。ask 模式无工具，置空。
+    # owner 无条件带上（WB-188）：连接配置按 owner 存 DB，且 knowledge_add 不要求挂库（WB-175），
+    # 「有没有挂库」由 knowledge_ids 是否为空表达，不能靠把 owner 置 None 来表达。
+    set_knowledge_context(None if ask else user.id, active_knowledge if not ask else None)
 
     # Tell the model about the plan-item tools when this run is inside a project
     # (WB-030). Plan mode is read-only, so it only gets the viewing tool.
@@ -321,7 +323,7 @@ async def run_chat(
             "再基于命中内容作答并注明来源；检索不到再用你自己的知识回答。"
             "需要把工作区里的文件沉淀进知识库（用户说「加入/上传/添加到知识库」）时，用 knowledge_add。"
         )
-    elif settings.WEKNORA_API_KEY and not ask:
+    elif weknora.configured(user.id) and not ask:
         system_prompt += (
             "\n\n# 知识库\n本机已接入知识库。用户要把工作区文件「加入/上传/添加到知识库」时，"
             "直接用 knowledge_add（无需先挂载；只有一个库时自动选，多个库用 knowledge_id 或 kb_name 指定）。"

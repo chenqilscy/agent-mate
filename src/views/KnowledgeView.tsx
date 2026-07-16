@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useKnowledgeStore } from '../stores/knowledgeStore'
 import { useLoadoutStore } from '../stores/loadoutStore'
 import { useCatalog } from '../stores/catalogStore'
-import type { KbDocument } from '../lib/types'
+import { api } from '../lib/api'
+import type { KbDocument, KnowledgeConfig } from '../lib/types'
 import type { KbTemplate } from '../data/catalog'
 import { toast } from '../stores/toastStore'
+import { WeKnoraConfigForm } from '../components/connector/WeKnoraConfigForm'
 
 // 知识库（自托管 WeKnora RAG · WB-173/174）：建库 / 传档 / 解析状态，并可「挂载到对话」，
 // 让 agent 用 knowledge_retrieve 真检索作答。真调 WeKnora（经本地 backend，API Key 只在后端）。
@@ -36,17 +38,23 @@ export function KnowledgeView() {
   const [uploading, setUploading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
+  // 未接入 WeKnora 时就地给配置表单（WB-188），而不是让用户去改 .env / 找管理员。
+  const [cfg, setCfg] = useState<KnowledgeConfig | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const poll = useRef<number | null>(null)
   const alive = useRef(true)
 
   const openKb = kbs.find((k) => k.id === openId) || null
+  // 配置未知（还在拉 / 拉失败）时按「已接入」渲染：列表自己会报错或给空态，
+  // 总比整页空白好。只有**确知**未接入才把页面换成配置表单。
+  const configured = cfg ? cfg.configured : true
 
   const stopPoll = () => { if (poll.current) { window.clearInterval(poll.current); poll.current = null } }
 
   useEffect(() => {
     alive.current = true
     void load()
+    api.knowledgeConfig().then((c) => { if (alive.current) setCfg(c) }).catch(() => {})
     return () => { alive.current = false; stopPoll() }
   }, [load])
 
@@ -121,13 +129,25 @@ export function KnowledgeView() {
               API Key 只存本机后端，绝不进前端。
             </div>
           </div>
-          {!openKb && (
+          {!openKb && configured && (
             <button className="hub-act on" onClick={() => { setPrefill(null); setShowCreate(true) }}>+ 新建知识库</button>
           )}
         </div>
 
-        {/* 从模板新建（Manager 下发的策展模板，橱窗）*/}
-        {!openKb && KB_TPLS.length > 0 && (
+        {/* 未接入：就地给连接配置表单（WB-188），填完即用 —— 不必改配置文件、不必重启 */}
+        {cfg && !cfg.configured && (
+          <>
+            <div className="sec-title" style={{ marginTop: 18 }}>接入知识库</div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: 6, lineHeight: 1.65 }}>
+              还没接入 WeKnora。填下面的服务地址与 API Key 即可开始建库、传档（也可在「连接器 → WeKnora知识库」里配置）。
+              WeKnora 本身的部署见 docs/weknora-部署.md。
+            </div>
+            <WeKnoraConfigForm onChange={(c) => { setCfg(c); if (c.configured) void load() }} />
+          </>
+        )}
+
+        {/* 从模板新建（Manager 下发的策展模板，橱窗）。未接入时不给——点了必然 400。*/}
+        {!openKb && configured && KB_TPLS.length > 0 && (
           <>
             <div className="sec-title" style={{ marginTop: 18 }}>从模板新建</div>
             <div className="card-grid g4" style={{ marginTop: 10 }}>
@@ -149,15 +169,15 @@ export function KnowledgeView() {
         )}
 
         {/* ── 列表态 ─────────────────────────────────────────────── */}
-        {!openKb && (
+        {!openKb && configured && (
           <>
             <div className="sec-title" style={{ marginTop: 18 }}>我的知识库</div>
             {!loaded && <div className="mf-empty">正在加载…</div>}
-            {loaded && kbs.length === 0 && (
+            {loaded && kbs.length === 0 && configured && (
               <div className="mf-empty" style={{ flexDirection: 'column', gap: 8, textAlign: 'center', lineHeight: 1.7 }}>
                 <div>还没有知识库。</div>
                 <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
-                  点右上「新建知识库」创建一个，再上传文档。若提示尚未接入，请让管理员在后端配置自托管 WeKnora（见 docs/weknora-部署.md）。
+                  点右上「新建知识库」创建一个，再上传文档。
                 </div>
               </div>
             )}

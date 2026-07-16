@@ -189,6 +189,7 @@
 | [WB-171](WB-171-hub-knowledge-base-document-backend.md) | ✅ | P2 | backend | Hub 真·知识库 + 文档后端(项目级) —— 建库/传档(字节存 Hub)/文档管理 + 有文档后锁向量维度(400 拦截)；Manager 不算向量(向量化交执行面，且只调 GLM 嵌入接口、不用 GLM 知识库功能) |
 | [WB-172](WB-172-manager-project-knowledge-base-tab.md) | ✅ | P2 | frontend | Manager 项目「知识库」tab —— 真·建库(向量维度联动下拉/切片方式下拉)+文档上传/列/删+有文档后维度 select 锁定+诚实未向量化状态(kbm- 前缀)；配 WB-171 |
 | [WB-176](WB-176-trim-experts-showcase-data.md) | ✅ | P3 | fullstack | 精简专家/专家团橱窗数据 —— 三层数据源(前端静态兜底/后端种子/运行库)同步裁剪至 专家7·团3·场景3·分类6，避开「删空即重种」与「兜底顶上来」两个复活陷阱 |
+| [WB-177](WB-177-connectors-showcase-weknora.md) | ✅ | P3 | fullstack | 连接器橱窗改版 —— 三层同步去掉 ima知识库/乐享知识库/腾讯文档/TAPD/企查查(12→8)，新增 WeKnora知识库 卡 + CONN_META 详情(工具清单逐字镜像后端真 knowledge_retrieve/knowledge_add) |
 | [WB-178](WB-178-skills-subsystem-epic.md) | ⬜ | P1 | fullstack | 技能子系统重构（总纲/epic）—— 以 slug 为主键焊死「橱窗/loadout/磁盘」三层；根因=技能无稳定身份，橱窗与真引擎靠展示名撞运气连通；子任务 WB-179~186 |
 | [WB-179](WB-179-skill-identity-and-fallback-prompt.md) | ⬜ | P1 | fullstack | 技能身份断裂 —— loadout 存展示名 + `skill_def` 兜底话术「运用「X」技能的专长…」伪装能力（SK_GRID 17 个里 11 个后端零能力，铁律#1） |
 | [WB-180](WB-180-skill-picker-ignores-installed.md) | ✅ | P1 | frontend | ＋菜单技能选择器只读静态 SK_GRID —— 真实已安装的技能在会话里选不到（装机与使用两条路断开）；改为「内置(新增 /skills/builtin，SK_GRID 里藏着 6 个真内置技能差点被砍) + 已装未停用」，静态假卡不再出现；CDP 自驱实测 23 项(12 张真卡/明暗双主题对比度/窄宽/loadout chip 真出) |
@@ -199,6 +200,8 @@
 | [WB-185](WB-185-skills-api-attack-surface.md) | ✅ | P2 | backend | /api/skills 攻击面 —— App 侧 install/preview 的 slug 未校验（WB-160 第6项只修了 hub 孪生站点，App 侧漏网）已修+两侧口径统一+顺带硬化前导`-`（实测 CLI argparse 真被 `--dir` 噎住）；零鉴权项 ⏸ deferred（current_user 从不拒绝，需共享后端鉴权策略横切决策） |
 | [WB-186](WB-186-skills-backend-consistency-tail.md) | 🟡 | P3 | backend | 技能后端一致性尾集 —— rankings 补齐 Manager 代理(顺带：Hub 走 HTTP 无需 CLI，没装 CLI 的本机终于能拿真实榜单而非静态假数据) + 预览缓存 TTL 对齐 Hub + 合冗余分支，均已修；plan 过滤/schema 去重两项经实测为今日无实害的结构性预防(web_fetch 是 GET 不违反 plan 契约)，⏸ 归 WB-183 一并做 |
 | [WB-187](WB-187-resolve-slug-installs-wrong-skill.md) | ✅ | P2 | backend | 按名安装取搜索首条 —— 名字不存在时静默装上无关技能并贴上用户输入的名字（截图里「腾讯微云」的＋号实测会装成 self-improving-agent，真微云技能在搜索第4条被跳过）；resolve_slug 改仅精确命中，实测 38 张静态卡 37 命中/1 诚实404 |
+| [WB-188](WB-188-weknora-config-form.md) | ✅ | P2 | fullstack | WeKnora 连接配置改 UI 表单 —— 从「只能改 .env + 重启」改为按 owner 入库(key 存 provider_keys 只写不回读/url 存 KV)、DB 优先 .env 兜底、连接器弹窗内真表单 + 测试连接 |
+| [WB-189](WB-189-project-connectors-picker-cleanup.md) | ✅ | P3 | fullstack | 新建项目的连接器选择器/模板仍留着已下架的连接器 —— NP_CONNS 删 乐享知识库/腾讯文档/TAPD(13→10) + NP_TPLS 清引用；且模板提示词点名「在 TAPD 中跟进…同步到腾讯文档」指挥 agent 用不存在的连接器(铁律#1)；配 WB-177 |
 
 ## 来源
 
