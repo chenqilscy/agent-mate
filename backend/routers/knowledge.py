@@ -1,9 +1,15 @@
-"""知识库路由（WB-142）—— 本地 backend 作 GLM 知识库的执行面。
+"""知识库路由（WB-173）—— 本地 backend 作自托管 WeKnora 的执行面。
 
-真调 GLM（智谱）知识库 API：建库 / 传档 / 文档管理 / 检索 / 全模态 / 用量。
-key 只在本地：用 `db.get_provider_key(owner_id, "zhipu")`，**绝不回传前端**（铁律#4）；
-没配 key → 400 可读提示，引导去「模型管理」配置。glm_kb 是同步客户端，统一经
+真调 WeKnora（腾讯开源 RAG）REST `/api/v1`：建库 / 传档 / 文档管理 / 检索。
+WeKnora 自己做解析/切片/嵌入/向量库/检索——本后端只当它的**客户端**。
+API Key 只存后端（`settings.WEKNORA_API_KEY`，来自 backend/.env，铁律#4），**绝不回前端**；
+未配置 → 400 可读提示，引导去 `docs/weknora-部署.md`。weknora 是同步客户端，统一经
 `run_in_threadpool` 跑，不占事件循环（WB-002）。
+
+响应形状与旧 GLM 版保持一致，前端（KnowledgeView/store）几乎零改：
+- 知识库 → {id, name, description, icon, document_size}
+- 文档 → {id, name, embedding_stat(0 处理中/1 成功/2 失败), failInfo}
+  （WeKnora `parse_status`: pending/processing/… → 0 · completed → 1 · failed → 2）
 """
 from __future__ import annotations
 
@@ -15,87 +21,106 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from agent import glm_kb
-from agent.glm_kb import GlmKbError
-from auth.deps import current_user
-from storage import db
+from agent import weknora
+from agent.weknora import WeKnoraError
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
-_PROVIDER = "zhipu"
 MAX_UPLOAD = 50 * 1024 * 1024  # 50 MB/文件，与 files 路由一致
 
 
-def _key() -> str:
-    """当前 owner 的智谱 key；没配则 400 引导去配置。"""
-    key = db.get_provider_key(current_user().id, _PROVIDER)
-    if not key:
-        raise HTTPException(400, "请先在「模型管理」给「智谱 AI·GLM」配置 API Key，才能使用知识库。")
-    return key
+def _require() -> None:
+    """未配置 WeKnora → 400 引导（key 只在后端 .env）。"""
+    if not weknora.configured():
+        raise HTTPException(
+            400,
+            "尚未接入知识库：请在 backend/.env 配置 WEKNORA_URL / WEKNORA_API_KEY"
+            "（自托管 WeKnora，见 docs/weknora-部署.md）。",
+        )
 
 
 async def _run(fn, *args, **kw):
-    """在线程池里跑同步 glm_kb 调用，并把 GlmKbError 转成可读的 4xx/5xx。"""
+    """在线程池里跑同步 weknora 调用，并把 WeKnoraError 转成可读的 502。"""
     try:
         return await run_in_threadpool(fn, *args, **kw)
-    except GlmKbError as e:
+    except WeKnoraError as e:
         raise HTTPException(502, str(e)) from e
+
+
+def _kb_out(kb: dict) -> dict:
+    """WeKnora 知识库 → 前端 KnowledgeBase 形状。WeKnora 无图标概念，前端统一给书本图标。"""
+    return {
+        "id": kb.get("id"),
+        "name": kb.get("name") or "",
+        "description": kb.get("description") or "",
+        "icon": "book",
+        "document_size": kb.get("knowledge_count") or 0,
+    }
+
+
+def _doc_out(d: dict) -> dict:
+    """WeKnora 文档 → 前端 KbDocument 形状。parse_status → embedding_stat（前端 4s 轮询天然复用）。"""
+    ps = str(d.get("parse_status") or "").lower()
+    stat = 1 if ps == "completed" else (2 if ps == "failed" else 0)
+    out: dict[str, Any] = {
+        "id": d.get("id"),
+        "name": d.get("file_name") or d.get("title") or "未命名文档",
+        "embedding_stat": stat,
+    }
+    if stat == 2 and d.get("error_message"):
+        out["failInfo"] = {"embedding_msg": str(d["error_message"])}
+    return out
 
 
 # ── 知识库 ─────────────────────────────────────────────────────────────────
 
 @router.get("")
 async def list_kb(page: int = 1, size: int = 50) -> dict:
-    return await _run(glm_kb.list_kb, _key(), page=page, size=size)
+    _require()
+    kbs = await _run(weknora.list_kb)
+    return {"list": [_kb_out(k) for k in kbs], "total": len(kbs)}
 
 
 class CreateKbBody(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    embedding_id: int = 11
     description: str = Field(default="", max_length=500)
-    contextual: int = 0  # 1 = 开启上下文增强
+    # 兼容旧前端/模板可能带的字段（WeKnora 侧不需要，忽略）。
     icon: str = "book"
-    background: str = "blue"
 
 
 @router.post("")
 async def create_kb(body: CreateKbBody) -> dict:
-    kid = await _run(
-        glm_kb.create_kb, _key(),
-        name=body.name, embedding_id=body.embedding_id, description=body.description,
-        contextual=body.contextual, icon=body.icon, background=body.background,
+    _require()
+    emb = await _run(weknora.default_embedding_model_id)
+    kb = await _run(
+        weknora.create_kb,
+        name=body.name, embedding_model_id=emb, description=body.description,
     )
-    return {"id": kid}
-
-
-@router.get("/capacity")
-async def capacity() -> dict:
-    return await _run(glm_kb.capacity, _key())
+    return {"id": kb.get("id")}
 
 
 @router.get("/{kb_id}")
 async def get_kb(kb_id: str) -> dict:
-    return await _run(glm_kb.get_kb, _key(), kb_id)
+    _require()
+    return _kb_out(await _run(weknora.get_kb, kb_id))
 
 
 class UpdateKbBody(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    contextual: Optional[int] = None
-    icon: Optional[str] = None
-    background: Optional[str] = None
-    embedding_id: Optional[int] = None
 
 
 @router.patch("/{kb_id}")
 async def update_kb(kb_id: str, body: UpdateKbBody) -> dict:
-    await _run(glm_kb.update_kb, _key(), kb_id, **body.model_dump(exclude_none=True))
+    _require()
+    await _run(weknora.update_kb, kb_id, **body.model_dump(exclude_none=True))
     return {"ok": True}
 
 
 @router.delete("/{kb_id}")
 async def delete_kb(kb_id: str) -> dict:
-    await _run(glm_kb.delete_kb, _key(), kb_id)
+    _require()
+    await _run(weknora.delete_kb, kb_id)
     return {"ok": True}
 
 
@@ -103,25 +128,20 @@ async def delete_kb(kb_id: str) -> dict:
 
 @router.get("/{kb_id}/documents")
 async def list_docs(kb_id: str, page: int = 1, size: int = 100, word: str = "") -> dict:
-    return await _run(glm_kb.list_docs, _key(), kb_id, page=page, size=size, word=word)
+    _require()
+    data = await _run(weknora.list_docs, kb_id, page=page, page_size=size)
+    return {"list": [_doc_out(d) for d in data.get("list", [])], "total": data.get("total", 0)}
 
 
 @router.post("/{kb_id}/documents")
-async def upload_document(
-    kb_id: str,
-    request: Request,
-    filename: str,
-    knowledge_type: Optional[int] = None,
-    sentence_size: Optional[int] = None,
-    parse_image: bool = False,
-) -> dict:
-    """传单文件。仿 files 路由：原始 body 流式（不引 python-multipart），文件名走 query。"""
-    # 先查 key（WB-151 M4）：没配 key 时立刻 400，别白缓冲最多 50MB body 进内存。
-    key = _key()
-    # 扩展名校验（WB-151 M2）：用「有没有点」判断，rsplit 对无点文件名不会给空串。
+async def upload_document(kb_id: str, request: Request, filename: str) -> dict:
+    """传单文件。仿 files 路由：原始 body 流式（不引 python-multipart），文件名走 query。
+    WeKnora 收到后异步解析（parse_status=pending），前端轮询到 completed。"""
+    _require()
+    # 扩展名软校验（未知放行，交 WeKnora 判）。rsplit 对无点文件名不会给空串。
     ext = filename.rsplit(".", 1)[-1].lower() if "." in (filename or "") else ""
-    if ext and ext not in glm_kb.SUPPORTED_EXTS:
-        raise HTTPException(400, f"不支持的文件类型：.{ext}（支持 {', '.join(sorted(glm_kb.SUPPORTED_EXTS))}）")
+    if ext and ext not in weknora.SUPPORTED_EXTS:
+        raise HTTPException(400, f"不支持的文件类型：.{ext}（支持 {', '.join(sorted(weknora.SUPPORTED_EXTS))}）")
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > MAX_UPLOAD:
         raise HTTPException(413, "单文件超过 50MB 上限。")
@@ -133,30 +153,21 @@ async def upload_document(
     if not buf:
         raise HTTPException(400, "空文件。")
     content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    return await _run(
-        glm_kb.upload_file, key, kb_id,
+    doc = await _run(
+        weknora.upload_file, kb_id,
         filename=filename or "document", content=bytes(buf), content_type=content_type,
-        knowledge_type=knowledge_type, sentence_size=sentence_size, parse_image=parse_image,
     )
-
-
-class UploadUrlBody(BaseModel):
-    urls: list[str] = Field(min_length=1, max_length=20)
-    knowledge_type: int = 5
-    sentence_size: int = 300
-
-
-@router.post("/{kb_id}/documents/url")
-async def upload_document_url(kb_id: str, body: UploadUrlBody) -> dict:
-    return await _run(
-        glm_kb.upload_url, _key(), kb_id,
-        urls=body.urls, knowledge_type=body.knowledge_type, sentence_size=body.sentence_size,
-    )
+    # 保持旧上传返回形状（前端不消费其字段，只判 HTTP 成功）。
+    return {
+        "successInfos": [{"documentId": doc.get("id"), "fileName": doc.get("file_name") or filename}],
+        "failedInfos": [],
+    }
 
 
 @router.delete("/documents/{doc_id}")
 async def delete_document(doc_id: str) -> dict:
-    await _run(glm_kb.delete_doc, _key(), doc_id)
+    _require()
+    await _run(weknora.delete_doc, doc_id)
     return {"ok": True}
 
 
@@ -166,39 +177,13 @@ class RetrieveBody(BaseModel):
     query: str = Field(min_length=1, max_length=1000)
     knowledge_ids: list[str] = Field(min_length=1, max_length=20)
     top_k: int = 8
-    recall_method: str = "mixed"
-    rerank_status: int = 1
-    rerank_model: str = "rerank"
-    fractional_threshold: Optional[float] = None
-    document_ids: Optional[list[str]] = None
 
 
 @router.post("/retrieve")
 async def retrieve(body: RetrieveBody) -> dict:
+    _require()
     data = await _run(
-        glm_kb.retrieve, _key(),
+        weknora.search,
         query=body.query, knowledge_ids=body.knowledge_ids, top_k=body.top_k,
-        recall_method=body.recall_method, rerank_status=body.rerank_status,
-        rerank_model=body.rerank_model, fractional_threshold=body.fractional_threshold,
-        document_ids=body.document_ids,
-    )
-    return {"data": data}
-
-
-class RetrieveMmBody(BaseModel):
-    query: str = Field(default="", max_length=1000)
-    knowledge_ids: list[str] = Field(min_length=1, max_length=20)
-    image_urls: Optional[list[str]] = None
-    top_k: int = 8
-    enable_rerank: bool = True
-    enable_rewrite: bool = False
-
-
-@router.post("/retrieve/multimodal")
-async def retrieve_multimodal(body: RetrieveMmBody) -> dict:
-    data = await _run(
-        glm_kb.retrieve_multimodal, _key(),
-        query=body.query, knowledge_ids=body.knowledge_ids, image_urls=body.image_urls,
-        top_k=body.top_k, enable_rerank=body.enable_rerank, enable_rewrite=body.enable_rewrite,
     )
     return {"data": data}

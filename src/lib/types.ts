@@ -33,35 +33,24 @@ export interface KdocsFile {
   owner: string
 }
 
-// ---- 知识库（GLM RAG · WB-144）--------------------------------------------
+// ---- 知识库（自托管 WeKnora RAG · WB-173/174）-----------------------------
 
 export interface KnowledgeBase {
   id: string
   name: string
   description?: string
-  embedding_id?: number
-  contextual?: number
   icon?: string
-  background?: string
   document_size?: number
   word_num?: number
-  length?: number
 }
 
 export interface KbDocument {
   id: string
   name: string
   word_num?: number
-  length?: number
-  // 0 处理中 · 1 成功 · 2 失败
+  // 0 处理中 · 1 成功 · 2 失败（后端由 WeKnora parse_status 映射）
   embedding_stat?: number
   failInfo?: { embedding_code?: number; embedding_msg?: string }
-  url?: string
-}
-
-export interface KbCapacity {
-  used: { word_num: number; length: number }
-  total: { word_num: number; length: number }
 }
 
 export interface KbRetrieveHit {

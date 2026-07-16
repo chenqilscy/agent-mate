@@ -6,27 +6,14 @@ import type { KbDocument } from '../lib/types'
 import type { KbTemplate } from '../data/catalog'
 import { toast } from '../stores/toastStore'
 
-// 知识库（GLM RAG · WB-144）：建库 / 传档 / 向量化状态 / 用量，并可「挂载到对话」，
-// 让 agent 用 knowledge_retrieve 真检索作答。真调智谱 GLM（经本地 backend，key 只在后端）。
+// 知识库（自托管 WeKnora RAG · WB-173/174）：建库 / 传档 / 解析状态，并可「挂载到对话」，
+// 让 agent 用 knowledge_retrieve 真检索作答。真调 WeKnora（经本地 backend，API Key 只在后端）。
 // 复用 ExpertsView / 通用视图的 class 与 token（视觉零重设计）。
 
-// 建库图标可选项（对应 GLM icon 字段）。
+// 建库图标可选项（纯前端展示；WeKnora 侧无图标概念）。
 const ICONS = ['book', 'question', 'seal', 'wrench', 'tag', 'horn', 'house'] as const
 const ICON_EMOJI: Record<string, string> = {
   book: '📚', question: '❓', seal: '🔖', wrench: '🔧', tag: '🏷️', horn: '📣', house: '🏠',
-}
-const EMBEDDINGS: [number, string][] = [
-  [11, 'Embedding-3（推荐）'],
-  [12, 'Embedding-3-pro'],
-  [3, 'Embedding-2'],
-]
-
-function fmtBytes(n: number): string {
-  if (!n) return '0'
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 
 // embedding_stat：1 成功 · 2 失败 · 其它（0/空）处理中。
@@ -37,7 +24,7 @@ function docStatus(d: KbDocument): { label: string; color: string; done: boolean
 }
 
 export function KnowledgeView() {
-  const { kbs, capacity, loaded, load, create, remove, listDocs, uploadDoc, deleteDoc } = useKnowledgeStore()
+  const { kbs, loaded, load, create, remove, listDocs, uploadDoc, deleteDoc } = useKnowledgeStore()
   const knowledgeIds = useLoadoutStore((s) => s.knowledgeIds)
   const toggleLoadout = useLoadoutStore((s) => s.toggle)
   const { KB_TPLS } = useCatalog()
@@ -123,12 +110,6 @@ export function KnowledgeView() {
     toast(on ? `已从对话取消挂载「${name}」` : `已挂载「${name}」到对话，去输入框提问即可检索`)
   }
 
-  // 形状守卫（WB-151）：GLM 若返回缺字段的 capacity，别让 .length 抛 TypeError 白屏。
-  const capUsed = capacity?.used?.length ?? 0
-  const capTotal = capacity?.total?.length ?? 0
-  const capWords = capacity?.used?.word_num ?? 0
-  const usedPct = capTotal ? Math.min(100, (capUsed / capTotal) * 100) : 0
-
   return (
     <section className="view active" data-view="knowledge">
       <div className="page-scroll">
@@ -136,30 +117,14 @@ export function KnowledgeView() {
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: 22, fontWeight: 800 }}>📚 知识库</h1>
             <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.7 }}>
-              基于智谱 GLM 的知识库：上传文档并向量化，在对话中「挂载」后让 AI 检索作答、注明来源。
-              密钥只存本机后端，绝不进前端。
+              基于自托管 WeKnora 的知识库：上传文档由 WeKnora 解析并向量化，在对话中「挂载」后让 AI 检索作答、注明来源。
+              API Key 只存本机后端，绝不进前端。
             </div>
           </div>
           {!openKb && (
             <button className="hub-act on" onClick={() => { setPrefill(null); setShowCreate(true) }}>+ 新建知识库</button>
           )}
         </div>
-
-        {/* 用量条 + 计价提示 */}
-        {capacity && (
-          <div style={{ marginTop: 14, padding: '10px 14px', background: 'var(--panel-2, rgba(127,127,127,.06))', borderRadius: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-2)' }}>
-              <span>存储用量</span>
-              <span>{fmtBytes(capUsed)} / {fmtBytes(capTotal)}（{capWords.toLocaleString()} 字）</span>
-            </div>
-            <div style={{ height: 6, background: 'rgba(127,127,127,.18)', borderRadius: 4, marginTop: 6, overflow: 'hidden' }}>
-              <div style={{ width: `${usedPct}%`, height: '100%', background: 'var(--brand)', borderRadius: 4 }} />
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
-              1GB 免费额度，超出 0.04 元/GB/小时；Embedding-3 系列 0.5 元/百万 token；检索重排 0.8 元/百万 token。
-            </div>
-          </div>
-        )}
 
         {/* 从模板新建（Manager 下发的策展模板，橱窗）*/}
         {!openKb && KB_TPLS.length > 0 && (
@@ -192,7 +157,7 @@ export function KnowledgeView() {
               <div className="mf-empty" style={{ flexDirection: 'column', gap: 8, textAlign: 'center', lineHeight: 1.7 }}>
                 <div>还没有知识库。</div>
                 <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
-                  点右上「新建知识库」创建一个，再上传文档。若提示需要配置密钥，请去左侧「更多 · 模型管理」为「智谱 AI·GLM」填入 API Key。
+                  点右上「新建知识库」创建一个，再上传文档。若提示尚未接入，请让管理员在后端配置自托管 WeKnora（见 docs/weknora-部署.md）。
                 </div>
               </div>
             )}
@@ -206,7 +171,6 @@ export function KnowledgeView() {
                       <div className="sc-info" style={{ minWidth: 0, flex: 1 }}>
                         <div className="sc-n" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           {k.name}
-                          {!!k.contextual && <span className="ec-tag" style={{ fontSize: 10 }}>上下文增强</span>}
                           {mounted && <span className="ec-tag" style={{ fontSize: 10, background: 'var(--brand)', color: '#fff' }}>已挂载</span>}
                         </div>
                         <div className="sc-d">{k.description || '（无描述）'}</div>
@@ -242,11 +206,11 @@ export function KnowledgeView() {
                 {uploading ? '上传中…' : '+ 上传文档'}
               </button>
               <input ref={fileInput} type="file" multiple hidden
-                accept=".txt,.md,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv"
+                accept=".txt,.md,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.html,.htm,.png,.jpg,.jpeg,.gif,.bmp,.webp"
                 onChange={(e) => doUpload(e.target.files)} />
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-3)', margin: '8px 2px 0' }}>
-              支持 txt / md / pdf / doc(x) / ppt(x) / xls(x) / csv，单文件 ≤ 50MB。上传后自动向量化，完成才可被检索。
+              支持 pdf / doc(x) / ppt(x) / xls(x) / txt / md / html / csv / 图片，单文件 ≤ 50MB。上传后由 WeKnora 解析向量化，完成才可被检索。
             </div>
 
             {/* 拖拽上传区 */}
@@ -312,22 +276,20 @@ export function KnowledgeView() {
   )
 }
 
-// 建库弹窗：名称 / 描述 / embedding 模型 / 图标 / 上下文增强开关。复用 np-* 弹窗 class。
+// 建库弹窗：名称 / 描述 / 图标。复用 np-* 弹窗 class。嵌入模型由 WeKnora 服务端配置，前端无需选。
 // tpl（可选）= 从模板新建时的预填（Manager 下发的策展模板）。
 function CreateKbModal(props: {
   creating: boolean
   tpl?: KbTemplate | null
   onClose: () => void
-  onCreate: (body: { name: string; description: string; embedding_id: number; contextual: number; icon: string }) => void
+  onCreate: (body: { name: string; description: string; icon: string }) => void
 }) {
   const t = props.tpl
-  // 模板 icon 存的是 emoji；建库弹窗按 GLM icon 关键字选择，emoji 对不上就回退 book。
+  // 模板 icon 存的是 emoji；建库弹窗按 icon 关键字选择，emoji 对不上就回退 book。
   const iconKey = t ? (ICONS.find((k) => ICON_EMOJI[k] === t.icon) ?? 'book') : 'book'
   const [name, setName] = useState(t?.name ?? '')
   const [description, setDescription] = useState(t?.desc ?? '')
-  const [embeddingId, setEmbeddingId] = useState(t?.embedding_id ?? 11)
   const [icon, setIcon] = useState<string>(iconKey)
-  const [contextual, setContextual] = useState(!!t?.contextual)
 
   return (
     <div className="np-overlay open" onClick={props.onClose}>
@@ -347,13 +309,6 @@ function CreateKbModal(props: {
             <input className="np-input" style={{ marginTop: 6, width: '100%' }} value={description}
               placeholder="这个知识库放什么资料" onChange={(e) => setDescription(e.target.value)} />
           </label>
-          <label style={{ fontSize: 13, fontWeight: 600 }}>
-            向量模型
-            <select className="np-input" style={{ marginTop: 6, width: '100%' }} value={embeddingId}
-              onChange={(e) => setEmbeddingId(Number(e.target.value))}>
-              {EMBEDDINGS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-            </select>
-          </label>
           <div style={{ fontSize: 13, fontWeight: 600 }}>
             图标
             <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
@@ -365,15 +320,11 @@ function CreateKbModal(props: {
               ))}
             </div>
           </div>
-          <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={contextual} onChange={(e) => setContextual(e.target.checked)} />
-            开启上下文增强（长文档召回更准，建库后处理稍慢；免费）
-          </label>
         </div>
         <div className="np-foot">
           <button className="btn-ghost" onClick={props.onClose}>取消</button>
           <button className="btn-dark" disabled={!name.trim() || props.creating}
-            onClick={() => props.onCreate({ name: name.trim(), description: description.trim(), embedding_id: embeddingId, contextual: contextual ? 1 : 0, icon })}>
+            onClick={() => props.onCreate({ name: name.trim(), description: description.trim(), icon })}>
             {props.creating ? '创建中…' : '创建'}
           </button>
         </div>

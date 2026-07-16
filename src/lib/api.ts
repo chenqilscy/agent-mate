@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbCapacity, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -372,10 +372,9 @@ export const api = {
     return r.json() as Promise<{ text: string; language: string | null }>
   },
 
-  // ---- 知识库（GLM RAG · WB-144）。全走本地 backend /api/knowledge，key 只在后端。
+  // ---- 知识库（自托管 WeKnora RAG · WB-173/174）。全走本地 backend /api/knowledge，API Key 只在后端。
   listKb: () => get<{ list: KnowledgeBase[]; total: number }>('/knowledge'),
-  kbCapacity: () => get<KbCapacity>('/knowledge/capacity'),
-  createKb: (body: { name: string; description?: string; embedding_id?: number; contextual?: number; icon?: string; background?: string }) =>
+  createKb: (body: { name: string; description?: string; icon?: string }) =>
     send<{ id: string }>('POST', '/knowledge', body),
   deleteKb: (id: string) => send<{ ok: boolean }>('DELETE', `/knowledge/${id}`),
   listKbDocs: (id: string) => get<{ list: KbDocument[]; total: number }>(`/knowledge/${encodeURIComponent(id)}/documents`),

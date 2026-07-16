@@ -320,11 +320,13 @@ def work_item_tools(plan: bool = False) -> list[Tool]:
     return [list_work_items] if plan else [list_work_items, set_work_item_status]
 
 
-# ---- knowledge_retrieve（知识库检索）— WB-143 -----------------------------
+# ---- knowledge_retrieve（知识库检索）— WB-143/173 -------------------------
 #
-# 会话挂载的 GLM 知识库检索。与 work-item 同款 contextvar 注入：owner + 选中的
-# knowledge_ids 由 run_chat 每次运行前 set；工具真调 GLM 检索（同步，由 runtime 的
-# asyncio.to_thread 兜住）。key 只在本地：db.get_provider_key(owner, "zhipu")，绝不回前端。
+# 会话挂载的知识库检索，改用自托管 WeKnora（腾讯开源 RAG）。与 work-item 同款
+# contextvar 注入：owner + 选中的 knowledge_ids 由 run_chat 每次运行前 set；工具真调
+# WeKnora 检索（同步，由 runtime 的 asyncio.to_thread 兜住）。WeKnora 的 API Key 只在
+# 后端 .env（settings.WEKNORA_API_KEY），绝不回前端。owner_id 仍随上下文携带（备用），
+# 但 WeKnora 单租户模型下检索不需要它。
 
 _kb_ctx: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("kb_ctx", default=None)
 
@@ -335,7 +337,7 @@ def set_knowledge_context(owner_id: str | None, knowledge_ids: list[str] | None)
 
 
 def _knowledge_retrieve_run(args: dict[str, Any]) -> ToolOutcome:
-    from agent import glm_kb  # 延迟导入，避免与加载顺序耦合
+    from agent import weknora  # 延迟导入，避免与加载顺序耦合
 
     ctx = _kb_ctx.get()
     if not ctx:
@@ -343,16 +345,15 @@ def _knowledge_retrieve_run(args: dict[str, Any]) -> ToolOutcome:
     query = str(args.get("query", "")).strip()
     if not query:
         return ToolOutcome(text="请提供检索问题（query）。")
-    key = db.get_provider_key(ctx["owner_id"], "zhipu")
-    if not key:
-        return ToolOutcome(text="未配置智谱 API Key，无法检索知识库（去「模型管理」为「智谱 AI·GLM」配置）。")
+    if not weknora.configured():
+        return ToolOutcome(text="尚未接入知识库（后端 .env 未配 WEKNORA_API_KEY），无法检索。见 docs/weknora-部署.md。")
     try:
         top_k = int(args.get("top_k") or 8)
     except (TypeError, ValueError):
         top_k = 8
     try:
-        hits = glm_kb.retrieve(key, query=query, knowledge_ids=ctx["knowledge_ids"], top_k=max(1, min(top_k, 20)))
-    except glm_kb.GlmKbError as e:
+        hits = weknora.search(query=query, knowledge_ids=ctx["knowledge_ids"], top_k=max(1, min(top_k, 20)))
+    except weknora.WeKnoraError as e:
         return ToolOutcome(text=f"知识库检索失败：{e}")
     if not hits:
         return ToolOutcome(text=f"知识库中未检索到与「{query}」相关的内容。")

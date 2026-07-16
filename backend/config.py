@@ -53,6 +53,14 @@ class Settings:
     HOST: str = os.getenv("HOST", "127.0.0.1")
     PORT: int = int(os.getenv("PORT", "8000"))
 
+    # 知识库改用自托管 WeKnora（WB-173）：后端当 WeKnora 客户端，X-API-Key 打其 REST /api/v1。
+    # 只存后端 .env，绝不回前端（铁律#4）。未配 WEKNORA_API_KEY → 知识库接口 400 引导去配置。
+    # WEKNORA_API_KEY = WeKnora :80 注册账号后账号页拿到的租户 API Key（sk-...），非 WeKnora .env 里的那个。
+    # 部署见 docs/weknora-部署.md。
+    WEKNORA_URL: str = os.getenv("WEKNORA_URL", "http://localhost:8080").strip().rstrip("/")
+    WEKNORA_API_KEY: str = os.getenv("WEKNORA_API_KEY", "").strip()
+    WEKNORA_EMBEDDING_MODEL_ID: str = os.getenv("WEKNORA_EMBEDDING_MODEL_ID", "").strip()
+
     # Optional connector credentials. Read straight from os.environ by the MCP
     # client's per-connector secret_env (mcp_client.py); listed here for
     # discoverability. Forwarded ONLY to the owning connector's subprocess.
