@@ -30,6 +30,23 @@ PUB_META = "_meta.json"
 DISABLED_MARKER = ".disabled"
 _MAX_INJECT = 6000  # 注入系统提示时单技能正文上限，控 token
 
+# 技能 slug 白名单：仅字母数字与 . _ - ；杜绝路径分隔符与 `..`，因为 slug 会拼进
+# SKILLS_DIR/<slug> 与临时预览目录路径、并作为 `skillhub install <slug>` 的子进程
+# 参数（路径穿越 / CLI 参数注入面）。与 hub/skillhub_client.py 的校验保持同一口径
+# ——WB-160 只硬化了 Hub 侧，App 侧这个孪生站点漏网，见 WB-185。
+_SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def valid_slug(slug: str) -> bool:
+    # 前导 `-` 另拒：字符集白名单挡不住 `--dir` 这类「合法字符但会被 CLI 当选项吃掉」的
+    # slug（argv 传参，无 shell 注入，但可污染 skillhub CLI 的参数解析）。
+    return (
+        bool(slug)
+        and ".." not in slug
+        and not slug.startswith("-")
+        and _SLUG_RE.match(slug) is not None
+    )
+
 
 def skills_dir() -> Path:
     d = settings.SKILLS_DIR
@@ -228,7 +245,7 @@ def preview(slug: str = "", name: str = "") -> dict[str, Any] | None:
     name = (name or "").strip()
     if not slug and name:
         slug = resolve_slug(name) or ""
-    if not slug:
+    if not slug or not valid_slug(slug):  # WB-185：slug 会拼进 tmp/<slug> 与 CLI 参数
         return None
     inst = _installed_dir_for_slug(slug)
     if inst:
@@ -309,17 +326,26 @@ def search(query: str, limit: int = 8) -> list[dict[str, Any]]:
 
 
 def resolve_slug(query: str) -> str | None:
-    """把展示名/关键词解析成一个 SkillHub slug：精确 slug 命中优先，否则取第一条。"""
+    """把展示名/关键词解析成一个 SkillHub slug —— **仅精确命中**（slug 或 name 完全相等）。
+
+    不做模糊兜底：曾经「否则取第一条」，导致一个根本不存在的名字也能装上搜索结果里
+    毫不相干的技能，并被 install() 的 display_name 贴上用户输入的名字，用户无从发现
+    （WB-187，实测 `{"name":"不存在的技能xyz"}` 真装上了 self-improving-agent）。
+    模糊匹配要给用户，就走 /api/skills/search 让**用户自己选**，后端不替他猜。
+
+    远端搜索返回的 slug 同样过白名单（WB-185）——它会直接流进 install() 的路径拼接
+    与子进程参数，不因为「来自 SkillHub」就当可信。
+    """
     q = (query or "").strip()
     if not q:
         return None
-    results = search(q, limit=8)
-    if not results:
-        return None
-    for it in results:
-        if str(it.get("slug", "")).strip() == q or str(it.get("name", "")).strip() == q:
-            return str(it["slug"]).strip()
-    return str(results[0].get("slug", "")).strip() or None
+    for it in search(q, limit=8):
+        slug = str(it.get("slug", "")).strip()
+        if not valid_slug(slug):
+            continue
+        if slug == q or str(it.get("name", "")).strip() == q:
+            return slug
+    return None
 
 
 # ── skillhub.cn 实时目录来源（WB-064）──────────────────────────────────────
@@ -403,6 +429,8 @@ def install(slug: str, display_name: str = "") -> dict[str, Any]:
     slug = (slug or "").strip()
     if not slug:
         return {"ok": False, "error": "empty slug"}
+    if not valid_slug(slug):  # WB-185：挡路径穿越 / CLI 参数注入
+        return {"ok": False, "error": f"非法 slug：{slug[:80]}"}
     if not cli_available():
         return {"ok": False, "error": "SkillHub CLI 未安装（~/.skillhub/skills_store_cli.py）"}
     root = skills_dir()

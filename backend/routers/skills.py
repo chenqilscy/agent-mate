@@ -55,6 +55,9 @@ def preview_skill(slug: str = "", name: str = "", authorization: str = Header(de
     # WB-130：优先经 Manager 取数（App 不直连 SkillHub）——有 slug 且已接 Hub → 走代理；
     # 未接/不可达/Manager 无果 → 回退本地 CLI 直连预览（离线兜底）。
     slug, name = slug.strip(), name.strip()
+    if slug and not skills_store.valid_slug(slug):
+        # WB-185：早拦——slug 还会被拼进发往 Manager 的代理 URL。
+        raise HTTPException(400, "非法 slug（仅允许字母、数字与 . _ -）")
     if slug and hub_client.hub_enabled():
         proxied = hub_client.skill_preview(_bearer(authorization), slug, name)
         if proxied:
@@ -79,6 +82,8 @@ def install_skill(body: InstallBody) -> dict:
         raise HTTPException(503, "SkillHub CLI 未安装（~/.skillhub/skills_store_cli.py）")
     slug = body.slug.strip()
     display = body.name.strip()
+    if slug and not skills_store.valid_slug(slug):  # WB-185：客户端错误 → 400，而非 install 的 502
+        raise HTTPException(400, "非法 slug（仅允许字母、数字与 . _ -）")
     if not slug:
         slug = skills_store.resolve_slug(display) or ""
         if not slug:

@@ -33,7 +33,14 @@ _SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def _valid_slug(slug: str) -> bool:
-    return bool(slug) and ".." not in slug and _SLUG_RE.match(slug) is not None
+    # 前导 `-` 另拒（WB-185）：字符集白名单挡不住 `--dir` 这类「合法字符但会被 CLI 当
+    # 选项吃掉」的 slug。与 backend/agent/skills_store.py:valid_slug 保持同一口径。
+    return (
+        bool(slug)
+        and ".." not in slug
+        and not slug.startswith("-")
+        and _SLUG_RE.match(slug) is not None
+    )
 
 # 白名单转发（与 backend 一致）：绝不把整个 os.environ（含密钥）透传给子进程（铁律#4 / WB-011）。
 _SAFE_ENV_KEYS = {
