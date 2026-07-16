@@ -59,3 +59,18 @@ P2：能力补全。WeKnora 支持三种入库（`docs/api/knowledge.md`）：
 
 **未做（留后续）**：`/knowledge/manual`（文本入库建的是 draft/disabled，需额外处理才可检索）与 `/knowledge/url`
 （受 WeKnora SSRF 白名单限制）暂不接为工具——本条只补最可靠的工作区文件路径。
+
+---
+
+2026-07-16（跟进）· 用户复测「还是上传不了」。根因：初版把 `knowledge_add` **和 `knowledge_retrieve` 一样门控在
+「会话已挂载知识库」（`active_knowledge`）之下**——用户的会话没挂载任何库，故整套知识库工具都不出现（截图里连
+`knowledge_retrieve` 都没有）。挂载对「加入文件」是多余前提。
+
+**改**：
+- `runtime.py`：`knowledge_add` 改为**只要后端配了 `WEKNORA_API_KEY` 就提供**（不再要求挂载）；`knowledge_retrieve`
+  维持按挂载库给（检索作用域仍由挂载显式界定）。未挂载但已接入时，system_prompt 补一句「加入文件直接用 knowledge_add」。
+- `tools.py`：`knowledge_add` 目标库解析不再依赖挂载——优先级 **显式 knowledge_id > kb_name > 会话挂载的唯一库 >
+  现存唯一库 > 让用户指定**（新增 `kb_name` 参数 + `_resolve_add_kb` 帮手）；成功后若该库未挂载，提示可去挂载以便检索。
+
+**验证**：真机驱动**真会话**（`POST /api/chat`，`knowledge_ids:[]` 即未挂载，deepseek）——助理自动调用 `knowledge_add`
+（SSE step「加入知识库 客服模块-功能业务文档.md」），文件落入指定库并 `parse_status=completed`。py_compile 通过；硬重启 backend 生效。

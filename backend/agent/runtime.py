@@ -321,6 +321,11 @@ async def run_chat(
             "再基于命中内容作答并注明来源；检索不到再用你自己的知识回答。"
             "需要把工作区里的文件沉淀进知识库（用户说「加入/上传/添加到知识库」）时，用 knowledge_add。"
         )
+    elif settings.WEKNORA_API_KEY and not ask:
+        system_prompt += (
+            "\n\n# 知识库\n本机已接入知识库。用户要把工作区文件「加入/上传/添加到知识库」时，"
+            "直接用 knowledge_add（无需先挂载；只有一个库时自动选，多个库用 knowledge_id 或 kb_name 指定）。"
+        )
 
     # Attached / referenced files (＋ menu) are prepended to THIS turn's LLM input
     # only — the persisted user message stays clean, so the bubble shows just the
@@ -402,8 +407,14 @@ async def run_chat(
         # Work-item tools only for project runs (WB-030) — ad-hoc chats have no
         # plan board to act on. Plan mode gets the read-only one (no status writes).
         wi_tools = work_item_tools(plan) if (session.project_id and not ask) else []
-        # 挂载了知识库 → 加 knowledge_retrieve（检索）+ knowledge_add（把工作区文件加入库）工具（ask 模式无工具）。
-        kb_tools = [knowledge_retrieve, knowledge_add] if (active_knowledge and not ask) else []
+        # 知识库工具（ask 模式无工具）：检索按会话挂载的库（active_knowledge）给；
+        # 加入文件只要后端接了 WeKnora（配了 key）就给——不要求先挂载（WB-175）。
+        kb_tools = []
+        if not ask:
+            if active_knowledge:
+                kb_tools.append(knowledge_retrieve)
+            if settings.WEKNORA_API_KEY:
+                kb_tools.append(knowledge_add)
         tools_list = [] if ask else base_tools(plan) + skill_tools + wi_tools + kb_tools
         active_tools = {t.name: t for t in tools_list}
         mcp_tools = []

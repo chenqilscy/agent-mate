@@ -391,27 +391,55 @@ knowledge_retrieve = Tool(
 
 # ---- knowledge_add（把工作区文件加入知识库）— WB-175 -----------------------
 #
-# 会话内把工作区文件沉淀进挂载的 WeKnora 知识库（原来只能检索、不能加，功能不完整）。
+# 会话内把工作区文件沉淀进 WeKnora 知识库（原来只能检索、不能加，功能不完整）。
+# **不要求先把库挂载到对话**：只要后端接了 WeKnora（配了 key）就可用——目标库按
+# knowledge_id / kb_name / 挂载库 / 唯一现存库 依次解析，都定不了才让用户澄清。
 # 复用沙箱读文件 + weknora.upload_file（异步解析，parse_status pending→completed 后可被检索）。
+
+def _fmt_kbs(kbs: dict[str, str]) -> str:
+    return "；".join(f"{n or '(无名)'}={i}" for i, n in kbs.items()) or "（无）"
+
+
+def _resolve_add_kb(weknora, args: dict[str, Any], mounted: list[str]) -> tuple[str | None, str]:
+    """定位要加入的知识库。返回 (kb_id, note)。kb_id=None → 需用户澄清（note 是提示文案）。
+    优先级：显式 knowledge_id > 显式 kb_name > 会话挂载的唯一库 > 现存唯一库 > 让用户指定。"""
+    want_id = str(args.get("knowledge_id") or "").strip()
+    want_name = str(args.get("kb_name") or "").strip()
+
+    def _load() -> dict[str, str]:
+        return {str(k.get("id")): (k.get("name") or "") for k in weknora.list_kb() if k.get("id")}
+
+    if want_id:
+        kbs = _load()
+        if want_id in kbs:
+            return want_id, (f"「{kbs[want_id]}」" if kbs[want_id] else "")
+        return None, f"未找到知识库 id={want_id}。现有：{_fmt_kbs(kbs)}"
+    if want_name:
+        kbs = _load()
+        hits = [i for i, n in kbs.items() if n == want_name]
+        if len(hits) == 1:
+            return hits[0], f"「{want_name}」"
+        if not hits:
+            return None, f"未找到名为「{want_name}」的知识库。现有：{_fmt_kbs(kbs)}"
+        return None, f"有多个名为「{want_name}」的库，请用 knowledge_id 指定。"
+    if len(mounted) == 1:
+        return mounted[0], ""
+    if len(mounted) > 1:
+        return None, f"本会话挂载了多个知识库（{', '.join(mounted)}），请用 knowledge_id 指定要加入哪个。"
+    kbs = _load()
+    if len(kbs) == 1:
+        only = next(iter(kbs))
+        return only, (f"「{kbs[only]}」" if kbs[only] else "")
+    if not kbs:
+        return None, "知识库为空，请先在「知识库」页新建一个知识库，再加入文件。"
+    return None, f"有多个知识库，请用 knowledge_id 或 kb_name 指定要加入哪个。现有：{_fmt_kbs(kbs)}"
+
 
 def _knowledge_add_run(args: dict[str, Any]) -> ToolOutcome:
     from agent import weknora  # 延迟导入
 
-    ctx = _kb_ctx.get()
-    if not ctx:
-        return ToolOutcome(text="当前会话未挂载任何知识库，无法添加文件。请先在「知识库」页把目标库挂载到对话。")
     if not weknora.configured():
         return ToolOutcome(text="尚未接入知识库（后端 .env 未配 WEKNORA_API_KEY），无法添加。见 docs/weknora-部署.md。")
-    kb_ids = ctx.get("knowledge_ids") or []
-    kb_id = str(args.get("knowledge_id") or "").strip()
-    if kb_id:
-        if kb_id not in kb_ids:
-            return ToolOutcome(text=f"知识库 {kb_id} 未挂载到本会话。已挂载：{', '.join(kb_ids) or '（无）'}。")
-    elif len(kb_ids) == 1:
-        kb_id = kb_ids[0]
-    else:
-        return ToolOutcome(text=f"本会话挂载了多个知识库（{', '.join(kb_ids)}），请用 knowledge_id 指定要加入哪个。")
-
     path = str(args.get("path") or "").strip()
     if not path:
         return ToolOutcome(text="请提供 path：要加入知识库的工作区文件（相对工作区路径）。")
@@ -427,26 +455,41 @@ def _knowledge_add_run(args: dict[str, Any]) -> ToolOutcome:
     size = target.stat().st_size
     if size > KB_MAX_UPLOAD:
         return ToolOutcome(text=f"文件超过 50MB 上限（约 {size // (1024 * 1024)}MB），无法加入知识库。")
+
+    mounted = (_kb_ctx.get() or {}).get("knowledge_ids") or []
+    try:
+        kb_id, note = _resolve_add_kb(weknora, args, mounted)
+    except weknora.WeKnoraError as e:
+        return ToolOutcome(text=f"读取知识库列表失败：{e}")
+    if kb_id is None:
+        return ToolOutcome(text=note)  # 需用户指定 / 知识库为空
+
     content = target.read_bytes()
     ct = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
     try:
         weknora.upload_file(kb_id, filename=target.name, content=content, content_type=ct)
     except weknora.WeKnoraError as e:
         return ToolOutcome(text=f"加入知识库失败：{e}")
-    return ToolOutcome(text=f"已把「{target.name}」加入知识库（正在后台解析并向量化，稍后即可用 knowledge_retrieve 检索到）。")
+    tail = "" if (kb_id in mounted) else "（该库未挂载到本会话；如需在对话中检索它，去「知识库」页点『挂载到对话』）"
+    return ToolOutcome(
+        text=f"已把「{target.name}」加入知识库{note}（正在后台解析并向量化，稍后即可用 knowledge_retrieve 检索到）。{tail}"
+    )
 
 
 knowledge_add = Tool(
     name="knowledge_add",
     description=(
-        "把工作区里的一个文件加入本会话挂载的知识库（WeKnora 会解析/切片/向量化，之后可被 knowledge_retrieve 检索）。"
-        "当用户要求把某个文档「加入/上传/沉淀到知识库」时用。支持 pdf/doc(x)/ppt(x)/xls(x)/txt/md/html/csv/图片，单文件≤50MB。"
+        "把工作区里的一个文件加入知识库（WeKnora 会解析/切片/向量化，之后可被 knowledge_retrieve 检索）。"
+        "当用户要求把某个文档「加入/上传/添加/沉淀到知识库」时用——无需先挂载知识库。"
+        "目标库：只有一个库时自动选；多个库时用 knowledge_id 或 kb_name 指定。"
+        "支持 pdf/doc(x)/ppt(x)/xls(x)/txt/md/html/csv/图片，单文件≤50MB。"
     ),
     parameters={
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "要加入知识库的工作区文件（相对工作区路径）"},
-            "knowledge_id": {"type": "string", "description": "目标知识库 id；本会话挂载了多个库时必填，仅一个库时可省略"},
+            "knowledge_id": {"type": "string", "description": "目标知识库 id（多库时二选一：id 或 kb_name）"},
+            "kb_name": {"type": "string", "description": "目标知识库名称（多库时二选一：id 或 kb_name）"},
         },
         "required": ["path"],
     },
