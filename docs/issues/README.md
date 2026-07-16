@@ -202,6 +202,8 @@
 | [WB-187](WB-187-resolve-slug-installs-wrong-skill.md) | ✅ | P2 | backend | 按名安装取搜索首条 —— 名字不存在时静默装上无关技能并贴上用户输入的名字（截图里「腾讯微云」的＋号实测会装成 self-improving-agent，真微云技能在搜索第4条被跳过）；resolve_slug 改仅精确命中，实测 38 张静态卡 37 命中/1 诚实404 |
 | [WB-188](WB-188-weknora-config-form.md) | ✅ | P2 | fullstack | WeKnora 连接配置改 UI 表单 —— 从「只能改 .env + 重启」改为按 owner 入库(key 存 provider_keys 只写不回读/url 存 KV)、DB 优先 .env 兜底、连接器弹窗内真表单 + 测试连接 |
 | [WB-189](WB-189-project-connectors-picker-cleanup.md) | ✅ | P3 | fullstack | 新建项目的连接器选择器/模板仍留着已下架的连接器 —— NP_CONNS 删 乐享知识库/腾讯文档/TAPD(13→10) + NP_TPLS 清引用；且模板提示词点名「在 TAPD 中跟进…同步到腾讯文档」指挥 agent 用不存在的连接器(铁律#1)；配 WB-177 |
+| [WB-190](WB-190-skills-tencent-docs-cleanup.md) | ✅ | P3 | frontend | 技能侧「腾讯文档」清理 —— SK_GRID(17→16,DB 供给三层同步)/SK_RECO(死代码)/SKILLHUB_GRID(不入库,仅静态层) 与连接器侧下架不一致；后端本无该技能定义(零能力卡)；配 WB-177/189；⚠️只清掉「我们自己的目录」那半 —— SkillHub 段是上游商店镜像、不受影响，另见 WB-191 |
+| [WB-191](WB-191-skillhub-mirror-no-delisting.md) | ⬜ | P3 | fullstack | SkillHub 段是上游 skillhub.cn 商店的镜像(369 条)，本地目录下架对它无效 —— 想下架某条需 Manager 侧跨同步存活的过滤(replace_all_downlink 每次清空重建，删镜像行必被覆盖)；WB-190 实测发现 |
 
 ## 来源
 

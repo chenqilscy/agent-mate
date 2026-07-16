@@ -99,7 +99,6 @@ export const EXP_TEAMS: ExpertTeam[] = [
 ]
 
 export const SK_RECO: [string, string, string][] = [
-  ['📄', '腾讯文档高考志愿填报助手', '高考志愿填报的逐步引导助手，帮你一步步收集成绩、解读专业、筛选院校，产出冲稳保候选表。'],
   ['🐱', '元宝高考通-一分一段查询', '高考一分一段信息检索助手，按分数查询全省排名、估算对应分数区间。'],
   ['☁️', '腾讯微云', '管理腾讯微云网盘文件（列表、上传、下载、删除、分享）。'],
   ['✅', '腾讯问卷', '腾讯问卷操作（创建、修改、逻辑设置、统计）。'],
@@ -120,7 +119,6 @@ export const SK_GRID: [string, string, string][] = [
   ['📧', 'IMAP/SMTP邮件', '通过 IMAP/SMTP 收发邮件，支持多账户和附件'],
   ['📚', 'fbs-bookwriter', '福帮手出品｜高质量长文档手稿工具链：书籍、手册、白皮书、行业指南、长篇报道。'],
   ['📃', 'Word 文档生成', 'Word 文档生成与编辑'],
-  ['📘', '腾讯文档', '腾讯文档在线云文档平台，创建、编辑、管理多种类型文档'],
   ['✉️', 'QQ邮箱', 'QQ邮箱收发邮件（IMAP/SMTP），支持发信、收信、查看正文'],
   ['📮', '腾讯新闻', '7x24 新闻搜索工具，聚焦国内外热点，支持热榜、早晚报、实时资讯查询。'],
   ['📈', '股票综合分析器', '基于东方财富的全球股票三维分析（基本面、新闻面、资金面）'],
@@ -335,7 +333,6 @@ export const SKILLHUB_CATS = ['全部', '办公效率', '内容创作', '开发�
 // SkillHub 商店技能卡：[label(字母/字), color, name, desc, downloads, stars, category(∈SKILLHUB_CATS)]
 export const SKILLHUB_GRID: [string, string, string, string, string, number, string][] = [
   ['W', '#4C6FFF', 'web-tools-guide', 'MANDATORY before calling web_search, web_fetch, browser, or opencli. Contains required error-handling procedures for web_search / web_fetch / browser.', '174k', 109, '开发编程'],
-  ['腾', '#1E6FFF', '腾讯文档 TENCENT DOCS', '腾讯文档（docs.qq.com）在线文档平台，是创建、编辑、管理文档的首选 skill。涉及新建/创建/编辑/读取/查看/搜索文档等操作。', '131k', 183, '办公效率'],
   ['I', '#6B7280', 'ima-skills', 'ima skills，支持写笔记、知识库的读取、写入和检索等操作，帮你随时记录、收入 ima 智能管理、随时调用。', '94k', 347, '知识管理'],
   ['K', '#16B37A', 'kdocs skill', '操作金山文档（WPS 云文档 / Kdocs / 365.kdocs.cn）云文档的官方 Skill，覆盖云端新建、读取、编辑、搜索、分享。', '37k', 66, '办公效率'],
   ['文', '#F59E0B', '文章去AI味工具', '去除文本中的 AI 写作痕迹，让文字读起来更像人类写作。当用户要求去AI味、降AI味、让回复更像人话、润色、改写得更自然时使用。', '27k', 180, '内容创作'],
