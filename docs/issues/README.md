@@ -189,6 +189,14 @@
 | [WB-171](WB-171-hub-knowledge-base-document-backend.md) | ✅ | P2 | backend | Hub 真·知识库 + 文档后端(项目级) —— 建库/传档(字节存 Hub)/文档管理 + 有文档后锁向量维度(400 拦截)；Manager 不算向量(向量化交执行面，且只调 GLM 嵌入接口、不用 GLM 知识库功能) |
 | [WB-172](WB-172-manager-project-knowledge-base-tab.md) | ✅ | P2 | frontend | Manager 项目「知识库」tab —— 真·建库(向量维度联动下拉/切片方式下拉)+文档上传/列/删+有文档后维度 select 锁定+诚实未向量化状态(kbm- 前缀)；配 WB-171 |
 | [WB-176](WB-176-trim-experts-showcase-data.md) | ✅ | P3 | fullstack | 精简专家/专家团橱窗数据 —— 三层数据源(前端静态兜底/后端种子/运行库)同步裁剪至 专家7·团3·场景3·分类6，避开「删空即重种」与「兜底顶上来」两个复活陷阱 |
+| [WB-178](WB-178-skills-subsystem-epic.md) | ⬜ | P1 | fullstack | 技能子系统重构（总纲/epic）—— 以 slug 为主键焊死「橱窗/loadout/磁盘」三层；根因=技能无稳定身份，橱窗与真引擎靠展示名撞运气连通；子任务 WB-179~186 |
+| [WB-179](WB-179-skill-identity-and-fallback-prompt.md) | ⬜ | P1 | fullstack | 技能身份断裂 —— loadout 存展示名 + `skill_def` 兜底话术「运用「X」技能的专长…」伪装能力（SK_GRID 17 个里 11 个后端零能力，铁律#1） |
+| [WB-180](WB-180-skill-picker-ignores-installed.md) | ⬜ | P1 | frontend | ＋菜单技能选择器只读静态 SK_GRID —— 真实已安装的技能在会话里选不到（装机流程与使用流程断开） |
+| [WB-181](WB-181-skills-page-fake-interactions.md) | ⬜ | P1 | frontend | 技能页假交互清理 —— 推荐段＋号/安装套件/排序/＋添加技能 全是 toast 桩 + SKILLHUB_GRID 写死假 downloads/stars（铁律#1） |
+| [WB-182](WB-182-skill-kits-fabricated.md) | ⬜ | P2 | fullstack | 「套件」100% 虚构 —— 前端 4 条静态卡（技能数手写）、后端零代码、Hub 无源、DB 无表、安装按钮是 toast；真做(Hub kit 表+批量安装)或删 |
+| [WB-183](WB-183-catalog-skills-to-db.md) | ⬜ | P2 | fullstack | 技能目录/定义未入库 —— WB-059 漏项：专家人格/连接器进了 DB，技能仍硬编码在 skills.py；设计过的 catalog_skills 表从未建 + 63 条孤儿静态数据 + 分类映射双份硬编码 |
+| [WB-184](WB-184-skill-browse-sources-convergence.md) | ⬜ | P2 | frontend | 技能浏览四套数据源 + 两套分类体系并存（精选/推荐/SkillHub/套件；SK_CATS vs SKILLHUB_CATS）+ 兜底链竞态 + SK_RECO 死代码 —— 收敛为一个面板一套分类 |
+| [WB-186](WB-186-skills-backend-consistency-tail.md) | ⬜ | P3 | backend | 技能后端一致性尾集 —— plan 模式不约束技能工具(只读模式仍出网) / rankings 绕过 Manager 违反 WB-130 / 预览缓存无 TTL(与 Hub 侧不一致) / schema 不去重 |
 
 ## 来源
 
@@ -203,3 +211,7 @@ WB-058～063 来自 2026-07-07 的架构讨论：把「能力定义入库」与�
 WB-078～084 来自 2026-07-08 用户检查 Hub 站点后的诉求：把 Hub 控制台升级为完整 Web 管理门户并更名
 **BuddyWebMgr**（项目管理面 + 目录运营中心 + SkillHub）。总设计见
 [`docs/buddywebmgr-管理门户设计.md`](../buddywebmgr-管理门户设计.md)，WB-078 为总纲、WB-079～084 为分阶段子任务。
+
+WB-178～186 来自 2026-07-16 用户要求对**技能功能的设计从头审查**（前端 / 后端 / Hub 三路梳理 + 逐条源码核实）。
+结论：技能是「橱窗」与「真引擎」两套互不相认的系统贴在一起，根因是**技能没有稳定身份**（展示名 / slug / 磁盘目录名三层无映射），
+后端用一句兜底话术把"找不到"伪装成"有效果"。WB-178 为总纲、WB-179～186 为子任务，范围含 Hub/Manager 侧。
