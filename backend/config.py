@@ -9,9 +9,23 @@ import os
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 BACKEND_DIR = Path(__file__).resolve().parent
+
+# WB-192：本次实际读入的 .env 键名。`.env` 就是后端凭据的来源（load_dotenv 把它们写进
+# os.environ），故通用子进程（run_command）一律不给见 —— 见下方 SECRET_ENV_KEYS。
+_ENV_FILE_KEYS: set[str] = set()
+
+
+def _load_env(path: Path) -> None:
+    """load_dotenv + 记下这个 .env 里有哪些键（用于 WB-192 的密钥剔除）。"""
+    global _ENV_FILE_KEYS
+    load_dotenv(path)
+    try:
+        _ENV_FILE_KEYS |= {k for k in dotenv_values(path) if k}
+    except OSError:
+        pass  # 读不到就退回下面按名字模式识别的兜底名单
 
 # Frozen (PyInstaller sidecar) awareness: a bundled exe's __file__ lives in a
 # temp extraction dir that's wiped on exit, so the DB / workspace must live in a
@@ -38,11 +52,11 @@ if FROZEN:
     # .env next to the exe wins, else the data dir.
     for _env in (EXE_DIR / ".env", DATA_DIR / ".env"):
         if _env.exists():
-            load_dotenv(_env)
+            _load_env(_env)
             break
 else:
     DATA_DIR = BACKEND_DIR
-    load_dotenv(BACKEND_DIR / ".env")
+    _load_env(BACKEND_DIR / ".env")
 
 
 class Settings:
@@ -135,6 +149,43 @@ class Settings:
 
 
 settings = Settings()
+
+
+# ---- 后端密钥名单（WB-192）---------------------------------------------
+#
+# 通用子进程（agent 的 run_command）**不该看见后端自己的密钥**：否则模型一句
+# `echo $LLM_API_KEY` 就能把它读进上下文 → 随下一轮上传给 LLM 厂商 + 进 trace/前端
+# + 进消息持久化与导出，与铁律#4 冲突。WB-011 早已把**连接器**子进程的 env 收成
+# 白名单，run_command 这条一直没收口 —— 本名单就是给它用的。
+#
+# 名单 = ① 本次 .env 实际读入的所有键（.env 就是后端凭据的来源，load_dotenv 把它们
+# 塞进了 os.environ；非密钥项如 LLM_API_BASE 一并剔除也无害，子命令不需要它们）
+# ∪ ② Settings 上按名字模式识别出的密钥字段（兜住「用真实环境变量而非 .env 配」的情况，
+# 也让将来新增密钥不必记得回来改这里）。
+#
+# 为何这里用「剔除」而不是 mcp_client 那种「白名单」：run_command 要跑用户的真实命令
+# （npm/git/python/代理…），白名单会误伤（连接器那条路能用白名单，是因为它只跑已知的
+# MCP server）。本名单只保证「后端不主动把自己的密钥递给通用 shell」——
+# 它**不把 run_command 变成沙箱**（WB-014 的「非真沙箱」结论依然成立）。
+_SECRET_NAME_HINTS = ("_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_PASSWD", "_CREDENTIAL")
+
+
+def _declared_secret_fields() -> set[str]:
+    return {
+        name for name, val in vars(Settings).items()
+        if name.isupper() and isinstance(val, str) and name.upper().endswith(_SECRET_NAME_HINTS)
+    }
+
+
+SECRET_ENV_KEYS: set[str] = {k.upper() for k in _ENV_FILE_KEYS} | _declared_secret_fields()
+
+
+def scrubbed_env() -> dict[str, str]:
+    """给通用子进程用的环境：os.environ 去掉后端密钥（WB-192）。
+
+    保留 PATH/SYSTEMROOT/代理等一切正常变量 —— 只摘密钥，故不影响真实命令。"""
+    return {k: v for k, v in os.environ.items() if k.upper() not in SECRET_ENV_KEYS}
+
 
 # Ensure the sandbox workspace exists.
 settings.WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)

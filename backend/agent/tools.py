@@ -23,6 +23,7 @@ from typing import Any, Callable
 
 from agent import security
 from agent.sandbox import SandboxError, current_root, relpath, resolve_in_sandbox
+from config import scrubbed_env
 from storage import db
 
 MAX_OUTPUT = 6000
@@ -179,6 +180,10 @@ def _run_command_run(args: dict[str, Any]) -> ToolOutcome:
             capture_output=True,
             text=True,
             timeout=CMD_TIMEOUT,
+            # 后端自己的密钥不进通用 shell（WB-192）：否则 `echo $LLM_API_KEY` 一句就能把它
+            # 读进模型上下文 → 上传给 LLM 厂商 + 进 trace/持久化。同 WB-011 对连接器的收口，
+            # 只是这条路用「剔除密钥」而非白名单（要跑用户真实命令，白名单会误伤）。
+            env=scrubbed_env(),
         )
         security.audit(owner, "run_command", command, "executed")
         out = (proc.stdout or "") + (("\n[stderr]\n" + proc.stderr) if proc.stderr else "")
