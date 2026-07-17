@@ -3,7 +3,7 @@ id: WB-184
 title: 技能浏览面板四套数据源 + 两套分类体系并存 —— 收敛为一个面板一套分类
 severity: P2
 area: frontend
-status: open
+status: in-progress
 origin: 既有实现
 files:
   - src/views/ExpertsView.tsx:337
@@ -72,3 +72,75 @@ P2。不阻塞功能，但这是"橱窗"侧复杂度失控的集中体现：四�
   分类 chip 点任意一个都有内容或诚实空态。
 - 反复刷新 10 次（连 Hub 态），SkillHub 段内容稳定，不在镜像/rankings 间跳变。
 - 明暗双主题都看。
+
+## 处理记录（2026-07-17）· 第一刀：清掉「我们自己的目录」里的假数据
+
+### ⚠️ 本条原写的修法第 1 条（合并推荐与 SkillHub）经查**不能照做**
+
+原文说「概念重叠」「推荐段的卡没有安装按钮、没有详情入口、没有已装态」。查证后两点都变了：
+
+1. **「质量倒挂」已被 WB-181 修掉**：推荐段的 ＋ 现在按真实身份分派（内置→挂载进会话、
+   其余→真安装），不再是假按钮。
+2. **两段不是概念重叠，是两个不同的数据源**——这一点 WB-060 在 `db.py` 里立过架构原则：
+   > 功能定义(专家人格/连接器 spec) 在 catalog_experts/catalog_connectors(WB-059)，
+   > 此表只装纯浏览卡——**职责分离**
+
+   即：**「推荐」= 我们自己的目录**（`catalog_showcase.SK_GRID`，Manager 可 CRUD 运营）；
+   **「SkillHub」= 上游 skillhub.cn 商店的镜像**（369 条，见并发会话的 WB-191）。
+   这个划分是**对的**，不该合并。
+3. **爆炸半径**：`SK_GRID` 还被 Manager 的目录管理 CRUD（`CFG_CATS.skills`）、WB-080 的门户
+   项目配置 picker、3 处图标反查消费。把推荐段改读 `catalog_skills` 会同时违反职责分离
+   **并**打断这几条链路。
+
+故**放弃「合并」**，改做本条真正有价值的那部分：**清掉这一段里的假数据**。
+
+### ✅ 删 7 张虚构卡（SK_GRID 16 → 9）
+
+WB-181 摸底时实测过：这 16 张是三种东西混在一起。其中 **7 张上游根本不存在** ——
+逐个搜上游确认（搜任何一个中文名都只回 `self-improving-agent`/`find-skills`/`summarize`
+这几个通用结果），点它们的安装必然「SkillHub 未找到「X」」：
+
+`NeoData金融搜索服务` / `A股全栈数据` / `QQ音乐助手` / `IMAP/SMTP邮件` /
+`fbs-bookwriter` / `QQ邮箱` / `创业可以学`
+
+给不存在的商品挂橱窗卡就是模拟（铁律#1）。剩下 **9 张全是真的**：6 张内置技能
+（定义在 `catalog_skills`，WB-183）+ 3 张名字能精确解析到真 slug
+（`腾讯自选股-金融数据查询`→`westock-data` / `skill-creator` / `腾讯新闻`→`tencent-news`）。
+
+### ✅ 删 SK_RECO（死代码）
+
+全仓库只有「定义 + `catalogStore` 的类型/兜底各一处」引用，**前端从未渲染**
+（原型 `workbuddy-v2.html:1361` 用过，React 版没搬）。
+
+### 三层同步（照并发会话 WB-190 立的方法）
+
+`catalog.ts` → `catalog_showcase.json` → 运行库（**按名对账 DELETE + sort 重排**——
+`_seed_catalog` 是「缺失才插」，删了 JSON 库里旧行不会自己消失）。
+
+### 验证（14 项静态/DB + 9 项 CDP，全过）
+
+- **层间一致性**：从 `catalog.ts` **真抽取**（不手写期望值）与种子 JSON 逐字比对相等；
+  运行库 9 行且顺序与 `catalog.ts` 一致；`SK_RECO` 三层皆无。
+- **复活陷阱**：全新空库连跑两次真 `init_db()` → SK_GRID **seed 出 9 条（不是 16）**、
+  虚构卡命中 0、SK_RECO 0 行、WB-183 的 `catalog_skills` 照常 6 条。
+- **真 API**（硬重启后端）：`GET /api/catalog` → SK_GRID 9 条无虚构卡、响应里无 SK_RECO；
+  `GET /api/skills/builtin` → 6 条读库正常。
+- **CDP 实测明暗双主题**：推荐段各 9 张卡、7 张虚构卡全消失、6 张内置仍「挂载到本会话」/
+  3 张可装仍「安装」；**SkillHub 段未被误伤**（仍 369 张）。
+
+**测试自身踩的坑**：首版用 `shutil.copy(DB_PATH)` 做库副本验重种陷阱，副本里 SK_GRID=**17**
+（WB-190 改动**之前**的状态）——因为库是 **WAL 模式**，改动还在 `-wal` 里没检查点，
+只拷主 `.db` 得到的是过时快照。改用「全新空库全量 seed」验证（seed 源是 JSON，JSON 已改）。
+
+### 待做（本条保持 in-progress）
+
+| 项 | 状态 |
+|---|---|
+| 修法 1 合并推荐/SkillHub | ⛔ **不做**（经查违反 WB-060 的职责分离，理由见上） |
+| 修法 2 一套分类（删 SK_CATS、按 count>0 动态生成） | ⬜ 待做；`SK_GRID` 的 `[icon,name,desc]` 仍无 category 字段 → **WB-195** 仍被阻塞，需 `catalog_skills.category`（列已建）+ 让推荐段拿到它 |
+| 修法 3 兜底链去竞态（`catalogStore.ts:125-129`） | ⬜ 待做 |
+| 修法 4 删 `SKILLHUB_GRID` 37 条静态假 downloads/stars | ⬜ 待做；它是**未接 Hub/离线时**的兜底，删了要给诚实空态（与 WB-071 的 rankings 兜底一起想） |
+| 修法 4 删 `SK_RECO` | ✅ 本次 |
+| 修法 4 删 `SK_CATS` | ⬜ 随修法 2 |
+
+- commit：未提交（待用户确认）。
