@@ -89,6 +89,9 @@ web_fetch = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "web_fetch", "label": f"网页获取 {a.get('url', '')[:80]}"},
     run=_web_fetch_run,
+    # HTTP GET = 读，不改任何状态 → 计划模式可用（WB-186）。plan 的契约是「plan, don't
+    # execute / no write_file、run_command」，查资料正是规划该做的事，滤掉反而让规划变差。
+    plan_safe=True,
 )
 
 
@@ -141,6 +144,7 @@ analyze_csv = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "analyze_csv", "label": f"分析 CSV {a.get('path', '')[:60]}"},
     run=_analyze_csv_run,
+    plan_safe=True,  # 沙箱内只读 CSV（WB-186）
 )
 
 
@@ -237,6 +241,7 @@ html_to_markdown = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "html_to_markdown", "label": f"转 Markdown {a.get('url', '')[:70]}"},
     run=_html_to_md_run,
+    plan_safe=True,  # HTTP GET = 读（WB-186）
 )
 
 

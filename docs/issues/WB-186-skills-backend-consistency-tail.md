@@ -3,7 +3,7 @@ id: WB-186
 title: 技能后端一致性尾集 —— plan 模式不约束技能工具 / rankings 绕过 Manager 违反 WB-130 / 预览缓存无 TTL / schema 不去重
 severity: P3
 area: backend
-status: in-progress
+status: fixed
 origin: 既有实现
 files:
   - backend/agent/runtime.py:418
@@ -148,8 +148,61 @@ base 工具  = {list_dir, read_file, run_command, update_plan, write_file}
     （已装的 `github` 标 True、未装的标 False）；接 Hub 无果 → 回退 `source=local`；
     Hub 路径的 `category` 过滤能命中也能滤空。
 
+## 处理记录（2026-07-17）· 第 1、4 项收尾
+
+deferred 的两项做完了（WB-183 Phase A 的 `_TOOL_REGISTRY` 一落地，加标记的位置就有了）。
+**而且第 1 项挖出了一个比技能侧严重得多的真 live bug** —— 见下。
+
+### ✅ 第 1 项：plan 过滤统一到 `Tool.plan_safe`
+
+- `agent/tools.py` 的 `Tool` 加 `plan_safe: bool = False`（**默认 False = 保守**：新工具不标注
+  就进不了 plan 模式）；新增 `plan_filter(tools, plan)` 供**非 base** 工具集复用。
+- `base_tools(plan)` 改按 `plan_safe` 过滤；`_PLAN_TOOLS` 名单**保留为一致性断言**
+  （建表期 `assert (name in _PLAN_TOOLS) == plan_safe`），防止日后改一处忘另一处。
+- 标注：`list_dir`/`read_file` 只读 → True；`update_plan` → True（它写的是待办清单本身，
+  正是计划模式要产出的东西）；`write_file`/`run_command` → False（既有承诺）。
+  技能侧 `web_fetch`/`html_to_markdown`（HTTP GET）/`analyze_csv`（沙箱内读）→ True。
+
+### 🔴 顺带堵掉的真 live bug：**计划模式能写知识库**
+
+建这个机制时发现 `kb_tools` 和 `skill_tools` **一样绕过 plan 过滤**，而它里面的
+**`knowledge_add` 是写**（把文件灌进知识库 + 触发 WeKnora 解析/切片/向量化）——
+即**计划模式下 agent 真能调它改知识库**，直接违反「plan, don't execute」。
+
+技能侧那个是理论问题（3 个工具恰好全只读，本 issue 前面已实证「今天零实害」）；
+**知识库侧是真的**。修复前后的 schema 对照（端到端抓 `run_chat` 真发给 LLM 的 tools）：
+
+```
+exec 模式: [list_dir, read_file, write_file, run_command, update_plan, knowledge_add, ask_user]
+plan 模式（修复前）: … knowledge_add 也在 ←
+plan 模式（修复后）: [list_dir, read_file, update_plan, ask_user]  ✓
+```
+
+修法就是这个机制本身：`knowledge_retrieve`（检索=读）标 `plan_safe=True`，
+`knowledge_add` 保持默认 `False`，`runtime.py` 对 `skill_tools`/`kb_tools` 都过 `plan_filter`。
+**没另开 issue**：它与本项同根同修（同一处绕过、同一个机制堵），拆开就得先发一个明知留着
+洞的机制。
+
+### ✅ 第 4 项：schema 去重
+
+`schemas` 改从 **`active_tools.values()`**（已按名去重）生成，而非 `tools_list`。
+`run_tool` 本来就只认 `active_tools` 里的那个，所以重名时发两份 schema 纯属误导 LLM。
+
+### 验证（18 项全过）
+
+- `py_compile` 过（含 `tools.py` 的建表期一致性断言）。
+- **未改变既有行为**：`base_tools(True)` 仍是 `[list_dir, read_file, update_plan]`、
+  `base_tools(False)` 仍是全部 5 个。
+- **端到端**（打真 `run_chat`，抓真实发给 LLM 的 tool schemas）：
+  - exec 模式给全套（含 `write_file`/`run_command`/`web_fetch`/`knowledge_add`）；
+  - plan 模式**无** `write_file`/`run_command`（既有承诺没破），**仍给** `web_fetch`
+    （GET=读，规划要查资料 —— 滤掉反而让规划变差）；
+  - **plan 模式不再给 `knowledge_add`**（修复前它在）。
+- **去重**：造一个与 base 工具 `read_file` 重名的技能工具（塞进 `_TOOL_REGISTRY` + 改库里
+  `word-doc` 的 tools）→ 发给 LLM 的 schemas 里 `read_file` 只有 **1 份**。
+
 ### 状态
 
-`in-progress` —— 第 1、4 项 deferred 归 WB-183，其余已修。
+`fixed` —— 5 项全部了结（2/3/5 于先前一轮，1/4 于本轮）。
 
 - commit：未提交（待用户确认）。

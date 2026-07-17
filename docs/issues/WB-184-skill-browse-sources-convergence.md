@@ -138,9 +138,32 @@ WB-181 摸底时实测过：这 16 张是三种东西混在一起。其中 **7 �
 |---|---|
 | 修法 1 合并推荐/SkillHub | ⛔ **不做**（经查违反 WB-060 的职责分离，理由见上） |
 | 修法 2 一套分类（删 SK_CATS、按 count>0 动态生成） | ⬜ 待做；`SK_GRID` 的 `[icon,name,desc]` 仍无 category 字段 → **WB-195** 仍被阻塞，需 `catalog_skills.category`（列已建）+ 让推荐段拿到它 |
-| 修法 3 兜底链去竞态（`catalogStore.ts:125-129`） | ⬜ 待做 |
+| 修法 3 兜底链去竞态 | ⛔ **不做 —— 经查竞态不存在（本条原文写错了）**，见下 |
 | 修法 4 删 `SKILLHUB_GRID` 37 条静态假 downloads/stars | ⬜ 待做；它是**未接 Hub/离线时**的兜底，删了要给诚实空态（与 WB-071 的 rankings 兜底一起想） |
 | 修法 4 删 `SK_RECO` | ✅ 本次 |
 | 修法 4 删 `SK_CATS` | ⬜ 随修法 2 |
+
+### ⛔ 修法 3「兜底链竞态」经查不成立 —— 本条原文写错了
+
+原文断言：「`fallbackToRankings` 用 `skillMirror.length > 0` 判断是否跳过，但 `hubPulled` 是
+模块级 flag，且 `syncFromHub` 仅在 `r.catalog > 0` 时重载 —— 若 Hub 已连但本次 pull 无新目录，
+`skillMirror` 保持空，会被 rankings 覆盖成排行数据，用户看到的内容取决于启动时序。」
+
+逐条核实后**三点都不成立**：
+
+1. **没有并发 → 谈不上竞态**。`catalogStore.ts:125-129` 的链条是 `await` 串行的；
+   `load()` 全仓库只有 2 个调用点（L92 `syncFromHub` 内、L126 IIFE），都在这条链上；
+   `skillMirror` 只有 2 个写入点（L76 `load` 的 `set`、L114 `fallbackToRankings` 的 `setState`），
+   同样都在链上；模块级 IIFE 只有 1 个。**没有并发写者**。
+2. **「Hub 已连但 pull 无新目录 → mirror 空 → 被 rankings 填充」正是 WB-071 设计的分层**
+   （Hub 镜像 → 真实 rankings → 静态兜底），是**期望行为**，不是覆盖事故。
+3. **「取决于启动时序」不对**：链条确定性 await，无时序依赖。
+
+另查了一条疑似路径也不成立：`hubStore.connect`（连接 Hub）确实另跑一次 `api.hubPull()` 且
+**不**重载 catalogStore —— 但它下一行是 `window.location.reload()`（`hubStore.ts:37`），
+整个应用重载、`catalogStore` 的 IIFE 重跑，故镜像照常进。
+
+写这条时我是照着代码形状猜的（看到 check-then-act + 模块级 flag 就下了结论），没推演场景。
+**不改代码**。
 
 - commit：未提交（待用户确认）。

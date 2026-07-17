@@ -137,7 +137,7 @@ P2。不阻塞使用，但它是 WB-179 身份统一的**前置**（slug ↔ 定
 | **B** | **slug 主键全链路**（WB-179 defer 来的）：`ChatBody.skills`/`projects.skills`/`assistants.skills` 改存 slug + 存量迁移 + Manager picker 改传 slug + `install()` 的 `display_name` 覆盖收口（WB-187 未做的那半） | 地基已就位（表有 slug、`skill_spec_for` 已双认） |
 | **C** | **Hub 侧目录 CRUD + 下发**（复用 WB-084/100/102 范式，经 `catalog_downlink`） | 需 Hub 建对应表 |
 | **D** | **清孤儿 + 分类去重**：`_SHOWCASE_SKIP` 的 63 条静态数据、`catalogStore.ts:17-22` 的 `SCENE_NAME` 快照（与 `hub/skillhub_sync.py:22-36` 双份硬编码）、**WB-195** 的推荐段分类过滤（等 `catalog_skills.category`，现已有该列） | 与 **WB-184** 高度重叠，建议合并做 |
-| **E** | **WB-186 defer 来的两项**：`Tool` 加 `readonly` + `runtime.py:418` 的 `skill_tools` 过 plan 过滤；`schemas` 改从已去重的 `active_tools.values()` 生成 | `_TOOL_REGISTRY` 已就位，加标记的位置有了 |
+| ~~**E**~~ | ~~WB-186 defer 来的两项~~ | ✅ **已于 2026-07-17 在 WB-186 内完成**（`_TOOL_REGISTRY` 一落地就做了）：`Tool.plan_safe` + `plan_filter` + schema 去重；顺带堵掉「计划模式能调 `knowledge_add` 写知识库」这个真 live bug |
 
 ### 顺手发现，已另开 issue（不夹带）
 

@@ -53,6 +53,12 @@ class Tool:
     pre: Callable[[dict[str, Any]], dict[str, Any] | None]
     # Executes the tool; returns result text + any POST trace items (e.g. diff).
     run: Callable[[dict[str, Any]], ToolOutcome]
+    # 计划模式下是否可用（WB-186）。plan 的契约是「plan, don't execute」——只读、不写文件、
+    # 不跑命令。**默认 False = 保守**：新工具除非明确标注，plan 模式一律不给。
+    # 从前只有 base 工具受 `_PLAN_TOOLS` 名单约束，技能工具完全绕过 plan 过滤——今天 3 个技能
+    # 工具恰好都只读（web_fetch/html_to_markdown 是 HTTP GET、analyze_csv 是本地读）所以没暴雷，
+    # 但技能定义已可运营（WB-183），一个会写的技能工具就会静默地在 plan 模式下跑起来。
+    plan_safe: bool = False
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -92,6 +98,7 @@ list_dir = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "list_dir", "label": f"查看目录 {a.get('path', '.') or '.'}"},
     run=_list_dir_run,
+    plan_safe=True,  # 只读
 )
 
 
@@ -116,6 +123,7 @@ read_file = Tool(
     },
     pre=lambda a: {"kind": "file_read", "path": a.get("path", ""), "range": "全文"},
     run=_read_file_run,
+    plan_safe=True,  # 只读
 )
 
 
@@ -233,6 +241,7 @@ update_plan = Tool(
     },
     pre=lambda a: None,
     run=_update_plan_run,
+    plan_safe=True,  # 写的是待办清单本身 —— 正是计划模式要产出的东西，不是「执行」
 )
 
 
@@ -401,6 +410,7 @@ knowledge_retrieve = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "knowledge_retrieve", "label": f"检索知识库 {str(a.get('query', ''))[:60]}"},
     run=_knowledge_retrieve_run,
+    plan_safe=True,  # 检索 = 读；规划时查资料正当（WB-186）
 )
 
 
@@ -511,6 +521,8 @@ knowledge_add = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "knowledge_add", "label": f"加入知识库 {str(a.get('path', ''))[:60]}"},
     run=_knowledge_add_run,
+    # plan_safe 保持默认 False（WB-186）：这是**写**——把文件灌进知识库并触发解析/切片/向量化。
+    # 此前 kb_tools 完全绕过 plan 过滤，计划模式下 agent 真能调它改知识库，违反「plan, don't execute」。
 )
 
 
@@ -554,11 +566,23 @@ ASK_USER_SCHEMA: dict[str, Any] = {
 }
 
 # Plan mode = read-only tools + ask_user (no write_file / run_command).
+# 这份名单现在只是 `Tool.plan_safe` 的**一致性断言**（WB-186）：过滤真正依据 plan_safe，
+# 好让技能工具（不在 TOOLS 里）也能表达「我 plan 安全吗」。两处若漂移，下面的断言会炸。
 _PLAN_TOOLS = {"list_dir", "read_file", "update_plan"}
+for _t in TOOLS:  # 建表期自检：名单与 plan_safe 必须一致，防止日后改一处忘另一处
+    assert (_t.name in _PLAN_TOOLS) == _t.plan_safe, (
+        f"tools.py: {_t.name} 的 plan_safe={_t.plan_safe} 与 _PLAN_TOOLS 名单不一致"
+    )
 
 
 def base_tools(plan: bool = False) -> list[Tool]:
-    return [t for t in TOOLS if (t.name in _PLAN_TOOLS)] if plan else list(TOOLS)
+    return [t for t in TOOLS if t.plan_safe] if plan else list(TOOLS)
+
+
+def plan_filter(tools: list[Tool], plan: bool) -> list[Tool]:
+    """计划模式下滤掉非 plan-safe 的工具（WB-186）。供技能/知识库等**非 base** 工具集复用
+    —— 它们从前完全绕过 plan 过滤。默认 plan_safe=False，故新工具不标注就进不了 plan 模式。"""
+    return [t for t in tools if t.plan_safe] if plan else list(tools)
 
 
 def build_schemas(tools: list[Tool]) -> list[dict[str, Any]]:

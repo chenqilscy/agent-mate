@@ -30,6 +30,7 @@ from agent.tools import (
     base_tools,
     knowledge_add,
     knowledge_retrieve,
+    plan_filter,
     run_tool,
     set_knowledge_context,
     set_work_context,
@@ -426,7 +427,16 @@ async def run_chat(
                 kb_tools.append(knowledge_retrieve)
             if settings.WEKNORA_API_KEY:
                 kb_tools.append(knowledge_add)
-        tools_list = [] if ask else base_tools(plan) + skill_tools + wi_tools + kb_tools
+        # WB-186：skill_tools / kb_tools 从前**完全绕过 plan 过滤**（只有 base_tools 和
+        # wi_tools 认 plan）。技能侧当时恰好 3 个工具全只读所以没暴雷；知识库侧却是真漏：
+        # knowledge_add 是写（灌文件进库 + 解析/切片/向量化），计划模式下 agent 真能调它。
+        # 现在统一按 Tool.plan_safe 过滤（默认 False = 保守，新工具不标注就进不了 plan）。
+        tools_list = [] if ask else (
+            base_tools(plan)
+            + plan_filter(skill_tools, plan)
+            + wi_tools  # work_item_tools(plan) 内部已过滤
+            + plan_filter(kb_tools, plan)
+        )
         active_tools = {t.name: t for t in tools_list}
         mcp_tools = []
         mcp_skipped: list[dict[str, str]] = []
@@ -436,7 +446,10 @@ async def run_chat(
             )
         mcp_by_name = {t.qualified: t for t in mcp_tools}
         schemas = (
-            [t.schema() for t in tools_list]
+            # 从 active_tools（已按名去重）生成，而非 tools_list —— 后者若有重名会向 LLM
+            # 发两份同名 schema（WB-186）。今天技能工具与 base 工具无重名，但技能定义已可
+            # 运营（WB-183），重名风险上升；且 run_tool 本来就只认 active_tools 里的那个。
+            [t.schema() for t in active_tools.values()]
             + [mcp_schema(t) for t in mcp_tools]
             + ([] if ask else [ASK_USER_SCHEMA])
         )
