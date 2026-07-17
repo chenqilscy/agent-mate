@@ -191,7 +191,7 @@
 | [WB-176](WB-176-trim-experts-showcase-data.md) | ✅ | P3 | fullstack | 精简专家/专家团橱窗数据 —— 三层数据源(前端静态兜底/后端种子/运行库)同步裁剪至 专家7·团3·场景3·分类6，避开「删空即重种」与「兜底顶上来」两个复活陷阱 |
 | [WB-177](WB-177-connectors-showcase-weknora.md) | ✅ | P3 | fullstack | 连接器橱窗改版 —— 三层同步去掉 ima知识库/乐享知识库/腾讯文档/TAPD/企查查(12→8)，新增 WeKnora知识库 卡 + CONN_META 详情(工具清单逐字镜像后端真 knowledge_retrieve/knowledge_add) |
 | [WB-178](WB-178-skills-subsystem-epic.md) | ⬜ | P1 | fullstack | 技能子系统重构（总纲/epic）—— 以 slug 为主键焊死「橱窗/loadout/磁盘」三层；根因=技能无稳定身份，橱窗与真引擎靠展示名撞运气连通；子任务 WB-179~186 |
-| [WB-179](WB-179-skill-identity-and-fallback-prompt.md) | ⬜ | P1 | fullstack | 技能身份断裂 —— loadout 存展示名 + `skill_def` 兜底话术「运用「X」技能的专长…」伪装能力（SK_GRID 17 个里 11 个后端零能力，铁律#1） |
+| [WB-179](WB-179-skill-identity-and-fallback-prompt.md) | 🟡 | P1 | fullstack | 技能身份断裂 —— 兜底话术「运用「X」技能的专长…」伪装能力已删(解析不到→不注入+照连接器 mcp_skipped 范式如实报「技能未就绪」) + Web Access 过度承诺描述改真；slug 迁移 ⏸ 归 WB-183（实测上游 336 条里展示名撞车仅 4 组≈1.2%，且已从静默伪装变响亮失败） |
 | [WB-180](WB-180-skill-picker-ignores-installed.md) | ✅ | P1 | frontend | ＋菜单技能选择器只读静态 SK_GRID —— 真实已安装的技能在会话里选不到（装机与使用两条路断开）；改为「内置(新增 /skills/builtin，SK_GRID 里藏着 6 个真内置技能差点被砍) + 已装未停用」，静态假卡不再出现；CDP 自驱实测 23 项(12 张真卡/明暗双主题对比度/窄宽/loadout chip 真出) |
 | [WB-181](WB-181-skills-page-fake-interactions.md) | ⬜ | P1 | frontend | 技能页假交互清理 —— 推荐段＋号/安装套件/排序/＋添加技能 全是 toast 桩 + SKILLHUB_GRID 写死假 downloads/stars（铁律#1） |
 | [WB-182](WB-182-skill-kits-fabricated.md) | ⬜ | P2 | fullstack | 「套件」100% 虚构 —— 前端 4 条静态卡（技能数手写）、后端零代码、Hub 无源、DB 无表、安装按钮是 toast；真做(Hub kit 表+批量安装)或删 |

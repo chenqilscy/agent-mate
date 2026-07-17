@@ -60,7 +60,21 @@ P2。不阻塞使用，但它是 WB-179 身份统一的**前置**（slug ↔ 定
 5. **分类映射去重**：`catalogStore.ts:17-22` 的快照删掉，改从 Hub 下发的 `skill-category` 取；
    `hub/skillhub_sync.py:22-36` 保留为 Hub 侧唯一来源（并加注释说明它是快照、需人工维护）。
 
-6. **一并做 WB-186 deferred 过来的两项**（它们等的就是本条的重构）：
+6. **一并做 WB-179 deferred 过来的 slug 迁移**（它等的也是本条 —— 有了 slug 主键的
+   `catalog_skills`，浏览卡自带 slug，loadout 存 slug 才自然）：
+   - `ChatBody.skills` / `projects.skills` / `assistants.skills` 改存 slug，展示名只用于渲染；
+   - 存量迁移（展示名 → slug，非破坏 ALTER + 一次性迁移，参考 WB-104 范式）；对应不到任何
+     真实技能的纯商品卡名**直接丢弃并记日志**；
+   - Manager 项目配置 picker（WB-080）随之改传 slug；
+   - `install()` 的 `display_name` 覆盖 `_skillhub_meta.json` 的 `name`（WB-187 未做的那半）
+     届时一并收口：身份走 slug，展示名只是展示名。
+   - **实测撞车证据**（WB-179 打上游 336 条目录量的，不是理论担忧）：展示名重复 **4 组**
+     （`Agent Browser`×3 / `Tavily Search`×2 / `Intiface Direct Control`×2 / `ppt`×2），
+     另有 1 例展示名撞上他人 slug（名为 `ppt` 者其 slug 是 `666-v2`，撞真 slug `ppt`）。
+     撞车率 ≈1.2%，需同时装两个同名技能才触发 —— 届时 `_index()` 里后遍历到的胜出，
+     注入哪个取决于文件系统顺序。
+
+7. **一并做 WB-186 deferred 过来的两项**（它们等的就是本条的重构）：
    - 给 `Tool` 加 `readonly` 标记（默认 `False` = 保守），`runtime.py:418` 的 `skill_tools`
      也过 plan 过滤 —— 现状是 `skill_tools` 完全绕过 `base_tools(plan)`，**没有机制表达某个
      技能工具是否 plan-safe**。今天 3 个技能工具恰好全只读（`web_fetch`/`html_to_markdown`

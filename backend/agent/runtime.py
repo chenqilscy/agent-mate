@@ -308,13 +308,22 @@ async def run_chat(
         system_prompt += "\n\n# 专家人格（请综合以下专长作答）\n" + "\n".join(
             f"- {custom_personas.get(n) or persona_for(n)}" for n in active_experts
         )
+    # 技能解析（WB-179）：只注入**真解析得到**的（内置带工具包 / 已装磁盘 skill 的真实
+    # SKILL.md）。解析不到的不注入、不伪造指令，收进 skills_skipped 如实告知用户
+    # —— 同连接器 mcp_skipped 的范式，别做静默 no-op，更别假装技能生效了。
+    skills_skipped: list[str] = []
     if active_skills:
         lines = []
         for name in active_skills:
-            instr, tools = skill_def(name)
+            d = skill_def(name)
+            if d is None:
+                skills_skipped.append(name)
+                continue
+            instr, tools = d
             lines.append(f"- {name}：{instr}")
             skill_tools.extend(tools)
-        system_prompt += "\n\n# 已启用技能\n" + "\n".join(lines)
+        if lines:
+            system_prompt += "\n\n# 已启用技能\n" + "\n".join(lines)
 
     if active_knowledge and not ask:
         system_prompt += (
@@ -436,18 +445,23 @@ async def run_chat(
         # run are visible — including connectors that were selected but couldn't
         # load (e.g. GitHub without a token), so it isn't a silent no-op.
         connector_names = sorted({t.connector for t in mcp_tools})
+        loaded_skills = [n for n in active_skills if n not in skills_skipped]
         if active_experts or active_skills or connector_names or mcp_skipped or (active_knowledge and not ask):
             parts = []
             if active_experts:
                 parts.append("专家 " + "、".join(active_experts))
-            if active_skills:
-                parts.append("技能 " + "、".join(active_skills))
+            if loaded_skills:
+                parts.append("技能 " + "、".join(loaded_skills))
             if connector_names:
                 parts.append("连接器 " + "、".join(connector_names))
             if active_knowledge and not ask:
                 parts.append(f"知识库 {len(active_knowledge)} 个")
             if mcp_skipped:
                 parts.append("连接器未就绪 " + "、".join(f"{s['name']}（{s['reason']}）" for s in mcp_skipped))
+            # 解析不到的技能如实报出（WB-179）——此前它们会被喂一句兜底话术，UI 照常显示
+            # 「已加载」，用户无从分辨技能到底有没有生效。
+            if skills_skipped:
+                parts.append("技能未就绪 " + "、".join(f"{n}（未安装或已停用）" for n in skills_skipped))
             yield record({"kind": "step", "tool": "loadout", "label": "已加载 · " + " · ".join(parts)})
 
         # Resolve the picker selection to a concrete provider once (owner-scoped so a

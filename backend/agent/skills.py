@@ -265,13 +265,23 @@ def builtin_list() -> list[dict[str, Any]]:
     ]
 
 
-def skill_def(name: str) -> tuple[str, list[Tool]]:
-    # 内置技能（带工具包）优先；否则若它对应一个已安装（未停用）的磁盘 skill（WB-055），
-    # 注入其真实 SKILL.md 正文 —— 让从 SkillHub 装的技能真生效，而不是通用兜底话术。
+def skill_def(name: str) -> tuple[str, list[Tool]] | None:
+    """把 loadout 里的技能名解析成 (指令, 工具包)；**解析不到返回 None**。
+
+    两层，都是真的：
+    1. 内置技能（`SKILLS`，带真工具包）；
+    2. 对应一个已安装且未停用的磁盘 skill（WB-055）→ 注入其真实 SKILL.md 正文。
+
+    曾经还有第三层兜底 `f"运用「{name}」技能的专长完成相关任务。"` —— 那是**伪装**：
+    它让每张后端零能力的商品卡都"看起来有效果"，UI 显示技能已挂载，实则 agent 只收到
+    一句空话（`SK_GRID` 17 张卡里 11 张如此）。已删除（WB-179，铁律#1）。
+    解析不到就返回 None，由调用方**如实告知用户「未就绪」**——照连接器 `mcp_skipped`
+    的既有范式（选了但加载不了就明说，不做静默 no-op），宁可少一个技能也不假装有。
+    """
     if name in SKILLS:
         return SKILLS[name]
     from agent import skills_store  # 延迟导入，避免与 config/加载顺序耦合
     body = skills_store.instructions_for(name)
     if body:
         return (body, [])
-    return (f"运用「{name}」技能的专长完成相关任务。", [])
+    return None
