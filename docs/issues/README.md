@@ -205,6 +205,7 @@
 | [WB-190](WB-190-skills-tencent-docs-cleanup.md) | ✅ | P3 | frontend | 技能侧「腾讯文档」清理 —— SK_GRID(17→16,DB 供给三层同步)/SK_RECO(死代码)/SKILLHUB_GRID(不入库,仅静态层) 与连接器侧下架不一致；后端本无该技能定义(零能力卡)；配 WB-177/189；⚠️只清掉「我们自己的目录」那半 —— SkillHub 段是上游商店镜像、不受影响，另见 WB-191 |
 | [WB-191](WB-191-skillhub-mirror-no-delisting.md) | ⬜ | P3 | fullstack | SkillHub 段是上游 skillhub.cn 商店的镜像(369 条)，本地目录下架对它无效 —— 想下架某条需 Manager 侧跨同步存活的过滤(replace_all_downlink 每次清空重建，删镜像行必被覆盖)；WB-190 实测发现 |
 | [WB-192](WB-192-run-command-inherits-secrets.md) | ✅ | P1 | backend | run_command 子进程继承后端全部密钥 —— 模型一句  即可读走并上传给 LLM 厂商；WB-011 只把连接器那条路收成无密钥白名单，run_command 从未收口(WB-014 以「如实标注」结案)；实证子进程读到 LLM_API_KEY(35 字符) |
+| [WB-193](WB-193-knowledge-add-url-and-mcp-verdict.md) | ⬜ | P3 | backend | knowledge_add 只能加工作区文件，不能从 URL/文本入库 —— 承接 WB-175 的「留后续」(url 受 WeKnora 侧 SSRF 白名单限制、manual 建出 draft/disabled)；并记录**否决接官方 WeKnora MCP server** 的评估：其 create_knowledge_from_url 打同一个 REST 端点受同样限制(拿不到额外好处)、反而没有本地文件上传、且 _secret_env 只读 os.environ 与 WB-188 的 per-owner DB key 冲突 |
 
 ## 来源
 
