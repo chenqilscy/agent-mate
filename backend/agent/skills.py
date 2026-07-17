@@ -240,36 +240,47 @@ html_to_markdown = Tool(
 )
 
 
-# name → (instructions, tools)
-SKILLS: dict[str, tuple[str, list[Tool]]] = {
-    "Web Access（浏览器自动化）": ("需要联网信息时，用 web_fetch 抓取网页内容再作答；引用来源 URL。", [web_fetch]),
-    "MarkItDown": ("把网页 / 文档整理成干净、结构化的 Markdown：用 html_to_markdown 抓取并转换网页，再按需精修标题层级、列表与表格。", [html_to_markdown]),
-    "技能创建指南": ("当用户想创建自定义技能时，说明技能 = 提示词 + 工具包 的结构，并给出可落地的模板。", []),
-    "Word 文档生成": ("以规范的长文档结构组织输出：清晰的标题层级、要点、必要的表格与结论。", []),
-    "Excel 文件处理": ("处理表格数据时：对工作区里的 CSV 用 analyze_csv 获取行列/数值列统计，再基于真实数据作答；输出用清晰的表格结构。", [analyze_csv]),
-    "股票综合分析器": ("做股票分析时分三维展开：基本面、消息面、资金面，结论先行并提示风险。", []),
+# 工具名 → 真 Tool 对象（WB-183）。技能**定义**（提示词 + 该用哪些工具）已迁进 DB 的
+# catalog_skills（种子见 storage/catalog_seed.py::BUILTIN_SKILLS），改一条内置技能的提示词
+# 只要改数据、不必改代码重启 —— 补齐 WB-059 漏掉的第三块（专家人格/连接器 spec 早已入库）。
+# 代码里只保留这张注册表：Tool 是 Python 对象、进不了 DB，库里存工具**名**，这里按名解析。
+# 同连接器「launch spec 存库、实现在代码」的分工。
+_TOOL_REGISTRY: dict[str, Tool] = {
+    "web_fetch": web_fetch,
+    "html_to_markdown": html_to_markdown,
+    "analyze_csv": analyze_csv,
 }
 
 
-def builtin_list() -> list[dict[str, Any]]:
-    """内置技能清单（名字 / 描述 / 工具名）——供前端 loadout 选择器（WB-180）。
+def _resolve_tools(names: list[str]) -> list[Tool]:
+    """工具名 → Tool；库里写了但代码里没有的名字**跳过**（目录可运营，注册表是代码事实）。"""
+    return [_TOOL_REGISTRY[n] for n in names if n in _TOOL_REGISTRY]
 
-    它们**不在磁盘上**（不是从 SkillHub 装的），只存在于上面的 SKILLS dict，因此
-    `GET /api/skills` 的磁盘扫描列不出它们。前端此前只能靠静态 SK_GRID 里的名字恰好
-    撞上 SKILLS 的 key 才选得到 —— 这里给它一个真实来源。
-    `tools` 为空 = 纯提示词技能（按本项目定义「技能 = 提示词 + 工具包」，这也是真技能）。
+
+def builtin_list() -> list[dict[str, Any]]:
+    """内置技能清单（供前端 loadout 选择器，WB-180）——**读库**（catalog_skills，WB-183）。
+
+    它们**不在磁盘上**（不是从 SkillHub 装的），故 `GET /api/skills` 的磁盘扫描列不出它们；
+    前端此前只能靠静态 SK_GRID 里的名字恰好撞上硬编码 SKILLS 的 key 才选得到。
+    `tools` 只报**代码里真有实现**的（库里写了但注册表没有的不算数，别让目录承诺不存在的能力）。
     """
+    from storage import db  # 延迟导入，避免 storage.db ↔ agent.* 循环依赖
     return [
-        {"name": n, "description": instr, "tools": [t.name for t in tools]}
-        for n, (instr, tools) in SKILLS.items()
+        {
+            "slug": s["slug"],
+            "name": s["name"],
+            "description": s["description"] or s["instructions"],
+            "tools": [t.name for t in _resolve_tools(s["tools"])],
+        }
+        for s in db.skill_specs()
     ]
 
 
 def skill_def(name: str) -> tuple[str, list[Tool]] | None:
-    """把 loadout 里的技能名解析成 (指令, 工具包)；**解析不到返回 None**。
+    """把 loadout 里的技能名（或 slug）解析成 (指令, 工具包)；**解析不到返回 None**。
 
     两层，都是真的：
-    1. 内置技能（`SKILLS`，带真工具包）；
+    1. 目录技能（DB 的 `catalog_skills`，WB-183）——指令读库，工具名经 `_TOOL_REGISTRY` 解析；
     2. 对应一个已安装且未停用的磁盘 skill（WB-055）→ 注入其真实 SKILL.md 正文。
 
     曾经还有第三层兜底 `f"运用「{name}」技能的专长完成相关任务。"` —— 那是**伪装**：
@@ -278,8 +289,10 @@ def skill_def(name: str) -> tuple[str, list[Tool]] | None:
     解析不到就返回 None，由调用方**如实告知用户「未就绪」**——照连接器 `mcp_skipped`
     的既有范式（选了但加载不了就明说，不做静默 no-op），宁可少一个技能也不假装有。
     """
-    if name in SKILLS:
-        return SKILLS[name]
+    from storage import db  # 延迟导入，避免 storage.db ↔ agent.* 循环依赖
+    spec = db.skill_spec_for(name)  # 按 slug 或 name 命中（迁移期两者并存，WB-179）
+    if spec and spec["instructions"]:
+        return (spec["instructions"], _resolve_tools(spec["tools"]))
     from agent import skills_store  # 延迟导入，避免与 config/加载顺序耦合
     body = skills_store.instructions_for(name)
     if body:

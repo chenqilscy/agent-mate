@@ -195,7 +195,7 @@
 | [WB-180](WB-180-skill-picker-ignores-installed.md) | ✅ | P1 | frontend | ＋菜单技能选择器只读静态 SK_GRID —— 真实已安装的技能在会话里选不到（装机与使用两条路断开）；改为「内置(新增 /skills/builtin，SK_GRID 里藏着 6 个真内置技能差点被砍) + 已装未停用」，静态假卡不再出现；CDP 自驱实测 23 项(12 张真卡/明暗双主题对比度/窄宽/loadout chip 真出) |
 | [WB-181](WB-181-skills-page-fake-interactions.md) | ✅ | P1 | frontend | 技能页假交互**清零** —— 推荐段＋号(纯 useState+toast)改按真实身份分派(实测 16 张=内置6/可装3/上游不存在7；内置→挂载+跳 composer 走既有 summon 范式，其余→真安装，装不到诚实报错) + 说谎的「综合评分」排序控件移除 + 「＋添加技能」真聚焦搜索 + 「安装套件」随 WB-182 删除 |
 | [WB-182](WB-182-skill-kits-fabricated.md) | ✅ | P2 | fullstack | 「套件」100% 虚构（前端 4 条静态卡·技能数手写、后端零代码、Hub 无源、DB 无表、安装按钮只 toast）—— **取「删」**，五层同步移除(catalog.ts/ExpertsView/catalog_showcase.json/db.py 的 SHOWCASE_SKIP/**Manager console.html**——WB-102 镜像时连套件一起搬过去了，差点留孤儿 tab)；真做方案留在原处注释，等 WB-183 目录入库后建 kit 表 |
-| [WB-183](WB-183-catalog-skills-to-db.md) | ⬜ | P2 | fullstack | 技能目录/定义未入库 —— WB-059 漏项：专家人格/连接器进了 DB，技能仍硬编码在 skills.py；设计过的 catalog_skills 表从未建 + 63 条孤儿静态数据 + 分类映射双份硬编码 |
+| [WB-183](WB-183-catalog-skills-to-db.md) | 🟡 | P2 | fullstack | 技能目录/定义未入库（WB-059 漏项）—— **Phase A 已落地**：建 catalog_skills 表 + 6 条内置定义入库 + 代码只留 _TOOL_REGISTRY（同连接器「spec 存库·实现在代码」分工）+ skill_def/builtin_list 改读库；实测改库即生效(不改代码不重启)、按 slug 也能解析、库里写未知工具名会跳过不假装。Phase B~E 待做：slug 全链路迁移(WB-179 defer)/Hub CRUD 下发/清 63 条孤儿+分类去重(与 WB-184 重叠)/plan 过滤+schema 去重(WB-186 defer) |
 | [WB-184](WB-184-skill-browse-sources-convergence.md) | ⬜ | P2 | frontend | 技能浏览四套数据源 + 两套分类体系并存（精选/推荐/SkillHub/套件；SK_CATS vs SKILLHUB_CATS）+ 兜底链竞态 + SK_RECO 死代码 —— 收敛为一个面板一套分类 |
 | [WB-185](WB-185-skills-api-attack-surface.md) | ✅ | P2 | backend | /api/skills 攻击面 —— App 侧 install/preview 的 slug 未校验（WB-160 第6项只修了 hub 孪生站点，App 侧漏网）已修+两侧口径统一+顺带硬化前导`-`（实测 CLI argparse 真被 `--dir` 噎住）；零鉴权项 ⏸ deferred（current_user 从不拒绝，需共享后端鉴权策略横切决策） |
 | [WB-186](WB-186-skills-backend-consistency-tail.md) | 🟡 | P3 | backend | 技能后端一致性尾集 —— rankings 补齐 Manager 代理(顺带：Hub 走 HTTP 无需 CLI，没装 CLI 的本机终于能拿真实榜单而非静态假数据) + 预览缓存 TTL 对齐 Hub + 合冗余分支，均已修；plan 过滤/schema 去重两项经实测为今日无实害的结构性预防(web_fetch 是 GET 不违反 plan 契约)，⏸ 归 WB-183 一并做 |
@@ -209,6 +209,8 @@
 
 | [WB-194](WB-194-connector-card-add-lost-on-navigate.md) | ⬜ | P2 | frontend | 连接器卡「添加到本会话」是真状态但假用处 —— loadout 是会话级，openSession/newTask 的 reset(WB-003 正确行为)会清掉它，用户一导航去用就没了；应改走既有 summon 范式（同专家「召唤」/技能「去试试」） |
 | [WB-195](WB-195-reco-category-chips-cannot-filter.md) | ⬜ | P3 | frontend | 「推荐」段分类 chip 点了不过滤（只高亮）—— 根因是 SK_GRID 的 [icon,name,desc] 没有分类字段，当前数据下无从实现；依赖 WB-183 的 catalog_skills.category（同页 SkillHub 段的分类 chip 是真的，一真一假外观相同） |
+
+| [WB-196](WB-196-expert-persona-fallback-fake.md) | ⬜ | P2 | backend | 专家人格也有兜底话术伪装 —— persona_for 对未知专家编「以「X」的专业身份与专长作答」，与 WB-179 刚从技能侧删掉的是同一类伪装（未知专家与真专家在 system_prompt 里长得一样、loadout 照报已加载）；修法可逐字复刻 WB-179（专家功能用户已让靠后，登记不立即处理） |
 
 ## 来源
 

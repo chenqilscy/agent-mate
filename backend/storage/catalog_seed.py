@@ -55,3 +55,40 @@ BUILTIN_CONNECTORS: list[dict[str, Any]] = [
          "requires": ["GITHUB_TOKEN"],
      }},
 ]
+
+# ── 内置技能定义（迁自 agent/skills.py 的 SKILLS 字典，WB-183）───────────────
+# 补齐 WB-059 漏掉的第三块：专家人格进了 catalog_experts、连接器 spec 进了 catalog_connectors，
+# 技能定义却一直硬编码在 .py 里 —— 改一个内置技能的提示词要改代码重启，改专家却只要改数据。
+#
+# instructions = 真定义（注入系统提示，对应专家的 persona / 连接器的 launch）。
+# tools = **工具名**数组；Tool 是 Python 对象没法进 DB，故存名字，运行时由
+#   `agent/skills.py::_TOOL_REGISTRY` 按名解析 —— 同连接器「launch spec 存库、实现在代码」的分工。
+#   空数组 = 纯提示词技能（按本项目定义「技能 = 提示词 + 工具包」，它同样是真技能）。
+# slug 是主键语义（WB-179 的身份统一等它落地）；name 目前仍是 loadout 的实际取值，
+#   故 skill_def 按 slug 或 name 都能命中，迁移期两者并存。
+BUILTIN_SKILLS: list[dict[str, Any]] = [
+    {"slug": "web-access", "name": "Web Access（浏览器自动化）", "icon": "🌐", "category": "开发编程",
+     "description": "联网取材：按 URL 抓取网页正文再作答，并注明来源链接。",
+     "instructions": "需要联网信息时，用 web_fetch 抓取网页内容再作答；引用来源 URL。",
+     "tools": ["web_fetch"]},
+    {"slug": "markitdown", "name": "MarkItDown", "icon": "📝", "category": "内容创作",
+     "description": "把网页 / 文档整理成干净、结构化的 Markdown。",
+     "instructions": "把网页 / 文档整理成干净、结构化的 Markdown：用 html_to_markdown 抓取并转换网页，再按需精修标题层级、列表与表格。",
+     "tools": ["html_to_markdown"]},
+    {"slug": "skill-creator-guide", "name": "技能创建指南", "icon": "🧩", "category": "开发编程",
+     "description": "说明技能 = 提示词 + 工具包 的结构，并给出可落地的模板。",
+     "instructions": "当用户想创建自定义技能时，说明技能 = 提示词 + 工具包 的结构，并给出可落地的模板。",
+     "tools": []},
+    {"slug": "word-doc", "name": "Word 文档生成", "icon": "📄", "category": "办公效率",
+     "description": "以规范的长文档结构组织输出：标题层级、要点、表格与结论。",
+     "instructions": "以规范的长文档结构组织输出：清晰的标题层级、要点、必要的表格与结论。",
+     "tools": []},
+    {"slug": "excel-csv", "name": "Excel 文件处理", "icon": "📊", "category": "数据分析",
+     "description": "对工作区里的 CSV 做行列/数值列统计，基于真实数据作答。",
+     "instructions": "处理表格数据时：对工作区里的 CSV 用 analyze_csv 获取行列/数值列统计，再基于真实数据作答；输出用清晰的表格结构。",
+     "tools": ["analyze_csv"]},
+    {"slug": "stock-analyzer", "name": "股票综合分析器", "icon": "📈", "category": "商业运营",
+     "description": "分基本面 / 消息面 / 资金面三维展开，结论先行并提示风险。",
+     "instructions": "做股票分析时分三维展开：基本面、消息面、资金面，结论先行并提示风险。",
+     "tools": []},
+]

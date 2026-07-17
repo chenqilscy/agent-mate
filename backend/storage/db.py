@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from config import settings
-from storage.catalog_seed import BUILTIN_CONNECTORS, BUILTIN_EXPERTS
+from storage.catalog_seed import BUILTIN_CONNECTORS, BUILTIN_EXPERTS, BUILTIN_SKILLS
 
 # 橱窗目录种子源（WB-060）：由 catalog.ts 导出的静态商品卡，逐字迁进本文件同级 JSON，
 # 首次启动 seed 进 catalog_showcase 表。放这里而非硬编码在 .py，正是「数据不写死在代码」。
@@ -289,6 +289,32 @@ def init_db() -> None:
             updated_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_catalog_connectors_name ON catalog_connectors(name);
+
+        -- 目录：技能定义（WB-183）。补齐 WB-059 漏掉的第三块 —— 技能定义此前一直硬编码在
+        -- agent/skills.py 的 SKILLS 字典里（改提示词要改代码重启，改专家却只要改数据）。
+        -- instructions = 真定义（注入系统提示，对应专家的 persona / 连接器的 launch）；
+        -- tools = 工具名 JSON 数组，运行时由 agent/skills.py::_TOOL_REGISTRY 按名解析成真 Tool
+        --   （Tool 是 Python 对象进不了 DB，同连接器「spec 存库、实现在代码」的分工）。
+        -- slug 是主键语义（WB-179 的身份统一等它）；迁移期 name 仍是 loadout 实际取值，两者并存。
+        CREATE TABLE IF NOT EXISTS catalog_skills (
+            id TEXT PRIMARY KEY,
+            scope TEXT NOT NULL DEFAULT 'builtin',
+            owner_id TEXT,
+            slug TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL,
+            icon TEXT NOT NULL DEFAULT '🧩',
+            description TEXT NOT NULL DEFAULT '',
+            instructions TEXT NOT NULL DEFAULT '',
+            tools TEXT NOT NULL DEFAULT '[]',
+            category TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            sort INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_catalog_skills_slug ON catalog_skills(slug);
+        CREATE INDEX IF NOT EXISTS idx_catalog_skills_name ON catalog_skills(name);
 
         -- 橱窗目录（WB-060）：catalog.ts 的静态商品卡迁到此表，前端改从 /api/catalog 取（静态兜底仍在）。
         -- 通用承载：数组类导出每元素一行（可按行上/下架 enabled、改 sort）；对象类导出（QUICK/CONN_META）
@@ -671,6 +697,23 @@ def _seed_catalog() -> None:
             (new_uuid(), "builtin", None, name, c.get("icon", ""), c.get("description", ""),
              c.get("status", "rdy"), json.dumps(c.get("launch", {}), ensure_ascii=False),
              1, i, now, now),
+        )
+    for i, s in enumerate(BUILTIN_SKILLS):  # WB-183
+        slug = s["slug"]
+        exists = conn.execute(
+            "SELECT 1 FROM catalog_skills WHERE scope='builtin' AND slug=?", (slug,)
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO catalog_skills
+               (id,scope,owner_id,slug,name,icon,description,instructions,tools,category,source,
+                enabled,sort,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (new_uuid(), "builtin", None, slug, s["name"], s.get("icon", "🧩"),
+             s.get("description", ""), s.get("instructions", ""),
+             json.dumps(s.get("tools", []), ensure_ascii=False), s.get("category", ""),
+             "内置", 1, i, now, now),
         )
     conn.commit()
 
@@ -1389,6 +1432,47 @@ def connector_specs() -> dict[str, dict[str, Any]]:
             spec = {}
         out[r["name"]] = spec if isinstance(spec, dict) else {}
     return out
+
+
+def skill_specs() -> list[dict[str, Any]]:
+    """内置/目录技能定义清单（enabled 行，按 sort），替代 agent/skills.py 原硬编码的 SKILLS 字典（WB-183）。
+
+    每条：{slug, name, icon, description, instructions, tools:[工具名], category}。
+    `tools` 是**名字**——运行时由 `agent/skills.py::_TOOL_REGISTRY` 解析成真 Tool 对象
+    （同连接器「launch spec 存库、实现在代码」的分工）。
+    """
+    rows = get_conn().execute(
+        "SELECT slug,name,icon,description,instructions,tools,category "
+        "FROM catalog_skills WHERE enabled=1 ORDER BY sort, name"
+    ).fetchall()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        try:
+            tools = json.loads(r["tools"]) if r["tools"] else []
+        except (json.JSONDecodeError, TypeError):
+            tools = []
+        out.append({
+            "slug": r["slug"], "name": r["name"], "icon": r["icon"],
+            "description": r["description"], "instructions": r["instructions"],
+            "tools": tools if isinstance(tools, list) else [],
+            "category": r["category"],
+        })
+    return out
+
+
+def skill_spec_for(key: str) -> Optional[dict[str, Any]]:
+    """按 **slug 或 name** 取一条技能定义；无则 None（调用方据此如实报「未就绪」，WB-179）。
+
+    迁移期两者都认：slug 是目标主键（WB-179 的身份统一），但 loadout 现在存的仍是展示名。
+    同 key 命中多行时以 sort 靠前者为准（builtin 种子 sort 小、稳定生效），同 connector_specs。
+    """
+    k = (key or "").strip()
+    if not k:
+        return None
+    for s in skill_specs():
+        if s["slug"] == k or s["name"] == k:
+            return s
+    return None
 
 
 def list_catalog_connectors(scope: Optional[str] = None) -> list[CatalogConnector]:
