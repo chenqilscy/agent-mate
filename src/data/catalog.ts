@@ -371,13 +371,12 @@ export const SKILLHUB_GRID: [string, string, string, string, string, number, str
   ['☁️', '#2E7DF6', '腾讯微云', '管理腾讯微云网盘文件（列表、上传、下载、删除、分享），生成分享链接。', '8k', 22, '生活服务'],
 ]
 
-// SkillHub 套件（技能包）：[emoji, color, name, desc, 技能数]
-export const SKILLHUB_KITS: [string, string, string, string, number][] = [
-  ['🏢', '#1E6FFF', '腾讯云运维套件', 'Lighthouse / CVM / COS / EdgeOne / TIONE 等腾讯云运维与诊断技能一键装齐。', 8],
-  ['✍️', '#F59E0B', '内容创作套件', 'PPT 生成、文章去 AI 味、抖音文案提取、海报设计、小说写作一站式。', 6],
-  ['📊', '#17181C', '金融投研套件', '腾讯自选股、股票价值投资、金融数据查询，覆盖行情到估值。', 5],
-  ['🛡️', '#EF4444', '安全防护套件', 'SkillScan、Skill Vetter、敏感信息脱敏、渗透测试，安装前后全程护航。', 4],
-]
+// SKILLHUB_KITS（技能套件）已删除（WB-182）：它是整次技能审查里唯一 100% 虚构的功能 ——
+// 后端 grep kit|bundle|套件 零命中、DB 无表、Hub 无源、_SHOWCASE_SKIP 让它永不入库，
+// 「N 个技能」的 N 是手写常量（8/6/5/4），且没有任何技能列表与之关联，「安装套件」按钮只 toast。
+// 要真做的话，正确姿势是等 WB-183 的 catalog_skills（slug 主键）落地后在 Hub 建 kit 表，
+// data 存 {name, icon, color, desc, slugs[]}，「N 个技能」由 slugs.length 真算，
+// 安装 = 对 slugs[] 逐个走已有的 POST /api/skills/install（无需新后端端点）。
 
 // 知识库模板（GLM RAG · WB-144/145）：策展的「一键建库」模板。Manager 目录管理下发覆盖本地，
 // 离线/未接 Manager 时用下面这几个真实可用的内置模板兜底（非假数据——用户可直接按模板建库）。

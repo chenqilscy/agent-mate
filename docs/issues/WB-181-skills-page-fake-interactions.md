@@ -3,7 +3,7 @@ id: WB-181
 title: 技能页假交互清理 —— 推荐段＋号/安装套件/排序/＋添加技能 全是 toast 桩（铁律#1）
 severity: P1
 area: frontend
-status: in-progress
+status: fixed
 origin: 既有实现
 files:
   - src/views/ExpertsView.tsx:45
@@ -111,9 +111,10 @@ loadout 是**会话级**的，`chatStore.ts:70` 的 `openSession` 和 `Sidebar.t
 `onClick={() => toast('添加技能')}` → 回到浏览态 + `searchRef.current?.focus()`。
 输入即触发既有 `SkillSearchResults` 的真实搜索/安装链路。
 
-### ⏸ 4. 「安装套件」→ 归 WB-182
+### ✅ 4. 「安装套件」→ 随 WB-182 整体删除（同日）
 
-仍是 `toast('安装套件 · ' + name)`。修法取决于 WB-182 的产品决策（真做 / 删），本条不夹带。
+本条初次处理时它还是 `toast('安装套件 · ' + name)`，等 WB-182 的产品决策。
+当日 WB-182 取「删掉」，整个「套件」段（含这个按钮）已移除 —— 技能页假按钮**清零**。
 
 ### 不在本条范围（如实记录）
 
@@ -148,6 +149,6 @@ loadout 是**会话级**的，`chatStore.ts:70` 的 `openSession` 和 `Sidebar.t
 
 ### 状态
 
-`in-progress` —— 套件项等 WB-182 的决策，其余已修。
+`fixed` —— 技能页假交互清零（套件项随 WB-182 的删除一并了结）。
 
 - commit：未提交（待用户确认）。

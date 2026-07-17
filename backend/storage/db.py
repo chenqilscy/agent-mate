@@ -31,7 +31,8 @@ from storage.catalog_seed import BUILTIN_CONNECTORS, BUILTIN_EXPERTS
 _SHOWCASE_JSON = Path(__file__).resolve().parent / "catalog_showcase.json"
 # SkillHub 商店浏览列表（SKILLHUB_*）不入库——WB-064 会改成实时 rankings/search，与本处重叠，
 # 由那条 issue 负责其数据源；这里刻意跳过、留纯净面给它。前端仍从 catalog.ts 直取这几项。
-_SHOWCASE_SKIP = {"SKILLHUB_GRID", "SKILLHUB_FEATURED", "SKILLHUB_KITS", "SKILLHUB_CATS"}
+# （SKILLHUB_KITS 已随「套件」功能整体删除，见 WB-182 —— JSON 里已无该键，无需再跳过。）
+_SHOWCASE_SKIP = {"SKILLHUB_GRID", "SKILLHUB_FEATURED", "SKILLHUB_CATS"}
 from storage.models import (
     LOCAL_USER_ID,
     LOCAL_USER_NAME,

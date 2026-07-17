@@ -13,7 +13,7 @@ import type { InstalledSkill, SkillCard } from '../lib/types'
 // 橱窗数据（专家/专家团/连接器/技能选择器）改从 catalogStore 取（WB-060，DB 供给+静态兜底）。
 // SKILLHUB_*（技能商店浏览列表）仍从 data/catalog.ts 直取——WB-064 负责其实时数据源，避免撞车。
 import {
-  SKILLHUB_CATS, SKILLHUB_FEATURED, SKILLHUB_GRID, SKILLHUB_KITS,
+  SKILLHUB_CATS, SKILLHUB_FEATURED, SKILLHUB_GRID,
   type ExpertTeam,
 } from '../data/catalog'
 import { useCatalog, useCatalogStore } from '../stores/catalogStore'
@@ -512,26 +512,12 @@ function RecoView() {
   )
 }
 
-// 套件（技能包）。
-function KitView() {
-  return (
-    <div className="card-grid g2" style={{ marginTop: 4 }}>
-      {SKILLHUB_KITS.map(([ic, color, name, desc, count]) => (
-        <div className="conn" key={name}>
-          <div className="c-ic" style={{ background: color, color: '#fff' }}>{ic}</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="c-n">{name} <span className="kc-count">· {count} 个技能</span></div>
-            <div className="c-d">{desc}</div>
-          </div>
-          <button className="hub-act" onClick={() => toast('安装套件 · ' + name)}>安装套件</button>
-        </div>
-      ))}
-    </div>
-  )
-}
+// 「套件」段已整体删除（WB-182）—— 详见 catalog.ts 里 SKILLHUB_KITS 原处的说明：
+// 前端 4 张静态卡（技能数手写）、后端零代码、DB 无表、Hub 无源、「安装套件」只 toast，
+// 是整次技能审查里唯一 100% 虚构的功能。真要做等 WB-183 目录入库后在 Hub 建 kit 表。
 
 function SkillsPane({ query, onOpenDetail }: { query: string; onOpenDetail: (target: SkillTarget) => void }) {
-  const [seg, setSeg] = useState<'skillhub' | 'reco' | 'kit'>('skillhub')
+  const [seg, setSeg] = useState<'skillhub' | 'reco'>('skillhub')
   // 搜索态（顶栏搜索框有输入）→ 全屏搜索结果，替代精选/分段浏览（WB-070）。
   if (query.trim()) {
     return <div className="hub-pane show"><SkillSearchResults q={query} onOpenDetail={onOpenDetail} /></div>
@@ -542,11 +528,9 @@ function SkillsPane({ query, onOpenDetail }: { query: string; onOpenDetail: (tar
       <div className="sk-seg">
         <div className={`sk-seg-item ${seg === 'reco' ? 'active' : ''}`.trim()} onClick={() => setSeg('reco')}>推荐</div>
         <div className={`sk-seg-item ${seg === 'skillhub' ? 'active' : ''}`.trim()} onClick={() => setSeg('skillhub')}>SkillHub</div>
-        <div className={`sk-seg-item ${seg === 'kit' ? 'active' : ''}`.trim()} onClick={() => setSeg('kit')}>套件</div>
       </div>
       {seg === 'skillhub' && <SkillHubView onOpenDetail={onOpenDetail} />}
       {seg === 'reco' && <RecoView />}
-      {seg === 'kit' && <KitView />}
     </div>
   )
 }
