@@ -193,7 +193,7 @@
 | [WB-178](WB-178-skills-subsystem-epic.md) | ⬜ | P1 | fullstack | 技能子系统重构（总纲/epic）—— 以 slug 为主键焊死「橱窗/loadout/磁盘」三层；根因=技能无稳定身份，橱窗与真引擎靠展示名撞运气连通；子任务 WB-179~186 |
 | [WB-179](WB-179-skill-identity-and-fallback-prompt.md) | 🟡 | P1 | fullstack | 技能身份断裂 —— 兜底话术「运用「X」技能的专长…」伪装能力已删(解析不到→不注入+照连接器 mcp_skipped 范式如实报「技能未就绪」) + Web Access 过度承诺描述改真；slug 迁移 ⏸ 归 WB-183（实测上游 336 条里展示名撞车仅 4 组≈1.2%，且已从静默伪装变响亮失败） |
 | [WB-180](WB-180-skill-picker-ignores-installed.md) | ✅ | P1 | frontend | ＋菜单技能选择器只读静态 SK_GRID —— 真实已安装的技能在会话里选不到（装机与使用两条路断开）；改为「内置(新增 /skills/builtin，SK_GRID 里藏着 6 个真内置技能差点被砍) + 已装未停用」，静态假卡不再出现；CDP 自驱实测 23 项(12 张真卡/明暗双主题对比度/窄宽/loadout chip 真出) |
-| [WB-181](WB-181-skills-page-fake-interactions.md) | ⬜ | P1 | frontend | 技能页假交互清理 —— 推荐段＋号/安装套件/排序/＋添加技能 全是 toast 桩 + SKILLHUB_GRID 写死假 downloads/stars（铁律#1） |
+| [WB-181](WB-181-skills-page-fake-interactions.md) | 🟡 | P1 | frontend | 技能页假交互清理 —— 推荐段＋号(纯 useState+toast)改按真实身份分派(实测 16 张=内置6/可装3/上游不存在7；内置→挂载+跳 composer 走既有 summon 范式，其余→真安装，装不到诚实报错) + 说谎的「综合评分」排序控件移除 + 「＋添加技能」真聚焦搜索；套件项 ⏸ 等 WB-182 决策 |
 | [WB-182](WB-182-skill-kits-fabricated.md) | ⬜ | P2 | fullstack | 「套件」100% 虚构 —— 前端 4 条静态卡（技能数手写）、后端零代码、Hub 无源、DB 无表、安装按钮是 toast；真做(Hub kit 表+批量安装)或删 |
 | [WB-183](WB-183-catalog-skills-to-db.md) | ⬜ | P2 | fullstack | 技能目录/定义未入库 —— WB-059 漏项：专家人格/连接器进了 DB，技能仍硬编码在 skills.py；设计过的 catalog_skills 表从未建 + 63 条孤儿静态数据 + 分类映射双份硬编码 |
 | [WB-184](WB-184-skill-browse-sources-convergence.md) | ⬜ | P2 | frontend | 技能浏览四套数据源 + 两套分类体系并存（精选/推荐/SkillHub/套件；SK_CATS vs SKILLHUB_CATS）+ 兜底链竞态 + SK_RECO 死代码 —— 收敛为一个面板一套分类 |
@@ -206,6 +206,9 @@
 | [WB-191](WB-191-skillhub-mirror-no-delisting.md) | ⬜ | P3 | fullstack | SkillHub 段是上游 skillhub.cn 商店的镜像(369 条)，本地目录下架对它无效 —— 想下架某条需 Manager 侧跨同步存活的过滤(replace_all_downlink 每次清空重建，删镜像行必被覆盖)；WB-190 实测发现 |
 | [WB-192](WB-192-run-command-inherits-secrets.md) | ✅ | P1 | backend | run_command 子进程继承后端全部密钥 —— 模型一句  即可读走并上传给 LLM 厂商；WB-011 只把连接器那条路收成无密钥白名单，run_command 从未收口(WB-014 以「如实标注」结案)；实证子进程读到 LLM_API_KEY(35 字符) |
 | [WB-193](WB-193-knowledge-add-url-and-mcp-verdict.md) | ⬜ | P3 | backend | knowledge_add 只能加工作区文件，不能从 URL/文本入库 —— 承接 WB-175 的「留后续」(url 受 WeKnora 侧 SSRF 白名单限制、manual 建出 draft/disabled)；并记录**否决接官方 WeKnora MCP server** 的评估：其 create_knowledge_from_url 打同一个 REST 端点受同样限制(拿不到额外好处)、反而没有本地文件上传、且 _secret_env 只读 os.environ 与 WB-188 的 per-owner DB key 冲突 |
+
+| [WB-194](WB-194-connector-card-add-lost-on-navigate.md) | ⬜ | P2 | frontend | 连接器卡「添加到本会话」是真状态但假用处 —— loadout 是会话级，openSession/newTask 的 reset(WB-003 正确行为)会清掉它，用户一导航去用就没了；应改走既有 summon 范式（同专家「召唤」/技能「去试试」） |
+| [WB-195](WB-195-reco-category-chips-cannot-filter.md) | ⬜ | P3 | frontend | 「推荐」段分类 chip 点了不过滤（只高亮）—— 根因是 SK_GRID 的 [icon,name,desc] 没有分类字段，当前数据下无从实现；依赖 WB-183 的 catalog_skills.category（同页 SkillHub 段的分类 chip 是真的，一真一假外观相同） |
 
 ## 来源
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { toast } from '../stores/toastStore'
 import { useChatStore } from '../stores/chatStore'
 import { useLoadoutStore } from '../stores/loadoutStore'
@@ -42,19 +42,37 @@ function summon(names: string[], display: string, prompt?: string) {
   }
 }
 
-function AddBtn() {
-  const [on, setOn] = useState(false)
+// 「推荐」段卡片的 ＋（WB-181）。此前它是个纯谎言：只翻转组件内 useState + toast「已添加」，
+// 不进 loadout、不安装、刷新即复原。现在按卡片的**真实身份**分派——因为这一段的 SK_GRID
+// 混着三种互不相容的东西（实测 16 张：6 张内置 / 3 张可装 / 7 张上游根本不存在）：
+//   · 内置技能、已装且未停用 → 挂载进会话并跳 composer（同 SkillDetail 的「去试试」）
+//   · 其余 → 真安装（装不到会诚实报错，不再假装成功）
+// 三种身份混在一段里本身是数据问题，归 WB-184（数据源收敛）/ WB-183（目录入库）。
+//
+// 为什么是「挂载+跳转」而不是留在原地 toggle：loadout 是**会话级**的，`openSession` 与
+// 侧栏「新建任务」都会 reset 它（chatStore.ts:70 / Sidebar.tsx:171，WB-003 的正确行为）。
+// 留在原地 toggle 会得到「状态是真的、但用户一导航去用就没了」——真状态、假用处。
+// 本 app 既有的正确出路是 summon 系：设 loadout → startDraft（不 reset）→ setView，
+// 专家「召唤」(L30) 与 SkillDetail「去试试」(tryIt) 都走这条，这里保持一致。
+function RecoBtn({ name }: { name: string }) {
+  const isBuiltin = useSkillStore((s) => s.builtin.some((b) => b.name === name))
+  const inst = useSkillStore((s) => matchSkill(s.installed, name))
+  if (!isBuiltin && !(inst && !inst.disabled)) return <InstallBtn name={name} />
   return (
     <button
-      className={`add-btn ${on ? 'on' : ''}`.trim()}
-      aria-label="添加"
-      onClick={() => { setOn((v) => !v); toast(!on ? '已添加' : '已移除') }}
+      type="button"
+      className="add-btn"
+      aria-label="挂载到本会话"
+      title={'挂载「' + name + '」到本会话'}
+      onClick={(e) => {
+        e.stopPropagation()
+        useLoadoutStore.getState().summonSkills([name])
+        useChatStore.getState().startDraft('试试 · ' + name)
+        useUIStore.getState().setView('home')
+        toast('已挂载「' + name + '」· 去试试')
+      }}
     >
-      {on ? (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 12l5 5L20 6" /></svg>
-      ) : (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
-      )}
+      <IcPlusSm />
     </button>
   )
 }
@@ -437,7 +455,10 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
       </div>
       <div className="sk-cathead-r">
         <a className="sk-link" href="https://skillhub.cn" target="_blank" rel="noopener noreferrer"><IcExt />skillhub.cn</a>
-        <span className="sk-sort" onClick={() => toast('排序 · 综合评分')}><IcSort />综合评分</span>
+        {/* 「综合评分」排序控件已移除（WB-181）：它只 toast、不排任何序，是个谎。
+            真排序要等 WB-184 把这一段的三层数据源（Hub 镜像 / rankings / 静态兜底）收敛掉
+            —— 后端 /skills/rankings 的 featured|hot|newest|recommended|trending 早已就绪，
+            但镜像那条路不经 rankings，现在接会得到「切了排序但只有部分数据源生效」的新谎。 */}
       </div>
     </div>
   )
@@ -483,7 +504,7 @@ function RecoView() {
           <div className="scard" key={n}>
             <div className="sc-ic">{ic}</div>
             <div className="sc-info"><div className="sc-n">{n}</div><div className="sc-d">{d}</div></div>
-            <AddBtn />
+            <RecoBtn name={n} />
           </div>
         ))}
       </div>
@@ -716,6 +737,7 @@ export function ExpertsView() {
   const [detailTarget, setDetailTarget] = useState<SkillTarget | null>(null)
   // 顶栏搜索框输入（WB-070）：目前用于技能 tab 的 SkillHub 搜索；切 tab 清空。
   const [query, setQuery] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
   const installedCount = useSkillStore((s) => s.installed.length)
   const loadSkills = useSkillStore((s) => s.load)
   const placeholder = { experts: '搜索专家职称或描述', skills: '搜索技能', connectors: '搜索连接器' }[hub]
@@ -738,7 +760,7 @@ export function ExpertsView() {
         <div className="sp" />
         <div className="search-box" style={{ margin: 0, width: 260 }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-          <input placeholder={placeholder} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input ref={searchRef} placeholder={placeholder} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         {hub === 'skills' ? (
           <>
@@ -746,7 +768,14 @@ export function ExpertsView() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="4" /><path d="M8.5 12l2.5 2.5 4.5-5" /></svg>
               我安装的<span className="hub-act-n">{installedCount}</span>
             </button>
-            <button className="hub-act" onClick={() => toast('添加技能')}>＋ 添加技能</button>
+            {/* 「添加技能」= 去 SkillHub 搜一个装上（WB-181）。此前只 toast 标签名。
+                回到浏览态 + 聚焦搜索框——输入即触发 SkillSearchResults 的真实搜索/安装。 */}
+            <button
+              className="hub-act"
+              onClick={() => { setDetailTarget(null); setMyInstalled(false); searchRef.current?.focus() }}
+            >
+              ＋ 添加技能
+            </button>
           </>
         ) : (
           <button className="hub-act" onClick={onAct}>{actLabel}</button>
