@@ -45,6 +45,7 @@ interface LoadoutState {
   clearRefs: () => void
   setDraft: (text: string) => void
   clearDraft: () => void
+  setKnowledgeIds: (ids: string[]) => void
   reset: () => void
 }
 
@@ -76,5 +77,6 @@ export const useLoadoutStore = create<LoadoutState>((set) => ({
   clearRefs: () => set({ refs: [] }),
   setDraft: (text) => set({ draft: text }),
   clearDraft: () => set({ draft: '' }),
+  setKnowledgeIds: (ids) => set({ knowledgeIds: [...new Set(ids)] }),
   reset: () => set({ experts: [], skills: [], connectors: [], knowledgeIds: [], refs: [], draft: '' }),
 }))

@@ -11,37 +11,30 @@ import { activate } from '../../lib/a11y'
 import { LoginModal } from '../auth/LoginModal'
 import { MessageCenter } from './MessageCenter'
 import { HubConnectModal } from '../hub/HubConnectModal'
-import { ModelConfigModal } from '../composer/ModelConfigModal'
 import { SettingsModal } from '../settings/SettingsModal'
 import { useHubStore } from '../../stores/hubStore'
 import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
 
-const NAV: { id: ViewId; label: string; icon: ReactNode; sub?: string; cls?: string }[] = [
+type NavItem = { id: ViewId; label: string; icon: ReactNode; cls?: string }
+type NavGroup = { label: string; items: NavItem[] }
+
+const NAV_GROUPS: NavGroup[] = [
   {
-    id: 'home',
-    label: '新建任务',
-    cls: 'new',
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>,
+    label: '工作',
+    items: [
+      { id: 'home', label: '新建任务', cls: 'new', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg> },
+      { id: 'assistant', label: '助理', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3a4 4 0 014 4c0 2-2 3-2 5h-4c0-2-2-3-2-5a4 4 0 014-4z" /><path d="M9 17h6M10 20h4" /></svg> },
+      { id: 'projects', label: '项目', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg> },
+      { id: 'automation', label: '自动化', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 8V4M12 8a4 4 0 100 8 4 4 0 000-8z" /><path d="M12 16v4" /></svg> },
+    ],
   },
   {
-    id: 'assistant',
-    label: '助理',
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3a4 4 0 014 4c0 2-2 3-2 5h-4c0-2-2-3-2-5a4 4 0 014-4z" /><path d="M9 17h6M10 20h4" /></svg>,
-  },
-  {
-    id: 'projects',
-    label: '项目',
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg>,
-  },
-  {
-    id: 'experts',
-    label: '专家·技能·连接器',
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></svg>,
-  },
-  {
-    id: 'automation',
-    label: '自动化',
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 8V4M12 8a4 4 0 100 8 4 4 0 000-8z" /><path d="M12 16v4" /></svg>,
+    label: '能力',
+    items: [
+      { id: 'experts', label: '专家', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></svg> },
+      { id: 'skills', label: '技能', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg> },
+      { id: 'connectors', label: '连接器', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 15l6-6M8 8L6 10a4 4 0 006 6l2-2M16 16l2-2a4 4 0 00-6-6l-2 2" /></svg> },
+    ],
   },
 ]
 
@@ -55,16 +48,12 @@ function activeNav(view: ViewId): ViewId | 'more' {
 export function Sidebar() {
   const view = useUIStore((s) => s.view)
   const setView = useUIStore((s) => s.setView)
-  const theme = useUIStore((s) => s.theme)
-  const setTheme = useUIStore((s) => s.setTheme)
   const sessions = useChatStore((s) => s.sessions)
   const openSession = useChatStore((s) => s.openSession)
   const projects = useProjectStore((s) => s.projects)
   const loadProjects = useProjectStore((s) => s.load)
   const setActiveProject = useProjectStore((s) => s.setActive)
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
-  const modelConfigOpen = useUIStore((s) => s.modelConfigOpen)
-  const setModelConfigOpen = useUIStore((s) => s.setModelConfigOpen)
   const settingsOpen = useUIStore((s) => s.settingsOpen)
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const me = useAuthStore((s) => s.me)
@@ -175,17 +164,18 @@ export function Sidebar() {
 
   const openTask = (id: string, target: ViewId = 'chat') => {
     openSession(id)
+    let projectId: string | undefined
     if (target === 'projexec') {
       const s = sessions.find((x) => x.id === id)
       const p = s?.project_id ? projects.find((pr) => pr.id === s.project_id) : null
-      if (p) setActiveProject(p)
+      if (p) { setActiveProject(p); projectId = p.id }
     }
-    setView(target)
+    setView(target, { projectId, sessionId: id })
   }
 
   const openProject = (p: ProjectInfo) => {
     setActiveProject(p)
-    setView('project')
+    setView('project', { projectId: p.id })
     setExpanded((prev) => new Set(prev).add(p.id))
   }
   const toggleExpand = (id: string) =>
@@ -270,21 +260,28 @@ export function Sidebar() {
       )}
 
       <nav className="nav">
-        {NAV.map((n) => (
-          <div
-            key={n.id}
-            className={`nav-item ${n.cls ?? ''} ${act === n.id ? 'active' : ''}`.trim()}
-            onClick={() => { if (n.id === 'home') newTask(); setView(n.id) }}
-            {...activate(() => { if (n.id === 'home') newTask(); setView(n.id) })}
-          >
-            <span className="n-ic">{n.icon}</span>
-            {n.label}
-          </div>
+        {NAV_GROUPS.map((group) => (
+          <section className="nav-group" aria-label={group.label} key={group.label}>
+            <div className="nav-group-label">{group.label}</div>
+            {group.items.map((n) => (
+              <div
+                key={n.id}
+                className={`nav-item ${n.cls ?? ''} ${act === n.id ? 'active' : ''}`.trim()}
+                onClick={() => { if (n.id === 'home') newTask(); setView(n.id) }}
+                {...activate(() => { if (n.id === 'home') newTask(); setView(n.id) })}
+              >
+                <span className="n-ic">{n.icon}</span>
+                {n.label}
+              </div>
+            ))}
+          </section>
         ))}
         {/* Wrap the trigger + flyout so the menu anchors to the button (WB-042),
             instead of the old hard-coded left:250px; bottom:118px that flung it
             to the sidebar's bottom-right corner. */}
-        <div className="more-wrap">
+        <section className="nav-group" aria-label="资源">
+          <div className="nav-group-label">资源</div>
+          <div className="more-wrap">
           <div
             className={`nav-item ${act === 'more' ? 'active' : ''}`.trim()}
             onClick={() => setMoreOpen((v) => !v)}
@@ -293,15 +290,13 @@ export function Sidebar() {
             <span className="n-ic">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></svg>
             </span>
-            更多<span className="sub">资料库·灵感</span>
+            文件与知识<span className="sub">更多</span>
           </div>
           {moreOpen && (
             <div className="more-menu open">
+              <div className="more-group-label">文件与文档</div>
               <div className="more-item" onClick={() => { setView('myfiles'); setMoreOpen(false) }}>
                 <IcFolder />我的文件
-              </div>
-              <div className="more-item" onClick={() => { setModelConfigOpen(true); setMoreOpen(false) }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7h11M4 12h16M4 17h7" /><circle cx="18" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>模型管理
               </div>
               <div className="more-item" onClick={() => { setView('kdocs'); setMoreOpen(false) }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>金山文档
@@ -309,12 +304,14 @@ export function Sidebar() {
               <div className="more-item" onClick={() => { setView('knowledge'); setMoreOpen(false) }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 5a2 2 0 012-2h9v16H6a2 2 0 00-2 2z" /><path d="M15 3h3a1 1 0 011 1v15" /><path d="M8 7h4M8 11h4" /></svg>知识库
               </div>
-              <div className="more-item div" onClick={() => { setView('inspire'); setMoreOpen(false) }}>
+              <div className="more-group-label split">发现</div>
+              <div className="more-item" onClick={() => { setView('inspire'); setMoreOpen(false) }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" /></svg>灵感
               </div>
             </div>
           )}
-        </div>
+          </div>
+        </section>
       </nav>
 
       {/* 任务 + 空间 share one scroll region so long session/project lists stay
@@ -444,18 +441,7 @@ export function Sidebar() {
           </div>
           <div className="pf-div" />
           <div className="pf-row" onClick={() => { setSettingsOpen(true, 'account'); setProfileOpen(false) }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18" /></svg>设置
-          </div>
-          <div className="pf-row" id="pfTheme">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 13A9 9 0 1111 3a7 7 0 0010 10z" /></svg>
-            外观
-            <span className="seg2">
-              <b className={theme === 'light' ? 'on' : ''} onClick={(e) => { e.stopPropagation(); setTheme('light') }}>浅色</b>
-              <b className={theme === 'dark' ? 'on' : ''} onClick={(e) => { e.stopPropagation(); setTheme('dark') }}>深色</b>
-            </span>
-          </div>
-          <div className="pf-row" onClick={() => { toast('帮助与反馈'); setProfileOpen(false) }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 115 1c0 1.5-2.5 2-2.5 3.5M12 17h.01" /></svg>帮助与反馈
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18" /></svg>设置中心
           </div>
           {hubEnabled && (
             <div className="pf-row" onClick={() => { setProfileOpen(false); setHubOpen(true) }}>
@@ -479,7 +465,6 @@ export function Sidebar() {
       {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
       {msgOpen && <MessageCenter onClose={() => setMsgOpen(false)} />}
       {hubOpen && <HubConnectModal onClose={() => { setHubOpen(false); void refreshHub() }} />}
-      {modelConfigOpen && <ModelConfigModal onClose={() => setModelConfigOpen(false)} />}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </aside>
   )

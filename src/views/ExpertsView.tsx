@@ -712,8 +712,7 @@ const TABS: { id: Hub; label: string; icon: ReactNode }[] = [
   { id: 'connectors', label: '连接器', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 15l6-6M8 8L6 10a4 4 0 006 6l2-2M16 16l2-2a4 4 0 00-6-6l-2 2" /></svg> },
 ]
 
-export function ExpertsView() {
-  const [hub, setHub] = useState<Hub>('experts')
+function HubView({ hub }: { hub: Hub }) {
   // 「我的专家」子视图（WB-049）/「我安装的」子视图，仅在各自 tab 下有效；切 tab 退回目录。
   const [myExperts, setMyExperts] = useState(false)
   const [myInstalled, setMyInstalled] = useState(false)
@@ -731,16 +730,14 @@ export function ExpertsView() {
   useEffect(() => { void loadSkills() }, [loadSkills])
 
   const onAct = () => { if (hub === 'experts') setMyExperts(true); else toast(actLabel) }
-  const switchHub = (id: Hub) => { setHub(id); setMyExperts(false); setMyInstalled(false); setDetailTarget(null); setQuery('') }
+  const currentTab = TABS.find((tab) => tab.id === hub)!
 
   return (
-    <section className="view active" data-view="experts">
+    <section className="view active" data-view={hub}>
       <div className="hub-top">
-        {TABS.map((t) => (
-          <div key={t.id} className={`hub-tab ${hub === t.id ? 'active' : ''}`.trim()} onClick={() => switchHub(t.id)}>
-            {t.icon}{t.label}
-          </div>
-        ))}
+        <div className="hub-tab active" aria-current="page">
+          {currentTab.icon}{currentTab.label}
+        </div>
         <div className="sp" />
         <div className="search-box" style={{ margin: 0, width: 260 }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
@@ -778,4 +775,16 @@ export function ExpertsView() {
       </div>
     </section>
   )
+}
+
+export function ExpertsView() {
+  return <HubView hub="experts" />
+}
+
+export function SkillsView() {
+  return <HubView hub="skills" />
+}
+
+export function ConnectorsView() {
+  return <HubView hub="connectors" />
 }

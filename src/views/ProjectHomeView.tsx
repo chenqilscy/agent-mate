@@ -14,12 +14,16 @@ import { MembersModal } from '../components/project/MembersModal'
 import { HubCommentsPanel } from '../components/hub/HubCommentsPanel'
 import { useWorkItemStore } from '../stores/workItemStore'
 import { useCatalogStore } from '../stores/catalogStore'
+import { useKnowledgeStore } from '../stores/knowledgeStore'
 
 type Tab = '动态' | '计划' | '任务' | '负载' | '甘特' | '资产' | '讨论'
-type Kind = 'conn' | 'exp' | 'skill'
-const FIELD: Record<Kind, 'connectors' | 'experts' | 'skills'> = { conn: 'connectors', exp: 'experts', skill: 'skills' }
+type Kind = 'conn' | 'exp' | 'skill' | 'kb'
+const FIELD: Record<Kind, 'connectors' | 'experts' | 'skills' | 'knowledge_ids'> = {
+  conn: 'connectors', exp: 'experts', skill: 'skills', kb: 'knowledge_ids',
+}
 
 function iconOf(kind: Kind, name: string): string {
+  if (kind === 'kb') return '📚'
   const cat = useCatalogStore.getState()
   if (kind === 'conn') return cat.NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
   if (kind === 'exp') return cat.NP_EXPERTS.find((e) => e[1] === name)?.[0] ?? '🧑'
@@ -49,6 +53,9 @@ export function ProjectHomeView() {
   const [pickerSet, setPickerSet] = useState<Set<string>>(new Set())
   const [membersOpen, setMembersOpen] = useState(false)
   const loadWork = useWorkItemStore((s) => s.load)
+  const kbs = useKnowledgeStore((s) => s.kbs)
+  const kbLoaded = useKnowledgeStore((s) => s.loaded)
+  const loadKbs = useKnowledgeStore((s) => s.load)
 
   const pid = active?.id
 
@@ -59,10 +66,16 @@ export function ProjectHomeView() {
     // (WB-003). Reset happens on entry, before the user picks in the project composer,
     // so the "pick-then-launch" path here is preserved.
     useLoadoutStore.getState().reset()
-    api.getProject(pid).then((p) => { setProject(p); setActive(p) }).catch(() => {})
+    api.getProject(pid).then((p) => {
+      setProject(p)
+      setActive(p)
+      useLoadoutStore.getState().setKnowledgeIds(p.knowledge_ids ?? [])
+    }).catch(() => {})
     api.projectSessions(pid).then((r) => setSessions(r.sessions)).catch(() => {})
     loadWork(pid)
   }, [pid, setActive, loadWork])
+
+  useEffect(() => { if (!kbLoaded) void loadKbs() }, [kbLoaded, loadKbs])
 
   if (!project) return <section className="view active" data-view="project" />
 
@@ -80,12 +93,17 @@ export function ProjectHomeView() {
     toast('指令已更新')
   }
 
-  const openPicker = (k: Kind) => { setPickerSet(new Set(project[FIELD[k]])); setPicker(k) }
+  const openPicker = (k: Kind) => {
+    if (!canManage) { toast('只有管理员或所有者可以修改项目配置'); return }
+    setPickerSet(new Set(project[FIELD[k]] ?? []))
+    setPicker(k)
+  }
   const closePicker = async () => {
     const k = picker!
     setPicker(null)
     const p = await api.updateProject(project.id, { [FIELD[k]]: [...pickerSet] })
     applyProject(p)
+    if (k === 'kb') useLoadoutStore.getState().setKnowledgeIds(p.knowledge_ids ?? [])
     toast('项目配置已更新')
   }
 
@@ -95,22 +113,23 @@ export function ProjectHomeView() {
     const todoRef = useLoadoutStore.getState().refs.find((r) => r.kind === 'todo')
     const raw = todoRef?.name ?? text
     startProject(project.id, raw.length > 26 ? raw.slice(0, 26) + '…' : raw)
-    setView('projexec')
+    setView('projexec', { projectId: project.id })
     void send(text)
   }
-  const openExec = (id: string) => { openSession(id); setView('projexec') }
+  const openExec = (id: string) => { openSession(id); setView('projexec', { projectId: project.id, sessionId: id }) }
 
   const cfgSection = (k: Kind, label: string) => {
-    const items = project[FIELD[k]]
+    const items = project[FIELD[k]] ?? []
+    const labelOf = (name: string) => k === 'kb' ? (kbs.find((kb) => kb.id === name)?.name ?? '已删除知识库') : name
     return (
       <div className="pjcfg-sec">
         <div className="pjcfg-h">
           {label}<span className="n">{items.length}</span>
-          <span className="add" onClick={() => openPicker(k)}>{IC_ADD}</span>
+          {canManage && <span className="add" onClick={() => openPicker(k)}>{IC_ADD}</span>}
         </div>
         {items.length ? (
           <div className="pjcfg-icons">
-            {items.map((n) => <span className="pjcfg-ic" key={n} title={n}>{iconOf(k, n)}</span>)}
+            {items.map((n) => <span className="pjcfg-ic" key={n} title={labelOf(n)}>{iconOf(k, n)}</span>)}
           </div>
         ) : (
           <div className="pjcfg-sub">未配置，点 ＋ 添加</div>
@@ -180,7 +199,7 @@ export function ProjectHomeView() {
           <div className="pjcfg-sec">
             <div className="pjcfg-h">
               指令
-              {!editInstr && <span className="add" onClick={() => { setInstrDraft(project.instruction); setEditInstr(true) }}>{IC_EDIT}</span>}
+              {!editInstr && canManage && <span className="add" onClick={() => { setInstrDraft(project.instruction); setEditInstr(true) }}>{IC_EDIT}</span>}
             </div>
             {editInstr ? (
               <>
@@ -198,6 +217,7 @@ export function ProjectHomeView() {
           {cfgSection('conn', '连接器')}
           {cfgSection('exp', '专家')}
           {cfgSection('skill', '技能')}
+          {cfgSection('kb', '知识库')}
 
           <div className="pjcfg-sec">
             <div className="pjcfg-h">

@@ -86,6 +86,7 @@ class CreateProjectBody(BaseModel):
     connectors: list[str] = []
     experts: list[str] = []
     skills: list[str] = []
+    knowledge_ids: list[str] = []
 
 
 class UpdateProjectBody(BaseModel):
@@ -94,6 +95,7 @@ class UpdateProjectBody(BaseModel):
     connectors: list[str] | None = None
     experts: list[str] | None = None
     skills: list[str] | None = None
+    knowledge_ids: list[str] | None = None
 
 
 class AddMemberBody(BaseModel):
@@ -146,6 +148,7 @@ def create_project(body: CreateProjectBody) -> dict:
         connectors=body.connectors,
         experts=body.experts,
         skills=body.skills,
+        knowledge_ids=list(dict.fromkeys(body.knowledge_ids))[:20],
     )
     return _view(p, Role.OWNER)
 
@@ -165,9 +168,14 @@ def update_project(project_id: str, body: UpdateProjectBody, authorization: str 
     tok = _hub_token(project_id, authorization)
     if tok:
         patch = body.model_dump(exclude_unset=True)
-        up = hub_client.update_project(tok, project_id, patch)
+        # knowledge_ids 是本机 WeKnora 执行配置，绝不上云；Manager 只收协作元数据。
+        local_knowledge = patch.pop("knowledge_ids", None)
+        up = hub_client.update_project(tok, project_id, patch) if patch else db.get_project(project_id).to_dict()
         if up:
-            _mirror_project(up)
+            if patch:
+                _mirror_project(up)
+            if local_knowledge is not None:
+                db.update_project(project_id, knowledge_ids=list(dict.fromkeys(local_knowledge))[:20])
             return _view(db.get_project(project_id), role)
         # Manager 不可达 → 回退本地
     updated = db.update_project(
@@ -177,6 +185,7 @@ def update_project(project_id: str, body: UpdateProjectBody, authorization: str 
         connectors=body.connectors,
         experts=body.experts,
         skills=body.skills,
+        knowledge_ids=list(dict.fromkeys(body.knowledge_ids))[:20] if body.knowledge_ids is not None else None,
     )
     return _view(updated, role)
 

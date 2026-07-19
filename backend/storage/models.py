@@ -67,6 +67,8 @@ class Project:
     connectors: list[str]
     experts: list[str]
     skills: list[str]
+    # 本机执行面挂载的 WeKnora 知识库；不上传 Hub（知识库与凭据均属本地能力）。
+    knowledge_ids: list[str]
     created_at: float
     updated_at: float
     # 'local' = 本机创建；'hub' = 从 Hub 下行拉取的只读镜像（WB-062 Phase 2）。

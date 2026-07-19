@@ -10,7 +10,7 @@ Each suite creates a throwaway account and deletes all of its data at the end.
 import subprocess, sys, os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SUITES = ["test_A_chat.py", "test_B_projects.py", "test_C_skills_connectors.py", "test_D_automation.py"]
+SUITES = ["test_A_chat.py", "test_B_projects.py", "test_C_skills_connectors.py", "test_D_automation.py", "test_E_project_kb_system_settings.py"]
 
 def main():
     results = []

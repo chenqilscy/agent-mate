@@ -9,8 +9,6 @@
 .mb-left { display: flex; align-items: center; gap: 2px; font-size: 12px; color: var(--text-2); }
 .mb-left .app-ic { width: 18px; height: 18px; margin-right: 6px; }
 .mb-left b { color: var(--text); font-size: 12.5px; margin-right: 10px; }
-.mb-menu { padding: 4px 9px; border-radius: 5px; cursor: default; }
-.mb-menu:hover { background: var(--chip); }
 .mb-win { display: flex; height: 32px; }
 .mb-win button { width: 44px; height: 32px; border: none; background: transparent; cursor: pointer; color: var(--text-2); display: grid; place-items: center; font-size: 12px; }
 .mb-win button:hover { background: var(--chip); }
@@ -37,6 +35,8 @@
 .sb-ico svg { width: 15px; height: 15px; }
 
 .nav { display: flex; flex-direction: column; gap: 1px; }
+.nav-group + .nav-group { margin-top: 3px; }
+.nav-group-label { padding: 8px 10px 4px; color: var(--text-3); font-size: 10.5px; font-weight: 700; letter-spacing: .08em; }
 .nav-item { display: flex; align-items: center; gap: 11px; padding: 8px 10px; border-radius: 9px; cursor: pointer; font-size: 13.5px; color: var(--text); font-weight: 500; position: relative; }
 .nav-item:hover { background: var(--chip); }
 .nav-item.active { background: var(--chip); color: var(--text); font-weight: 600; }
@@ -326,11 +326,21 @@ body.dark .auto-tab.on { background: #22272D; }
 .run-st.run .run-ic { width: 12px; height: 12px; }
 body.dark .run-st.err { background: #3A2326; color: #F98A8E; }
 
-.auto-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 56px 20px 36px; }
-.auto-empty-ic { width: 64px; height: 64px; border-radius: 18px; background: var(--brand-soft); display: grid; place-items: center; font-size: 30px; }
+.auto-empty-stage { min-height: 430px; display: grid; place-items: center; }
+.auto-empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 28px 20px; }
+.auto-empty-ic { width: 64px; height: 64px; color: var(--text-3); display: grid; place-items: center; }
+.auto-empty-ic svg { width: 56px; height: 56px; }
 .auto-empty-t { font-size: 15px; color: var(--text-2); }
 .auto-empty-add { display: inline-flex; align-items: center; gap: 6px; }
 .auto-empty-add svg { width: 15px; height: 15px; }
+.auto-template-section { margin-top: 34px; }
+.auto-empty-stage + .auto-template-section { margin-top: 0; }
+.auto-template-grid .tpl { min-height: 76px; align-items: center; }
+.auto-template-grid .tpl > div { min-width: 0; }
+.auto-template-grid .t-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auto-template-grid .t-d { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+@media (max-width: 700px) { .auto-template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .auto-template-grid { grid-template-columns: minmax(0, 1fr); } }
 
 .auto-detail .auto-detail-msg { font-size: 13px; color: var(--text-2); line-height: 1.6; margin: 4px 0 12px; }
 .auto-detail-badges { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
@@ -421,6 +431,8 @@ body.dark .conn-tag.tok { background: #3A2E17; color: #E7A33E; }
    right edge, top-aligned with the trigger — not flung to a fixed corner. */
 .more-menu { position: absolute; left: calc(100% + 6px); top: 0; width: 186px; background: #fff; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-md); padding: 6px; z-index: 40; display: none; }
 .more-menu.open { display: block; animation: pop .15s ease; }
+.more-group-label { padding: 5px 10px 3px; color: var(--text-3); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; }
+.more-group-label.split { border-top: 1px solid var(--border-2); margin-top: 4px; padding-top: 9px; }
 .more-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text); }
 .more-item:hover { background: var(--chip); }
 .more-item svg { width: 16px; height: 16px; color: var(--text-2); }
@@ -819,10 +831,12 @@ body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
 .pk-modal.mid { width: 980px; }
 
 /* 设置中心（WB-146）—— 双栏外壳，set- 前缀，全 token 化天然暗色（铁律#2/#3） */
-.set-modal { width: 880px; max-width: 100%; height: 620px; max-height: 92vh; }
+.set-modal { width: 1024px; max-width: 96vw; height: 720px; max-height: 92vh; }
 .set-layout { display: flex; height: 100%; min-height: 0; }
-.set-nav { width: 202px; flex-shrink: 0; border-right: 1px solid var(--border); padding: 16px 10px 20px; overflow-y: auto; background: var(--border-2); }
+.set-nav { width: 236px; flex-shrink: 0; border-right: 1px solid var(--border); padding: 18px 12px 20px; overflow-y: auto; background: var(--border-2); }
 .set-nav-title { font-size: 16px; font-weight: 800; color: var(--text); padding: 4px 10px 14px; }
+.set-nav-group + .set-nav-group { margin-top: 9px; }
+.set-nav-group-label { padding: 0 10px 4px; color: var(--text-3); font-size: 10.5px; font-weight: 700; letter-spacing: .06em; }
 .set-nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px; font-size: 13.5px; font-weight: 600; color: var(--text-2); cursor: pointer; }
 .set-nav-item:hover { background: var(--chip); color: var(--text); }
 .set-nav-item.active { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
@@ -867,6 +881,16 @@ body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
 .set-switch.on { background: var(--brand); }
 .set-switch-dot { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px rgba(0, 0, 0, .2); }
 .set-switch.on .set-switch-dot { transform: translateX(18px); }
+.set-seg3 { flex-shrink: 0; }
+.set-select { width: 170px; flex: 0 0 170px; margin: 0; cursor: pointer; background: transparent; color: var(--text); }
+.set-select:disabled { cursor: not-allowed; opacity: .76; }
+.set-system > .set-pdesc { margin-bottom: 16px; }
+.set-system .set-field { border: 1px solid var(--border-2); border-radius: 10px; padding: 14px 16px; margin-bottom: 8px; background: var(--chip); }
+.set-system .set-field--scale { display: block; }
+.set-scale { margin-top: 14px; padding: 0 12px; }
+.set-scale input { width: 100%; accent-color: var(--brand); cursor: pointer; }
+.set-scale > div { display: flex; justify-content: space-between; color: var(--text-3); font-size: 11.5px; margin-top: 4px; }
+body.dark .set-select option { background: #1F242A; color: var(--text); }
 .set-link { margin-left: auto; background: none; border: none; color: var(--brand-600); font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .set-memadd { display: flex; gap: 8px; margin-bottom: 12px; }
 .set-memadd .np-input { flex: 1; }
@@ -923,6 +947,8 @@ body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
 /* --card 不随主题翻转（恒白），暗色须显式给深色面板，否则白底白字（铁律#3，同 np-modal 约定） */
 body.dark .set-panel { background: #1F242A; }
 body.dark .set-nav-item.active { background: #1F242A; }
+/* 项目页插画原始 SVG 是固定浅色大底；暗色下压低亮度，避免成为刺眼白块。 */
+body.dark .ph-illus { filter: brightness(.72) saturate(.78); }
 
 /* 模型管理弹窗（WB-124）—— 复用 .np-* 骨架，行/表单用 mc- 前缀，全 token 化天然暗色 */
 .mc-empty { font-size: 12.5px; color: var(--text-3); line-height: 1.6; padding: 4px 2px 8px; }

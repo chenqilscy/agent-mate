@@ -7,6 +7,7 @@ through the auth dependency which, in M1, injects the fixed local user.
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 
 # MCP-server subcommand: when the bundled exe re-execs itself as
@@ -25,6 +26,11 @@ for _arg in sys.argv[1:]:
 # which breaks the MCP connectors (anyio.open_process → NotImplementedError).
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+# httpx 的 INFO 行包含完整请求 URL；部分第三方 API 把凭据放在路径中，绝不能进终端/日志（WB-200）。
+# 业务层的 workbuddy.* 日志不受影响，连接成功/失败仍可观察。
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware

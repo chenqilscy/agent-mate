@@ -13,6 +13,7 @@ LLM，断言依然确定、不 flaky。一个指令性 prompt 诱发某个动作
 | `test_B_projects.py` | 项目 | 沙箱隔离、项目指令真注入、计划项回写（DB+SSE）、成员写闸/访问隔离；含 WB-050 回归断言（B8） |
 | `test_C_skills_connectors.py` | 技能·连接器 | 时钟/便签/检索连接器真返回数据、web_fetch/analyze_csv 技能工具、GitHub 未就绪、plan 禁连接器（专家不在范围） |
 | `test_D_automation.py` | 自动化 | 校验+CRUD、run-now 真跑到完成并持久化、在飞去重、**调度器到点真触发**、绑定归属、停用不触发 |
+| `test_E_project_kb_system_settings.py` | 项目知识库 · 系统设置 | 项目 `knowledge_ids` 创建/修改/权限/SQLite 真值；系统设置默认/持久化/owner 隔离/非法值（不调用 LLM） |
 
 ## 前置
 

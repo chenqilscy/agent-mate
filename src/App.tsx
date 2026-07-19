@@ -8,7 +8,7 @@ import { AssistantView } from './views/AssistantView'
 import { ProjectsView } from './views/ProjectsView'
 import { ProjectHomeView } from './views/ProjectHomeView'
 import { ProjExecView } from './views/ProjExecView'
-import { ExpertsView } from './views/ExpertsView'
+import { ConnectorsView, ExpertsView, SkillsView } from './views/ExpertsView'
 import { AutomationView } from './views/AutomationView'
 import { InspireView } from './views/InspireView'
 import { MyFilesView } from './views/MyFilesView'
@@ -19,6 +19,9 @@ import { useAuthStore } from './stores/authStore'
 import { useChatStore } from './stores/chatStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { api } from './lib/api'
+import { readRoute } from './lib/router'
+import { useProjectStore } from './stores/projectStore'
+import { useSystemSettingsStore } from './stores/systemSettingsStore'
 
 function MainView() {
   const view = useUIStore((s) => s.view)
@@ -37,6 +40,10 @@ function MainView() {
       return <ProjExecView />
     case 'experts':
       return <ExpertsView />
+    case 'skills':
+      return <SkillsView />
+    case 'connectors':
+      return <ConnectorsView />
     case 'automation':
       return <AutomationView />
     case 'inspire':
@@ -70,6 +77,47 @@ export function App() {
         // 「配置模型」里设定的账号默认模型（存后端 DB）；配好厂商 key 时后端已自动设默认。
       })
       .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const restore = async () => {
+      const system = await useSystemSettingsStore.getState().load()
+      if (cancelled) return
+      let route = readRoute()
+      // “默认启动页”只接管根路径；用户显式打开的任何 URL 永远优先。
+      if (window.location.pathname === '/' && system.startup_page !== 'home') {
+        useUIStore.getState().setView(system.startup_page, { replace: true })
+        route = readRoute()
+      }
+      if (!route.valid) {
+        useUIStore.getState().setView('home', { replace: true })
+        return
+      }
+      try {
+        if (route.projectId) {
+          const project = await api.getProject(route.projectId)
+          if (cancelled) return
+          useProjectStore.getState().setActive(project)
+        }
+        if (route.sessionId) {
+          await useChatStore.getState().openSession(route.sessionId)
+          if (cancelled) return
+        } else if (route.view === 'chat') {
+          useChatStore.getState().startDraft('对话')
+        } else if (route.view === 'projexec' && route.projectId) {
+          const project = useProjectStore.getState().active
+          useChatStore.getState().startProject(route.projectId, project?.name ?? '项目执行')
+        }
+        useUIStore.getState().setView(route.view, { history: false })
+      } catch {
+        const fallback = route.projectId ? 'projects' : 'home'
+        useUIStore.getState().setView(fallback, { replace: true })
+      }
+    }
+    void restore()
+    window.addEventListener('popstate', restore)
+    return () => { cancelled = true; window.removeEventListener('popstate', restore) }
   }, [])
 
   useEffect(() => {

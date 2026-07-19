@@ -212,6 +212,14 @@
 
 | [WB-196](WB-196-expert-persona-fallback-fake.md) | ⬜ | P2 | backend | 专家人格也有兜底话术伪装 —— persona_for 对未知专家编「以「X」的专业身份与专长作答」，与 WB-179 刚从技能侧删掉的是同一类伪装（未知专家与真专家在 system_prompt 里长得一样、loadout 照报已加载）；修法可逐字复刻 WB-179（专家功能用户已让靠后，登记不立即处理） |
 
+| [WB-197](WB-197-app-url-routing-theme-audit.md) | ✅ | P1 | frontend | 应用内存态单页导航改为可直达多页路由，并审查明暗主题样式 |
+| [WB-198](WB-198-project-knowledge-base-config.md) | ✅ | P1 | fullstack | 项目配置缺少知识库挂载与持久化，项目执行无法自动使用项目知识 |
+| [WB-199](WB-199-system-settings-real.md) | ✅ | P1 | fullstack | 系统设置仍是占位页，需要持久化并真实作用于应用 |
+| [WB-200](WB-200-httpx-secret-url-logging.md) | ✅ | P1 | backend | 第三方 HTTP 请求日志会把 URL 路径中的连接凭据写入开发日志 |
+| [WB-201](WB-201-automation-home-reference-layout.md) | ✅ | P2 | frontend | 自动化主页空态缺少顶部分页，模板与真实创建入口的信息层级不一致 |
+| [WB-202](WB-202-app-navigation-settings-menu-groups.md) | ✅ | P2 | ui | 左侧导航与设置中心功能菜单扁平混杂，缺少按使用、配置与治理的语义分组 |
+| [WB-203](WB-203-remove-top-text-menus.md) | ✅ | P3 | ui | 顶部标题栏保留无实际功能的编辑、窗口、帮助文字菜单 |
+
 ## 来源
 
 本批 issue 来自 2026-07-06 的一次三路并行代码审查（前端逻辑 / 后端逻辑 / UI·CSS）

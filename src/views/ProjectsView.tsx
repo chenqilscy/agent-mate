@@ -22,7 +22,7 @@ export function ProjectsView() {
   // Open the project workbench (home), not straight into an execution (§11).
   const openProject = (p: ProjectInfo) => {
     setActive(p)
-    setView('project')
+    setView('project', { projectId: p.id })
   }
 
   return (

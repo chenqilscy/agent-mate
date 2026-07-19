@@ -149,6 +149,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       switch (ev.type) {
         case 'session':
           set({ activeId: ev.data.id, title: ev.data.title })
+          {
+            const projectId = get().activeProjectId ?? undefined
+            useUIStore.getState().setView(projectId ? 'projexec' : 'chat', {
+              projectId,
+              sessionId: ev.data.id,
+              replace: true,
+            })
+          }
           break
         case 'text':
           patchBot((m) => ({ ...m, content: m.content + ev.data.md }))

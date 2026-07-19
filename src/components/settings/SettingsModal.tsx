@@ -1,30 +1,41 @@
-// 统一「设置中心」弹窗（WB-146）。左侧 11 标签导航 + 右侧内容区。
+// 统一「设置中心」弹窗（WB-146/WB-202）。左侧按语义分组的功能导航 + 右侧内容区。
 // 套现有 .np-overlay/.np-modal（token 化天然暗色，铁律#2/#3）；设置中心专属布局用 set- 前缀类。
-// 首期：迁移已有（模型 = 内嵌 ModelConfigModal；个性化 = 外观切换）+ 账户真数据；
-// 其余标签按截图做 UI，但未接后端的数据/开关诚实标注「即将上线」（铁律#1，不造假数据）。
+// 有真实执行链路的设置直接接后端；尚未落地的入口继续诚实标注「即将上线」（铁律#1）。
 import { useEffect, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useUIStore, type SettingsTab } from '../../stores/uiStore'
 import { useAuthStore } from '../../stores/authStore'
 import { ModelConfigModal } from '../composer/ModelConfigModal'
 import { toast } from '../../stores/toastStore'
 import { api } from '../../lib/api'
-import type { AgentSettings, AuditEntry, DataSummary, MemoryItem, MemorySearchHit, MemoryStats, MemoryTrace, StylePreset } from '../../lib/types'
+import type { AgentSettings, AuditEntry, DataSummary, MemoryItem, MemorySearchHit, MemoryStats, MemoryTrace, StylePreset, SystemSettings } from '../../lib/types'
+import { useSystemSettingsStore } from '../../stores/systemSettingsStore'
 
 type Tab = { id: SettingsTab; label: string; icon: ReactNode }
+type TabGroup = { label: string; items: Tab[] }
 
-// 顺序即左侧导航顺序，对齐高保真截图。
-const TABS: Tab[] = [
-  { id: 'account', label: '账户管理', icon: <path d="M12 12a4 4 0 100-8 4 4 0 000 8zM4 21c0-4 4-6 8-6s8 2 8 6" /> },
-  { id: 'system', label: '系统设置', icon: <><circle cx="12" cy="12" r="3.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18" /></> },
-  { id: 'agent', label: '智能体设置', icon: <><rect x="5" y="7" width="14" height="11" rx="2" /><path d="M12 3v4M9 12h.01M15 12h.01M9 16h6" /></> },
-  { id: 'shortcuts', label: '快捷键', icon: <><rect x="3" y="7" width="18" height="11" rx="2" /><path d="M7 11h.01M11 11h.01M15 11h.01M7 15h10" /></> },
-  { id: 'memory', label: '记忆', icon: <><path d="M12 3a5 5 0 00-5 5v1a4 4 0 00-2 3.5A3.5 3.5 0 008 16v2a2 2 0 004 0" /><path d="M12 3a5 5 0 015 5v1a4 4 0 012 3.5A3.5 3.5 0 0116 16v2a2 2 0 01-4 0" /></> },
-  { id: 'model', label: '模型', icon: <><path d="M4 7h11M4 12h16M4 17h7" /><circle cx="18" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></> },
-  { id: 'assistant', label: '助理设置', icon: <><circle cx="12" cy="12" r="9" /><path d="M8 13q4 3 8 0M9 9h.01M15 9h.01" /></> },
-  { id: 'personalize', label: '个性化', icon: <><circle cx="13" cy="7" r="3" /><path d="M4 21c0-3 2.5-5 6-5M15 15l2 2 4-4" /></> },
-  { id: 'data', label: '数据管理', icon: <><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" /></> },
-  { id: 'security', label: '安全中心', icon: <path d="M12 3l7 3v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6l7-3z" /> },
-  { id: 'help', label: '帮助与反馈', icon: <><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 115 1c0 1.5-2.5 2-2.5 3.5M12 17h.01" /></> },
+const TAB_GROUPS: TabGroup[] = [
+  { label: '账户', items: [
+    { id: 'account', label: '账户管理', icon: <path d="M12 12a4 4 0 100-8 4 4 0 000 8zM4 21c0-4 4-6 8-6s8 2 8 6" /> },
+  ] },
+  { label: '应用设置', items: [
+    { id: 'system', label: '通用设置', icon: <><circle cx="12" cy="12" r="3.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18" /></> },
+    { id: 'personalize', label: '个性化', icon: <><circle cx="13" cy="7" r="3" /><path d="M4 21c0-3 2.5-5 6-5M15 15l2 2 4-4" /></> },
+    { id: 'shortcuts', label: '快捷键', icon: <><rect x="3" y="7" width="18" height="11" rx="2" /><path d="M7 11h.01M11 11h.01M15 11h.01M7 15h10" /></> },
+  ] },
+  { label: 'AI 与能力', items: [
+    { id: 'agent', label: '智能体设置', icon: <><rect x="5" y="7" width="14" height="11" rx="2" /><path d="M12 3v4M9 12h.01M15 12h.01M9 16h6" /></> },
+    { id: 'model', label: '模型管理', icon: <><path d="M4 7h11M4 12h16M4 17h7" /><circle cx="18" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></> },
+    { id: 'assistant', label: '助理配置', icon: <><circle cx="12" cy="12" r="9" /><path d="M8 13q4 3 8 0M9 9h.01M15 9h.01" /></> },
+    { id: 'memory', label: '记忆', icon: <><path d="M12 3a5 5 0 00-5 5v1a4 4 0 00-2 3.5A3.5 3.5 0 008 16v2a2 2 0 004 0" /><path d="M12 3a5 5 0 015 5v1a4 4 0 012 3.5A3.5 3.5 0 0116 16v2a2 2 0 01-4 0" /></> },
+  ] },
+  { label: '数据与安全', items: [
+    { id: 'data', label: '数据管理', icon: <><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" /></> },
+    { id: 'security', label: '安全中心', icon: <path d="M12 3l7 3v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6l7-3z" /> },
+  ] },
+  { label: '支持', items: [
+    { id: 'help', label: '帮助与反馈', icon: <><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 115 1c0 1.5-2.5 2-2.5 3.5M12 17h.01" /></> },
+  ] },
 ]
 
 function Icon({ children }: { children: ReactNode }) {
@@ -105,6 +116,122 @@ function PersonalizePanel() {
       <div className="set-actions">
         <button className="btn-dark" disabled={!loaded || saving || !dirty} onClick={save}>{saving ? '保存中…' : '保存'}</button>
         <span className="set-pdesc" style={{ margin: 0 }}>这些设置会应用到你之后的所有对话。</span>
+      </div>
+    </div>
+  )
+}
+
+// 系统设置（WB-199）：按 owner 真持久化，并在 store 中即时作用于界面/执行默认值。
+function SystemPanel() {
+  const liveScale = useSystemSettingsStore((s) => s.interface_scale)
+  const liveMotion = useSystemSettingsStore((s) => s.reduce_motion)
+  const livePermission = useSystemSettingsStore((s) => s.default_permission)
+  const liveStartup = useSystemSettingsStore((s) => s.startup_page)
+  const loaded = useSystemSettingsStore((s) => s.loaded)
+  const load = useSystemSettingsStore((s) => s.load)
+  const persist = useSystemSettingsStore((s) => s.save)
+  const [draft, setDraft] = useState<SystemSettings>({
+    interface_scale: liveScale,
+    reduce_motion: liveMotion,
+    default_permission: livePermission,
+    startup_page: liveStartup,
+  })
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { if (!loaded) void load() }, [loaded, load])
+  useEffect(() => {
+    if (!loaded || dirty) return
+    setDraft({
+      interface_scale: liveScale,
+      reduce_motion: liveMotion,
+      default_permission: livePermission,
+      startup_page: liveStartup,
+    })
+  }, [loaded, dirty, liveScale, liveMotion, livePermission, liveStartup])
+
+  const change = <K extends keyof SystemSettings,>(key: K, value: SystemSettings[K]) => {
+    setDraft((s) => ({ ...s, [key]: value }))
+    setDirty(true)
+  }
+  const save = async () => {
+    setSaving(true)
+    try {
+      const next = await persist(draft)
+      setDraft(next)
+      setDirty(false)
+      toast('系统设置已保存并生效')
+    } catch { toast('系统设置保存失败') } finally { setSaving(false) }
+  }
+  const reset = () => {
+    setDraft({ interface_scale: 100, reduce_motion: false, default_permission: 'default', startup_page: 'home' })
+    setDirty(true)
+  }
+
+  return (
+    <div className="set-body set-system">
+      <div className="set-ptitle">系统设置</div>
+      <div className="set-pdesc">管理应用界面和启动行为。设置按当前账户保存在本机。</div>
+
+      <div className="set-field">
+        <div className="set-fhd">
+          <div className="set-fname">显示语言</div>
+          <div className="set-fsub">设置应用程序界面的显示语言；当前版本仅提供简体中文。</div>
+        </div>
+        <select className="np-input set-select" value="zh-CN" disabled aria-label="显示语言">
+          <option value="zh-CN">中文（简体）</option>
+        </select>
+      </div>
+
+      <div className="set-field set-field--scale">
+        <div className="set-fhd">
+          <div className="set-fname">字体大小</div>
+          <div className="set-fsub">同步缩放文字与控件，重启应用后仍会保留。</div>
+        </div>
+        <div className="set-scale">
+          <input type="range" min={90} max={110} step={5} value={draft.interface_scale}
+            aria-label="字体大小" onChange={(e) => change('interface_scale', Number(e.target.value) as SystemSettings['interface_scale'])} />
+          <div><span>小</span><span>默认</span><span>大</span></div>
+        </div>
+      </div>
+
+      <div className="set-field">
+        <div className="set-fhd">
+          <div className="set-fname">减少动态效果</div>
+          <div className="set-fsub">关闭过渡和动画，降低视觉干扰。</div>
+        </div>
+        <button className={`set-switch ${draft.reduce_motion ? 'on' : ''}`.trim()} aria-pressed={draft.reduce_motion} onClick={() => change('reduce_motion', !draft.reduce_motion)}>
+          <span className="set-switch-dot" />
+        </button>
+      </div>
+
+      <div className="set-field">
+        <div className="set-fhd">
+          <div className="set-fname">默认执行权限</div>
+          <div className="set-fsub">新会话默认使用的权限级别；仍可在输入框中临时切换。</div>
+        </div>
+        <select className="np-input set-select" value={draft.default_permission} onChange={(e) => change('default_permission', e.target.value as SystemSettings['default_permission'])}>
+          <option value="default">默认权限</option>
+          <option value="full">完全访问权限</option>
+        </select>
+      </div>
+
+      <div className="set-field">
+        <div className="set-fhd">
+          <div className="set-fname">默认启动页</div>
+          <div className="set-fsub">仅在从应用根地址启动时生效，分享或收藏的具体页面链接不受影响。</div>
+        </div>
+        <select className="np-input set-select" value={draft.startup_page} onChange={(e) => change('startup_page', e.target.value as SystemSettings['startup_page'])}>
+          <option value="home">新建任务</option>
+          <option value="projects">项目</option>
+          <option value="knowledge">知识库</option>
+          <option value="automation">自动化</option>
+        </select>
+      </div>
+
+      <div className="set-actions">
+        <button className="btn-dark" disabled={!loaded || saving || !dirty} onClick={save}>{saving ? '保存中…' : '保存'}</button>
+        <button className="btn-ghost" disabled={saving} onClick={reset}>恢复默认</button>
       </div>
     </div>
   )
@@ -534,24 +661,29 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const loggedIn = useAuthStore((s) => s.loggedIn)
   const logout = useAuthStore((s) => s.logout)
 
-  return (
+  return createPortal(
     <div className="np-overlay open" style={{ zIndex: 175 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="np-modal set-modal" role="dialog" aria-modal="true" aria-label="设置">
         <div className="set-layout">
           <aside className="set-nav">
-            <div className="set-nav-title">设置</div>
-            {TABS.map((t) => (
-              <div
-                key={t.id}
-                className={`set-nav-item ${tab === t.id ? 'active' : ''}`.trim()}
-                onClick={() => setTab(t.id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(t.id) } }}
-              >
-                <span className="set-nav-ic"><Icon>{t.icon}</Icon></span>
-                {t.label}
-              </div>
+            <div className="set-nav-title">设置中心</div>
+            {TAB_GROUPS.map((group) => (
+              <section className="set-nav-group" aria-label={group.label} key={group.label}>
+                <div className="set-nav-group-label">{group.label}</div>
+                {group.items.map((t) => (
+                  <div
+                    key={t.id}
+                    className={`set-nav-item ${tab === t.id ? 'active' : ''}`.trim()}
+                    onClick={() => setTab(t.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(t.id) } }}
+                  >
+                    <span className="set-nav-ic"><Icon>{t.icon}</Icon></span>
+                    {t.label}
+                  </div>
+                ))}
+              </section>
             ))}
           </aside>
 
@@ -606,15 +738,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               </div>
             )}
 
-            {tab === 'system' && (
-              <div className="set-body">
-                <Soon
-                  title="系统设置"
-                  desc="应用级偏好。语言 / 字号会随主题在明暗双主题下生效；带持久化的项需后端支持。"
-                  bullets={['显示语言、字体大小', '技能自动更新、非高风险技能自动安装', '锁屏远程、默认工作空间存储路径', '体验优化计划']}
-                />
-              </div>
-            )}
+            {tab === 'system' && <SystemPanel />}
 
             {tab === 'agent' && <AgentPanel />}
 
@@ -644,6 +768,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

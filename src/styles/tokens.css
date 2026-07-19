@@ -55,6 +55,7 @@ body.dark {
   --hl-func: #d2a8ff;
   --hl-built: #79c0ff;
   --hl-attr: #7ee787;
+  color-scheme: dark;
 }
 body.dark .win, body.dark .sidebar, body.dark .main, body.dark .menubar,
 body.dark .kd-right, body.dark .kd-frame { background: #1B1F24; }
@@ -113,10 +114,19 @@ body.dark .bell-dot { border-color: #1B1F24; }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: #D7DAE0; border-radius: 9px; }
 ::-webkit-scrollbar-thumb:hover { background: #C2C6CE; }
+body.dark ::-webkit-scrollbar-thumb { background: #4A515B; }
+body.dark ::-webkit-scrollbar-thumb:hover { background: #606975; }
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+body.reduce-motion * { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+
+/* 系统设置 · 界面缩放（Chromium/Tauri）：补偿布局尺寸，使缩放后仍恰好填满窗口。 */
+body[data-ui-scale="90"] .win { zoom: .9; width: 111.111111%; height: 111.111111vh; }
+body[data-ui-scale="95"] .win { zoom: .95; width: 105.263158%; height: 105.263158vh; }
+body[data-ui-scale="105"] .win { zoom: 1.05; width: 95.238095%; height: 95.238095vh; }
+body[data-ui-scale="110"] .win { zoom: 1.1; width: 90.909091%; height: 90.909091vh; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }

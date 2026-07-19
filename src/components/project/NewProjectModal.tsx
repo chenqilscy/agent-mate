@@ -7,9 +7,10 @@ import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
 import type { ProjectInfo } from '../../lib/types'
 
-type Kind = 'conn' | 'exp' | 'skill'
+type Kind = 'conn' | 'exp' | 'skill' | 'kb'
 
 function iconOf(kind: Kind, name: string): string {
+  if (kind === 'kb') return '📚'
   const cat = useCatalogStore.getState()
   if (kind === 'conn') return cat.NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
   if (kind === 'exp') return cat.NP_EXPERTS.find((e) => e[1] === name)?.[0] ?? '🧑'
@@ -27,18 +28,23 @@ export function NewProjectModal({ open, onClose, onCreated }: {
   const [name, setName] = useState('')
   const [instruction, setInstruction] = useState('')
   const [tplLabel, setTplLabel] = useState('选择模板')
-  const [sel, setSel] = useState<Record<Kind, Set<string>>>({ conn: new Set(), exp: new Set(), skill: new Set() })
+  const [sel, setSel] = useState<Record<Kind, Set<string>>>({ conn: new Set(), exp: new Set(), skill: new Set(), kb: new Set() })
   const [picker, setPicker] = useState<Kind | null>(null)
   const [tplOpen, setTplOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const tplRef = useRef<HTMLButtonElement>(null)
   const { NP_TPLS } = useCatalog()
+  const kbs = useKnowledgeStore((s) => s.kbs)
+  const kbLoaded = useKnowledgeStore((s) => s.loaded)
+  const loadKbs = useKnowledgeStore((s) => s.load)
+
+  useEffect(() => { if (open && !kbLoaded) void loadKbs() }, [open, kbLoaded, loadKbs])
 
   if (!open) return null
 
   const reset = () => {
     setName(''); setInstruction(''); setTplLabel('选择模板')
-    setSel({ conn: new Set(), exp: new Set(), skill: new Set() })
+    setSel({ conn: new Set(), exp: new Set(), skill: new Set(), kb: new Set() })
   }
   const close = () => { reset(); onClose() }
 
@@ -47,7 +53,7 @@ export function NewProjectModal({ open, onClose, onCreated }: {
     if (!t) return
     setTplLabel(tplName)
     setInstruction(t[1])
-    setSel({ conn: new Set(t[2]), exp: new Set(t[3]), skill: new Set() })
+    setSel({ conn: new Set(t[2]), exp: new Set(t[3]), skill: new Set(), kb: new Set() })
     setTplOpen(false)
   }
 
@@ -77,6 +83,7 @@ export function NewProjectModal({ open, onClose, onCreated }: {
         connectors: [...sel.conn],
         experts: [...sel.exp],
         skills: [...sel.skill],
+        knowledge_ids: [...sel.kb],
       })
       toast('项目已创建 · ' + p.name)
       reset()
@@ -94,7 +101,7 @@ export function NewProjectModal({ open, onClose, onCreated }: {
       <div className="np-chips">
         {[...sel[kind]].map((n) => (
           <span className="np-chip" key={n} title={n}>
-            <span>{iconOf(kind, n)}</span><span className="np-lbl">{n}</span>
+            <span>{iconOf(kind, n)}</span><span className="np-lbl">{kind === 'kb' ? (kbs.find((k) => k.id === n)?.name ?? '已删除知识库') : n}</span>
             <span className="x" onClick={() => removeChip(kind, n)}>×</span>
           </span>
         ))}
@@ -128,6 +135,7 @@ export function NewProjectModal({ open, onClose, onCreated }: {
           {chipRow('conn', '连接器')}
           {chipRow('exp', '专家')}
           {chipRow('skill', '技能')}
+          {chipRow('kb', '知识库')}
         </div>
         <div className="np-foot">
           <span className="np-hint">切换模版会覆盖当前编辑内容</span>

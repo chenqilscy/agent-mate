@@ -36,7 +36,7 @@ export function MessageCenter({ onClose }: { onClose: () => void }) {
     try {
       const p = await api.getProject(n.project_id)
       setActive(p)
-      setView('project')
+      setView('project', { projectId: p.id })
       void markAllRead()
       onClose()
     } catch {

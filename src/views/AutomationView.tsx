@@ -95,7 +95,7 @@ export function AutomationView() {
 
   const openRun = async (a: Automation) => {
     if (!a.last_session_id) { toast('尚未运行'); return }
-    await openSession(a.last_session_id); setView('chat')
+    await openSession(a.last_session_id); setView('chat', { sessionId: a.last_session_id })
   }
   const doRun = async (a: Automation) => { setMenuId(null); toast('已触发运行 · ' + a.name); await runNow(a.id) }
   const openHistory = async (a: Automation) => {
@@ -103,11 +103,11 @@ export function AutomationView() {
     try { const { runs } = await api.listAutomationRuns(a.id); setHistRuns(runs); setHistId(a.id) }
     catch { toast('加载运行记录失败') }
   }
-  const openRunSession = async (id: string) => { setHistId(null); setDetail(null); await openSession(id); setView('chat') }
+  const openRunSession = async (id: string) => { setHistId(null); setDetail(null); await openSession(id); setView('chat', { sessionId: id }) }
   const pickTemplate = (n: string, d: string) => { setTemplatesOpen(false); setEditing({ prefill: { name: n, prompt: d } }) }
 
   const templateGrid = (
-    <div className="card-grid g3">
+    <div className="card-grid g3 auto-template-grid">
       {AUTO.map(([ic, n, d]) => (
         <div className="tpl" key={n} {...activate(() => pickTemplate(n, d))} onClick={() => pickTemplate(n, d)}>
           <span className="t-ic">{ic}</span>
@@ -146,23 +146,6 @@ export function AutomationView() {
     )
   }
 
-  // ---- empty state ---------------------------------------------------------
-  if (items.length === 0) {
-    return (
-      <section className="view active" data-view="automation">
-        <div className="page-scroll">
-          <div className="auto-empty">
-            <div className="auto-empty-ic">⏰</div>
-            <div className="auto-empty-t">开启你的第一个自动化任务吧</div>
-            <button className="btn-dark auto-empty-add" onClick={() => setEditing({})}>{IC_ADD}添加自动化</button>
-          </div>
-          <div className="sec-title">自动化任务模版</div>
-          {templateGrid}
-        </div>
-      </section>
-    )
-  }
-
   // ---- main: tabs + toolbar + (schedule list | runs) -----------------------
   const q = query.trim().toLowerCase()
   const shownItems = items.filter((a) => !q || a.name.toLowerCase().includes(q))
@@ -175,22 +158,37 @@ export function AutomationView() {
             <button className={`auto-tab ${tab === 'schedule' ? 'on' : ''}`.trim()} onClick={() => setTab('schedule')}>定时任务</button>
             <button className={`auto-tab ${tab === 'runs' ? 'on' : ''}`.trim()} onClick={() => setTab('runs')}>运行记录</button>
           </div>
-          <div className="auto-tools">
+          {items.length > 0 && <div className="auto-tools">
             <div className="auto-search">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
               <input placeholder="搜索自动化/记录" value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
             <button className="btn-line" style={{ marginTop: 0 }} onClick={() => setTemplatesOpen(true)}>从模版添加</button>
             <button className="btn-dark auto-add" onClick={() => setEditing({})}>{IC_ADD}添加自动化</button>
-          </div>
+          </div>}
         </div>
 
         {tab === 'schedule' ? (
           <>
-            <div className="sec-title">当前</div>
-            <div className="auto-list">
-              {shownItems.length === 0 && <div className="auto-row-empty">无匹配自动化</div>}
-              {shownItems.map((a) => (
+            {items.length === 0 ? (
+              <div className="auto-empty-stage">
+                <div className="auto-empty">
+                  <div className="auto-empty-ic" aria-hidden="true">
+                    <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="32" cy="34" r="18" />
+                      <path d="M20 12l-7 7M44 12l7 7M22 53l-4 6M42 53l4 6M23 34l6 6 13-14" />
+                    </svg>
+                  </div>
+                  <div className="auto-empty-t">开启你的第一个自动化任务吧</div>
+                  <button className="btn-dark auto-empty-add" onClick={() => setEditing({})}>{IC_ADD}添加自动化</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="sec-title">当前</div>
+                <div className="auto-list">
+                  {shownItems.length === 0 && <div className="auto-row-empty">无匹配自动化</div>}
+                  {shownItems.map((a) => (
                 <div className="auto-row" key={a.id} {...activate(() => setEditing({ auto: a }))} onClick={() => setEditing({ auto: a })}>
                   <span className="t-ic">{iconOf(a.name)}</span>
                   <div className="auto-row-main">
@@ -236,7 +234,13 @@ export function AutomationView() {
                     ))}
                   </Popover>
                 </div>
-              ))}
+                  ))}
+                </div>
+              </>
+            )}
+            <div className="auto-template-section">
+              <div className="sec-title">自动化任务模板</div>
+              {templateGrid}
             </div>
           </>
         ) : (

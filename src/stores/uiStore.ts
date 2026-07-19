@@ -1,6 +1,7 @@
 // UI shell state: current view, overview-panel open/close, theme, popover stack.
 import { create } from 'zustand'
 import type { ViewId } from '../lib/types'
+import { pathForView, readRoute, type RouteOptions } from '../lib/router'
 
 type Theme = 'light' | 'dark'
 
@@ -27,13 +28,11 @@ interface UIState {
   // ≤900px drawer): here the sidebar is fully hidden and re-opened via the
   // menubar hamburger. Reset when the window narrows past 900px (App.tsx).
   sidebarCollapsed: boolean
-  // 模型管理弹窗（WB-132）：提到全局，侧栏/账号菜单与输入框模型下拉都能打开同一个。
-  modelConfigOpen: boolean
   // 设置中心弹窗（WB-146）：统一多标签设置面板，账号浮层「设置」打开。
   settingsOpen: boolean
   settingsTab: SettingsTab
 
-  setView: (v: ViewId) => void
+  setView: (v: ViewId, route?: RouteOptions) => void
   toggleOv: () => void
   setOv: (open: boolean) => void
   setTheme: (t: Theme) => void
@@ -43,7 +42,6 @@ interface UIState {
   toggleExpand: () => void
   setNavOpen: (open: boolean) => void
   setSidebarCollapsed: (collapsed: boolean) => void
-  setModelConfigOpen: (open: boolean) => void
   setSettingsOpen: (open: boolean, tab?: SettingsTab) => void
   setSettingsTab: (tab: SettingsTab) => void
 }
@@ -64,7 +62,7 @@ const startTheme = initialTheme()
 applyTheme(startTheme)
 
 export const useUIStore = create<UIState>((set) => ({
-  view: 'home',
+  view: readRoute().view,
   ovOpen: false,
   theme: startTheme,
   openPopover: null,
@@ -72,13 +70,20 @@ export const useUIStore = create<UIState>((set) => ({
   ovExpanded: false,
   navOpen: false,
   sidebarCollapsed: false,
-  modelConfigOpen: false,
   settingsOpen: false,
   settingsTab: 'account',
 
   // Switching views also dismisses the mobile nav drawer (you navigated, so the
   // drawer's job is done) and any open popover.
-  setView: (v) => set({ view: v, openPopover: null, navOpen: false }),
+  setView: (v, route = {}) => {
+    if (route.history !== false) {
+      const path = pathForView(v, route)
+      if (path !== window.location.pathname) {
+        window.history[route.replace ? 'replaceState' : 'pushState']({}, '', path)
+      }
+    }
+    set({ view: v, openPopover: null, navOpen: false })
+  },
   toggleOv: () => set((s) => ({ ovOpen: !s.ovOpen })),
   // Collapsing the panel also drops the expanded state so it reopens at normal width.
   setOv: (open) => set(open ? { ovOpen: true } : { ovOpen: false, ovExpanded: false }),
@@ -95,7 +100,6 @@ export const useUIStore = create<UIState>((set) => ({
   toggleExpand: () => set((s) => ({ ovExpanded: !s.ovExpanded })),
   setNavOpen: (navOpen) => set({ navOpen }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
-  setModelConfigOpen: (modelConfigOpen) => set({ modelConfigOpen }),
   setSettingsOpen: (settingsOpen, tab) => set(tab ? { settingsOpen, settingsTab: tab } : { settingsOpen }),
   setSettingsTab: (settingsTab) => set({ settingsTab }),
 }))

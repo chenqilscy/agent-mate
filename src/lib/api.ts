@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -44,6 +44,9 @@ export const api = {
   settings: () => get<AppSettings>('/settings'),
   saveSettings: (body: { style?: string; custom_instructions?: string }) =>
     send<AppSettings>('PUT', '/settings', body),
+  systemSettings: () => get<SystemSettings>('/settings/system'),
+  saveSystemSettings: (body: Partial<SystemSettings>) =>
+    send<SystemSettings>('PUT', '/settings/system', body),
 
   // 设置 · 记忆（WB-148；WB-166/167 认知记忆；WB-168 白盒管理）。
   memory: (status?: string) => get<MemoryData>(status ? `/memory?status=${status}` : '/memory'),
@@ -182,6 +185,7 @@ export const api = {
     connectors: string[]
     experts: string[]
     skills: string[]
+    knowledge_ids: string[]
   }) => send<ProjectInfo>('POST', '/projects', body),
 
   getProject: (id: string) => get<ProjectInfo>(`/projects/${id}`),
@@ -234,7 +238,7 @@ export const api = {
     send<{ ok: boolean; disabled: boolean }>('POST', `/skills/${encodeURIComponent(key)}/toggle`, { disabled }),
   revealSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/reveal`),
 
-  updateProject: (id: string, patch: Partial<Pick<ProjectInfo, 'name' | 'instruction' | 'connectors' | 'experts' | 'skills'>>) =>
+  updateProject: (id: string, patch: Partial<Pick<ProjectInfo, 'name' | 'instruction' | 'connectors' | 'experts' | 'skills' | 'knowledge_ids'>>) =>
     send<ProjectInfo>('PATCH', `/projects/${id}`, patch),
 
   projectSessions: (id: string) =>

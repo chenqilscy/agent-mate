@@ -8,7 +8,7 @@ interface ProjectState {
   active: ProjectInfo | null
 
   load: () => Promise<void>
-  create: (body: { name: string; instruction: string; connectors: string[]; experts: string[]; skills: string[] }) => Promise<ProjectInfo>
+  create: (body: { name: string; instruction: string; connectors: string[]; experts: string[]; skills: string[]; knowledge_ids: string[] }) => Promise<ProjectInfo>
   setActive: (p: ProjectInfo | null) => void
 }
 

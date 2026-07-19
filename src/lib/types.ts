@@ -10,6 +10,8 @@ export type ViewId =
   | 'projects'
   | 'project'
   | 'experts'
+  | 'skills'
+  | 'connectors'
   | 'automation'
   | 'projexec'
   | 'inspire'
@@ -239,6 +241,13 @@ export interface AppSettings {
   style_presets: StylePreset[]
 }
 
+export interface SystemSettings {
+  interface_scale: 90 | 95 | 100 | 105 | 110
+  reduce_motion: boolean
+  default_permission: 'default' | 'full'
+  startup_page: 'home' | 'projects' | 'knowledge' | 'automation'
+}
+
 // 设置 · 记忆（WB-148）：长期事实，注入之后对话。source: conversation(自动) / manual(手动)。
 export interface MemoryItem {
   id: string
@@ -318,6 +327,7 @@ export interface ProjectInfo {
   connectors: string[]
   experts: string[]
   skills: string[]
+  knowledge_ids: string[]
   ago?: string
   role?: string // the current user's role in this project (M7 C2): Owner|Admin|Member|Viewer
 }

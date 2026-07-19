@@ -269,19 +269,20 @@ async def run_chat(
         return list(dict.fromkeys(seq))
 
     # Loadout = the project's experts/skills/connectors ∪ what the ＋ menu picked.
-    proj_experts, proj_skills, proj_connectors = [], [], []
+    proj_experts, proj_skills, proj_connectors, proj_knowledge = [], [], [], []
     if session.project_id:
         project = db.get_project(session.project_id)
         if project:
             if project.instruction.strip():
                 system_prompt += f"\n\n# 项目背景与规范（项目：{project.name}）\n{project.instruction.strip()}"
             proj_experts, proj_skills, proj_connectors = project.experts, project.skills, project.connectors
+            proj_knowledge = project.knowledge_ids
 
     active_experts = _dedup(proj_experts + (experts or []))
     active_skills = _dedup(proj_skills + (skills or []))
     active_connectors = _dedup(proj_connectors + (connectors or []))
-    # 挂载的知识库（WB-143）：目前仅 per-message loadout（项目级 KB 后置）。
-    active_knowledge = _dedup(knowledge_ids or [])
+    # 项目固定知识库 ∪ 本轮临时知识库；后端合并保证执行不依赖前端内存态（WB-198）。
+    active_knowledge = _dedup(proj_knowledge + (knowledge_ids or []))
     # owner + 选中库 → knowledge_* 工具读的 contextvar。ask 模式无工具，置空。
     # owner 无条件带上（WB-188）：连接配置按 owner 存 DB，且 knowledge_add 不要求挂库（WB-175），
     # 「有没有挂库」由 knowledge_ids 是否为空表达，不能靠把 owner 置 None 来表达。

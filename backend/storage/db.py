@@ -135,6 +135,7 @@ def init_db() -> None:
             connectors TEXT NOT NULL DEFAULT '[]',
             experts TEXT NOT NULL DEFAULT '[]',
             skills TEXT NOT NULL DEFAULT '[]',
+            knowledge_ids TEXT NOT NULL DEFAULT '[]',
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL,
             origin TEXT NOT NULL DEFAULT 'local'
@@ -625,6 +626,9 @@ def _migrate_columns() -> None:
     have_p = {r["name"] for r in conn.execute("PRAGMA table_info(projects)").fetchall()}
     if "origin" not in have_p:
         conn.execute("ALTER TABLE projects ADD COLUMN origin TEXT NOT NULL DEFAULT 'local'")
+    # WB-198：项目级知识库是本机执行配置，Hub 镜像更新不覆盖该列。
+    if "knowledge_ids" not in have_p:
+        conn.execute("ALTER TABLE projects ADD COLUMN knowledge_ids TEXT NOT NULL DEFAULT '[]'")
 
     # WB-134: model_meta 增缓存命中输入价 + 币种（定价分档 / ¥·$ 区分）。
     have_mm = {r["name"] for r in conn.execute("PRAGMA table_info(model_meta)").fetchall()}
@@ -1192,6 +1196,7 @@ def create_project(
     connectors: Optional[list[str]] = None,
     experts: Optional[list[str]] = None,
     skills: Optional[list[str]] = None,
+    knowledge_ids: Optional[list[str]] = None,
 ) -> Project:
     now = time.time()
     p = Project(
@@ -1202,17 +1207,19 @@ def create_project(
         connectors=connectors or [],
         experts=experts or [],
         skills=skills or [],
+        knowledge_ids=knowledge_ids or [],
         created_at=now,
         updated_at=now,
     )
     get_conn().execute(
-        """INSERT INTO projects (id,name,owner_id,instruction,connectors,experts,skills,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
+        """INSERT INTO projects (id,name,owner_id,instruction,connectors,experts,skills,knowledge_ids,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
         (
             p.id, p.name, p.owner_id, p.instruction,
             json.dumps(p.connectors, ensure_ascii=False),
             json.dumps(p.experts, ensure_ascii=False),
             json.dumps(p.skills, ensure_ascii=False),
+            json.dumps(p.knowledge_ids, ensure_ascii=False),
             p.created_at, p.updated_at,
         ),
     )
@@ -1229,6 +1236,7 @@ def _row_to_project(row: sqlite3.Row) -> Project:
         connectors=json.loads(row["connectors"]),
         experts=json.loads(row["experts"]),
         skills=json.loads(row["skills"]),
+        knowledge_ids=json.loads(row["knowledge_ids"]) if "knowledge_ids" in row.keys() else [],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         origin=row["origin"] if "origin" in row.keys() else "local",
@@ -1260,6 +1268,7 @@ def update_project(
     connectors: Optional[list[str]] = None,
     experts: Optional[list[str]] = None,
     skills: Optional[list[str]] = None,
+    knowledge_ids: Optional[list[str]] = None,
 ) -> Project:
     sets: list[str] = []
     vals: list[Any] = []
@@ -1273,6 +1282,8 @@ def update_project(
         sets.append("experts=?"); vals.append(json.dumps(experts, ensure_ascii=False))
     if skills is not None:
         sets.append("skills=?"); vals.append(json.dumps(skills, ensure_ascii=False))
+    if knowledge_ids is not None:
+        sets.append("knowledge_ids=?"); vals.append(json.dumps(knowledge_ids, ensure_ascii=False))
     sets.append("updated_at=?"); vals.append(time.time())
     vals.append(project_id)
     get_conn().execute(f"UPDATE projects SET {', '.join(sets)} WHERE id=?", vals)

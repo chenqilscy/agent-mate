@@ -186,7 +186,7 @@ def wipe_users(*names):
     for u in uids:
         for t, col in (("automations","owner_id"),("work_items","owner_id"),("sessions","owner_id"),
                        ("projects","owner_id"),("project_members","user_id"),("notifications","user_id"),
-                       ("auth_tokens","user_id")):
+                       ("auth_tokens","user_id"),("user_settings","owner_id")):
             c.execute(f"DELETE FROM {t} WHERE {col}=?", (u,))
         c.execute("DELETE FROM users WHERE id=?", (u,))
     c.commit(); c.close()
