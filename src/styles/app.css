@@ -816,6 +816,9 @@ body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
 .np-input:focus { border-color: var(--brand); }
 .np-ta { width: 100%; min-height: 112px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-family: inherit; font-size: 13px; line-height: 1.65; resize: vertical; outline: none; background: transparent; color: var(--text); }
 .np-ta:focus { border-color: var(--brand); }
+.np-required { margin-left: 6px; color: #E5484D; font-size: 11px; font-weight: 600; }
+.skill-local-edit-modal { width: 680px; }
+.skill-local-instructions { min-height: 260px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .np-row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 10px; padding: 4px 12px; min-height: 46px; margin-top: 12px; flex-wrap: wrap; }
 .np-row b { font-size: 13.5px; font-weight: 700; }
 .np-row small { font-size: 12px; color: var(--text-3); }
@@ -959,6 +962,8 @@ body.dark .set-select option { background: #1F242A; color: var(--text); }
 
 /* --card 不随主题翻转（恒白），暗色须显式给深色面板，否则白底白字（铁律#3，同 np-modal 约定） */
 body.dark .set-panel { background: #1F242A; }
+body.dark .np-modal { background: #1F242A; }
+body.dark .np-tplbtn, body.dark .btn-ghost { background: #1F242A; }
 body.dark .set-nav-item.active { background: #1F242A; }
 /* 项目页插画原始 SVG 是固定浅色大底；暗色下压低亮度，避免成为刺眼白块。 */
 body.dark .ph-illus { filter: brightness(.72) saturate(.78); }

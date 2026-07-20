@@ -87,6 +87,18 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
     )
     if (installedSkill) setInstalledKey(installedSkill.key)
   }
+  const doUpgrade = async () => {
+    const slug = data?.slug || target.slug || ''
+    if (!slug) return
+    setInstalling(true)
+    await useSkillStore.getState().upgradeCatalog(name, slug)
+    try {
+      const refreshed = await api.skillCatalogDetail(slug)
+      setData(refreshed.skill)
+      if (refreshed.skill.key) setInstalledKey(refreshed.skill.key)
+    } catch { /* toast 已由 store 处理，保留当前详情 */ }
+    setInstalling(false)
+  }
   const reveal = () => {
     if (localKey) api.revealSkill(localKey).then(() => toast('已打开文件夹')).catch(() => toast('无法打开目录'))
     setMenu(false)
@@ -118,6 +130,11 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
             <div className="skd-actions">
               {installed ? (
                 <>
+                  {data?.update_available && (
+                    <button className="btn-dark" disabled={installing} onClick={doUpgrade}>
+                      {installing ? <><IcSpin /> 升级中…</> : `升级${data.catalog_version ? '到 v' + data.catalog_version : ''}`}
+                    </button>
+                  )}
                   <button className="cap-act" onClick={tryIt}>去试试</button>
                   <div
                     className={`sw ${disabled ? '' : 'on'}`.trim()} role="switch" aria-checked={disabled ? 'false' : 'true'}

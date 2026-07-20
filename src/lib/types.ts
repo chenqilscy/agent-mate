@@ -486,4 +486,6 @@ export interface SkillDetail extends InstalledSkill {
   catalog?: boolean                    // true=AgentMate 推荐目录定义；仍需本地安装（WB-216）
   category?: string
   tools?: string[]
+  catalog_version?: string               // Server 当前目录版本；仅 AgentMate 目录技能
+  update_available?: boolean             // 本机快照与目录版本不一致
 }

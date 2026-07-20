@@ -340,12 +340,16 @@ def catalog_detail(key: str) -> dict[str, Any] | None:
     if installed:
         detail = skills_store.detail(str(installed["key"]))
         if detail:
+            catalog_version = str(spec.get("version") or "")
+            installed_version = str(detail.get("version") or "")
             return {
                 **detail,
                 "source": "AgentMate",
                 "catalog": True,
                 "category": str(spec.get("category") or ""),
                 "tools": resolved_tools,
+                "catalog_version": catalog_version,
+                "update_available": bool(catalog_version and installed_version != catalog_version),
             }
     source = "AgentMate"
     return {
@@ -353,7 +357,9 @@ def catalog_detail(key: str) -> dict[str, Any] | None:
         "slug": str(spec["slug"]),
         "name": str(spec["name"]),
         "description": str(spec.get("description") or ""),
-        "version": "",
+        "version": str(spec.get("version") or ""),
+        "catalog_version": str(spec.get("version") or ""),
+        "update_available": False,
         "source": source,
         "disabled": False,
         "markdown": "",

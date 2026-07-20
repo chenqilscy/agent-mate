@@ -6,7 +6,9 @@ org 级目录运营（团队 Admin）留后续。
 """
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -24,6 +26,11 @@ _ENV_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 _BUILTIN_CONNECTOR_SERVERS = {"notes", "clock", "search", "telegram", "kdocs"}
 _RECOMMENDATION_CATEGORIES = {
     "SKILL_RECOMMENDATIONS", "CONNECTOR_RECOMMENDATIONS", "EXPERT_RECOMMENDATIONS",
+}
+_SKILL_TOOL_CATALOG_PATH = Path(__file__).resolve().parents[2] / "shared" / "skill-tools.json"
+_SKILL_TOOL_CATALOG = json.loads(_SKILL_TOOL_CATALOG_PATH.read_text(encoding="utf-8"))
+_SKILL_TOOL_NAMES = {
+    str(item.get("name", "")) for item in _SKILL_TOOL_CATALOG if isinstance(item, dict)
 }
 
 
@@ -50,6 +57,12 @@ def list_all_catalog(all: bool = False, account: Account = CurrentAccount) -> di
     return {"items": items}
 
 
+@router.get("/catalog/skill-tools")
+def list_skill_tools(account: Account = CurrentAccount) -> dict:
+    """Console 技能编辑器的真实工具选择契约；不包含凭据或本机状态。"""
+    return {"tools": _SKILL_TOOL_CATALOG}
+
+
 @router.get("/catalog/{category}")
 def list_catalog(category: str, all: bool = False, account: Account = CurrentAccount) -> dict:
     """某 category 目录项。`?all=true`（仅平台管理员）含停用项 + `enabled` 标志，供门户 CRUD 列表。"""
@@ -69,15 +82,37 @@ _MAX_SKILL_FILES_BYTES = 1024 * 1024
 _RESERVED_SKILL_FILES = {"skill.md", "_skillhub_meta.json", "_meta.json", ".disabled"}
 
 
+def _normalize_app_skill(data: Any) -> Any:
+    if not isinstance(data, dict):
+        return data
+    normalized = dict(data)
+    for key in ("slug", "name", "icon", "category", "description", "instructions"):
+        normalized[key] = str(normalized.get(key, "")).strip()
+    tools = normalized.get("tools", [])
+    normalized["tools"] = list(dict.fromkeys(str(tool).strip() for tool in tools)) if isinstance(tools, list) else tools
+    normalized["source"] = "Server"
+    return normalized
+
+
 def _validate_app_skill(data: Any, *, ignore_id: str = "") -> None:
     if not isinstance(data, dict):
         raise HTTPException(400, "APP_SKILLS data must be an object")
     slug = str(data.get("slug", "")).strip()
     name = str(data.get("name", "")).strip()
+    description = str(data.get("description", "")).strip()
+    instructions = str(data.get("instructions", "")).strip()
     if not _SKILL_SLUG_RE.fullmatch(slug):
         raise HTTPException(400, "invalid skill slug")
-    if not name:
-        raise HTTPException(400, "skill name is required")
+    if not name or not description or not instructions:
+        raise HTTPException(400, "skill name, description and instructions are required")
+    if len(name) > 120 or len(description) > 500 or len(instructions) > 50_000:
+        raise HTTPException(400, "skill name, description or instructions is too long")
+    tools = data.get("tools", [])
+    if not isinstance(tools, list) or not all(isinstance(tool, str) and tool.strip() for tool in tools):
+        raise HTTPException(400, "skill tools must be a string list")
+    unknown_tools = sorted(set(tools) - _SKILL_TOOL_NAMES)
+    if unknown_tools:
+        raise HTTPException(400, f"unknown skill tools: {', '.join(unknown_tools)}")
     files = data.get("files", [])
     if not isinstance(files, list):
         raise HTTPException(400, "skill files must be a list")
@@ -309,8 +344,10 @@ def _expert_is_recommended(slug: str) -> bool:
 @router.post("/catalog")
 def create_item(body: CatalogItemBody, account: Account = CurrentAccount) -> dict:
     _require_admin(account)
+    data = body.data
     if body.category == "APP_SKILLS":
-        _validate_app_skill(body.data)
+        data = _normalize_app_skill(body.data)
+        _validate_app_skill(data)
     elif body.category == "SKILL_RECOMMENDATIONS":
         _validate_skill_recommendation(body.data)
     elif body.category == "CONN_DEFS":
@@ -322,7 +359,7 @@ def create_item(body: CatalogItemBody, account: Account = CurrentAccount) -> dic
     elif body.category == "EXPERT_RECOMMENDATIONS":
         _validate_expert_recommendation(body.data)
     iid = db.create_catalog_item(
-        category=body.category, data=body.data, scope="builtin", kind=body.kind, sort=body.sort,
+        category=body.category, data=data, scope="builtin", kind=body.kind, sort=body.sort,
     )
     return {"id": iid}
 
@@ -339,12 +376,14 @@ def update_item(item_id: str, body: UpdateItemBody, account: Account = CurrentAc
     item = db.get_catalog_item(item_id)
     if not item:
         raise HTTPException(404, "catalog item not found")
+    data = body.data
     if item["category"] == "APP_SKILLS" and body.data is not None:
-        _validate_app_skill(body.data, ignore_id=item_id)
+        data = _normalize_app_skill(body.data)
+        _validate_app_skill(data, ignore_id=item_id)
         old_slug = str(item.get("data", {}).get("slug", "")) if isinstance(item.get("data"), dict) else ""
-        new_slug = str(body.data.get("slug", "")) if isinstance(body.data, dict) else ""
-        if old_slug and old_slug != new_slug and _skill_is_recommended(old_slug):
-            raise HTTPException(409, "skill is referenced by a recommendation")
+        new_slug = str(data.get("slug", "")) if isinstance(data, dict) else ""
+        if old_slug and old_slug != new_slug:
+            raise HTTPException(409, "skill slug is immutable after creation")
     elif item["category"] == "SKILL_RECOMMENDATIONS" and body.data is not None:
         _validate_skill_recommendation(body.data, ignore_id=item_id)
     elif item["category"] == "CONN_DEFS" and body.data is not None:
@@ -363,7 +402,7 @@ def update_item(item_id: str, body: UpdateItemBody, account: Account = CurrentAc
             raise HTTPException(409, "expert is referenced by a recommendation")
     elif item["category"] == "EXPERT_RECOMMENDATIONS" and body.data is not None:
         _validate_expert_recommendation(body.data, ignore_id=item_id)
-    if not db.update_catalog_item(item_id, data=body.data, sort=body.sort, enabled=body.enabled):
+    if not db.update_catalog_item(item_id, data=data, sort=body.sort, enabled=body.enabled):
         raise HTTPException(404, "catalog item not found")
     return {"ok": True}
 
@@ -378,6 +417,10 @@ def delete_item(item_id: str, account: Account = CurrentAccount) -> dict:
         slug = str(item["data"].get("slug", ""))
         if slug and _skill_is_recommended(slug):
             raise HTTPException(409, "skill is referenced by a recommendation")
+        # local-first 客户端可能仍持有该 slug 的项目引用和安装快照；保留身份记录，只归档。
+        if not db.update_catalog_item(item_id, enabled=False):
+            raise HTTPException(404, "catalog item not found")
+        return {"ok": True, "archived": True}
     if item["category"] == "CONN_DEFS" and isinstance(item.get("data"), dict):
         slug = str(item["data"].get("slug", ""))
         if slug and _connector_is_recommended(slug):

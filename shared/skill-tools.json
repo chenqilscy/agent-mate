@@ -1,0 +1,26 @@
+[
+  {
+    "name": "web_fetch",
+    "label": "网页抓取",
+    "description": "按 URL 抓取网页正文，用于联网取材。",
+    "min_app_version": "1.0.0"
+  },
+  {
+    "name": "html_to_markdown",
+    "label": "网页转 Markdown",
+    "description": "抓取网页并转换为结构化 Markdown。",
+    "min_app_version": "1.0.0"
+  },
+  {
+    "name": "analyze_csv",
+    "label": "CSV 分析",
+    "description": "读取工作区 CSV 并返回真实行列与数值统计。",
+    "min_app_version": "1.0.0"
+  },
+  {
+    "name": "create_local_skill",
+    "label": "创建本地技能",
+    "description": "经确认后创建并安装一个真实的本地技能。",
+    "min_app_version": "1.0.0"
+  }
+]

@@ -73,6 +73,19 @@ class ConsoleCatalogEditorContractTests(unittest.TestCase):
         self.assertNotIn('id="skf-list"', block)
         self.assertNotIn('class="sk-file-form"', block)
 
+    def test_skill_management_exposes_safe_operational_controls(self) -> None:
+        manage = _function_block("skillsManage", "skillEditor")
+        editor = _function_block("skillEditor", "recDateValue")
+        for marker in ('id="sk-query"', 'id="sk-category"', 'id="sk-status"', 'data-move=', 'data-archive='):
+            self.assertIn(marker, manage)
+        self.assertNotIn('data-del=', manage)
+        for marker in (
+            '/catalog/skill-tools', 'id="ske-tools"', 'type="checkbox"',
+            'F("ske-slug").readOnly=!!it', 'requestClose()', '保存中…',
+            '名称、简介和技能指令均为必填项', 'version:',
+        ):
+            self.assertIn(marker, editor)
+
 
 if __name__ == "__main__":
     unittest.main()

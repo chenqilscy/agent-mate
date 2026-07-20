@@ -222,7 +222,7 @@
 | [WB-204](WB-204-skill-regression-gate.md) | ✅ | P2 | test | 新增离线身份/Hub覆盖/category 契约门禁与 npm 入口；真 LLM 技能/连接器测试同步改为 slug 并 15/15 通过 |
 | [WB-205](WB-205-skills-grid-horizontal-overflow.md) | ✅ | P2 | ui | Skills 页卡片网格改用 minmax(0,1fr)，长技能描述不再撑宽内容区；明暗主题与 1280/960/900/860px 实测无横向滚动 |
 | [WB-206](WB-206-add-skill-import-create-flow.md) | ✅ | P1 | fullstack | 添加技能补齐上传导入与对话创建，查找复用顶栏搜索框 |
-| [WB-207](WB-207-edit-installed-skill-fake-flow.md) | ⬜ | P2 | fullstack | 已安装技能的编辑入口挂载不存在的旧技能且不能保存修改 |
+| [WB-207](WB-207-edit-installed-skill-fake-flow.md) | ✅ | P2 | fullstack | 已安装技能的编辑入口挂载不存在的旧技能且不能保存修改 |
 | [WB-208](WB-208-rename-product-agentmate.md) | ✅ | P1 | fullstack | 产品品牌、路径、环境变量与构建标识已全部统一为 AgentMate |
 | [WB-209](WB-209-sidecar-missing-numpy.md) | ✅ | P1 | backend | PyInstaller sidecar 缺少 numpy，打包后端无法启动 |
 | [WB-210](WB-210-rename-hub-manager-server-console.md) | ✅ | P1 | fullstack | Hub/Manager 全面更名为 Server/Console |
@@ -239,6 +239,12 @@
 | [WB-221](WB-221-server-managed-expert-recommendations.md) | ✅ | P1 | fullstack | 专家定义与推荐位未由 Server 管理且 App 缺少本地人格映射 |
 | [WB-222](WB-222-console-catalog-editors-modal-consistency.md) | ✅ | P2 | frontend | Console 目录 CRUD 编辑器与列表混排，交互边界不一致 |
 | [WB-223](WB-223-console-skill-file-browser-editor.md) | ✅ | P2 | ui | Console 技能文件页缺少文件浏览器与就地编辑器 |
+| [WB-224](WB-224-console-allows-uninstallable-skill-definition.md) | ✅ | P1 | fullstack | Console 可保存 App 无法查看和安装的不完整技能定义 |
+| [WB-225](WB-225-skill-slug-mutable-breaks-local-references.md) | ✅ | P1 | fullstack | 技能稳定 slug 可改删导致本地引用和安装快照失联 |
+| [WB-226](WB-226-server-skill-edit-has-no-installed-update-flow.md) | ✅ | P1 | fullstack | Server 技能编辑后已安装副本没有版本与更新闭环 |
+| [WB-227](WB-227-skill-tool-binding-free-text-silent-drop.md) | ✅ | P2 | fullstack | 技能工具绑定为自由文本，未知工具会静默失效 |
+| [WB-228](WB-228-skill-editor-missing-destructive-and-dirty-guards.md) | ✅ | P2 | ui | 技能编辑与整项删除缺少防误操作保护 |
+| [WB-229](WB-229-skill-list-lacks-search-filter-and-ordering.md) | ✅ | P3 | ui | 技能目录列表缺少搜索筛选与可见排序能力 |
 
 ## 来源
 

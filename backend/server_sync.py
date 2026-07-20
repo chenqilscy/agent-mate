@@ -119,7 +119,7 @@ def pull_catalog(token: str) -> dict:
     if items is None:  # 不可达：保留上次下发，别清成空
         return {"downlinked": 0, "reachable": False}
     skill_rows = [
-        {**it["data"], "sort": it.get("sort", 0)}
+        {**it["data"], "sort": it.get("sort", 0), "version": str(it.get("version", ""))}
         for it in items
         if it.get("category") == "APP_SKILLS" and isinstance(it.get("data"), dict)
     ]

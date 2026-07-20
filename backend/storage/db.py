@@ -344,6 +344,7 @@ def init_db() -> None:
             icon TEXT NOT NULL DEFAULT '🧩',
             description TEXT NOT NULL DEFAULT '',
             instructions TEXT NOT NULL DEFAULT '',
+            version TEXT NOT NULL DEFAULT '',
             tools TEXT NOT NULL DEFAULT '[]',
             files TEXT NOT NULL DEFAULT '[]',
             category TEXT NOT NULL DEFAULT '',
@@ -706,6 +707,8 @@ def _migrate_columns() -> None:
     have_cs = {r["name"] for r in conn.execute("PRAGMA table_info(catalog_skills)").fetchall()}
     if "files" not in have_cs:
         conn.execute("ALTER TABLE catalog_skills ADD COLUMN files TEXT NOT NULL DEFAULT '[]'")
+    if "version" not in have_cs:
+        conn.execute("ALTER TABLE catalog_skills ADD COLUMN version TEXT NOT NULL DEFAULT ''")
 
     # WB-134: model_meta 增缓存命中输入价 + 币种（定价分档 / ¥·$ 区分）。
     have_mm = {r["name"] for r in conn.execute("PRAGMA table_info(model_meta)").fetchall()}
@@ -1597,7 +1600,7 @@ def skill_specs() -> list[dict[str, Any]]:
     （同连接器「launch spec 存库、实现在代码」的分工）。
     """
     rows = get_conn().execute(
-        "SELECT scope,slug,name,icon,description,instructions,tools,files,category,source "
+        "SELECT scope,slug,name,icon,description,instructions,version,tools,files,category,source "
         "FROM catalog_skills WHERE enabled=1 "
         "ORDER BY CASE scope WHEN 'server' THEN 0 ELSE 1 END, sort, name"
     ).fetchall()
@@ -1618,6 +1621,7 @@ def skill_specs() -> list[dict[str, Any]]:
         out.append({
             "slug": r["slug"], "name": r["name"], "icon": r["icon"],
             "description": r["description"], "instructions": r["instructions"],
+            "version": r["version"],
             "tools": tools if isinstance(tools, list) else [],
             "files": files if isinstance(files, list) else [],
             "category": r["category"], "source": r["source"], "scope": r["scope"],
@@ -1716,7 +1720,13 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
             continue
         slug = str(raw.get("slug", "")).strip()
         name = str(raw.get("name", "")).strip()
-        if not slug or not name or not _SKILL_SLUG_RE.fullmatch(slug) or slug in seen:
+        description = str(raw.get("description", "")).strip()
+        instructions = str(raw.get("instructions", "")).strip()
+        if (
+            not slug or not name or not description or not instructions
+            or len(name) > 120 or len(description) > 500 or len(instructions) > 50_000
+            or not _SKILL_SLUG_RE.fullmatch(slug) or slug in seen
+        ):
             skipped += 1
             continue
         tools = raw.get("tools", [])
@@ -1732,7 +1742,7 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
         seen.add(slug)
         rows.append((
             new_uuid(), "server", None, slug, name, str(raw.get("icon", "🧩")),
-            str(raw.get("description", "")), str(raw.get("instructions", "")),
+            description, instructions, str(raw.get("version", "")),
             json.dumps([str(t) for t in tools], ensure_ascii=False),
             json.dumps(files, ensure_ascii=False), str(raw.get("category", "")),
             str(raw.get("source", "Server")), 1, int(raw.get("sort", index)), now, now,
@@ -1741,8 +1751,8 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
         conn.execute("DELETE FROM catalog_skills WHERE scope='server'")
         conn.executemany(
             """INSERT INTO catalog_skills
-               (id,scope,owner_id,slug,name,icon,description,instructions,tools,files,category,source,
-                enabled,sort,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               (id,scope,owner_id,slug,name,icon,description,instructions,version,tools,files,category,source,
+                enabled,sort,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
     return {"inserted": len(rows), "skipped": skipped}

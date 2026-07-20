@@ -14,7 +14,10 @@ sys.path.insert(0, str(SERVER))
 import db  # noqa: E402
 from config import settings  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
-from routers.catalog import _validate_app_skill, _validate_skill_recommendation, list_all_catalog  # noqa: E402
+from routers.catalog import (  # noqa: E402
+    UpdateItemBody, _validate_app_skill, _validate_skill_recommendation,
+    delete_item, list_all_catalog, list_skill_tools, update_item,
+)
 
 
 class SkillRecommendationContractTest(unittest.TestCase):
@@ -28,7 +31,10 @@ class SkillRecommendationContractTest(unittest.TestCase):
         db.get_conn().commit()
         db.create_catalog_item(
             category="APP_SKILLS", sort=0,
-            data={"slug": "web-access", "name": "Web Access", "description": "浏览网页"},
+            data={
+                "slug": "web-access", "name": "Web Access", "description": "浏览网页",
+                "instructions": "抓取网页再回答。", "tools": ["web_fetch"],
+            },
         )
 
     def tearDown(self) -> None:
@@ -86,7 +92,9 @@ class SkillRecommendationContractTest(unittest.TestCase):
         self.assertEqual([], db.list_catalog_items("SKILL_RECOMMENDATIONS", scope="builtin", include_disabled=True))
 
     def test_app_skill_files_require_safe_unique_text_paths(self) -> None:
-        base = {"slug": "file-skill", "name": "文件技能", "files": [
+        base = {
+            "slug": "file-skill", "name": "文件技能", "description": "安全文件测试",
+            "instructions": "读取附加文件后执行。", "tools": [], "files": [
             {"path": "references/guide.md", "content": "# Guide"},
             {"path": "scripts/check.py", "content": "print('ok')"},
         ]}
@@ -101,6 +109,30 @@ class SkillRecommendationContractTest(unittest.TestCase):
                 _validate_app_skill({**base, "files": files})
         with self.assertRaisesRegex(HTTPException, "exceed 1MB"):
             _validate_app_skill({**base, "files": [{"path": "large.txt", "content": "x" * (1024 * 1024 + 1)}]})
+
+    def test_app_skill_required_fields_tools_and_identity_are_authoritative(self) -> None:
+        complete = {
+            "slug": "web-access", "name": "Web Access", "description": "浏览网页",
+            "instructions": "抓取网页再回答。", "tools": ["web_fetch"], "source": "Server",
+        }
+        for missing in ("name", "description", "instructions"):
+            with self.assertRaisesRegex(HTTPException, "are required"):
+                _validate_app_skill({**complete, missing: ""}, ignore_id="missing")
+        with self.assertRaisesRegex(HTTPException, "unknown skill tools"):
+            _validate_app_skill({**complete, "tools": ["web_feth"]}, ignore_id="missing")
+        names = {item["name"] for item in list_skill_tools(SimpleNamespace()) ["tools"]}
+        self.assertIn("web_fetch", names)
+
+        item = db.list_catalog_items("APP_SKILLS", scope="builtin", include_disabled=True)[0]
+        admin = SimpleNamespace(is_platform_admin=True)
+        with self.assertRaisesRegex(HTTPException, "immutable"):
+            update_item(item["id"], UpdateItemBody(data={**complete, "slug": "renamed"}), admin)
+        before_version = db.get_catalog_item(item["id"])["version"]
+        update_item(item["id"], UpdateItemBody(sort=99), admin)
+        self.assertEqual(before_version, db.get_catalog_item(item["id"])["version"])
+        result = delete_item(item["id"], admin)
+        self.assertTrue(result["archived"])
+        self.assertFalse(bool(db.get_catalog_item(item["id"])["enabled"]))
 
 
 if __name__ == "__main__":

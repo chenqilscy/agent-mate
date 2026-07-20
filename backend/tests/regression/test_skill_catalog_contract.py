@@ -56,7 +56,7 @@ class SkillCatalogContractTest(unittest.TestCase):
 
     def test_server_catalog_overrides_by_slug_and_drives_categories(self) -> None:
         result = db.replace_server_skill_catalog([
-            {"slug": "excel-csv", "name": "表格分析（运营版）", "icon": "📊", "description": "Server 描述", "instructions": "Server 指令", "tools": ["analyze_csv", "not-real"], "files": [{"path": "references/columns.md", "content": "# 字段"}], "category": "办公效率"},
+            {"slug": "excel-csv", "name": "表格分析（运营版）", "icon": "📊", "description": "Server 描述", "instructions": "Server 指令", "version": "7", "tools": ["analyze_csv", "not-real"], "files": [{"path": "references/columns.md", "content": "# 字段"}], "category": "办公效率"},
             {"slug": "bad slug", "name": "非法项"},
         ])
         self.assertEqual({"inserted": 1, "skipped": 1}, result)
@@ -64,6 +64,7 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertIsNotNone(spec)
         self.assertEqual("表格分析（运营版）", spec["name"])
         self.assertEqual("Server 指令", spec["instructions"])
+        self.assertEqual("7", spec["version"])
         self.assertEqual([{"path": "references/columns.md", "content": "# 字段"}], spec["files"])
         self.assertEqual(1, len([s for s in db.skill_specs() if s["slug"] == "excel-csv"]))
 
@@ -73,6 +74,20 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertEqual("表格分析（运营版）", card["name"])
         self.assertIn("办公效率", catalog["SK_CATS"])
         self.assertTrue(all(isinstance(x, dict) and x.get("slug") and x.get("category") for x in catalog["SK_GRID"]))
+
+    def test_shared_tool_contract_matches_runtime_registry(self) -> None:
+        from agent.skills import _TOOL_REGISTRY
+
+        contract = json.loads((BACKEND.parent / "shared" / "skill-tools.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(_TOOL_REGISTRY), {item["name"] for item in contract})
+
+    def test_incomplete_server_skill_is_rejected_before_downlink_insert(self) -> None:
+        result = db.replace_server_skill_catalog([
+            {"slug": "missing-description", "name": "不完整", "description": "", "instructions": "指令"},
+            {"slug": "missing-instructions", "name": "不完整", "description": "简介", "instructions": ""},
+        ])
+        self.assertEqual({"inserted": 0, "skipped": 2}, result)
+        self.assertIsNone(db.skill_spec_for("missing-description"))
 
     def test_server_recommendations_are_independent_ordered_and_scheduled(self) -> None:
         now = time.time()
@@ -195,6 +210,45 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertTrue((root / "SKILL.md").is_file())
         self.assertEqual("# 运营检查表\n", (root / "references" / "guide.md").read_text(encoding="utf-8"))
         self.assertEqual("结论：{{summary}}\n", (root / "templates" / "report.txt").read_text(encoding="utf-8"))
+
+    def test_catalog_upgrade_is_versioned_atomic_and_preserves_disabled_state(self) -> None:
+        from agent import skills_store
+        from agent.skills import catalog_detail
+
+        db.replace_server_skill_catalog([{
+            "slug": "versioned-skill", "name": "版本技能", "description": "版本升级测试",
+            "instructions": "执行 v1 指令。", "version": "1", "tools": [],
+            "files": [{"path": "references/version.txt", "content": "v1\n"}],
+        }])
+        first = db.skill_spec_for("versioned-skill")
+        skills_store.install_catalog_skill(
+            first["slug"], first["name"], first["description"], first["instructions"],
+            first["version"], first["files"],
+        )
+        with self.assertRaisesRegex(skills_store.SkillImportError, "版本升级"):
+            skills_store.update_skill("versioned-skill", "误编辑", "不允许", "不允许")
+        self.assertTrue(skills_store.set_disabled("versioned-skill", True))
+        db.replace_server_skill_catalog([{
+            "slug": "versioned-skill", "name": "版本技能", "description": "版本升级测试",
+            "instructions": "执行 v2 指令。", "version": "2", "tools": [],
+            "files": [{"path": "references/version.txt", "content": "v2\n"}],
+        }])
+        pending = catalog_detail("versioned-skill")
+        self.assertTrue(pending["update_available"])
+        self.assertEqual("1", pending["version"])
+        self.assertEqual("2", pending["catalog_version"])
+
+        second = db.skill_spec_for("versioned-skill")
+        result = skills_store.upgrade_catalog_skill(
+            second["slug"], second["name"], second["description"], second["instructions"],
+            second["version"], second["files"],
+        )
+        self.assertTrue(result["ok"])
+        root = settings.SKILLS_DIR / "versioned-skill"
+        self.assertTrue((root / ".disabled").is_file())
+        self.assertEqual("v2\n", (root / "references" / "version.txt").read_text(encoding="utf-8"))
+        self.assertIn("执行 v2 指令", (root / "SKILL.md").read_text(encoding="utf-8"))
+        self.assertFalse(catalog_detail("versioned-skill")["update_available"])
 
 
 if __name__ == "__main__":

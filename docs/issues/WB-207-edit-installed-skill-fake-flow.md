@@ -3,7 +3,7 @@ id: WB-207
 title: 已安装技能的编辑入口挂载不存在的旧技能且不能保存修改
 severity: P2
 area: fullstack
-status: open
+status: fixed
 origin: 既有实现
 files:
   - src/views/ExpertsView.tsx:251
@@ -33,3 +33,9 @@ P2：管理菜单展示了无法完成的编辑能力，违反“不模拟、不
 
 - 编辑一个真实已安装技能后，详情、列表和运行时注入均读取新内容；失败时原文件不变。
 - 不存在/内置技能不可误编辑，明暗主题与错误提示清晰。
+
+## 处理记录（2026-07-21）
+
+- 改动：删除旧 `skill-creator` 假跳转；“我安装的”对本地/SkillHub 技能打开真实编辑弹窗，后端 `PATCH /api/skills/{key}` 原子更新 SKILL.md，保留 references/scripts 与其他文件；AgentMate 目录技能明确拒绝本地改写，改走版本升级。
+- 验证：浏览器创建并编辑临时本地技能，名称、简介与正文真实写回，弹窗关闭后列表即时更新；自动化验证其他文件保持不变、AgentMate 目录技能不可误编辑，明暗主题通过。
+- commit：本次 WB-207/WB-224～229 合并提交。

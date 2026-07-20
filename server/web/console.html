@@ -157,6 +157,21 @@
   .sk-editor-foot { display:flex; align-items:center; gap:8px; min-height:48px; padding:9px 12px; border-top:1px solid var(--line); }
   .sk-editor-foot button { padding:6px 10px; font-size:12px; }
   .sk-unsaved { color:#e7a33e; font-size:11px; }
+  .sk-manage-filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+  .sk-manage-filters input { min-width:220px; flex:1; }
+  .sk-manage-filters select { min-width:120px; }
+  .sk-row-actions { position:relative; flex-shrink:0; }
+  .sk-row-actions summary { list-style:none; cursor:pointer; border:1px solid var(--line); border-radius:8px; padding:7px 11px; font-size:12px; color:var(--ink); background:var(--panel2); }
+  .sk-row-actions summary::-webkit-details-marker { display:none; }
+  .sk-row-menu { position:absolute; right:0; top:calc(100% + 5px); z-index:20; min-width:132px; padding:6px; border:1px solid var(--line); border-radius:9px; background:var(--panel); box-shadow:0 10px 30px rgba(0,0,0,.18); display:grid; gap:3px; }
+  .sk-row-menu button { width:100%; text-align:left; background:transparent; color:var(--ink); }
+  .sk-row-menu button:hover { background:var(--panel2); }
+  .sk-tool-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .sk-tool-option { display:flex; align-items:flex-start; gap:8px; padding:9px 10px; border:1px solid var(--line); border-radius:9px; cursor:pointer; }
+  .sk-tool-option input { width:auto; margin-top:2px; }
+  .sk-tool-option b { display:block; font-size:12px; }
+  .sk-tool-option small { display:block; color:var(--dim); margin-top:2px; line-height:1.4; }
+  .required { color:#ef4444; font-size:11px; margin-left:4px; }
   @media (max-width:760px){
     .sk-workspace { grid-template-columns:1fr; }
     .sk-explorer { border-right:0; border-bottom:1px solid var(--line); max-height:210px; }
@@ -1981,22 +1996,32 @@ async function skillsCat(body){
 
 // 目录管理：APP_SKILLS 对象是 App catalog_skills 的 Server 权威覆盖源；项目只保存 slug。
 async function skillsManage(body){
-  body.innerHTML = `<div class="row" style="margin-bottom:14px"><div><h3 style="margin:0">技能库</h3><div class="muted" style="font-size:12px">维护技能定义、生成的 SKILL.md 与随技能安装的文本文件</div></div><div class="grow"></div><button id="sk-new">新增技能</button></div><div id="sk-list" class="muted">加载中…</div>`;
+  body.innerHTML = `<div class="row" style="margin-bottom:14px"><div><h3 style="margin:0">技能库</h3><div class="muted" style="font-size:12px">维护技能定义、版本与随技能安装的文本文件；slug 创建后不可修改</div></div><div class="grow"></div><button id="sk-new">新增技能</button></div><div class="sk-manage-filters"><input id="sk-query" placeholder="搜索名称、slug 或简介"><select id="sk-category"><option value="">全部分类</option></select><select id="sk-status"><option value="">全部状态</option><option value="enabled">启用</option><option value="disabled">停用</option></select></div><div id="sk-list" class="muted">加载中…</div>`;
   const list=body.querySelector("#sk-list");
   try{ const {items}=await api("GET","/catalog/APP_SKILLS?all=true");
     list.className="";
-    list.innerHTML=items.length? items.map(it=>{const d=it.data||{},n=Array.isArray(d.files)?d.files.length:0; return `<div class="list-item"><span style="font-size:20px">${esc(d.icon||"🧩")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d.name||"?")} <span class="pill">${esc(d.slug||"")}</span> ${d.category?`<span class="pill">${esc(d.category)}</span>`:""} <span class="pill">${n+1} 个文件</span> ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.description||"")}</div></div><button class="line" data-files="${it.id}">文件</button><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`;}).join(""):'<div class="muted">还没有技能目录项；App 会继续使用本机内置定义</div>';
     const refresh=()=>skillsManage(body);
     body.querySelector("#sk-new").onclick=()=>skillEditor(null,refresh,"info");
-    list.querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>skillEditor(items.find(x=>x.id===b.dataset.ed),refresh,"info"));
-    list.querySelectorAll("[data-files]").forEach(b=>b.onclick=()=>skillEditor(items.find(x=>x.id===b.dataset.files),refresh,"files"));
-    list.querySelectorAll("[data-tog]").forEach(b=>b.onclick=async()=>{const[id,en]=b.dataset.tog.split(":");try{await api("PATCH","/catalog/item/"+id,{enabled:!!+en});refresh();}catch(e){list.innerHTML=`<div class="err">${esc(e.message)}</div>`;}});
-    list.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{try{await api("DELETE","/catalog/item/"+b.dataset.del);refresh();}catch(e){list.innerHTML=`<div class="err">${esc(e.message)}</div>`;}});
+    const categories=[...new Set(items.map(it=>(it.data||{}).category).filter(Boolean))].sort();
+    body.querySelector("#sk-category").insertAdjacentHTML("beforeend",categories.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join(""));
+    function render(){
+      const q=body.querySelector("#sk-query").value.trim().toLowerCase(),cat=body.querySelector("#sk-category").value,status=body.querySelector("#sk-status").value;
+      const visible=items.filter(it=>{const d=it.data||{},hay=`${d.name||""} ${d.slug||""} ${d.description||""}`.toLowerCase();return(!q||hay.includes(q))&&(!cat||d.category===cat)&&(!status||(status==="enabled")===it.enabled);});
+      list.innerHTML=visible.length?visible.map(it=>{const d=it.data||{},n=Array.isArray(d.files)?d.files.length:0,index=items.findIndex(x=>x.id===it.id);return `<div class="list-item"><span style="font-size:20px">${esc(d.icon||"🧩")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d.name||"?")} <span class="pill">${esc(d.slug||"")}</span> ${d.category?`<span class="pill">${esc(d.category)}</span>`:""} <span class="pill">v${it.version||1}</span> <span class="pill">sort ${it.sort}</span> <span class="pill">${n+1} 个文件</span> ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.description||"")}</div></div><button class="line" data-files="${it.id}">文件</button><button class="line" data-ed="${it.id}">编辑</button><details class="sk-row-actions"><summary>更多</summary><div class="sk-row-menu"><button data-move="${it.id}:-1" ${index===0?"disabled":""}>↑ 上移</button><button data-move="${it.id}:1" ${index===items.length-1?"disabled":""}>↓ 下移</button><button data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button>${it.enabled?`<button class="danger" data-archive="${it.id}">归档</button>`:""}</div></details></div>`;}).join(""):'<div class="muted">没有匹配的技能</div>';
+      list.querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>skillEditor(items.find(x=>x.id===b.dataset.ed),refresh,"info"));
+      list.querySelectorAll("[data-files]").forEach(b=>b.onclick=()=>skillEditor(items.find(x=>x.id===b.dataset.files),refresh,"files"));
+      list.querySelectorAll("[data-tog]").forEach(b=>b.onclick=async()=>{const[id,en]=b.dataset.tog.split(":");b.disabled=true;try{await api("PATCH","/catalog/item/"+id,{enabled:!!+en});refresh();}catch(e){list.innerHTML=`<div class="err">${esc(e.message)}</div>`;}});
+      list.querySelectorAll("[data-archive]").forEach(b=>b.onclick=async()=>{const item=items.find(x=>x.id===b.dataset.archive),d=item.data||{};if(!confirm(`归档技能「${d.name}」？\n\nslug ${d.slug} 会保留以保护已安装客户端；可稍后重新启用。`))return;b.disabled=true;try{await api("DELETE","/catalog/item/"+item.id);refresh();}catch(e){list.innerHTML=`<div class="err">${esc(e.message)}</div>`;}});
+      list.querySelectorAll("[data-move]").forEach(b=>b.onclick=async()=>{const[id,deltaRaw]=b.dataset.move.split(":"),index=items.findIndex(x=>x.id===id),target=index+Number(deltaRaw);if(index<0||target<0||target>=items.length)return;b.disabled=true;const ordered=[...items],picked=ordered.splice(index,1)[0];ordered.splice(target,0,picked);try{await Promise.all(ordered.map((item,pos)=>api("PATCH","/catalog/item/"+item.id,{sort:pos*10})));refresh();}catch(e){list.innerHTML=`<div class="err">${esc(e.message)}</div>`;}});
+    }
+    body.querySelector("#sk-query").oninput=render;body.querySelector("#sk-category").onchange=render;body.querySelector("#sk-status").onchange=render;render();
   }catch(e){list.innerHTML=`<div class="err">${esc(e.message)}</div>`;}
 }
 
-function skillEditor(it,onSaved,startTab="info"){
+async function skillEditor(it,onSaved,startTab="info"){
   const d=it?(it.data||{}):{}, files=Array.isArray(d.files)?d.files.map(f=>({path:String(f.path||""),content:String(f.content||"")})):[];
+  let toolCatalog=[];try{toolCatalog=(await api("GET","/catalog/skill-tools")).tools||[];}catch(_e){}
+  if(!toolCatalog.length&&Array.isArray(d.tools))toolCatalog=d.tools.map(name=>({name,label:name,description:"当前技能已绑定的工具",min_app_version:"—"}));
   let selectedFile="skill",tab=startTab,fileDirty=false,treeQuery="";
   const collapsedDirs=new Set();
   const ov=document.createElement("div"); ov.className="np-overlay open";
@@ -2004,12 +2029,13 @@ function skillEditor(it,onSaved,startTab="info"){
     <div class="np-h">${it?"编辑技能":"新增技能"}<button class="np-x" aria-label="关闭">×</button></div>
     <div class="np-body"><div class="sk-edit-tabs"><button class="sk-edit-tab" data-tab="info">基本信息</button><button class="sk-edit-tab" data-tab="files">文件 <span class="pill" id="skf-count"></span></button></div>
       <div id="ske-info">
-        <div class="grid2"><div class="field"><label>slug（稳定身份）</label><input id="ske-slug" placeholder="my-skill"></div><div class="field"><label>名称</label><input id="ske-name"></div></div>
+        <div class="grid2"><div class="field"><label for="ske-slug">slug（稳定身份）<span class="required">必填</span></label><input id="ske-slug" maxlength="120" placeholder="my-skill"></div><div class="field"><label for="ske-name">名称<span class="required">必填</span></label><input id="ske-name" maxlength="120"></div></div>
         <div class="grid2"><div class="field"><label>图标 emoji</label><input id="ske-icon" placeholder="🧩"></div><div class="field"><label>分类</label><input id="ske-cat" placeholder="办公效率"></div></div>
-        <div class="field"><label>简介</label><textarea id="ske-desc"></textarea></div>
-        <div class="field"><label>技能指令（生成 SKILL.md 正文并注入模型）</label><textarea id="ske-instr" style="min-height:150px"></textarea></div>
-        <div class="grid2"><div class="field"><label>工具名（逗号分隔，仅代码已注册的工具会生效）</label><input id="ske-tools"></div><div class="field"><label>来源</label><input id="ske-source"></div></div>
-        <div class="field"><label>排序</label><input id="ske-sort" type="number" style="width:90px"></div>
+        <div class="field"><label for="ske-desc">简介<span class="required">必填</span></label><textarea id="ske-desc" maxlength="500"></textarea></div>
+        <div class="field"><label for="ske-instr">技能指令（生成 SKILL.md 正文并注入模型）<span class="required">必填</span></label><textarea id="ske-instr" maxlength="50000" style="min-height:150px"></textarea></div>
+        <div class="field"><label>可用工具</label><div class="sk-tool-options" id="ske-tools">${toolCatalog.map(tool=>`<label class="sk-tool-option"><input type="checkbox" value="${esc(tool.name)}"><span><b>${esc(tool.label||tool.name)} · <code>${esc(tool.name)}</code></b><small>${esc(tool.description||"")} · App ≥ ${esc(tool.min_app_version||"1.0.0")}</small></span></label>`).join("")||'<span class="muted">工具契约加载失败；纯指令技能仍可保存</span>'}</div><div class="err" id="ske-tool-error"></div></div>
+        <div class="grid2"><div class="field"><label for="ske-source">来源</label><input id="ske-source" readonly></div><div class="field"><label for="ske-version">目录版本</label><input id="ske-version" readonly></div></div>
+        <div class="field"><label for="ske-sort">排序</label><input id="ske-sort" type="number" style="width:90px"></div>
       </div>
       <div id="ske-files" class="hidden">
         <div class="sk-workspace">
@@ -2028,9 +2054,14 @@ function skillEditor(it,onSaved,startTab="info"){
   </div>`;
   document.body.appendChild(ov);
   const F=id=>ov.querySelector("#"+id), close=()=>{document.removeEventListener("keydown",onKey);ov.remove();};
-  const onKey=e=>{if(e.key==="Escape")close();}; document.addEventListener("keydown",onKey);
-  F("ske-slug").value=d.slug||""; F("ske-name").value=d.name||""; F("ske-icon").value=d.icon||""; F("ske-cat").value=d.category||""; F("ske-desc").value=d.description||""; F("ske-instr").value=d.instructions||""; F("ske-tools").value=(d.tools||[]).join(", "); F("ske-source").value=d.source||"Server"; F("ske-sort").value=it?it.sort:0;
-  function generatedSkillMarkdown(){return `---\nname: ${JSON.stringify(F("ske-name").value.trim())}\nslug: ${F("ske-slug").value.trim()}\ndescription: ${JSON.stringify(F("ske-desc").value.trim())}\nsource: agentmate\n---\n\n${F("ske-instr").value.trim()}\n`;}
+  F("ske-slug").value=d.slug||"";F("ske-slug").readOnly=!!it;F("ske-name").value=d.name||"";F("ske-icon").value=d.icon||"";F("ske-cat").value=d.category||"";F("ske-desc").value=d.description||"";F("ske-instr").value=d.instructions||"";F("ske-source").value="Server";F("ske-version").value=it?String(it.version||1):"保存后生成";F("ske-sort").value=it?it.sort:0;
+  ov.querySelectorAll('#ske-tools input[type="checkbox"]').forEach(box=>box.checked=(d.tools||[]).includes(box.value));const unknown=(d.tools||[]).filter(name=>!toolCatalog.some(tool=>tool.name===name));if(unknown.length)F("ske-tool-error").textContent="未支持工具已移除："+unknown.join(", ");
+  function currentData(){return {slug:F("ske-slug").value.trim(),name:F("ske-name").value.trim(),icon:F("ske-icon").value.trim()||"🧩",category:F("ske-cat").value.trim(),description:F("ske-desc").value.trim(),instructions:F("ske-instr").value.trim(),tools:[...ov.querySelectorAll('#ske-tools input[type="checkbox"]:checked')].map(box=>box.value),files:files.map(f=>({...f})),source:"Server"};}
+  let initialFingerprint=JSON.stringify({data:currentData(),sort:Number(F("ske-sort").value)||0});
+  function isDirty(){return fileDirty||JSON.stringify({data:currentData(),sort:Number(F("ske-sort").value)||0})!==initialFingerprint;}
+  function requestClose(){if(isDirty()&&!confirm("有尚未保存的技能修改，确定放弃吗？"))return;close();}
+  const onKey=e=>{if(e.key==="Escape")requestClose();};document.addEventListener("keydown",onKey);
+  function generatedSkillMarkdown(){const version=it?String(it.version||1):"1";return `---\nname: ${JSON.stringify(F("ske-name").value.trim())}\nslug: ${F("ske-slug").value.trim()}\ndescription: ${JSON.stringify(F("ske-desc").value.trim())}\nversion: ${JSON.stringify(version)}\nsource: agentmate\n---\n\n${F("ske-instr").value.trim()}\n`;}
   function setDirty(value){fileDirty=value;F("skf-dirty").classList.toggle("hidden",!value);F("skf-apply").disabled=!value;F("skf-revert").disabled=!value;}
   function showTab(next){tab=next;ov.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));F("ske-info").classList.toggle("hidden",tab!=="info");F("ske-files").classList.toggle("hidden",tab!=="files");if(tab==="files"){renderTree();loadFileEditor();}}
   function validFileDraft(index){
@@ -2070,8 +2101,8 @@ function skillEditor(it,onSaved,startTab="info"){
   F("skf-path").oninput=()=>{F("skf-current").textContent=F("skf-path").value.trim()||"新文件";setDirty(true);};F("skf-content").oninput=()=>{if(selectedFile!=="skill")setDirty(true);};F("skf-apply").onclick=applyFile;F("skf-revert").onclick=loadFileEditor;
   F("skf-delete").onclick=()=>{if(selectedFile==="skill"||selectedFile==="new")return;const index=Number(selectedFile),name=files[index].path;if(!confirm(`删除文件「${name}」？`))return;files.splice(index,1);selectedFile="skill";renderTree();loadFileEditor();};
   F("skf-instr").onclick=()=>{showTab("info");F("ske-instr").focus();};
-  F("ske-save").onclick=async()=>{F("ske-err").textContent="";if(fileDirty&&!applyFile()){showTab("files");return;}const data={slug:F("ske-slug").value.trim(),name:F("ske-name").value.trim(),icon:F("ske-icon").value.trim()||"🧩",category:F("ske-cat").value.trim(),description:F("ske-desc").value.trim(),instructions:F("ske-instr").value.trim(),tools:F("ske-tools").value.split(",").map(x=>x.trim()).filter(Boolean),files,source:F("ske-source").value.trim()||"Server"};if(!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(data.slug)){F("ske-err").textContent="slug 仅允许字母、数字与 . _ -";showTab("info");return;}if(!data.name){F("ske-err").textContent="名称必填";showTab("info");return;}try{if(it)await api("PATCH","/catalog/item/"+it.id,{data,sort:Number(F("ske-sort").value)||0});else await api("POST","/catalog",{category:"APP_SKILLS",data,sort:Number(F("ske-sort").value)||0});close();onSaved();}catch(e){F("ske-err").textContent=e.message;}};
-  F("ske-cancel").onclick=close;ov.querySelector(".np-x").onclick=close;ov.onmousedown=e=>{if(e.target===ov)close();};renderTree();showTab(tab);
+  F("ske-save").onclick=async()=>{F("ske-err").textContent="";if(fileDirty&&!applyFile()){showTab("files");return;}const data=currentData();if(!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(data.slug)){F("ske-err").textContent="slug 仅允许字母、数字与 . _ -";showTab("info");return;}if(!data.name||!data.description||!data.instructions){F("ske-err").textContent="名称、简介和技能指令均为必填项";showTab("info");return;}const button=F("ske-save"),label=button.textContent;button.disabled=true;button.textContent="保存中…";try{if(it)await api("PATCH","/catalog/item/"+it.id,{data,sort:Number(F("ske-sort").value)||0});else await api("POST","/catalog",{category:"APP_SKILLS",data,sort:Number(F("ske-sort").value)||0});initialFingerprint=JSON.stringify({data,sort:Number(F("ske-sort").value)||0});close();onSaved();}catch(e){F("ske-err").textContent=e.message;button.disabled=false;button.textContent=label;}};
+  F("ske-cancel").onclick=requestClose;ov.querySelector(".np-x").onclick=requestClose;ov.onmousedown=e=>{if(e.target===ov)requestClose();};renderTree();showTab(tab);(it?F("ske-name"):F("ske-slug")).focus();
 }
 
 function recDateValue(v){ if(!v)return ""; const d=new Date(Number(v)*1000); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); }

@@ -9,6 +9,7 @@ import { CreateExpertModal } from '../components/expert/CreateExpertModal'
 import { ConnectorDetailModal } from '../components/connector/ConnectorDetailModal'
 import { SkillDetail, type SkillTarget } from '../components/skill/SkillDetail'
 import { AddSkillControl } from '../components/skill/AddSkillControl'
+import { LocalSkillEditorModal } from '../components/skill/LocalSkillEditorModal'
 import { api } from '../lib/api'
 import type { InstalledSkill, SkillCard } from '../lib/types'
 import { type ExpertTeam } from '../data/catalog'
@@ -223,15 +224,6 @@ const IcSort = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 
 const IcSpin = () => <svg className="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 3a9 9 0 1 0 9 9" /></svg>
 
-// 「编辑技能」：挂上 skill-creator 技能班底，回首页 composer 预填「请帮我编辑 X 这个 skill」。
-function editSkill(name: string) {
-  useLoadoutStore.getState().summonSkills(['skill-creator'])
-  useLoadoutStore.getState().setDraft(`请帮我编辑 ${name} 这个 skill`)
-  useChatStore.getState().startDraft('编辑技能 · ' + name)
-  useUIStore.getState().setView('home')
-  toast('已载入 skill-creator · 去编辑「' + name + '」')
-}
-
 // 展示名 → 图标/底色；只读真实推荐目录/本地市场，不回退静态 SkillHub 假统计卡。
 function skillTile(name: string): { icon: string; color: string } {
   const catalog = useCatalogStore.getState()
@@ -246,7 +238,7 @@ function skillTile(name: string): { icon: string; color: string } {
 
 // 已安装技能卡片的「⋯」菜单：关闭(停用)/编辑/卸载 —— 真实调后端（skillStore）。
 // 点任意处关闭（挂载后才注册监听，避免打开它的那一次点击立刻把自己关掉）。
-function SkillMenu({ skill, onClose }: { skill: InstalledSkill; onClose: () => void }) {
+function SkillMenu({ skill, onClose, onEdit }: { skill: InstalledSkill; onClose: () => void; onEdit?: (skill: InstalledSkill) => void }) {
   useEffect(() => {
     const h = () => onClose()
     document.addEventListener('click', h)
@@ -258,9 +250,9 @@ function SkillMenu({ skill, onClose }: { skill: InstalledSkill; onClose: () => v
       <div className="more-item" onClick={() => store.toggle(skill.key, !skill.disabled)}>
         <IcPower />{skill.disabled ? '启用' : '关闭'}
       </div>
-      <div className="more-item" onClick={() => editSkill(skill.name)}>
-        <IcEdit />编辑
-      </div>
+      {skill.source !== 'agentmate' && onEdit && (
+        <div className="more-item" onClick={() => onEdit(skill)}><IcEdit />编辑</div>
+      )}
       <div className="more-item div" onClick={() => store.uninstall(skill.key)}>
         <IcTrash />卸载
       </div>
@@ -463,6 +455,7 @@ function SkillsPane({ query, onOpenDetail }: { query: string; onOpenDetail: (tar
 function InstalledPane({ onBack, onOpenDetail }: { onBack: () => void; onOpenDetail: (target: SkillTarget) => void }) {
   const installed = useSkillStore((s) => s.installed)
   const loading = useSkillStore((s) => s.loading)
+  const [editing, setEditing] = useState<InstalledSkill | null>(null)
   return (
     <div className="cap-pane show">
       <div className="ph" style={{ alignItems: 'center', marginTop: 2 }}>
@@ -479,14 +472,15 @@ function InstalledPane({ onBack, onOpenDetail }: { onBack: () => void; onOpenDet
         </div>
       ) : (
         <div className="card-grid g4" style={{ marginTop: 14 }}>
-          {installed.map((skill) => <InstalledCard key={skill.key} skill={skill} onOpenDetail={onOpenDetail} />)}
+          {installed.map((skill) => <InstalledCard key={skill.key} skill={skill} onOpenDetail={onOpenDetail} onEdit={setEditing} />)}
         </div>
       )}
+      {editing && <LocalSkillEditorModal skill={editing} onClose={() => setEditing(null)} />}
     </div>
   )
 }
 
-function InstalledCard({ skill, onOpenDetail }: { skill: InstalledSkill; onOpenDetail: (target: SkillTarget) => void }) {
+function InstalledCard({ skill, onOpenDetail, onEdit }: { skill: InstalledSkill; onOpenDetail: (target: SkillTarget) => void; onEdit: (skill: InstalledSkill) => void }) {
   const tile = skillTile(skill.name)
   const [menu, setMenu] = useState(false)
   return (
@@ -498,7 +492,7 @@ function InstalledCard({ skill, onOpenDetail }: { skill: InstalledSkill; onOpenD
       </div>
       <div className="more-wrap" style={{ position: 'absolute', top: 8, right: 8 }} onClick={(e) => e.stopPropagation()}>
         <span className="inst-more" onClick={(e) => { e.stopPropagation(); setMenu((v) => !v) }}>⋯</span>
-        {menu && <SkillMenu skill={skill} onClose={() => setMenu(false)} />}
+        {menu && <SkillMenu skill={skill} onClose={() => setMenu(false)} onEdit={onEdit} />}
       </div>
     </div>
   )

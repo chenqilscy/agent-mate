@@ -237,7 +237,8 @@ def _import_slug(frontmatter: dict[str, Any], root_hint: str, source_name: str, 
 
 
 def _install_import_files(
-    files: list[tuple[str, bytes]], source_name: str, *, installed_source: str = "local"
+    files: list[tuple[str, bytes]], source_name: str, *, installed_source: str = "local",
+    replace_existing: bool = False,
 ) -> dict[str, Any]:
     if not files:
         raise SkillImportError("未选择任何技能文件")
@@ -285,8 +286,15 @@ def _install_import_files(
     slug = _import_slug(frontmatter, root_hint, source_name, skill_md)
     root = skills_dir()
     target = root / slug
+    existing_meta: dict[str, Any] = {}
+    was_disabled = False
     if target.exists():
-        raise SkillImportError(f"技能「{slug}」已存在，请先卸载或更换 slug", 409)
+        if not replace_existing:
+            raise SkillImportError(f"技能「{slug}」已存在，请先卸载或更换 slug", 409)
+        existing_meta = _read_json(target / SKILLHUB_META)
+        if existing_meta.get("source") != "agentmate" or installed_source != "agentmate":
+            raise SkillImportError("只能升级由 AgentMate 目录安装的技能", 409)
+        was_disabled = (target / DISABLED_MARKER).exists()
 
     staging_root = Path(tempfile.mkdtemp(prefix=".skill-import-", dir=root))
     staging = staging_root / "package"
@@ -307,13 +315,24 @@ def _install_import_files(
             "slug": slug,
             "name": name,
             "version": str(frontmatter.get("version") or "").strip(),
-            "installedAt": int(time.time() * 1000),
+            "installedAt": existing_meta.get("installedAt") or int(time.time() * 1000),
             "source": installed_source,
         }
         (staging / SKILLHUB_META).write_text(
             json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-        os.replace(staging, target)
+        if was_disabled:
+            (staging / DISABLED_MARKER).write_text("", encoding="utf-8")
+        if replace_existing:
+            previous = staging_root / "previous"
+            os.replace(target, previous)
+            try:
+                os.replace(staging, target)
+            except OSError:
+                os.replace(previous, target)
+                raise
+        else:
+            os.replace(staging, target)
     except OSError as exc:
         raise SkillImportError(f"写入技能目录失败：{exc}", 500) from exc
     finally:
@@ -434,6 +453,47 @@ def install_catalog_skill(
     )
 
 
+def upgrade_catalog_skill(
+    slug: str, name: str, description: str, instructions: str, version: str = "",
+    files: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """原子升级一个 AgentMate 目录技能；保留启停状态，失败时恢复旧目录。"""
+    slug = (slug or "").strip()
+    name = (name or "").strip()
+    description = (description or "").strip()
+    instructions = (instructions or "").strip()
+    version = (version or "").strip()
+    if not valid_slug(slug):
+        raise SkillImportError("目录技能 slug 非法")
+    if not name or not description or not instructions:
+        raise SkillImportError("目录技能定义不完整", 422)
+    if len(name) > 120 or len(description) > 500 or len(instructions) > 50_000:
+        raise SkillImportError("目录技能名称、描述或指令过长", 422)
+    version_line = f"version: {json.dumps(version, ensure_ascii=False)}\n" if version else ""
+    markdown = (
+        "---\n"
+        f"name: {json.dumps(name, ensure_ascii=False)}\n"
+        f"slug: {slug}\n"
+        f"description: {json.dumps(description, ensure_ascii=False)}\n"
+        f"{version_line}"
+        "source: agentmate\n"
+        "---\n\n"
+        f"{instructions}\n"
+    )
+    package_files: list[tuple[str, bytes]] = [(SKILL_MD, markdown.encode("utf-8"))]
+    for item in files or []:
+        if not isinstance(item, dict):
+            raise SkillImportError("目录技能文件格式无效", 422)
+        path = str(item.get("path") or "")
+        content = item.get("content")
+        if not isinstance(content, str):
+            raise SkillImportError("目录技能文件内容必须是文本", 422)
+        package_files.append((path, content.encode("utf-8")))
+    return _install_import_files(
+        package_files, f"{slug}.md", installed_source="agentmate", replace_existing=True,
+    )
+
+
 def canonical_slug(key: str) -> str | None:
     """把已安装技能的目录 key / slug / 展示名解析为稳定 slug。
 
@@ -492,6 +552,68 @@ def _build_detail(d: Path, installed: bool, name_override: str = "") -> dict[str
 def detail(key: str) -> dict[str, Any] | None:
     d = _safe_dir(key)
     return _build_detail(d, installed=True) if d else None
+
+
+def _frontmatter_markdown(frontmatter: dict[str, Any], body: str) -> str:
+    """用当前轻量解析器可无损读取的 JSON 标量格式重建 frontmatter。"""
+    lines = ["---"]
+    for key, value in frontmatter.items():
+        if not _KEY_RE.match(f"{key}:"):
+            continue
+        lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
+    lines.extend(["---", "", body.strip(), ""])
+    return "\n".join(lines)
+
+
+def update_skill(key: str, name: str, description: str, instructions: str) -> dict[str, Any]:
+    """原子更新一个本地/SkillHub 技能的 SKILL.md，保留 references/scripts 与元数据。"""
+    d = _safe_dir(key)
+    if not d:
+        raise SkillImportError("技能不存在", 404)
+    info = _info_from_dir(d)
+    if not info:
+        raise SkillImportError("技能无法读取", 422)
+    if info.get("source") == "agentmate":
+        raise SkillImportError("AgentMate 目录技能请通过版本升级更新", 409)
+    name = (name or "").strip()
+    description = (description or "").strip()
+    instructions = (instructions or "").strip()
+    if not name or not description or not instructions:
+        raise SkillImportError("编辑技能需要 name、description 和 instructions", 422)
+    if len(name) > 120 or len(description) > 500 or len(instructions) > 50_000:
+        raise SkillImportError("技能名称、描述或指令过长", 422)
+    manifest = d / SKILL_MD
+    raw = manifest.read_text(encoding="utf-8-sig")
+    frontmatter, _ = parse_frontmatter(raw)
+    frontmatter["name"] = name
+    frontmatter["description"] = description
+    frontmatter.setdefault("slug", str(info.get("slug") or key))
+    markdown = _frontmatter_markdown(frontmatter, instructions)
+    handle, temp_name = tempfile.mkstemp(prefix=".SKILL.md-", dir=d)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(markdown)
+        os.replace(temp_name, manifest)
+    except OSError as exc:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise SkillImportError(f"写入技能失败：{exc}", 500) from exc
+    meta = _read_json(d / SKILLHUB_META)
+    if meta:
+        meta["name"] = name
+        try:
+            (d / SKILLHUB_META).write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+            )
+        except OSError:
+            pass  # SKILL.md 是权威；元数据展示名写失败不回滚正文。
+    _invalidate_cache()
+    updated = detail(key)
+    if not updated:
+        raise SkillImportError("更新后的技能无法读取", 500)
+    return {"ok": True, "skill": updated}
 
 
 # ── 跑 skillhub CLI（后端自己的 Python，不依赖 bash wrapper / PATH）───────────

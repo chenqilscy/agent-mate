@@ -22,6 +22,12 @@ class ToggleBody(BaseModel):
     disabled: bool
 
 
+class UpdateSkillBody(BaseModel):
+    name: str
+    description: str
+    instructions: str
+
+
 class ImportDirectoryFile(BaseModel):
     path: str
     content: str
@@ -89,12 +95,42 @@ def install_catalog_skill(key: str) -> dict:
         raise HTTPException(exc.status_code, str(exc)) from exc
 
 
+@router.post("/skills/catalog/{key}/upgrade")
+def upgrade_catalog_skill(key: str) -> dict:
+    """把已安装的 AgentMate 目录技能原子升级到当前 Server 定义。"""
+    from storage import db
+
+    spec = db.skill_spec_for(key)
+    if not spec or not spec.get("instructions"):
+        raise HTTPException(404, "catalog skill not found")
+    try:
+        return skills_store.upgrade_catalog_skill(
+            str(spec["slug"]), str(spec["name"]), str(spec.get("description") or ""),
+            str(spec["instructions"]), str(spec.get("version") or ""),
+            spec.get("files") if isinstance(spec.get("files"), list) else [],
+        )
+    except skills_store.SkillImportError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+
+
 @router.get("/skills/{key}")
 def get_detail(key: str) -> dict:
     d = skills_store.detail(key)
     if not d:
         raise HTTPException(404, "skill not found")
+    if d.get("source") == "agentmate":
+        catalog = skills.catalog_detail(str(d.get("slug") or key))
+        if catalog:
+            d = catalog
     return {"skill": d}
+
+
+@router.patch("/skills/{key}")
+def update_skill(key: str, body: UpdateSkillBody) -> dict:
+    try:
+        return skills_store.update_skill(key, body.name, body.description, body.instructions)
+    except skills_store.SkillImportError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
 
 
 @router.post("/skills/install")

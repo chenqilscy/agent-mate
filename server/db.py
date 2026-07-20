@@ -934,13 +934,14 @@ def update_catalog_item(item_id: str, *, data: Any = None, sort: Optional[int] =
     sets, vals = [], []
     if data is not None:
         sets.append("data=?"); vals.append(json.dumps(data, ensure_ascii=False))
+        # 目录版本只描述定义内容；排序和启停不应让客户端误判技能包有更新。
+        sets.append("version=version+1")
     if sort is not None:
         sets.append("sort=?"); vals.append(sort)
     if enabled is not None:
         sets.append("enabled=?"); vals.append(1 if enabled else 0)
     if not sets:
         return False
-    sets.append("version=version+1")
     sets.append("updated_at=?"); vals.append(time.time())
     vals.append(item_id)
     cur = get_conn().execute(f"UPDATE catalog_items SET {', '.join(sets)} WHERE id=?", vals)

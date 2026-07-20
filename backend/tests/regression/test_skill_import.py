@@ -101,6 +101,22 @@ class SkillImportTest(unittest.TestCase):
         self.assertEqual("Agent 创建技能", detail["name"])
         self.assertIn("先提炼三条要点", detail["body"])
 
+    def test_local_skill_edit_updates_manifest_and_preserves_other_files(self) -> None:
+        result = skills_store.import_skill_directory([
+            {"path": "editable/SKILL.md", "content": base64.b64encode(skill_md(slug="editable-local")).decode()},
+            {"path": "editable/references/guide.md", "content": base64.b64encode(b"keep me\n").decode()},
+        ])
+        updated = skills_store.update_skill(
+            result["skill"]["key"], "编辑后的技能", "更新后的简介", "# 新指令\n\n执行真实更新。",
+        )
+        self.assertTrue(updated["ok"])
+        root = settings.SKILLS_DIR / "editable-local"
+        self.assertEqual("keep me\n", (root / "references" / "guide.md").read_text(encoding="utf-8"))
+        detail = skills_store.detail("editable-local")
+        self.assertEqual("编辑后的技能", detail["name"])
+        self.assertEqual("更新后的简介", detail["description"])
+        self.assertIn("执行真实更新", detail["body"])
+
 
 if __name__ == "__main__":
     unittest.main()
