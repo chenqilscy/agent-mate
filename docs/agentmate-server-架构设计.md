@@ -207,7 +207,73 @@ catalog_downlink         -- 含技能 / 连接器 / 专家推荐位的本地只�
 ## 11. 风险与铁律对齐
 
 - **铁律 1（不硬编码不模拟）**：目录入库后，内置人格/连接器作为**真种子数据**入库，运行时读库真生效；橱窗卡沿用现状（明确是展示、不接真实能力），不伪造授权。
-- **铁律 4（凭据只在后端）**：Server 同步**绝不上传** `LLM_API_KEY` 与连接器 secret；这些永远只在本地 `backend/.env`。
+- **铁律 4（凭据只在后端）**：Server 同步**绝不上传** `LLM_API_KEY` 与连接器 secret；这些永远只在本地 `backend/.env` 或本机 DB。
 - **铁律 5（SSE 契约）**：同步/目录变化若要反映到 UI，走既有事件/刷新机制，一种事件 ⇄ 一种 UI 形态。
 - **数据隐私**：会话/工作区可能含敏感内容——上行团队时间线需**可配置**（项目/用户级开关），默认最小上报。
 - **回退优先**：任何 Server 不可用场景都必须降级为本地可用，绝不因「连不上平台」阻断本机使用。
+
+## 12. 能力发布与客户端兼容（目标设计）
+
+> 状态：2026-07-21 设计收敛，**尚未全部实现**。现有 `catalog_items.version`、App 全量 pull、
+> 本机 Skill 安装快照和 Tauri updater 只是基础构件，不能视为完整发布系统。
+
+### 12.1 控制面对象
+
+Server 为每次可发布能力维护稳定身份和不可变版本：
+
+```text
+CapabilityRelease
+  id / kind(skill|expert|connector|policy)
+  slug / version / content_hash / status(draft|testing|published|withdrawn)
+  min_app_version / min_tool_contract_version
+  permissions(read_files|write_files|network|external_write|...)
+  rollout(channel|percentage|orgs)
+  created_by / reviewed_by / published_at / release_notes
+```
+
+Skill 版本必须同时覆盖 `instructions + tools + files + permissions + hash`。排序、推荐位和营销文案
+不是技能包版本；权限或工具变化不能脱离指令快照提前生效。
+
+### 12.2 App capability report
+
+App 连接 Server 时上报最小公开能力信息：`app_version`、`platform/arch`、`tool_contract_version`、
+受支持工具名/版本和更新通道。不得上报本机凭据、工作区内容或会话正文。
+
+Server 用它完成：
+
+- Console 发布前兼容性预检；
+- 只向兼容 App 下发可执行版本，不兼容时返回明确状态和最低升级要求；
+- 统计灰度覆盖与失败率；
+- 在安全修复时声明最低 App 版本，但不绕过签名更新流程。
+
+### 12.3 下行状态机
+
+目录同步需要区分四种状态：
+
+| 状态 | App 行为 |
+|---|---|
+| Server 从未配置/从未同步成功 | 使用随 App 打包的 builtin 种子 |
+| Server 不可达 | 保留最后成功下行快照，不清空、不推进版本 |
+| Server 明确发布 | 原子写入新定义；按兼容/权限策略自动或待确认升级 |
+| Server 明确停用/撤回 | 下发 tombstone，压制同 slug builtin；已安装副本标撤回并禁止新加载 |
+
+当前“Server 空就清镜像并回退 builtin”的语义只适合首次兜底，不足以表达运营停用。实现时要保存
+`catalog_revision`、最后成功时间和 tombstone，并保证重复 pull 幂等。
+
+### 12.4 刷新、灰度与回滚
+
+- App 启动、登录、恢复唤醒和用户手动刷新时检查 revision；在线期间做低频条件请求。
+- Server 可通过 SSE/WebSocket 只发送“目录已失效”通知，App 再走认证 pull，不在推送体里夹带定义。
+- 灰度按发布通道、组织和稳定哈希分桶；同一设备不能在重复刷新时来回跳版本。
+- App 和 Skill 都保留最后可用版本；下载/校验/安装失败自动回滚，并上报不含敏感数据的失败码。
+- Server API 在桌面客户端升级窗口内保持向后兼容；强制升级只用于明确的安全/协议断裂场景。
+
+## 13. WorkBuddy 对标边界
+
+腾讯 WorkBuddy 的任务工作台、Skill/专家/专家团/连接器分层、多 Agent、自动化、远程助理与企业
+控制面可作为产品结构参考，资料见 [`docs/WorkBuddy/`](WorkBuddy/README.md)。AgentMate 的取舍是：
+
+- 学习其“任务 → 可观察执行 → 可验收交付 → 能力复用”闭环；
+- 保留 local-first，文件、会话正文和 secret 不因中心运营而上传；
+- Console 管发布定义与策略，App 执行并最终裁决本机真实能力；
+- 不把专家团目录卡等同于多 Agent，不把纯提示词 Skill 等同于真实办公产物工具。

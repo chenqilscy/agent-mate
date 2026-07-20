@@ -59,13 +59,24 @@ pnpm tauri build
   传输**同进程运行（不起子进程），可用。第三方 stdio 连接器（GitHub）打包版默认禁用，
   可设 `AGENTMATE_BUNDLE_CONNECTORS=1` 尝试。
 
-## 自动更新（脚手架，接端点即生效）
+## 自动更新
+
+### 当前状态：只有脚手架，生产更新尚未上线
 
 已装 `tauri-plugin-updater` + `tauri-plugin-process`，签名公钥在 `tauri.conf.json`
 `plugins.updater.pubkey`，私钥 `src-tauri/.updater-key`（**已 gitignore，务必妥善保管**）。
-菜单栏「帮助(H)」触发检查更新。
 
-上线步骤：
+`src/platform/index.ts` 已实现 `check → downloadAndInstall → relaunch`，但截至 2026-07-21：
+
+- `plugins.updater.endpoints` 仍是 `REPLACE-WITH-YOUR-RELEASE-HOST` 占位地址；
+- 前端没有实际调用 `platform.checkForUpdates()` 的启动检查或菜单/设置入口；
+- 没有签名 CI、release manifest 托管、stable/beta 通道、灰度和回滚监控。
+
+因此当前安装包**不会因为 Server 部署新版本而自动升级**。Server 目录更新只能下发数据定义；新增
+Tool 实现、运行时、sidecar 或 UI 必须发布新的签名桌面安装包。
+
+### 最小上线步骤
+
 1. 把 `plugins.updater.endpoints` 里的占位 URL 换成你托管 `latest.json` 的地址
    （支持 `{{target}}`/`{{arch}}`/`{{current_version}}` 占位）。
 2. 构建时提供私钥签名：
@@ -77,6 +88,22 @@ pnpm tauri build
    `bundle.createUpdaterArtifacts` 已开启，会产出 `.sig` 签名文件。
 3. 把新版本的安装包与签名、以及 `latest.json`（含 version/notes/platforms+signature）
    发布到端点。客户端「检查更新」即可下载安装并自重启。
+4. 在桌面启动、设置页和“帮助”入口调用 `platform.checkForUpdates()`；浏览器版明确返回
+   `unsupported`，不能显示假成功。
+5. 验证从上一受支持版本升级：下载、签名校验、安装、sidecar/DB 迁移、自重启、版本显示和旧数据。
+
+### 生产发布要求
+
+- **不可变产物**：安装包、updater artifact、`.sig`、manifest 和 release notes 按版本归档，禁止
+  覆盖同版本二进制。
+- **通道与灰度**：至少 stable/beta；灰度按稳定设备分桶，重复检查不能来回切版本。
+- **兼容窗口**：Server API 在桌面升级周期内向后兼容；安全/协议断裂才设置强制最低版本。
+- **失败回滚**：保留上一安装包和最后可用数据库备份策略；发布平台监控检查/下载/校验/安装失败码，
+  不上传凭据、文件或会话正文。
+- **Skill/Tool 联动**：Console 发布引用新 Tool 的 Skill 前，先确认目标客户端已经具备所需
+  `app_version/tool_contract_version`；目录数据不能代替 App 更新。
+- **密钥隔离**：Tauri updater 私钥和 Windows 代码签名证书只进入受保护 CI，不能进入 Console、
+  Server DB、仓库或 App 安装包。
 
 ## 代码签名（去掉 SmartScreen 警告）
 
@@ -100,6 +127,6 @@ CA 的代码签名证书**（OV 或 EV；**自签名无效**，SmartScreen 只�
 
 ## 已知待办
 
-- **A4 自动更新**需你提供发布端点才真正生效（见上）。
+- **A4 自动更新**仍需正式端点、前端触发入口、签名 CI、通道/灰度和升级回归才真正生效（见上）。
 - **代码签名**需你购买证书（见上）。
 - 第三方 stdio 连接器（GitHub 等）在打包版里默认禁用（内置连接器已可用）。

@@ -84,7 +84,7 @@ created: YYYY-MM-DD
 ## 项目铁律（改代码时必须遵守）
 
 - **不硬编码、不模拟**：流式来自真实 LLM，状态真持久化，trace 来自真实事件。
-- **视觉零重设计**：CSS class 名与设计 token 沿用腾讯 WorkBuddy 参考原型（`docs/tencent-workbuddy-reference.html` / `src/styles/`）；暗色是 `body.dark` 上的变量覆盖，别写死会在暗色翻车的浅色背景。
+- **视觉零重设计**：CSS class 名与设计 token 沿用腾讯 WorkBuddy 参考原型（`docs/WorkBuddy/tencent-workbuddy-reference.html` / `src/styles/`）；暗色是 `body.dark` 上的变量覆盖，别写死会在暗色翻车的浅色背景。
 - **API Key 只存后端** `backend/.env`，绝不进前端/提交/子进程环境。
 - **SSE 协议是前后端契约**：一种事件类型 ⇄ 一种 UI 形态（`backend/agent/events.py` ⇄ `src/stores/chatStore.ts`）。
 - 详见 `AGENTS.md`。

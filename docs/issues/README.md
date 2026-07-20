@@ -250,6 +250,7 @@
 | [WB-231](WB-231-expert-teams-stable-runtime-identity.md) | ✅ | P1 | fullstack | 专家团 17 名成员已绑定稳定 expert_slug，Server 校验/下发与 App 真实 persona 执行闭环完成 |
 | [WB-232](WB-232-skill-functional-gate-requires-install.md) | ✅ | P1 | test | 技能功能门禁按真实安装模型运行并恢复原状态，15/15 实时回归通过 |
 | [WB-233](WB-233-custom-connector-toast-only-entry.md) | ✅ | P2 | frontend | App 已移除只弹 toast 的“自定义连接器”伪入口 |
+| [WB-235](WB-235-capability-release-docs-workbuddy-reference.md) | ✅ | P1 | misc | 能力目录发布升级设计与 WorkBuddy 产品参考缺少统一文档沉淀 |
 
 ## 来源
 

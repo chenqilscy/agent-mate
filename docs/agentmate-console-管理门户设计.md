@@ -1,6 +1,8 @@
 # AgentMate Console —— Web 管理控制台设计
 
-> 状态：已落地；2026-07-20 经 **WB-215/217** 修订技能边界：Console 分开管理 AgentMate 技能定义与技能推荐位；第三方 SkillHub 商店、Key、安装和文件仍留在本地 App。
+> 状态：目录 CRUD 已落地；2026-07-21 经 **WB-235** 补充能力发布目标。Console 已分开管理
+> AgentMate 技能定义与推荐位，但草稿/Test Run/审核/灰度/撤回/回滚及客户端兼容视图仍是目标设计，
+> 不能把“保存目录项”描述为生产发布闭环。第三方 SkillHub 商店、Key、安装和文件仍留在本地 App。
 > 前置：[`agentmate-server-架构设计.md`](agentmate-server-架构设计.md)（Server 控制平面总纲）。
 > 本文把原来那个「够用就好」的 Server 控制台升级为一个**完整的 Web 管理控制台**，
 > 最终产品名为 **AgentMate Console**，由 `server/web/console.html` 提供。
@@ -73,7 +75,7 @@ AgentMate Console
 - **连接器推荐位**（`CONNECTOR_RECOMMENDATIONS`）：connector_slug / placement / 排序 / 启停 / 生效时间；只引用定义，不保存 token 与 OAuth 状态。
 - **专家定义**（`EXPERT_DEFS`）：稳定 slug / 名称 / 展示资料 / persona / functional；persona 是 App 运行时的真定义。
 - **专家推荐位**（`EXPERT_RECOMMENDATIONS`）：expert_slug / placement / 排序 / 启停 / 生效时间；用户本机自定义专家不进入公共推荐目录。
-- **技能定义**（`APP_SKILLS`）：slug / icon / 名称 / 简介 / 分类 / 指令 / 工具。
+- **技能定义**（`APP_SKILLS`）：不可变 slug / icon / 名称 / 简介 / 分类 / 指令 / 工具 / 附加文本文件 / 自动递增目录版本。
 - **技能推荐位**（`SKILL_RECOMMENDATIONS`）：provider / skill_slug / placement / 编辑标题与简介 / 分类 / 排序 / 启停 / 生效时间；AgentMate 引用技能定义，SkillHub 只保存目录指针和展示文案。
 - 通用能力：启用/停用（`enabled`）、排序（`sort`）、删除；保留「高级：裸 JSON」兜底特殊类别。
 
@@ -90,6 +92,31 @@ App 的 work_items 目前**本地独有**。要在门户管理团队计划/任�
 - **门户 UI**：看板（4 列拖拽）+ 列表，与 App 的「计划/任务」tab 对齐。
 > 体量最大、且触碰本地⇄Server 同步。建议放 epic 末尾；若想先要轻量收益可后置或拆二期。
 
+### 5.5 能力发布中心（WB-235，目标设计）
+
+目录管理回答“定义是什么”，发布中心回答“哪个版本何时对哪些 App 生效”。两者不得继续混成一次
+`PATCH`：
+
+```text
+草稿 → Test Run → 审核 → 发布 → 灰度 → 全量
+                         └────────→ 撤回 / 回滚
+```
+
+Skill 发布页至少展示：
+
+- 当前草稿与线上版本、release notes、内容 hash；
+- 指令/工具/文件/权限 diff，新增写入/网络/外部服务权限醒目标注；
+- `min_app_version`、工具契约版本和兼容/不兼容客户端分布；
+- stable/beta、组织范围、灰度比例、计划发布时间；
+- 发布人、审核人、操作审计、安装/升级/失败率；
+- 撤回影响：未安装、已安装、项目引用、离线设备和 builtin fallback 的处理结果。
+
+Test Run 必须在真实 App 执行面进行：Console 只创建测试发布并选择测试客户端/账号，运行时、凭据、
+工作区和工具事件仍留在 App；Server 只接收允许上报的状态与脱敏摘要。
+
+Console 可以管理工具**公开契约与绑定策略**，但工具实现必须随签名 App 发布。不得把任意脚本内容
+当作普通目录 JSON 下发执行；需要可执行 Skill 包时另行设计签名、来源审查和权限沙箱。
+
 ## 6. 数据模型改动
 
 | 模型 | 动作 |
@@ -97,6 +124,8 @@ App 的 work_items 目前**本地独有**。要在门户管理团队计划/任�
 | `Project` | 无需改（`instruction/connectors/experts/skills` 已在） |
 | `catalog_items` | 复用；写端点已具备，门户做类型化表单即可 |
 | **`work_items`（新）** | Server 新表 + DAO + 路由 + 本地⇄Server 同步（WB-081） |
+| **`capability_releases`（目标）** | 不可变发布版本、状态、hash、兼容要求、权限、灰度与审计 |
+| **`client_capabilities`（目标）** | App 版本/平台/公开工具契约与最后在线时间；不含 secret 和工作区数据 |
 
 ## 7. 产品与技术命名
 
@@ -117,6 +146,7 @@ App 的 work_items 目前**本地独有**。要在门户管理团队计划/任�
 | **WB-083** | frontend | 目录运营中心 —— **连接器** 类型化 CRUD（launch spec 编辑器） | 中 |
 | **WB-084** | fullstack | 历史实现：技能目录运营；其中第三方 SkillHub 集中管理部分已由 WB-215 移除 | 中 |
 | **WB-081** | backend | **团队计划/任务** —— Server `work_items` 模型 + 路由 + 本地⇄Server 同步 + 门户看板 | 大 |
+| **WB-235** | misc | 能力发布/升级设计收敛 + WorkBuddy 官方参考资料归档；运行时实现另拆 issue | 中 |
 
 **建议顺序**：WB-079（改名骨架）→ WB-080（项目配置）→ WB-082/083/084（目录运营中心）→ WB-081（计划/任务，最重殿后）。
 每条独立可交付、独立提交（共享工作树按 hunk 暂存）。
@@ -125,5 +155,6 @@ App 的 work_items 目前**本地独有**。要在门户管理团队计划/任�
 
 - 执行 / 沙箱文件（资产）/ composer 进 Web —— 违反 local-first + 铁律 4。
 - org 级目录运营（团队私有目录）、实时通道（WebSocket 在线/评论，v1 仍 REST+轮询）。
-- SaaS 托管 / 代码签名（需用户基建/证书）。
+- 在 Console 保存 updater 私钥或代码签名证书——签名密钥留在受保护的 CI/发布基础设施；Console
+  只管理发布元数据、通道和灰度策略。
 - 把 Console 拆成第二个后端服务——它保持由 Server 同源托管。

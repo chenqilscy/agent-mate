@@ -2,7 +2,8 @@
 
 A real, runnable local-first AI work companion. AgentMate was initially built
 from a high-fidelity reference prototype of Tencent WorkBuddy in
-[`docs/tencent-workbuddy-reference.html`](docs/tencent-workbuddy-reference.html), following the plan in
+[`docs/WorkBuddy/tencent-workbuddy-reference.html`](docs/WorkBuddy/tencent-workbuddy-reference.html), with
+official-source notes in [`docs/WorkBuddy/`](docs/WorkBuddy/), following the plan in
 [`docs/agentmate-实现方案.md`](docs/agentmate-实现方案.md), and is now an independent product.
 
 **Principle: nothing faked.** All streaming output comes from a real LLM, all

@@ -1,6 +1,6 @@
 # AgentMate 数据分层与同步规范
 
-> 状态：v1（2026-07-10 立）。本规范是 **AgentMate App ⇄ AgentMate Server** 之间“哪些数据上云、哪些留本地、怎么同步”的**唯一准绳**；Console 是 Server 的 Web 管理界面。
+> 状态：v2（2026-07-21 修订）。本规范是 **AgentMate App ⇄ AgentMate Server** 之间“哪些数据上云、哪些留本地、怎么同步”的**唯一准绳**；Console 是 Server 的 Web 管理界面。
 > 新增任何实体前，先按 §5 的决策流程给它归层，再写代码。相关落地见 epic [WB-112](issues/WB-112-manager-positioning-data-spec.md)。
 
 ## 0. 定位
@@ -35,7 +35,7 @@
 | 团队动态 timeline_events | **Server** | ✅（仅元数据） | App→Server 上行 push | 本地 sessions 兜底显示 | ⚠️ 未回读，队友动态互不可见（WB-112） |
 | 讨论 comments / @提及 | **Server** | ✅ | Server 代理 | 无离线态 | ✅（设计取舍） |
 | 在线状态 presence | **Server** | ✅ | Server | 无 | ✅ |
-| 目录 catalog（人格/连接器/技能橱窗） | **Server** | ✅ | Server→App 下发 | 本地 builtin 兜底 | ✅ |
+| 目录 catalog（人格/连接器/技能/推荐位） | **Server** | ✅ | Server→App 版本下发 | 首次用 builtin；离线保留最后可用快照 | ⚠️ 基础全量 pull 已有；tombstone/条件刷新待补 |
 | **资产/文件 assets** | **App 本地** | ❌ | 不同步 | 全功能 | ✅ 故意不上云（红线 2） |
 | 自动化 automations | **App 本地** | ❌ | 不同步（暂） | 全功能 | 未上云；是否需团队级待定 |
 | 助理/频道 channels | **App 本地** | ❌ | 不同步 | 全功能 | 私有 |
@@ -52,6 +52,25 @@
 4. **镜像合并**：**目标**是按 `id + updated_at` 增量合并、冲突可见（last-write-wins by timestamp）。**现状**是"整表删插"（离线并发会丢改动），列为 WB-112 待修项。
 
 > 铁律：**协作实体的写，凡 server-origin 项目，必须代理到 Server**。只写本地 = 下次 pull 被覆盖 = 静默丢数据。当前 `projects`/`members` 违反此条，须补齐。
+
+### 3.1 目录与 Skill 的专用同步契约
+
+目录不是普通协作表：它还要同时处理随 App 打包的 builtin、Server 公共定义和用户本机安装快照。
+
+1. **Server 定义权威**：连接 Server 且至少成功同步一次后，同 slug 的 Server 发布/停用语义优先于
+   builtin。停用必须下发 tombstone，不能用“省略该行”表达。
+2. **离线保留最后状态**：Server 不可达时不清目录、不解除 tombstone、不自动回到更旧 builtin；
+   last-known-good 继续可用。
+3. **首次兜底**：从未配置 Server或从未成功拉取时，才使用当前 App 版本内置种子。
+4. **定义与安装分离**：目录可更新展示和待安装版本；已安装 Skill 的指令、工具、文件、权限和版本
+   必须作为本机原子快照升级，不允许“旧指令 + 新工具”混跑。
+5. **兼容门禁**：App 上报版本和公开工具能力；低于 `min_app_version/tool_contract_version` 时，
+   目录可展示但不得安装/运行，并给出明确升级要求。
+6. **刷新机制**：启动/登录/恢复/手动刷新 + 低频条件请求；实时通道只推 revision 失效信号，
+   完整定义仍经认证 pull 获取。
+
+现状基础链路为 `POST /api/server/pull` 全量替换 `scope=server`；本节描述目标语义。实现前后均不得
+把网络不可达与中心撤回合并为同一个“回退 builtin”状态。
 
 ## 4. 统一用户与身份规范
 
