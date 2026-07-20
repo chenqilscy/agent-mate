@@ -57,6 +57,22 @@ class ConsoleCatalogEditorContractTests(unittest.TestCase):
             self.assertIn('data-ed="${it.id}"', _function_block(view, next_name))
         self.assertIn('api("PATCH","/catalog/item/"+it.id', CONSOLE)
 
+    def test_skill_files_use_tree_browser_and_editor_workspace(self) -> None:
+        block = _function_block("skillEditor", "recDateValue")
+        for marker in (
+            'class="sk-workspace"',
+            'id="skf-tree"',
+            'id="skf-search"',
+            'id="skf-content"',
+            "function generatedSkillMarkdown()",
+            'data-dir="${esc(path)}"',
+            'data-file="${file.index}"',
+            'source: agentmate',
+        ):
+            self.assertIn(marker, block)
+        self.assertNotIn('id="skf-list"', block)
+        self.assertNotIn('class="sk-file-form"', block)
+
 
 if __name__ == "__main__":
     unittest.main()

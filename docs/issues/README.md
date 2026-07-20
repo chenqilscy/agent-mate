@@ -238,6 +238,7 @@
 | [WB-220](WB-220-server-managed-connector-recommendations.md) | ✅ | P1 | fullstack | 连接器定义与推荐位未由 Server 管理且 App 缺少本地运行态映射 |
 | [WB-221](WB-221-server-managed-expert-recommendations.md) | ✅ | P1 | fullstack | 专家定义与推荐位未由 Server 管理且 App 缺少本地人格映射 |
 | [WB-222](WB-222-console-catalog-editors-modal-consistency.md) | ✅ | P2 | frontend | Console 目录 CRUD 编辑器与列表混排，交互边界不一致 |
+| [WB-223](WB-223-console-skill-file-browser-editor.md) | ✅ | P2 | ui | Console 技能文件页缺少文件浏览器与就地编辑器 |
 
 ## 来源
 
