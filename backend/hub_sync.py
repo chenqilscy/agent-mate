@@ -10,6 +10,7 @@ Hub 项目落本地 `projects`(origin='hub')，成员落 `project_members`——
 from __future__ import annotations
 
 import hub_client
+from agent.skills import canonical_skill_keys
 from config import settings
 from storage import db
 from storage.models import LOCAL_USER_ID
@@ -28,7 +29,7 @@ def pull(token: str) -> dict:
         db.mirror_hub_project(
             id=pid, name=p.get("name", ""), owner_id=p.get("owner_id", ""),
             instruction=p.get("instruction", ""), connectors=p.get("connectors", []),
-            experts=p.get("experts", []), skills=p.get("skills", []),
+            experts=p.get("experts", []), skills=canonical_skill_keys(p.get("skills", [])),
         )
         members = hub_client.list_project_members(token, pid) or []
         db.replace_hub_project_members(pid, members)
@@ -117,5 +118,15 @@ def pull_catalog(token: str) -> dict:
     items = hub_client.list_all_catalog(token)
     if items is None:  # 不可达：保留上次下发，别清成空
         return {"downlinked": 0, "reachable": False}
-    db.replace_all_downlink(items)
-    return {"downlinked": len(items), "reachable": True}
+    skill_rows = [
+        {**it["data"], "sort": it.get("sort", 0)}
+        for it in items
+        if it.get("category") == "APP_SKILLS" and isinstance(it.get("data"), dict)
+    ]
+    showcase_rows = [it for it in items if it.get("category") != "APP_SKILLS"]
+    skill_result = db.replace_hub_skill_catalog(skill_rows)
+    db.replace_all_downlink(showcase_rows)
+    return {
+        "downlinked": len(items), "reachable": True,
+        "skills": skill_result["inserted"], "skills_skipped": skill_result["skipped"],
+    }

@@ -15,10 +15,9 @@ import { WeKnoraConfigForm } from './WeKnoraConfigForm'
 // 填完存后端 DB（不用改 .env），徽标按真实连接态实时切换。
 // 其余非 OAuth 连接器沿用「添加到本会话 / 去试试」展示型交互。
 
-// 把连接器接入本会话 loadout（非破坏式，只在未选中时加），可选携一个试用 prompt 直接发起。
+// 把连接器作为新会话的唯一能力班底，可选携一个试用 prompt 直接发起。
 function engage(name: string, prompt?: string) {
-  const lo = useLoadoutStore.getState()
-  if (!lo.connectors.includes(name)) lo.toggle('conn', name)
+  useLoadoutStore.getState().summonConnectors([name])
   const chat = useChatStore.getState()
   if (prompt) {
     chat.startDraft(prompt.length > 26 ? prompt.slice(0, 26) + '…' : prompt)
@@ -110,8 +109,13 @@ export function ConnectorDetailModal(
   const doTry = () => { engage(name); onClose() }
   const doPrompt = (p: string) => { engage(name, p); onClose() }
   const toggleAdd = () => {
-    useLoadoutStore.getState().toggle('conn', name)
-    toast((added ? '已移除 · ' : '已添加到本会话 · ') + name)
+    if (added) {
+      useLoadoutStore.getState().toggle('conn', name)
+      toast('已移除 · ' + name)
+      return
+    }
+    engage(name)
+    onClose()
   }
 
   // 头部状态标签：oauth 连接器显示实时连接态；其它连接器显示静态 statusLabel。

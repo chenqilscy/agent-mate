@@ -3,7 +3,7 @@ id: WB-194
 title: 连接器卡「添加到本会话」是真状态但假用处 —— 用户一导航去用它就被 reset 清掉
 severity: P2
 area: frontend
-status: open
+status: fixed
 origin: 既有实现
 files:
   - src/views/ExpertsView.tsx:646
@@ -67,3 +67,9 @@ P2。不是伪造（状态真进了 store），但用户视角的结果与「假
 - 连接器卡点 ＋ → 落到 composer → loadout chip 里**真有**该连接器；
 - 发一条消息 → SSE loadout 事件里出现「连接器 X」（或「连接器未就绪 X（原因）」，两者都诚实）；
 - 回归：WB-003 的隔离仍在 —— 「新建任务」后 chip 清空、不泄漏进下一段会话。
+
+## 处理记录（2026-07-20）
+
+- 改动：`loadoutStore` 新增 `summonConnectors`；连接器目录卡与详情弹窗统一改为“挂载连接器 → 开新草稿 → 回到输入区”，已挂载状态仍可显式移除。
+- 验证：`npx tsc --noEmit` 通过；Playwright + Edge 从 `/connectors` 点击“通达信”卡片加号后返回 `/`，输入区出现真实 `🔗 通达信` loadout chip，页面横向溢出为 0。
+- commit：待本轮整体提交

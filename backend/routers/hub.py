@@ -25,10 +25,14 @@ def hub_pull(authorization: str = Header(default="")) -> dict:
     if not hub_client.hub_enabled():
         return {"hub": False, "synced": 0, "projects": []}
     token = _bearer(authorization)
+    # 先拉技能定义，再归一项目 skills；这样旧 Hub 项目里的展示名也能借 APP_SKILLS 映射成 slug。
+    catalog = hub_sync.pull_catalog(token)        # 下行：目录/技能定义（WB-066/183）
     result = hub_sync.pull(token)                 # 下行：拉项目/成员镜像
     flushed = hub_sync.flush_outbox()             # 上行：顺手补推 outbox（同步路由=线程池）
-    catalog = hub_sync.pull_catalog(token)        # 下行：拉 Hub 目录覆盖本地（WB-066）
-    return {"hub": True, **result, "flushed": flushed.get("pushed", 0), "catalog": catalog.get("downlinked", 0)}
+    return {
+        "hub": True, **result, "flushed": flushed.get("pushed", 0),
+        "catalog": catalog.get("downlinked", 0), "skills": catalog.get("skills", 0),
+    }
 
 
 @router.post("/hub/import")

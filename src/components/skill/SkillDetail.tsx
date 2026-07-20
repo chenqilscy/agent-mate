@@ -58,7 +58,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
   const localKey = data?.key || target.key || ''
 
   const tryIt = () => {
-    useLoadoutStore.getState().summonSkills([name])
+    useLoadoutStore.getState().summonSkills([data?.slug || localKey || name])
     useChatStore.getState().startDraft('试试 · ' + name)
     useUIStore.getState().setView('home')
     toast('已挂载「' + name + '」· 去试试')

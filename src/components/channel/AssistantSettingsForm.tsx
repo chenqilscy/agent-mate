@@ -3,6 +3,7 @@ import { api, type Assistant, type AssistantMode } from '../../lib/api'
 import type { ProjectInfo } from '../../lib/types'
 import { PickerOverlay } from '../project/NewProjectModal'
 import { toast } from '../../stores/toastStore'
+import { skillDisplayName, useSkillStore } from '../../stores/skillStore'
 
 // 助理设置表单（WB-088）。权限映射 run_chat 三态；工作空间 default/dedicated/project:<id>。
 // 专家/技能/连接器 复用 PickerOverlay。套 .np-* 表单类，天然暗色。
@@ -16,6 +17,8 @@ export function AssistantSettingsForm({ assistant, onSaved }: {
   assistant: Assistant
   onSaved: (a: Assistant) => void
 }) {
+  useSkillStore((s) => s.builtin)
+  useSkillStore((s) => s.installed)
   const [avatar, setAvatar] = useState(assistant.avatar || '🤖')
   const [name, setName] = useState(assistant.name)
   const [instruction, setInstruction] = useState(assistant.instruction)
@@ -61,7 +64,7 @@ export function AssistantSettingsForm({ assistant, onSaved }: {
     <div className="asst-chips">
       {arr.length === 0 && <span className="asst-empty">未选</span>}
       {arr.map((n) => (
-        <span className="np-chip" key={n} title={n}><span className="np-lbl">{n}</span><span className="x" onClick={() => toggle(kind, n)}>×</span></span>
+        <span className="np-chip" key={n} title={n}><span className="np-lbl">{kind === 'skill' ? skillDisplayName(n) : n}</span><span className="x" onClick={() => toggle(kind, n)}>×</span></span>
       ))}
       <button className="asst-addchip" onClick={() => setPicker(kind)}>＋ 编辑</button>
     </div>

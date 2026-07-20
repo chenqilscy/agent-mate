@@ -101,26 +101,18 @@ export const EXP_TEAMS: ExpertTeam[] = [
 // SK_RECO 已删除（WB-184）：前端**零消费**（全仓库只有本处定义 + catalogStore 的类型/兜底
 // 各一处引用），是原型迁移遗留的死代码。原型 workbuddy-v2.html:1361 用过，React 版从未渲染。
 
-export const SK_CATS = ['全部', 'OPC·一人公司', '生活服务', '开发工具', '网站部署', '教育学习', '投资理财', '内容创作', '信息资讯', '效率工具', '办公协同', '商业运营', '数据分析', '知识与学习']
-
-// 「推荐」段的技能浏览卡（我们自己的目录，Manager 可 CRUD 运营；上游商店那半是 SkillHub 段的镜像）。
-// WB-184：删掉 7 张**上游根本不存在**的虚构卡（NeoData金融搜索服务 / A股全栈数据 / QQ音乐助手 /
-// IMAP-SMTP邮件 / fbs-bookwriter / QQ邮箱 / 创业可以学）—— 逐个搜上游确认过：搜任何一个都只回
-// self-improving-agent / find-skills / summarize 这几个通用结果，即无对应技能；点它们的安装
-// 必然「SkillHub 未找到「X」」。留着就是给不存在的商品挂橱窗卡（铁律#1）。
-// 剩下 9 张都是真的：6 张内置技能（定义在 catalog_skills，WB-183）+ 3 张名字能精确解析到真 slug
-// （腾讯自选股-金融数据查询→westock-data / skill-creator / 腾讯新闻→tencent-news）。
-export const SK_GRID: [string, string, string][] = [
-  ['📈', '腾讯自选股-金融数据查询', '由腾讯自选股团队提供，查询 A股、港股、美股个股/指数/ETF 的详细数据。'],
-  ['📝', 'MarkItDown', '文档转 Markdown（PDF/Word/PPT/图片 OCR/音频转写/网页）'],
-  ['📊', 'Excel 文件处理', 'Excel 文件创建与分析'],
-  ['🧩', '技能创建指南', '创建和维护自定义技能的指南'],
-  ['🔧', 'skill-creator', 'Skill 创建/编辑助手：把你的需求转成规范的 SKILL.md 与配套脚本，支持新建与改写已有技能。'],
-  ['🌐', 'Web Access（浏览器自动化）', '联网取材：按 URL 抓取网页正文再作答，并注明来源链接。'],
-  ['📃', 'Word 文档生成', 'Word 文档生成与编辑'],
-  ['📮', '腾讯新闻', '7x24 新闻搜索工具，聚焦国内外热点，支持热榜、早晚报、实时资讯查询。'],
-  ['📈', '股票综合分析器', '基于东方财富的全球股票三维分析（基本面、新闻面、资金面）'],
-]
+// 推荐技能由后端 catalog_skills 真定义表生成。静态层只保留空类型兜底，后端不可用时诚实空态，
+// 不再复制一份会漂移的展示名/category/slug 快照（WB-183/184/195）。
+export interface RecommendedSkill {
+  slug: string
+  name: string
+  icon: string
+  description: string
+  category: string
+  source?: string
+}
+export const SK_CATS: string[] = []
+export const SK_GRID: RecommendedSkill[] = []
 
 export const CONNS: [string, string, string][] = [
   ['📉', '通达信', '通过通达信 MCP 查询全球股票行情数据、条件选股、研究报告、公告资讯和宏观信息。'],
@@ -309,71 +301,7 @@ export const INSP: [string, string, string][] = [
   ['#0F1420', '按需选择，随团队一起成长', '从 1 个人到 500 人团队的功能与定价对比页，一键生成'],
 ]
 
-// ---- SkillHub 技能商店（静态产品目录，同 SK_GRID/CONNS）------------------
-// 「技能」页的 SkillHub 视图数据。安装/卸载/关闭的用户状态在客户端持久化（skillStore，
-// localStorage），不与后端耦合；这里只是可浏览的目录内容。
-
-// 精选技能（顶部大卡池；一次展示 4 个，「换一换」轮换）：[emoji, color, name, desc, badge?]
-export const SKILLHUB_FEATURED: [string, string, string, string, string?][] = [
-  ['☁️', '#2E7DF6', '腾讯微云', '管理腾讯微云网盘文件（列表、上传、下载、删除、分享）。'],
-  ['✅', '#16B37A', '腾讯问卷', '腾讯问卷操作（创建、修改、逻辑设置、统计）。'],
-  ['🐧', '#0EA5E9', '鹅厂辟谣助手', '面向腾讯相关传闻的辟谣辅助 Skill，结合内部参考与实时联网核查，给出结论、事实依据和防诈提醒，并生成可分享卡片。'],
-  ['🗺️', '#4C6FFF', '腾讯地图·地图助手', '腾讯位置服务出品的地图助手 Skill。一句自然语言即可调用腾讯地图全套能力：AI 旅游攻略生成、POI 搜索（含评分/人均/营业时间）、路线规划与周边推荐。', '旅游规划'],
-  ['📊', '#EF4444', 'ppt-generator-skill', '智能 PPT 生成助手，根据主题、行业、风格自动生成漂亮的 PPT 文件，覆盖商务、教育、科技、医疗、金融等行业。'],
-  ['📈', '#1E6FFF', '腾讯自选股·金融数据', '实时查询股票（A股/港股/美股）、ETF、指数、板块、期货、外汇、可转债的 K 线与技术指标。', '金融数据'],
-  ['📝', '#F59E0B', '文章去AI味工具', '去除文本中的 AI 写作痕迹，让文字读起来更像人类写作，支持润色、改写、降 AI 味。'],
-  ['🐟', '#EF4444', '番茄小说写作助手', '专为番茄小说平台优化的分章节创作助手，支持悬疑/言情/奇幻/科幻/历史等题材，每章 2200-2800 字。', '长篇创作'],
-]
-
-export const SKILLHUB_CATS = ['全部', '办公效率', '内容创作', '开发编程', '数据分析', '设计多媒体', 'AI Agent', '知识管理', '商业运营', '教育学习', '行业专业', 'IT运维与安全', '生活服务']
-
-// SkillHub 商店技能卡：[label(字母/字), color, name, desc, downloads, stars, category(∈SKILLHUB_CATS)]
-export const SKILLHUB_GRID: [string, string, string, string, string, number, string][] = [
-  ['W', '#4C6FFF', 'web-tools-guide', 'MANDATORY before calling web_search, web_fetch, browser, or opencli. Contains required error-handling procedures for web_search / web_fetch / browser.', '174k', 109, '开发编程'],
-  ['I', '#6B7280', 'ima-skills', 'ima skills，支持写笔记、知识库的读取、写入和检索等操作，帮你随时记录、收入 ima 智能管理、随时调用。', '94k', 347, '知识管理'],
-  ['K', '#16B37A', 'kdocs skill', '操作金山文档（WPS 云文档 / Kdocs / 365.kdocs.cn）云文档的官方 Skill，覆盖云端新建、读取、编辑、搜索、分享。', '37k', 66, '办公效率'],
-  ['文', '#F59E0B', '文章去AI味工具', '去除文本中的 AI 写作痕迹，让文字读起来更像人类写作。当用户要求去AI味、降AI味、让回复更像人话、润色、改写得更自然时使用。', '27k', 180, '内容创作'],
-  ['P', '#EF4444', 'ppt-generator-skill', '智能 PPT 生成助手。根据用户描述的主题、行业、风格，自动生成漂亮的 PPT 文件，支持商务、教育、科技、医疗、金融等所有行业。', '23k', 91, '设计多媒体'],
-  ['A', '#7C5CFC', 'Agently Mail', 'Agently Mail 是 QQ 邮箱团队为 Agent 打造的专属邮箱服务，与个人邮箱隔离，原生适配 Agent，安全高效地收发邮件。', '21k', 28, '办公效率'],
-  ['P', '#17181C', 'pptx', '专业 PPTX 文件读写与生成技能，支持从大纲一键生成演示文稿、批量替换文本、导出与二次编辑。', '21k', 13, '设计多媒体'],
-  ['股', '#17181C', '股票价值投资分析系统', 'A股和港股价值投资分析系统。基于价值投资经典方法论，提供护城河分析、财务健康检查、DCF 估值、管理层评估等完整框架。', '18k', 98, '数据分析'],
-  ['A', '#14B8A6', 'AnySearch', 'Real-time search engine including web search, vertical domain search, parallel batch search, and URL content extraction.', '18k', 41, 'AI Agent'],
-  ['抖', '#17181C', '抖音文案一键提取', '粘贴抖音、快手、小红书、视频号公开可访问的短视频分享链接，一键提取标题、简介、口播文案，提供原版、优化朗读版、精简版。', '14k', 87, '内容创作'],
-  ['C', '#2E7DF6', 'cloudbase', '在开发、设计、构建、部署、调试、迁移或排查 CloudBase（腾讯云开发、云托管、TCB、微信云开发）项目时使用本技能。', '14k', 10, '开发编程'],
-  ['P', '#7C5CFC', 'PDF和图片文字提取', '从图片或 PDF 文档中识别并提取文字内容，支持多种图片格式和 PDF 文件，自动判断是否需要 OCR。', '13k', 44, '办公效率'],
-  ['腾', '#1E6FFF', '腾讯自选股-金融数据查询', '金融市场结构化数据查询的权威入口，实时查询股票（A股/港股/美股）、ETF、指数、板块、期货、外汇、可转债的 K 线与技术指标。', '12k', 74, '数据分析'],
-  ['番', '#EF4444', '番茄小说写作助手（单章2200-2800字）', '专为番茄小说平台优化的分章节创作助手，支持悬疑/言情/奇幻/科幻/历史等题材，支持长篇创作，每章 2200-2800 字。', '11k', 130, '内容创作'],
-  ['海', '#F97316', '海报设计skill', '当用户提到海报、视觉设计、品牌视觉、排版系统、极简风格、设计美学、美学方案，或想制作商业海报时，必须触发本技能。', '10k', 55, '设计多媒体'],
-  ['产', '#17181C', '产品经理综合技能（PM Master）', '需求分析、PRD 编写、产品需求文档、竞品分析、BRD、MRD、用户故事、原型设计、痛点分析、功能设计一站式覆盖。', '9k', 63, '商业运营'],
-  ['T', '#1E6FFF', 'Tencent Cloud Lighthouse', '触发条件：用户提及 Lighthouse、轻量应用服务器或轻量服务器时，或请求检查/创建/管理/部署 Lighthouse 实例、部署应用到轻量服务器时。', '18k', 11, 'IT运维与安全'],
-  ['T', '#2E7DF6', 'Tencent Cloud Infra', '腾讯云全产品统一管理 Skill，基于 tccli 覆盖 Lighthouse/CVM/CBS/COS/VPC/DNSPod/SSL/CAM/Monitor/TAT 等。', '3.7k', 5, 'IT运维与安全'],
-  ['电', '#0EA5E9', '电脑智能清理助手', '电脑垃圾文件管理工具，核心功能是帮你解决文件重复、磁盘臃肿、整理低效的问题：智能识别重复文件，通过文件内容哈希核对判断。', '2.9k', 6, 'IT运维与安全'],
-  ['T', '#7C5CFC', 'TencentCloud Image AIGC Detection', '腾讯云 AI 生成图片识别技能，可用于 AI 生成图片检测、图片真伪鉴别、AI 绘画检测，辅助内容合规审核。', '2.2k', 1, 'IT运维与安全'],
-  ['S', '#16B37A', 'SkillScan', 'SkillScan 是 skill 的安全防护措施，可以自动检测已安装和新添加 skill 中的安全风险，并在高危/严重风险对你的环境造成损害之前提示。', '2.0k', 1, 'IT运维与安全'],
-  ['垃', '#16B37A', '垃圾清理大师', '电脑优化，储存空间清理，系统临时文件、清理各系统临时目录、释放基础空间，回收站/废纸篓，清空无用文件，不影响个人重要文件。', '1.6k', 1, 'IT运维与安全'],
-  ['敏', '#EF4444', '敏感信息检测与可逆脱敏工具', '名称：敏感信息检测与可逆脱敏工具。分类：安全/隐私保护。描述：文本敏感信息可逆脱敏，图片精准识别并拒绝处理，强制生成脱敏副本。', '1.5k', 5, 'IT运维与安全'],
-  ['S', '#4C6FFF', 'Skill Vetter', 'Security-first skill vetting for AI agents. Use before installing any skill from ClawdHub, GitHub, or other sources. Checks for red flags.', '1.5k', 4, 'IT运维与安全'],
-  ['C', '#2E7DF6', 'CloudQ', '在腾讯云、AWS、阿里云等多云环境下，提供智能架构图、目录、详情、评估结果，支持绘制架构图和开通智能顾问，含成本分析。', '1.3k', 2, 'IT运维与安全'],
-  ['网', '#16B37A', '网络工程师', '专业的网络工程师技能，覆盖路由交换、计算/数据中心、光传输五大方向，用于解答网络设计、排障与优化问题。', '1.0k', 4, 'IT运维与安全'],
-  ['T', '#17181C', 'TencentOS Server全栈运维诊断专家', 'TencentOS Server 全栈运维诊断，根据用户的自然语言描述，自动识别需要的能力接口，查询能力实现，使用具体能力解决客户问题。', '963', 5, 'IT运维与安全'],
-  ['T', '#1E6FFF', 'Tencent Cloud TIONE', '腾讯云 TI-ONE 训练平台综合工具集，支持训练任务、在线服务、开发机、资源组、模型仓库、数据集、日志、事件等模块的查询与管理。', '736', 0, 'IT运维与安全'],
-  ['T', '#2E7DF6', 'Tencent EdgeOne', '全面的腾讯云 EdgeOne（边缘安全与加速平台）技能，涵盖边缘加速、DNS、证书、缓存、规则引擎、四层代理等能力。', '736', 2, 'IT运维与安全'],
-  ['W', '#16B37A', 'WorkBuddy使用指南', 'WorkBuddy 全功能使用指南与故障排查手册。当用户询问 WorkBuddy 的任何使用问题、配置方法、故障排查时触发。', '678', 3, 'IT运维与安全'],
-  ['S', '#6B7280', 'shannon渗透测试', '基于 shannon 改进的人工智能驱动白盒渗透测试方法，遵循五阶段流程（前期侦察、侦察、漏洞分析、漏洞利用、报告生成），并形成闭环。', '673', 3, 'IT运维与安全'],
-  ['E', '#0EA5E9', 'Edgeone Pages Deploy', '一键部署静态站点/前端项目到腾讯云 EdgeOne Pages，自动构建、生成访问域名与边缘加速。', '648', 1, 'IT运维与安全'],
-  ['T', '#1E6FFF', 'tencentcloud-faceid-detectlivefaceaccurate', '腾讯云人脸核身活体检测高精度版（DetectLiveFaceAccurate）接口调用技能。当用户需要对人脸图片进行防翻拍活体检测时使用。', '653', 0, 'IT运维与安全'],
-  ['磁', '#F59E0B', '磁盘垃圾清理大师', '磁盘垃圾清理助手，自动扫描磁盘找到老文件、大文件、垃圾文件，生成垃圾桶 md 让用户审核后再清理，避免误删。', '512', 1, 'IT运维与安全'],
-  ['t', '#17181C', 'tsa', 'TSA - Tencent Cloud Smart Advisor，腾讯云智能顾问，巡检云上资源的成本、安全、性能与可靠性风险并给出优化建议。', '420', 2, 'IT运维与安全'],
-  ['日', '#7C5CFC', '一个会自进化的日志分析工具', '日志智能分析工具，基于 mini-swe-agent 极简理念：确定性规则 + AI 推理，自动定位异常、聚类报错、给出修复建议。', '388', 1, 'IT运维与安全'],
-  ['☁️', '#2E7DF6', '腾讯微云', '管理腾讯微云网盘文件（列表、上传、下载、删除、分享），生成分享链接。', '8k', 22, '生活服务'],
-]
-
-// SKILLHUB_KITS（技能套件）已删除（WB-182）：它是整次技能审查里唯一 100% 虚构的功能 ——
-// 后端 grep kit|bundle|套件 零命中、DB 无表、Hub 无源、_SHOWCASE_SKIP 让它永不入库，
-// 「N 个技能」的 N 是手写常量（8/6/5/4），且没有任何技能列表与之关联，「安装套件」按钮只 toast。
-// 要真做的话，正确姿势是等 WB-183 的 catalog_skills（slug 主键）落地后在 Hub 建 kit 表，
-// data 存 {name, icon, color, desc, slugs[]}，「N 个技能」由 slugs.length 真算，
-// 安装 = 对 slugs[] 逐个走已有的 POST /api/skills/install（无需新后端端点）。
+// SkillHub 浏览目录只来自 Hub 镜像或真实 rankings；离线不可达时展示诚实空态（WB-183/184）。
 
 // 知识库模板（GLM RAG · WB-144/145）：策展的「一键建库」模板。Manager 目录管理下发覆盖本地，
 // 离线/未接 Manager 时用下面这几个真实可用的内置模板兜底（非假数据——用户可直接按模板建库）。

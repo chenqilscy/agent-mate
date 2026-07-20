@@ -12,6 +12,7 @@ import { PickerOverlay } from '../project/NewProjectModal'
 import { RefPicker } from './RefPicker'
 import { useCatalogStore } from '../../stores/catalogStore'
 import { useKnowledgeStore } from '../../stores/knowledgeStore'
+import { skillDisplayName, useSkillStore } from '../../stores/skillStore'
 import { useVoiceInput } from './useVoiceInput'
 import { IcPlus, IcClose, IcSend, IcChevronDown, IcMic, IcShield } from '../../lib/icons'
 
@@ -40,6 +41,8 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
   const [text, setText] = useState('')
   const [pop, setPop] = useState<PopId>(null)
   const [picker, setPicker] = useState<'exp' | 'skill' | 'conn' | 'kb' | null>(null)
+  useSkillStore((s) => s.builtin)
+  useSkillStore((s) => s.installed)
   const [refOpen, setRefOpen] = useState(false)
   const anchorRef = useRef<HTMLElement | null>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -94,7 +97,8 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
     const cat = useCatalogStore.getState()
     if (kind === 'conn') return cat.NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
     if (kind === 'exp') return cat.NP_EXPERTS.find((x) => x[1] === name)?.[0] ?? '🧑'
-    return cat.SK_GRID.find((s) => s[1] === name)?.[0] ?? '🧩'
+    const label = skillDisplayName(name)
+    return cat.SK_GRID.find((s) => s.name === label || s.slug === name)?.icon ?? '🧩'
   }
 
   const grow = () => {
@@ -149,7 +153,7 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
             <span className="np-chip" key={'e' + n} title={n}><span>{iconOf('exp', n)}</span><span className="np-lbl">{n}</span><span className="x" onClick={() => toggleLoad('exp', n)}>×</span></span>
           ))}
           {skills.map((n) => (
-            <span className="np-chip" key={'s' + n} title={n}><span>{iconOf('skill', n)}</span><span className="np-lbl">{n}</span><span className="x" onClick={() => toggleLoad('skill', n)}>×</span></span>
+            <span className="np-chip" key={'s' + n} title={n}><span>{iconOf('skill', n)}</span><span className="np-lbl">{skillDisplayName(n)}</span><span className="x" onClick={() => toggleLoad('skill', n)}>×</span></span>
           ))}
           {connectors.map((n) => (
             <span className="np-chip" key={'c' + n} title={n}><span>{iconOf('conn', n)}</span><span className="np-lbl">{n}</span><span className="x" onClick={() => toggleLoad('conn', n)}>×</span></span>

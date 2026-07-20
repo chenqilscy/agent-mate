@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test:regression": "backend\\.venv\\Scripts\\python.exe -m unittest discover -s backend/tests/regression -p \"test_*.py\" && tsc --noEmit",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

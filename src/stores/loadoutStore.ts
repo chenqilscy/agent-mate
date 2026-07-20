@@ -40,6 +40,8 @@ interface LoadoutState {
   summon: (experts: string[]) => void
   // 同 summon，但换成技能班底（用于「编辑技能」：只挂 skill-creator，清掉专家/连接器）。
   summonSkills: (skills: string[]) => void
+  // 同 summon，但换成连接器班底（用于连接器目录的「去试试」：进入新草稿时保持挂载）。
+  summonConnectors: (connectors: string[]) => void
   addRef: (r: AttachedRef) => void
   removeRef: (name: string) => void
   clearRefs: () => void
@@ -70,6 +72,9 @@ export const useLoadoutStore = create<LoadoutState>((set) => ({
 
   summonSkills: (skills) =>
     set({ experts: [], skills: [...new Set(skills)], connectors: [], knowledgeIds: [], refs: [] }),
+
+  summonConnectors: (connectors) =>
+    set({ experts: [], skills: [], connectors: [...new Set(connectors)], knowledgeIds: [], refs: [], draft: '' }),
 
   addRef: (r) =>
     set((s) => (s.refs.some((x) => x.name === r.name) ? {} : { refs: [...s.refs, r] })),

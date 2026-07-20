@@ -705,13 +705,15 @@ function pdTabCollab(body, pid){
   };
 }
 // 项目配置编辑（WB-080）：指令 + 连接器/专家/技能（读目录作建议、写 PATCH /projects）。
-// connectors/experts/skills 是名字数组；datalist 从 Hub 目录相应类别取建议，也允许自由输入
-// （名字须与本地 backend 内置定义一致才真生效，目录空时靠自由输入兜底）。
-const CFG_CATS = { connectors:"NP_CONNS", experts:"EXP_GRID", skills:"SK_GRID" };
+// connectors/experts 沿用展示名；skills 必须保存稳定 slug，标签只用于显示。
+const CFG_CATS = { connectors:"NP_CONNS", experts:"EXP_GRID", skills:"APP_SKILLS" };
 const WI_COLS = [["todo","待办"],["doing","进行中"],["paused","暂停"],["done","完成"]];
-async function catalogNames(category){
+async function catalogOptions(category){
   try{ const {items} = await api("GET","/catalog/"+category);
-    return items.map(it=>{ const d=it.data; return Array.isArray(d)?(d[1]||d[0]):((d&&d.name)||""); }).filter(Boolean);
+    return items.map(it=>{ const d=it.data;
+      if(category==="APP_SKILLS" && d && d.slug) return {value:d.slug,label:d.name||d.slug};
+      const name=Array.isArray(d)?(d[1]||d[0]):((d&&d.name)||""); return {value:name,label:name};
+    }).filter(x=>x.value);
   }catch(e){ return []; }
 }
 async function loadConfig(pid){
@@ -719,11 +721,12 @@ async function loadConfig(pid){
   let p; try{ p = await api("GET","/projects/"+pid); }catch(e){ box.innerHTML = `<h3>配置</h3><div class="err">${esc(e.message)}</div>`; return; }
   const ro = p.role === "Viewer";
   const cur = { connectors:[...(p.connectors||[])], experts:[...(p.experts||[])], skills:[...(p.skills||[])] };
-  const opts = {}; for(const k in CFG_CATS){ opts[k] = await catalogNames(CFG_CATS[k]); }
+  const opts = {}; for(const k in CFG_CATS){ opts[k] = await catalogOptions(CFG_CATS[k]); }
+  const labelOf=(key,value)=>(opts[key].find(x=>x.value===value)||{}).label||value;
   const chipEd = (key,label)=>`<div class="field"><label>${label}</label>
       <div id="cfg-${key}-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
       ${ro?"":`<div class="row"><input id="cfg-${key}-in" list="cfg-${key}-dl" placeholder="输入名称或从建议选…"><button class="line" data-add="${key}">添加</button></div>
-      <datalist id="cfg-${key}-dl">${opts[key].map(n=>`<option value="${esc(n)}"></option>`).join("")}</datalist>`}</div>`;
+      <datalist id="cfg-${key}-dl">${opts[key].map(x=>`<option value="${esc(x.value)}">${esc(x.label)}</option>`).join("")}</datalist>`}</div>`;
   box.innerHTML = `<h3>配置 ${ro?'<span class="pill">只读</span>':''}</h3>
     <div class="field"><label>指令</label><textarea id="cfg-instr" ${ro?"disabled":""}>${esc(p.instruction||"")}</textarea></div>
     ${chipEd("connectors","连接器")}${chipEd("experts","专家")}${chipEd("skills","技能")}
@@ -731,7 +734,7 @@ async function loadConfig(pid){
   function renderChips(){
     for(const key in cur){
       document.getElementById(`cfg-${key}-chips`).innerHTML = cur[key].length
-        ? cur[key].map((n,i)=>`<span class="pill" style="display:inline-flex;gap:5px;align-items:center">${esc(n)}${ro?"":`<span data-rm="${key}:${i}" style="cursor:pointer">×</span>`}</span>`).join("")
+        ? cur[key].map((n,i)=>`<span class="pill" style="display:inline-flex;gap:5px;align-items:center" title="${esc(n)}">${esc(labelOf(key,n))}${ro?"":`<span data-rm="${key}:${i}" style="cursor:pointer">×</span>`}</span>`).join("")
         : '<span class="muted" style="font-size:12px">未配置</span>';
     }
     if(!ro) box.querySelectorAll("[data-rm]").forEach(x=> x.onclick=()=>{ const [k,i]=x.dataset.rm.split(":"); cur[k].splice(+i,1); renderChips(); });
@@ -1884,20 +1887,23 @@ async function skillsCat(body){
   ({gallery:skillsGallery, manage:skillsManage, skillhub:skillhubCat}[SKILLSUB]||skillsGallery)(document.getElementById("sk-sub"));
 }
 
-// 目录管理（原 WB-084 CRUD）：SK_GRID 三元组 [icon,name,desc]。
+// 目录管理：APP_SKILLS 对象是 App catalog_skills 的 Hub 权威覆盖源；项目只保存 slug。
 async function skillsManage(body){
   body.innerHTML = `<div class="card"><h3 id="sk-h">新增技能</h3><input type="hidden" id="sk-id">
-      <div class="grid2"><div class="field"><label>图标 emoji</label><input id="sk-icon" placeholder="🧩"></div><div class="field"><label>名称</label><input id="sk-name"></div></div>
+      <div class="grid2"><div class="field"><label>slug（稳定身份）</label><input id="sk-slug" placeholder="my-skill"></div><div class="field"><label>名称</label><input id="sk-name"></div></div>
+      <div class="grid2"><div class="field"><label>图标 emoji</label><input id="sk-icon" placeholder="🧩"></div><div class="field"><label>分类</label><input id="sk-cat" placeholder="办公效率"></div></div>
       <div class="field"><label>简介</label><textarea id="sk-desc"></textarea></div>
+      <div class="field"><label>技能指令（注入模型）</label><textarea id="sk-instr"></textarea></div>
+      <div class="grid2"><div class="field"><label>工具名（逗号分隔，仅代码已注册的工具会生效）</label><input id="sk-tools"></div><div class="field"><label>来源</label><input id="sk-source" value="Hub"></div></div>
       <div class="row"><input id="sk-sort" type="number" value="0" style="width:80px"><span class="muted" style="font-size:12px">排序</span><div class="grow"></div><button class="ghost" id="sk-clear">清空</button><button id="sk-save">保存</button></div>
       <div class="err" id="sk-err"></div></div>
     <div id="sk-list" class="muted">加载中…</div>`;
   const F=id=>document.getElementById(id);
-  function fill(it){ const d=it?it.data:[]; F("sk-id").value=it?it.id:""; F("sk-icon").value=d[0]||""; F("sk-name").value=d[1]||""; F("sk-desc").value=d[2]||""; F("sk-sort").value=it?it.sort:0; F("sk-h").textContent=it?"编辑技能":"新增技能"; }
+  function fill(it){ const d=it?it.data:{}; F("sk-id").value=it?it.id:""; F("sk-slug").value=d.slug||""; F("sk-icon").value=d.icon||""; F("sk-name").value=d.name||""; F("sk-cat").value=d.category||""; F("sk-desc").value=d.description||""; F("sk-instr").value=d.instructions||""; F("sk-tools").value=(d.tools||[]).join(", "); F("sk-source").value=d.source||"Hub"; F("sk-sort").value=it?it.sort:0; F("sk-h").textContent=it?"编辑技能":"新增技能"; }
   F("sk-clear").onclick=()=>fill(null);
-  F("sk-save").onclick=async()=>{ F("sk-err").textContent=""; const data=[F("sk-icon").value.trim(),F("sk-name").value.trim(),F("sk-desc").value.trim()]; if(!data[1]){F("sk-err").textContent="名称必填";return;} const id=F("sk-id").value,sort=Number(F("sk-sort").value)||0; try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"SK_GRID",data,sort}); skillsManage(body);}catch(e){F("sk-err").textContent=e.message;} };
-  try{ const {items}=await api("GET","/catalog/SK_GRID?all=true");
-    F("sk-list").innerHTML=items.length? items.map(it=>{const d=it.data||[]; return `<div class="list-item"><span style="font-size:20px">${esc(d[0]||"🧩")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d[1]||"?")} ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d[2]||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`;}).join(""):'<div class="muted">还没有技能目录项</div>';
+  F("sk-save").onclick=async()=>{ F("sk-err").textContent=""; const data={slug:F("sk-slug").value.trim(),name:F("sk-name").value.trim(),icon:F("sk-icon").value.trim()||"🧩",category:F("sk-cat").value.trim(),description:F("sk-desc").value.trim(),instructions:F("sk-instr").value.trim(),tools:F("sk-tools").value.split(",").map(x=>x.trim()).filter(Boolean),source:F("sk-source").value.trim()||"Hub"}; if(!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(data.slug)){F("sk-err").textContent="slug 仅允许字母、数字与 . _ -";return;} if(!data.name){F("sk-err").textContent="名称必填";return;} const id=F("sk-id").value,sort=Number(F("sk-sort").value)||0; try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"APP_SKILLS",data,sort}); skillsManage(body);}catch(e){F("sk-err").textContent=e.message;} };
+  try{ const {items}=await api("GET","/catalog/APP_SKILLS?all=true");
+    F("sk-list").innerHTML=items.length? items.map(it=>{const d=it.data||{}; return `<div class="list-item"><span style="font-size:20px">${esc(d.icon||"🧩")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d.name||"?")} <span class="pill">${esc(d.slug||"")}</span> ${d.category?`<span class="pill">${esc(d.category)}</span>`:""} ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.description||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`;}).join(""):'<div class="muted">还没有技能目录项；App 会继续使用本机内置定义</div>';
     F("sk-list").querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>{fill(items.find(x=>x.id===b.dataset.ed));window.scrollTo(0,0);});
     F("sk-list").querySelectorAll("[data-tog]").forEach(b=>b.onclick=async()=>{const[id,en]=b.dataset.tog.split(":");try{await api("PATCH","/catalog/item/"+id,{enabled:!!+en});skillsManage(body);}catch(e){F("sk-err").textContent=e.message;}});
     F("sk-list").querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{try{await api("DELETE","/catalog/item/"+b.dataset.del);skillsManage(body);}catch(e){F("sk-err").textContent=e.message;}});
@@ -1905,34 +1911,7 @@ async function skillsManage(body){
 }
 
 // ── 浏览橱窗静态兜底（Hub 目录空/未同步时；接 Hub 后用真数据覆盖，与 App local-first 一致）──
-const SG_FEATURED = [
-  ["☁️","#2E7DF6","腾讯微云","管理腾讯微云网盘文件（列表、上传、下载、删除、分享）。"],
-  ["✅","#16B37A","腾讯问卷","腾讯问卷操作（创建、修改、逻辑设置、统计）。"],
-  ["🐧","#0EA5E9","鹅厂辟谣助手","面向腾讯相关传闻的辟谣辅助 Skill，结合内部参考与实时联网核查，给出结论、事实依据和防诈提醒。"],
-  ["🗺️","#4C6FFF","腾讯地图·地图助手","腾讯位置服务出品的地图助手 Skill。一句话调用腾讯地图全套能力：旅游攻略、POI 搜索、路线规划。","旅游规划"],
-  ["📊","#EF4444","ppt-generator-skill","智能 PPT 生成助手，根据主题、行业、风格自动生成漂亮的 PPT 文件。"],
-  ["📈","#1E6FFF","腾讯自选股·金融数据","实时查询股票（A股/港股/美股）、ETF、指数、板块、期货、外汇、可转债的 K 线与技术指标。","金融数据"],
-  ["📝","#F59E0B","文章去AI味工具","去除文本中的 AI 写作痕迹，让文字读起来更像人类写作，支持润色、改写、降 AI 味。"],
-  ["🐟","#EF4444","番茄小说写作助手","专为番茄小说平台优化的分章节创作助手，支持悬疑/言情/奇幻/科幻/历史等题材。","长篇创作"],
-];
-const SG_CATS = ["全部","办公效率","内容创作","开发编程","数据分析","设计多媒体","AI Agent","知识管理","商业运营","教育学习","行业专业","IT运维与安全","生活服务"];
-const SG_GRID = [
-  ["W","#4C6FFF","web-tools-guide","调用 web_search / web_fetch / browser / opencli 前必读，含 web 工具的错误处理规程。","174k",109,"开发编程"],
-  ["腾","#1E6FFF","腾讯文档 TENCENT DOCS","腾讯文档（docs.qq.com）在线文档平台，创建、编辑、管理文档的首选 skill。","131k",183,"办公效率"],
-  ["I","#6B7280","ima-skills","ima skills，支持写笔记、知识库的读取、写入和检索，随时记录、调用。","94k",347,"知识管理"],
-  ["K","#16B37A","kdocs skill","操作金山文档（WPS 云文档 / Kdocs）的官方 Skill，覆盖云端新建、读取、编辑、搜索、分享。","37k",66,"办公效率"],
-  ["文","#F59E0B","文章去AI味工具","去除文本中的 AI 写作痕迹，让文字读起来更像人类写作。","27k",180,"内容创作"],
-  ["P","#EF4444","ppt-generator-skill","智能 PPT 生成助手，根据主题、行业、风格自动生成漂亮的 PPT 文件。","23k",91,"设计多媒体"],
-  ["海","#F97316","海报设计skill","海报、视觉设计、品牌视觉、排版系统、极简风格设计美学与商业海报制作。","10k",55,"设计多媒体"],
-  ["股","#17181C","股票价值投资分析系统","A股和港股价值投资分析系统，护城河分析、财务健康检查、DCF 估值、管理层评估。","18k",98,"数据分析"],
-  ["A","#14B8A6","AnySearch","实时搜索引擎：网页搜索、垂直领域搜索、并行批量搜索与 URL 内容提取。","18k",41,"AI Agent"],
-  ["产","#17181C","产品经理综合技能（PM Master）","需求分析、PRD 编写、竞品分析、BRD、MRD、用户故事、原型设计、功能设计一站式。","9k",63,"商业运营"],
-  ["S","#16B37A","SkillScan","SkillScan 自动检测已安装和新添加 skill 中的安全风险，在造成损害前提示。","2.0k",1,"IT运维与安全"],
-  ["☁️","#2E7DF6","腾讯微云","管理腾讯微云网盘文件（列表、上传、下载、删除、分享），生成分享链接。","8k",22,"生活服务"],
-];
-// SG_KITS（技能套件）已随 App 侧一并删除（WB-182）：套件是 100% 虚构的功能——后端零代码、
-// DB 无表、Hub 无源、「N 个技能」是手写常量且无技能列表与之关联。WB-102 当初把 App 技能页
-// 镜像到这里时连套件一起搬了过来，App 删了这里不删就成孤儿 tab。
+// Hub/真实 rankings 不可用时使用诚实空态，不再内置虚假下载量与星标快照。
 let SG_SEG="skillhub", SG_CAT="全部", SG_FEAToff=0, SG_Q="", SG_LAST=[];
 
 function sgDl(v){ if(typeof v==="string") return v; v=v||0; return v>=10000?(v/10000).toFixed(1)+"万":(v>=1000?Math.round(v/1000)+"k":String(v)); }
@@ -1950,7 +1929,7 @@ function sgHcard(c,i){
     <div class="sg-hd">${esc(c.description||"")}</div>
     <div class="sg-hfoot"><span class="sg-hstat">⬇ ${sgDl(c.downloads)}</span><span class="sg-hstat">★ ${c.stars||0}</span>${cat}</div></div>`;
 }
-function sgScard(t){ return `<div class="sg-scard"><span class="sg-sic">${esc(t[0]||"🧩")}</span><div style="flex:1;min-width:0"><div class="sg-sn">${esc(t[1]||"?")}</div><div class="sg-sd">${esc(t[2]||"")}</div></div></div>`; }
+function sgScard(d){ return `<div class="sg-scard"><span class="sg-sic">${esc(d.icon||"🧩")}</span><div style="flex:1;min-width:0"><div class="sg-sn">${esc(d.name||d.slug||"?")}</div><div class="sg-sd">${esc(d.description||"")}</div></div></div>`; }
 function sgCathead(chips){
   return `<div class="sg-cathead"><div class="sg-cats">${chips.map(c=>`<div class="sg-cat ${SG_CAT===c?'active':''}" data-cat="${esc(c)}">${esc(c)}</div>`).join("")}</div>
     <div class="sg-cathead-r"><a class="sg-link" href="https://skillhub.cn" target="_blank" rel="noopener">skillhub.cn ↗</a></div></div>`;
@@ -1980,7 +1959,7 @@ function sgBrowse(main){
 async function sgFeatured(el){
   let feats=[];
   try{ const {items}=await api("GET","/catalog/SKILLHUB_FEATURED"); feats=(items||[]).map(it=>{ const d=it.data||{}; return { iconUrl:d.iconUrl||"", icon:(String(d.name||d.slug||"?").trim()[0]||"?").toUpperCase(), name:d.name||d.slug||"?", desc:d.description||"", badge:d.skillhub_category_name||"", card:d }; }); }catch(e){}
-  if(!feats.length) feats = SG_FEATURED.map(t=>({ iconUrl:"", icon:t[0], name:t[2], desc:t[3], badge:t[4]||"", card:{name:t[2],description:t[3],icon:t[0],color:t[1]} }));
+  if(!feats.length){ el.innerHTML=""; return; }
   const n=Math.min(4,feats.length);
   const items=Array.from({length:n},(_,i)=>feats[(SG_FEAToff+i)%feats.length]);
   el.innerHTML=`<div class="sg-flexright" style="margin:6px 0 12px"><div class="sg-sectitle" style="margin:0">精选技能</div>
@@ -1992,9 +1971,12 @@ async function sgFeatured(el){
 async function sgReco(sb){
   sb.innerHTML=`<div id="sg-reco" class="muted" style="margin-top:14px">加载中…</div>`;
   let list=[];
-  try{ const {items}=await api("GET","/catalog/SK_GRID"); list=(items||[]).map(it=>it.data).filter(d=>Array.isArray(d)); }catch(e){}
+  try{ const {items}=await api("GET","/catalog/APP_SKILLS"); list=(items||[]).map(it=>it.data).filter(d=>d&&d.slug); }catch(e){}
   const el=document.getElementById("sg-reco"); el.className="";
-  el.innerHTML = list.length? `<div class="sg-grid sg-g4">${list.map(sgScard).join("")}</div>` : '<div class="sg-blank">暂无推荐技能</div>';
+  const cats=["全部",...new Set(list.map(d=>d.category).filter(Boolean))];
+  const shown=list.filter(d=>SG_CAT==="全部"||d.category===SG_CAT);
+  el.innerHTML = `${sgCathead(cats)}${shown.length? `<div class="sg-grid sg-g4">${shown.map(sgScard).join("")}</div>` : '<div class="sg-blank">该分类下暂无技能</div>'}`;
+  el.querySelectorAll("[data-cat]").forEach(b=>b.onclick=()=>{SG_CAT=b.dataset.cat;sgReco(sb);});
 }
 async function sgSkillhub(sb){
   sb.innerHTML=`<div id="sg-cathead"></div><div id="sg-hublist" class="muted" style="margin-top:4px">加载中…</div>`;
@@ -2007,8 +1989,8 @@ async function sgSkillhub(sb){
     chips=["全部",...cats.filter(c=>c.count>0).map(c=>c.name)];
     cards=mirror.filter(c=> SG_CAT==="全部" || c.skillhub_category_name===SG_CAT);
   } else {
-    chips=SG_CATS;
-    cards=SG_GRID.filter(t=> SG_CAT==="全部" || t[6]===SG_CAT).map(t=>({label:t[0],color:t[1],name:t[2],description:t[3],downloads:t[4],stars:t[5],skillhub_category_name:t[6]}));
+    chips=["全部"];
+    cards=[];
   }
   head.innerHTML=sgCathead(chips);
   head.querySelectorAll("[data-cat]").forEach(b=> b.onclick=()=>{ SG_CAT=b.dataset.cat; sgSkillhub(sb); });

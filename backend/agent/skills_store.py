@@ -190,6 +190,34 @@ def scan() -> list[dict[str, Any]]:
     return out
 
 
+def canonical_slug(key: str) -> str | None:
+    """把已安装技能的目录 key / slug / 展示名解析为稳定 slug。
+
+    slug 与目录 key 是强身份，可直接命中；展示名只有在唯一对应一个 slug 时才接受，
+    避免同名 SkillHub 技能因文件系统遍历顺序被静默指向不同包（WB-179/183）。
+    """
+    q = (key or "").strip()
+    if not q:
+        return None
+    items = scan()
+    for item in items:
+        if q == item["slug"] or q == item["key"]:
+            return str(item["slug"] or item["key"])
+    matches = {str(item["slug"] or item["key"]) for item in items if q == item["name"]}
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
+def display_name_for(key: str) -> str | None:
+    """按稳定身份返回已安装技能展示名；仅用于 UI/SSE 文案，不参与能力解析。"""
+    slug = canonical_slug(key)
+    if not slug:
+        return None
+    for item in scan():
+        if (item["slug"] or item["key"]) == slug:
+            return str(item["name"] or slug)
+    return slug
+
+
 def _build_detail(d: Path, installed: bool, name_override: str = "") -> dict[str, Any] | None:
     """从任意目录（已安装的 SKILLS_DIR 子目录 或 预览临时目录）构造详情。"""
     info = _info_from_dir(d)

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 import hub_client
+from agent.skills import canonical_skill_keys
 from auth.deps import current_user
 from storage import db
 from storage.models import Role
@@ -50,7 +51,7 @@ def _mirror_project(p: dict) -> None:
     db.mirror_hub_project(
         id=p.get("id", ""), name=p.get("name", ""), owner_id=p.get("owner_id", ""),
         instruction=p.get("instruction", ""), connectors=p.get("connectors"),
-        experts=p.get("experts"), skills=p.get("skills"),
+        experts=p.get("experts"), skills=canonical_skill_keys(p.get("skills") or []),
     )
 
 
@@ -147,7 +148,7 @@ def create_project(body: CreateProjectBody) -> dict:
         instruction=body.instruction,
         connectors=body.connectors,
         experts=body.experts,
-        skills=body.skills,
+        skills=canonical_skill_keys(body.skills),
         knowledge_ids=list(dict.fromkeys(body.knowledge_ids))[:20],
     )
     return _view(p, Role.OWNER)
@@ -168,6 +169,8 @@ def update_project(project_id: str, body: UpdateProjectBody, authorization: str 
     tok = _hub_token(project_id, authorization)
     if tok:
         patch = body.model_dump(exclude_unset=True)
+        if "skills" in patch:
+            patch["skills"] = canonical_skill_keys(patch["skills"] or [])
         # knowledge_ids 是本机 WeKnora 执行配置，绝不上云；Manager 只收协作元数据。
         local_knowledge = patch.pop("knowledge_ids", None)
         up = hub_client.update_project(tok, project_id, patch) if patch else db.get_project(project_id).to_dict()
@@ -184,7 +187,7 @@ def update_project(project_id: str, body: UpdateProjectBody, authorization: str 
         instruction=body.instruction,
         connectors=body.connectors,
         experts=body.experts,
-        skills=body.skills,
+        skills=canonical_skill_keys(body.skills) if body.skills is not None else None,
         knowledge_ids=list(dict.fromkeys(body.knowledge_ids))[:20] if body.knowledge_ids is not None else None,
     )
     return _view(updated, role)

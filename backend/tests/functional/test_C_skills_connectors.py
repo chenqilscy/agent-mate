@@ -19,7 +19,7 @@ def is_loadout(e): return e["event"] == "step" and e["data"].get("tool") == "loa
 
 # C1 — loadout step lists the skill + connector that were selected (real open)
 c.section("C1 loadout 真加载(技能+连接器)")
-evs, sid = stream(tok, {"text": "只回复 OK。", "skills": ["Excel 文件处理"], "connectors": ["时间助手"]},
+evs, sid = stream(tok, {"text": "只回复 OK。", "skills": ["excel-csv"], "connectors": ["时间助手"]},
                   stop_when=is_loadout, max_seconds=30)
 stop_run(tok, sid)
 lbl = loadout_label(evs) or ""
@@ -54,7 +54,7 @@ c.check("C4 planted marker surfaced from search", "FINDME-9080" in text_join(evs
 
 # C5 — Web Access skill ships a REAL new tool (web_fetch)
 c.section("C5 Web Access 技能提供真实新工具 web_fetch")
-evs, sid = stream(tok, {"text": "用 web_fetch 工具抓取 https://example.com ，告诉我页面里出现的一个英文单词。", "skills": ["Web Access（浏览器自动化）"]},
+evs, sid = stream(tok, {"text": "用 web_fetch 工具抓取 https://example.com ，告诉我页面里出现的一个英文单词。", "skills": ["web-access"]},
                   until_type="done", max_seconds=50)
 stop_run(tok, sid)
 c.check("C5 web_fetch tool available & invoked (toolpack works)", has_step(evs, "web_fetch"))
@@ -67,7 +67,7 @@ else:
 # C6 — Excel skill analyze_csv computes REAL stats over a workspace CSV
 c.section("C6 Excel 技能 analyze_csv 真实统计")
 plant_file(pid, "data.csv", "name,score\nA,10\nB,20\nC,30\nD,40\n")  # 4 data rows
-evs, sid = stream(tok, {"text": "用 analyze_csv 工具分析工作区的 data.csv，告诉我它有多少数据行（不含表头）。", "skills": ["Excel 文件处理"], "project_id": pid},
+evs, sid = stream(tok, {"text": "用 analyze_csv 工具分析工作区的 data.csv，告诉我它有多少数据行（不含表头）。", "skills": ["excel-csv"], "project_id": pid},
                   until_type="done", max_seconds=45)
 stop_run(tok, sid)
 c.check("C6 analyze_csv tool invoked", has_step(evs, "analyze_csv"))

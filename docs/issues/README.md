@@ -191,12 +191,12 @@
 | [WB-176](WB-176-trim-experts-showcase-data.md) | ✅ | P3 | fullstack | 精简专家/专家团橱窗数据 —— 三层数据源(前端静态兜底/后端种子/运行库)同步裁剪至 专家7·团3·场景3·分类6，避开「删空即重种」与「兜底顶上来」两个复活陷阱 |
 | [WB-177](WB-177-connectors-showcase-weknora.md) | ✅ | P3 | fullstack | 连接器橱窗改版 —— 三层同步去掉 ima知识库/乐享知识库/腾讯文档/TAPD/企查查(12→8)，新增 WeKnora知识库 卡 + CONN_META 详情(工具清单逐字镜像后端真 knowledge_retrieve/knowledge_add) |
 | [WB-178](WB-178-skills-subsystem-epic.md) | ⬜ | P1 | fullstack | 技能子系统重构（总纲/epic）—— 以 slug 为主键焊死「橱窗/loadout/磁盘」三层；根因=技能无稳定身份，橱窗与真引擎靠展示名撞运气连通；子任务 WB-179~186 |
-| [WB-179](WB-179-skill-identity-and-fallback-prompt.md) | 🟡 | P1 | fullstack | 技能身份断裂 —— 兜底话术「运用「X」技能的专长…」伪装能力已删(解析不到→不注入+照连接器 mcp_skipped 范式如实报「技能未就绪」) + Web Access 过度承诺描述改真；slug 迁移 ⏸ 归 WB-183（实测上游 336 条里展示名撞车仅 4 组≈1.2%，且已从静默伪装变响亮失败） |
+| [WB-179](WB-179-skill-identity-and-fallback-prompt.md) | ✅ | P1 | fullstack | 技能身份断裂已修：未知技能诚实跳过；即时/项目/助理/Hub 全链路存 slug，历史展示名幂等迁移，展示名只在 UI/SSE 边界使用 |
 | [WB-180](WB-180-skill-picker-ignores-installed.md) | ✅ | P1 | frontend | ＋菜单技能选择器只读静态 SK_GRID —— 真实已安装的技能在会话里选不到（装机与使用两条路断开）；改为「内置(新增 /skills/builtin，SK_GRID 里藏着 6 个真内置技能差点被砍) + 已装未停用」，静态假卡不再出现；CDP 自驱实测 23 项(12 张真卡/明暗双主题对比度/窄宽/loadout chip 真出) |
 | [WB-181](WB-181-skills-page-fake-interactions.md) | ✅ | P1 | frontend | 技能页假交互**清零** —— 推荐段＋号(纯 useState+toast)改按真实身份分派(实测 16 张=内置6/可装3/上游不存在7；内置→挂载+跳 composer 走既有 summon 范式，其余→真安装，装不到诚实报错) + 说谎的「综合评分」排序控件移除 + 「＋添加技能」真聚焦搜索 + 「安装套件」随 WB-182 删除 |
 | [WB-182](WB-182-skill-kits-fabricated.md) | ✅ | P2 | fullstack | 「套件」100% 虚构（前端 4 条静态卡·技能数手写、后端零代码、Hub 无源、DB 无表、安装按钮只 toast）—— **取「删」**，五层同步移除(catalog.ts/ExpertsView/catalog_showcase.json/db.py 的 SHOWCASE_SKIP/**Manager console.html**——WB-102 镜像时连套件一起搬过去了，差点留孤儿 tab)；真做方案留在原处注释，等 WB-183 目录入库后建 kit 表 |
-| [WB-183](WB-183-catalog-skills-to-db.md) | 🟡 | P2 | fullstack | 技能目录/定义未入库（WB-059 漏项）—— **Phase A 已落地**：建 catalog_skills 表 + 6 条内置定义入库 + 代码只留 _TOOL_REGISTRY（同连接器「spec 存库·实现在代码」分工）+ skill_def/builtin_list 改读库；实测改库即生效(不改代码不重启)、按 slug 也能解析、库里写未知工具名会跳过不假装。Phase B~E 待做：slug 全链路迁移(WB-179 defer)/Hub CRUD 下发/清 63 条孤儿+分类去重(与 WB-184 重叠)/plan 过滤+schema 去重(WB-186 defer) |
-| [WB-184](WB-184-skill-browse-sources-convergence.md) | 🟡 | P2 | frontend | 技能浏览多套数据源/分类收敛 —— **第一刀已落地**：删 SK_GRID 里 7 张上游不存在的虚构卡(16→9，三层同步照 WB-190 法)+删 SK_RECO 死代码；**原修法「合并推荐/SkillHub」经查不做**（违反 WB-060 的职责分离：推荐=我们自己的目录·Manager 可 CRUD，SkillHub=上游商店镜像；且 SK_GRID 还被 Manager CRUD/WB-080 picker/3 处图标反查消费）。待做：一套分类(卡住 WB-195，需 catalog_skills.category)/兜底链去竞态/删 SKILLHUB_GRID 假统计 |
+| [WB-183](WB-183-catalog-skills-to-db.md) | ✅ | P2 | fullstack | catalog_skills 成为技能定义/推荐权威源；slug 全链路、Hub APP_SKILLS CRUD 下发、同 slug 覆盖、本机离线兜底、孤儿与分类快照清理全部完成 |
+| [WB-184](WB-184-skill-browse-sources-convergence.md) | ✅ | P2 | frontend | 推荐与 SkillHub 保留正确职责边界但各自只剩真实数据源；静态假统计/精选/分类快照删除，推荐分类改读 catalog_skills 真 category |
 | [WB-185](WB-185-skills-api-attack-surface.md) | ✅ | P2 | backend | /api/skills 攻击面 —— App 侧 install/preview 的 slug 未校验（WB-160 第6项只修了 hub 孪生站点，App 侧漏网）已修+两侧口径统一+顺带硬化前导`-`（实测 CLI argparse 真被 `--dir` 噎住）；零鉴权项 ⏸ deferred（current_user 从不拒绝，需共享后端鉴权策略横切决策） |
 | [WB-186](WB-186-skills-backend-consistency-tail.md) | ✅ | P3 | backend | 技能后端一致性尾集（5 项全清）—— rankings 补齐 Manager 代理(顺带：Hub 走 HTTP 无需 CLI，没装 CLI 的本机终于能拿真实榜单而非静态假数据) + 预览缓存 TTL 对齐 Hub + 合冗余分支 + **plan 过滤统一到 Tool.plan_safe(默认 False 保守，_PLAN_TOOLS 降为一致性断言)** + schema 改从已去重的 active_tools 生成；**顺带堵掉真 live bug：kb_tools 同样绕过 plan 过滤，而 knowledge_add 是写——计划模式下 agent 真能改知识库，违反「plan, don't execute」** |
 | [WB-187](WB-187-resolve-slug-installs-wrong-skill.md) | ✅ | P2 | backend | 按名安装取搜索首条 —— 名字不存在时静默装上无关技能并贴上用户输入的名字（截图里「腾讯微云」的＋号实测会装成 self-improving-agent，真微云技能在搜索第4条被跳过）；resolve_slug 改仅精确命中，实测 38 张静态卡 37 命中/1 诚实404 |
@@ -207,8 +207,8 @@
 | [WB-192](WB-192-run-command-inherits-secrets.md) | ✅ | P1 | backend | run_command 子进程继承后端全部密钥 —— 模型一句  即可读走并上传给 LLM 厂商；WB-011 只把连接器那条路收成无密钥白名单，run_command 从未收口(WB-014 以「如实标注」结案)；实证子进程读到 LLM_API_KEY(35 字符) |
 | [WB-193](WB-193-knowledge-add-url-and-mcp-verdict.md) | ⬜ | P3 | backend | knowledge_add 只能加工作区文件，不能从 URL/文本入库 —— 承接 WB-175 的「留后续」(url 受 WeKnora 侧 SSRF 白名单限制、manual 建出 draft/disabled)；并记录**否决接官方 WeKnora MCP server** 的评估：其 create_knowledge_from_url 打同一个 REST 端点受同样限制(拿不到额外好处)、反而没有本地文件上传、且 _secret_env 只读 os.environ 与 WB-188 的 per-owner DB key 冲突 |
 
-| [WB-194](WB-194-connector-card-add-lost-on-navigate.md) | ⬜ | P2 | frontend | 连接器卡「添加到本会话」是真状态但假用处 —— loadout 是会话级，openSession/newTask 的 reset(WB-003 正确行为)会清掉它，用户一导航去用就没了；应改走既有 summon 范式（同专家「召唤」/技能「去试试」） |
-| [WB-195](WB-195-reco-category-chips-cannot-filter.md) | ⬜ | P3 | frontend | 「推荐」段分类 chip 点了不过滤（只高亮）—— 根因是 SK_GRID 的 [icon,name,desc] 没有分类字段，当前数据下无从实现；依赖 WB-183 的 catalog_skills.category（同页 SkillHub 段的分类 chip 是真的，一真一假外观相同） |
+| [WB-194](WB-194-connector-card-add-lost-on-navigate.md) | ✅ | P2 | frontend | 连接器卡「添加到本会话」改走 summon 范式：挂载连接器后直接进入新草稿，避免导航时被会话 reset 清空；目录卡与详情弹窗行为统一 |
+| [WB-195](WB-195-reco-category-chips-cannot-filter.md) | ✅ | P3 | frontend | 推荐分类由 catalog_skills.category 动态生成并真实过滤；浏览器验证开发编程 6→2 张，明暗主题与窄屏通过 |
 
 | [WB-196](WB-196-expert-persona-fallback-fake.md) | ⬜ | P2 | backend | 专家人格也有兜底话术伪装 —— persona_for 对未知专家编「以「X」的专业身份与专长作答」，与 WB-179 刚从技能侧删掉的是同一类伪装（未知专家与真专家在 system_prompt 里长得一样、loadout 照报已加载）；修法可逐字复刻 WB-179（专家功能用户已让靠后，登记不立即处理） |
 
@@ -219,6 +219,7 @@
 | [WB-201](WB-201-automation-home-reference-layout.md) | ✅ | P2 | frontend | 自动化主页空态缺少顶部分页，模板与真实创建入口的信息层级不一致 |
 | [WB-202](WB-202-app-navigation-settings-menu-groups.md) | ✅ | P2 | ui | 左侧导航与设置中心功能菜单扁平混杂，缺少按使用、配置与治理的语义分组 |
 | [WB-203](WB-203-remove-top-text-menus.md) | ✅ | P3 | ui | 顶部标题栏保留无实际功能的编辑、窗口、帮助文字菜单 |
+| [WB-204](WB-204-skill-regression-gate.md) | ✅ | P2 | test | 新增离线身份/Hub覆盖/category 契约门禁与 npm 入口；真 LLM 技能/连接器测试同步改为 slug 并 15/15 通过 |
 
 ## 来源
 

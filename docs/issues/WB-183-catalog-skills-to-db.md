@@ -3,7 +3,7 @@ id: WB-183
 title: 技能目录/定义未入库 —— WB-059 漏项：专家人格与连接器进了 DB，技能仍硬编码在 skills.py
 severity: P2
 area: fullstack
-status: in-progress
+status: fixed
 origin: 🏚 迁移遗留
 files:
   - backend/agent/skills.py:243
@@ -146,3 +146,18 @@ P2。不阻塞使用，但它是 WB-179 身份统一的**前置**（slug ↔ 定
   修法可逐字复刻 WB-179（已实测跑通）。用户已让专家功能靠后，故登记不立即处理。
 
 - commit：未提交（待用户确认）。
+
+## 处理记录（2026-07-20）· Phase B–D 完成
+
+- **B / 身份**：项目、助理、即时 loadout 与 Hub 项目配置全部以 slug 为主键；展示名仅用于 UI/SSE。
+  存量展示名迁移幂等，同名技能不再由文件遍历顺序决定身份。
+- **C / Hub 运营**：Manager 的技能目录改为 `APP_SKILLS` 对象 CRUD，含 slug/name/category/
+  instructions/tools；下行后原子替换 App 的 `scope=hub` 定义，同 slug 覆盖本机 builtin，Hub 空时本机兜底。
+  API 拒绝非法/重复 slug，未知工具名仍由代码注册表跳过。
+- **D / 目录与分类**：推荐卡与分类由 `catalog_skills` 动态生成；删除前端和种子 JSON 的
+  `SK_GRID/SK_CATS/SKILLHUB_GRID/SKILLHUB_CATS/SKILLHUB_FEATURED` 静态快照，运行库升级时清孤儿；
+  前端 `SCENE_NAME` 副本已删，SkillHub 不可达时展示诚实空态。
+- 验证：离线回归 2/2、Hub CRUD→项目 slug、App 真 API、真 LLM 15/15、类型检查、生产构建、
+  明暗主题与 860px 窄屏均通过。
+
+状态改为 `fixed`。

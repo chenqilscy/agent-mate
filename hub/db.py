@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import secrets
 import sqlite3
 import threading
@@ -710,6 +711,34 @@ def list_catalog_items(category: str, scope: Optional[str] = None,
             "kind": r["kind"], "data": data, "sort": r["sort"], "version": r["version"],
             "enabled": bool(r["enabled"]),
         })
+    return out
+
+
+def canonical_skill_keys(values: list[str]) -> list[str]:
+    """把 Manager/旧客户端传来的技能展示名归一成 APP_SKILLS.slug；未知但合法 slug 原样保留。"""
+    rows = list_catalog_items("APP_SKILLS", scope="builtin")
+    by_slug: dict[str, str] = {}
+    by_name: dict[str, list[str]] = {}
+    for row in rows:
+        data = row.get("data")
+        if not isinstance(data, dict):
+            continue
+        slug = str(data.get("slug", "")).strip()
+        name = str(data.get("name", "")).strip()
+        if slug:
+            by_slug[slug] = slug
+            if name:
+                by_name.setdefault(name, []).append(slug)
+    out: list[str] = []
+    for raw in values:
+        key = str(raw).strip()
+        resolved = by_slug.get(key)
+        if not resolved and len(by_name.get(key, [])) == 1:
+            resolved = by_name[key][0]
+        if not resolved and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", key):
+            resolved = key
+        if resolved and resolved not in out:
+            out.append(resolved)
     return out
 
 

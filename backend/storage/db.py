@@ -15,13 +15,14 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import re
 import secrets
 import sqlite3
 import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from config import settings
 from storage.catalog_seed import BUILTIN_CONNECTORS, BUILTIN_EXPERTS, BUILTIN_SKILLS
@@ -29,10 +30,7 @@ from storage.catalog_seed import BUILTIN_CONNECTORS, BUILTIN_EXPERTS, BUILTIN_SK
 # 橱窗目录种子源（WB-060）：由 catalog.ts 导出的静态商品卡，逐字迁进本文件同级 JSON，
 # 首次启动 seed 进 catalog_showcase 表。放这里而非硬编码在 .py，正是「数据不写死在代码」。
 _SHOWCASE_JSON = Path(__file__).resolve().parent / "catalog_showcase.json"
-# SkillHub 商店浏览列表（SKILLHUB_*）不入库——WB-064 会改成实时 rankings/search，与本处重叠，
-# 由那条 issue 负责其数据源；这里刻意跳过、留纯净面给它。前端仍从 catalog.ts 直取这几项。
-# （SKILLHUB_KITS 已随「套件」功能整体删除，见 WB-182 —— JSON 里已无该键，无需再跳过。）
-_SHOWCASE_SKIP = {"SKILLHUB_GRID", "SKILLHUB_FEATURED", "SKILLHUB_CATS"}
+_SKILL_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 from storage.models import (
     LOCAL_USER_ID,
     LOCAL_USER_NAME,
@@ -571,6 +569,13 @@ def init_db() -> None:
     _ensure_local_user()
     _seed_catalog()
     _seed_showcase()
+    # WB-183/184：这些旧橱窗数据已由 catalog_skills / Hub 实时镜像接管。清运行库孤儿，
+    # 防止旧版本种过的静态三元组与虚假 SkillHub 统计在升级后复活。
+    conn.execute(
+        "DELETE FROM catalog_showcase WHERE kind IN "
+        "('SK_GRID','SK_CATS','SKILLHUB_GRID','SKILLHUB_FEATURED','SKILLHUB_CATS')"
+    )
+    conn.commit()
     _migrate_assistants()
 
 
@@ -733,8 +738,6 @@ def _seed_showcase() -> None:
         return  # 种子文件缺失/损坏不阻断启动（前端橱窗有静态兜底）
     now = time.time()
     for kind, value in data.items():
-        if kind in _SHOWCASE_SKIP:
-            continue  # SkillHub 商店列表交给 WB-064
         if conn.execute("SELECT 1 FROM catalog_showcase WHERE kind=? LIMIT 1", (kind,)).fetchone():
             continue
         if isinstance(value, list):
@@ -1453,11 +1456,16 @@ def skill_specs() -> list[dict[str, Any]]:
     （同连接器「launch spec 存库、实现在代码」的分工）。
     """
     rows = get_conn().execute(
-        "SELECT slug,name,icon,description,instructions,tools,category "
-        "FROM catalog_skills WHERE enabled=1 ORDER BY sort, name"
+        "SELECT scope,slug,name,icon,description,instructions,tools,category,source "
+        "FROM catalog_skills WHERE enabled=1 "
+        "ORDER BY CASE scope WHEN 'hub' THEN 0 ELSE 1 END, sort, name"
     ).fetchall()
     out: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for r in rows:
+        if r["slug"] in seen:
+            continue  # Hub 同 slug 覆盖 builtin；前端与运行时都只暴露一个稳定身份。
+        seen.add(r["slug"])
         try:
             tools = json.loads(r["tools"]) if r["tools"] else []
         except (json.JSONDecodeError, TypeError):
@@ -1466,9 +1474,50 @@ def skill_specs() -> list[dict[str, Any]]:
             "slug": r["slug"], "name": r["name"], "icon": r["icon"],
             "description": r["description"], "instructions": r["instructions"],
             "tools": tools if isinstance(tools, list) else [],
-            "category": r["category"],
+            "category": r["category"], "source": r["source"], "scope": r["scope"],
         })
     return out
+
+
+def replace_hub_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
+    """用 Hub 的 APP_SKILLS 全量替换 App 侧 `scope=hub` 技能定义（WB-183 Phase C）。
+
+    本机 builtin 行不动，Hub 不下发或下发为空时自然回退本机定义。slug 非法、字段缺失或重复的
+    目录项跳过；工具名仍由运行时代码注册表裁决，运营数据不能凭空创造工具能力。
+    """
+    conn = get_conn()
+    now = time.time()
+    rows: list[tuple[Any, ...]] = []
+    seen: set[str] = set()
+    skipped = 0
+    for index, raw in enumerate(items):
+        if not isinstance(raw, dict):
+            skipped += 1
+            continue
+        slug = str(raw.get("slug", "")).strip()
+        name = str(raw.get("name", "")).strip()
+        if not slug or not name or not _SKILL_SLUG_RE.fullmatch(slug) or slug in seen:
+            skipped += 1
+            continue
+        tools = raw.get("tools", [])
+        if not isinstance(tools, list):
+            tools = []
+        seen.add(slug)
+        rows.append((
+            new_uuid(), "hub", None, slug, name, str(raw.get("icon", "🧩")),
+            str(raw.get("description", "")), str(raw.get("instructions", "")),
+            json.dumps([str(t) for t in tools], ensure_ascii=False), str(raw.get("category", "")),
+            str(raw.get("source", "Hub")), 1, int(raw.get("sort", index)), now, now,
+        ))
+    with conn:
+        conn.execute("DELETE FROM catalog_skills WHERE scope='hub'")
+        conn.executemany(
+            """INSERT INTO catalog_skills
+               (id,scope,owner_id,slug,name,icon,description,instructions,tools,category,source,
+                enabled,sort,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            rows,
+        )
+    return {"inserted": len(rows), "skipped": skipped}
 
 
 def skill_spec_for(key: str) -> Optional[dict[str, Any]]:
@@ -1484,6 +1533,41 @@ def skill_spec_for(key: str) -> Optional[dict[str, Any]]:
         if s["slug"] == k or s["name"] == k:
             return s
     return None
+
+
+def migrate_skill_identities(resolve: Callable[[str], Optional[str]]) -> dict[str, int]:
+    """把 projects/assistants 的历史技能展示名原地归一为 slug（WB-183 Phase B）。
+
+    不改 schema：两列本来就是 JSON 数组。能解析的展示名改为 slug，无法解析且不是合法
+    slug 的旧商品卡名丢弃；重复项去重。函数幂等，每次启动可安全重跑。
+    """
+    conn = get_conn()
+    changed = dropped = 0
+    for table in ("projects", "assistants"):
+        rows = conn.execute(f"SELECT id, skills FROM {table}").fetchall()
+        for row in rows:
+            try:
+                old = json.loads(row["skills"] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                old = []
+            if not isinstance(old, list):
+                old = []
+            new: list[str] = []
+            for raw in old:
+                value = resolve(str(raw))
+                if not value:
+                    dropped += 1
+                    continue
+                if value not in new:
+                    new.append(value)
+            if new != old:
+                conn.execute(
+                    f"UPDATE {table} SET skills=? WHERE id=?",
+                    (json.dumps(new, ensure_ascii=False), row["id"]),
+                )
+                changed += 1
+    conn.commit()
+    return {"changed": changed, "dropped": dropped}
 
 
 def list_catalog_connectors(scope: Optional[str] = None) -> list[CatalogConnector]:
@@ -1523,6 +1607,14 @@ def showcase_all() -> dict[str, Any]:
     for cat, items in downlink_by_category().items():
         if cat not in scalar_kinds:
             out[cat] = items
+    # 推荐技能与分类由真定义表生成，彻底替代无 slug/category 的 SK_GRID/SK_CATS 静态快照。
+    specs = skill_specs()
+    out["SK_GRID"] = [
+        {"slug": s["slug"], "name": s["name"], "icon": s["icon"],
+         "description": s["description"], "category": s["category"], "source": s["source"]}
+        for s in specs
+    ]
+    out["SK_CATS"] = ["全部", *dict.fromkeys(s["category"] for s in specs if s["category"])]
     return out
 
 

@@ -36,7 +36,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from agent import scheduler
+from agent import scheduler, skills as agent_skills
 from auth.middleware import AuthMiddleware
 from channels import manager as channel_manager
 from config import FROZEN, settings
@@ -106,6 +106,9 @@ app.add_middleware(
 @app.on_event("startup")
 def _startup() -> None:
     db.init_db()
+    migrated = db.migrate_skill_identities(agent_skills.canonical_skill_key)
+    if migrated["changed"] or migrated["dropped"]:
+        logging.getLogger("workbuddy.skills").info("skill identity migration: %s", migrated)
 
 
 @app.on_event("startup")

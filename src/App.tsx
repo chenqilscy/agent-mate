@@ -22,6 +22,7 @@ import { api } from './lib/api'
 import { readRoute } from './lib/router'
 import { useProjectStore } from './stores/projectStore'
 import { useSystemSettingsStore } from './stores/systemSettingsStore'
+import { useSkillStore } from './stores/skillStore'
 
 function MainView() {
   const view = useUIStore((s) => s.view)
@@ -69,6 +70,7 @@ export function App() {
     // Bootstrap: who am I, what models exist, what tasks are in the sidebar.
     useAuthStore.getState().load()
     useChatStore.getState().loadSessions()
+    void useSkillStore.getState().load()
     api
       .models()
       .then((r) => {

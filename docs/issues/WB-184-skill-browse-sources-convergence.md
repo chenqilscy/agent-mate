@@ -3,7 +3,7 @@ id: WB-184
 title: 技能浏览面板四套数据源 + 两套分类体系并存 —— 收敛为一个面板一套分类
 severity: P2
 area: frontend
-status: in-progress
+status: fixed
 origin: 既有实现
 files:
   - src/views/ExpertsView.tsx:337
@@ -167,3 +167,12 @@ WB-181 摸底时实测过：这 16 张是三种东西混在一起。其中 **7 �
 **不改代码**。
 
 - commit：未提交（待用户确认）。
+
+## 处理记录（2026-07-20）· 数据源与分类收敛完成
+
+- 保留已确认正确的职责边界：推荐 = WorkBuddy 自有技能定义，SkillHub = 上游真实商店；不再误合并两者。
+- 推荐改读 `catalog_skills` 对象，不再读三元组；分类由真实 `category` 动态生成并真实过滤。
+- SkillHub 只走 Hub 镜像或真实 rankings；移除静态假下载量/星标/精选与双份分类快照，不可达时诚实空态。
+- Manager 橱窗同步改读同一 `APP_SKILLS` 对象；前端、后端种子和运行库的孤儿均清理。
+
+状态改为 `fixed`。

@@ -3,7 +3,7 @@ id: WB-195
 title: 「推荐」段分类 chip 点了不过滤 —— SK_GRID 数据形状里根本没有分类字段
 severity: P3
 area: frontend
-status: open
+status: fixed
 origin: 🏚 迁移遗留
 files:
   - src/views/ExpertsView.tsx:481
@@ -58,3 +58,10 @@ P3。不误导用户做错事，但它是个不兑现的交互（铁律#1 的边
 - 点任一分类 → 列表**真的**只剩该分类的卡；点「全部」→ 恢复；
 - 该分类下无卡时给诚实空态（同 SkillHub 段的「该分类下暂无技能」）；
 - 分类值来自 DB/目录，不是前端硬编码的映射表。
+
+## 处理记录（2026-07-20）
+
+推荐卡改由 `/api/catalog` 中基于 `catalog_skills` 生成的对象供给，卡片自带真实 `slug/category`；
+分类 chips 从这些定义动态生成并参与 `.filter()`。浏览器实测点「开发编程」后 6 张缩为
+`Web Access（浏览器自动化）`、`技能创建指南` 两张；「全部」可恢复，空分类有诚实空态。
+浅色、深色与 860px 窄屏均无横向溢出。状态改为 `fixed`。

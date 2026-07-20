@@ -6,6 +6,7 @@ org 级目录运营（团队 Admin）留后续。
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -18,6 +19,7 @@ from auth import CurrentAccount
 from models import Account
 
 router = APIRouter(prefix="/api", tags=["catalog"])
+_SKILL_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def _require_admin(account: Account) -> None:
@@ -89,9 +91,25 @@ class CatalogItemBody(BaseModel):
     sort: int = 0
 
 
+def _validate_app_skill(data: Any, *, ignore_id: str = "") -> None:
+    if not isinstance(data, dict):
+        raise HTTPException(400, "APP_SKILLS data must be an object")
+    slug = str(data.get("slug", "")).strip()
+    name = str(data.get("name", "")).strip()
+    if not _SKILL_SLUG_RE.fullmatch(slug):
+        raise HTTPException(400, "invalid skill slug")
+    if not name:
+        raise HTTPException(400, "skill name is required")
+    for row in db.list_catalog_items("APP_SKILLS", scope="builtin", include_disabled=True):
+        if row["id"] != ignore_id and isinstance(row.get("data"), dict) and row["data"].get("slug") == slug:
+            raise HTTPException(409, "skill slug already exists")
+
+
 @router.post("/catalog")
 def create_item(body: CatalogItemBody, account: Account = CurrentAccount) -> dict:
     _require_admin(account)
+    if body.category == "APP_SKILLS":
+        _validate_app_skill(body.data)
     iid = db.create_catalog_item(
         category=body.category, data=body.data, scope="builtin", kind=body.kind, sort=body.sort,
     )
@@ -107,6 +125,11 @@ class UpdateItemBody(BaseModel):
 @router.patch("/catalog/item/{item_id}")
 def update_item(item_id: str, body: UpdateItemBody, account: Account = CurrentAccount) -> dict:
     _require_admin(account)
+    item = db.get_catalog_item(item_id)
+    if not item:
+        raise HTTPException(404, "catalog item not found")
+    if item["category"] == "APP_SKILLS" and body.data is not None:
+        _validate_app_skill(body.data, ignore_id=item_id)
     if not db.update_catalog_item(item_id, data=body.data, sort=body.sort, enabled=body.enabled):
         raise HTTPException(404, "catalog item not found")
     return {"ok": True}

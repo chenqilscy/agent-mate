@@ -24,7 +24,7 @@ from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
 from agent.mcp_client import call_mcp, mcp_schema, open_connectors
 from agent.sandbox import current_root, use_root, workspace_root
-from agent.skills import skill_def
+from agent.skills import canonical_skill_keys, skill_def, skill_display_name
 from agent.tools import (
     ASK_USER_SCHEMA,
     base_tools,
@@ -279,7 +279,9 @@ async def run_chat(
             proj_knowledge = project.knowledge_ids
 
     active_experts = _dedup(proj_experts + (experts or []))
-    active_skills = _dedup(proj_skills + (skills or []))
+    # 技能身份全链路以 slug 为准；兼容旧客户端传展示名。未知即时输入保留，
+    # 由下方 skills_skipped 诚实报告，持久化项目/助理则在写入时直接清理（WB-183 Phase B）。
+    active_skills = canonical_skill_keys(_dedup(proj_skills + (skills or [])), keep_unknown=True)
     active_connectors = _dedup(proj_connectors + (connectors or []))
     # 项目固定知识库 ∪ 本轮临时知识库；后端合并保证执行不依赖前端内存态（WB-198）。
     active_knowledge = _dedup(proj_knowledge + (knowledge_ids or []))
@@ -459,7 +461,7 @@ async def run_chat(
         # run are visible — including connectors that were selected but couldn't
         # load (e.g. GitHub without a token), so it isn't a silent no-op.
         connector_names = sorted({t.connector for t in mcp_tools})
-        loaded_skills = [n for n in active_skills if n not in skills_skipped]
+        loaded_skills = [skill_display_name(n) for n in active_skills if n not in skills_skipped]
         if active_experts or active_skills or connector_names or mcp_skipped or (active_knowledge and not ask):
             parts = []
             if active_experts:
@@ -475,7 +477,9 @@ async def run_chat(
             # 解析不到的技能如实报出（WB-179）——此前它们会被喂一句兜底话术，UI 照常显示
             # 「已加载」，用户无从分辨技能到底有没有生效。
             if skills_skipped:
-                parts.append("技能未就绪 " + "、".join(f"{n}（未安装或已停用）" for n in skills_skipped))
+                parts.append("技能未就绪 " + "、".join(
+                    f"{skill_display_name(n)}（未安装或已停用）" for n in skills_skipped
+                ))
             yield record({"kind": "step", "tool": "loadout", "label": "已加载 · " + " · ".join(parts)})
 
         # Resolve the picker selection to a concrete provider once (owner-scoped so a

@@ -10,12 +10,7 @@ import { ConnectorDetailModal } from '../components/connector/ConnectorDetailMod
 import { SkillDetail, type SkillTarget } from '../components/skill/SkillDetail'
 import { api } from '../lib/api'
 import type { InstalledSkill, SkillCard } from '../lib/types'
-// 橱窗数据（专家/专家团/连接器/技能选择器）改从 catalogStore 取（WB-060，DB 供给+静态兜底）。
-// SKILLHUB_*（技能商店浏览列表）仍从 data/catalog.ts 直取——WB-064 负责其实时数据源，避免撞车。
-import {
-  SKILLHUB_CATS, SKILLHUB_FEATURED, SKILLHUB_GRID,
-  type ExpertTeam,
-} from '../data/catalog'
+import { type ExpertTeam } from '../data/catalog'
 import { useCatalog, useCatalogStore } from '../stores/catalogStore'
 
 type Hub = 'experts' | 'skills' | 'connectors'
@@ -42,6 +37,15 @@ function summon(names: string[], display: string, prompt?: string) {
   }
 }
 
+// 连接器卡片必须直接进入一段已挂载的新草稿。若只在目录页 toggle，用户随后点“新建任务”
+// 会按会话隔离规则 reset loadout，形成“显示已添加、实际无法使用”的假入口（WB-194）。
+function summonConnector(name: string) {
+  useLoadoutStore.getState().summonConnectors([name])
+  useChatStore.getState().startDraft('试试 · ' + name)
+  useUIStore.getState().setView('home')
+  toast('已挂载「' + name + '」· 去试试')
+}
+
 // 「推荐」段卡片的 ＋（WB-181）。此前它是个纯谎言：只翻转组件内 useState + toast「已添加」，
 // 不进 loadout、不安装、刷新即复原。现在按卡片的**真实身份**分派——因为这一段的 SK_GRID
 // 混着三种互不相容的东西（实测 16 张：6 张内置 / 3 张可装 / 7 张上游根本不存在）：
@@ -54,22 +58,22 @@ function summon(names: string[], display: string, prompt?: string) {
 // 留在原地 toggle 会得到「状态是真的、但用户一导航去用就没了」——真状态、假用处。
 // 本 app 既有的正确出路是 summon 系：设 loadout → startDraft（不 reset）→ setView，
 // 专家「召唤」(L30) 与 SkillDetail「去试试」(tryIt) 都走这条，这里保持一致。
-function RecoBtn({ name }: { name: string }) {
-  const isBuiltin = useSkillStore((s) => s.builtin.some((b) => b.name === name))
-  const inst = useSkillStore((s) => matchSkill(s.installed, name))
-  if (!isBuiltin && !(inst && !inst.disabled)) return <InstallBtn name={name} />
+function RecoBtn({ skillKey, displayName }: { skillKey: string; displayName: string }) {
+  const builtin = useSkillStore((s) => s.builtin.find((b) => b.name === skillKey || b.slug === skillKey))
+  const inst = useSkillStore((s) => matchSkill(s.installed, skillKey))
+  if (!builtin && !(inst && !inst.disabled)) return <InstallBtn name={displayName} />
   return (
     <button
       type="button"
       className="add-btn"
       aria-label="挂载到本会话"
-      title={'挂载「' + name + '」到本会话'}
+      title={'挂载「' + displayName + '」到本会话'}
       onClick={(e) => {
         e.stopPropagation()
-        useLoadoutStore.getState().summonSkills([name])
-        useChatStore.getState().startDraft('试试 · ' + name)
+        useLoadoutStore.getState().summonSkills([builtin?.slug || inst?.slug || inst?.key || skillKey])
+        useChatStore.getState().startDraft('试试 · ' + displayName)
         useUIStore.getState().setView('home')
-        toast('已挂载「' + name + '」· 去试试')
+        toast('已挂载「' + displayName + '」· 去试试')
       }}
     >
       <IcPlusSm />
@@ -252,14 +256,15 @@ function editSkill(name: string) {
   toast('已载入 skill-creator · 去编辑「' + name + '」')
 }
 
-// 展示名 → 图标/底色（后端已安装技能没有图标，取静态目录里的配色，命不中则用首字母中性块）。
+// 展示名 → 图标/底色；只读真实推荐目录/Hub 镜像，不再回退静态 SkillHub 假统计卡。
 function skillTile(name: string): { icon: string; color: string } {
-  const inst = useCatalogStore.getState().INSTALLED.find((x) => x[2] === name)
+  const catalog = useCatalogStore.getState()
+  const inst = catalog.INSTALLED.find((x) => x[2] === name)
   if (inst) return { icon: inst[0], color: inst[1] }
-  const g = SKILLHUB_GRID.find((x) => x[2] === name)
-  if (g) return { icon: g[0], color: g[1] }
-  const f = SKILLHUB_FEATURED.find((x) => x[2] === name)
-  if (f) return { icon: f[0], color: f[1] }
+  const recommended = catalog.SK_GRID.find((x) => x.name === name || x.slug === name)
+  if (recommended) return { icon: recommended.icon, color: '#6B7280' }
+  const hub = [...catalog.skillFeatured, ...catalog.skillMirror].find((x) => x.name === name || x.slug === name)
+  if (hub) return { icon: (hub.name.trim()[0] || '?').toUpperCase(), color: '#6B7280' }
   return { icon: (name.trim()[0] || '?').toUpperCase(), color: '#6B7280' }
 }
 
@@ -311,27 +316,7 @@ function InstallBtn({ name }: { name: string }) {
   )
 }
 
-// SkillHub 商店网格卡：图标 + 名称 + 描述 + 下载/星标，右上角安装/管理；已装可点开详情。
-function SkillHubCard({ item, onOpenDetail }: { item: (typeof SKILLHUB_GRID)[number]; onOpenDetail: (target: SkillTarget) => void }) {
-  const [label, color, name, desc, downloads, stars] = item
-  const inst = useSkillStore((s) => matchSkill(s.installed, name))
-  return (
-    <div className="hcard clickable" onClick={() => onOpenDetail(inst ? { key: inst.key } : { name })}>
-      <div className="hc-h">
-        <span className="hc-ic" style={{ background: color }}>{label}</span>
-        <div className="hc-n" title={name}>{name}</div>
-        {inst ? <InstalledCtl skill={inst} /> : <InstallBtn name={name} />}
-      </div>
-      <div className="hc-d">{desc}</div>
-      <div className="hc-foot">
-        <span className="hc-stat"><IcDl />{downloads}</span>
-        <span className="hc-stat"><IcStar />{stars}</span>
-      </div>
-    </div>
-  )
-}
-
-// 精选技能大卡（顶部）。归一形态：静态元组与 Hub 精选对象都规约成 FeaturedItem（WB-109）。
+// 精选技能大卡（顶部）。仅展示 Hub 真实精选；无下发时不伪造一组静态精选。
 type FeaturedItem = { iconUrl?: string; icon: string; name: string; desc: string; badge?: string }
 function FeaturedCard({ item, onOpenDetail }: { item: FeaturedItem; onOpenDetail: (target: SkillTarget) => void }) {
   const { iconUrl, icon, name, desc, badge } = item
@@ -355,10 +340,8 @@ function FeaturedCard({ item, onOpenDetail }: { item: FeaturedItem; onOpenDetail
 function FeaturedSkills({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) => void }) {
   const [off, setOff] = useState(0)
   const hubFeat = useCatalogStore((s) => s.skillFeatured)
-  // WB-109：有 Hub 下发的精选（mgr「加入精选」）→ 用它（对象 + 真图标），否则回退静态元组。
-  const pool: FeaturedItem[] = hubFeat.length > 0
-    ? hubFeat.map((c) => ({ iconUrl: c.iconUrl, icon: (String(c.name || c.slug || '?').trim()[0] || '?').toUpperCase(), name: c.name || c.slug || '', desc: c.description || '', badge: c.skillhub_category_name || '' }))
-    : SKILLHUB_FEATURED.map(([icon, , name, desc, badge]) => ({ icon, name, desc, badge }))
+  const pool: FeaturedItem[] = hubFeat.map((c) => ({ iconUrl: c.iconUrl, icon: (String(c.name || c.slug || '?').trim()[0] || '?').toUpperCase(), name: c.name || c.slug || '', desc: c.description || '', badge: c.skillhub_category_name || '' }))
+  if (pool.length === 0) return null
   const n = Math.min(4, pool.length)
   const items = Array.from({ length: n }, (_, i) => pool[(off + i) % pool.length])
   return (
@@ -441,7 +424,7 @@ function SkillSearchResults({ q, onOpenDetail }: { q: string; onOpenDetail: (tar
 
 // SkillHub 目录：分类过滤 + skillhub.cn 链接 + 排序 + 网格。
 // WB-070：有 Hub 镜像（catalogStore.skillMirror，已连 Hub 并 pull）→ 用镜像的真实 369 技能，
-// 按 12 场景分类过滤；否则回退静态 SKILLHUB_*（local-first，未接 Hub/离线照常）。
+// 按 Hub taxonomy 分类过滤；无 Hub 镜像时由 catalogStore 尝试真实 rankings，失败则诚实空态。
 function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) => void }) {
   const mirror = useCatalogStore((s) => s.skillMirror)
   const skillCats = useCatalogStore((s) => s.skillCats)
@@ -477,15 +460,10 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
     )
   }
 
-  // 静态兜底（原逻辑，未接 Hub）。
-  const list = SKILLHUB_GRID.filter(([, , , , , , c]) => cat === '全部' || c === cat)
   return (
     <>
-      {cathead(SKILLHUB_CATS)}
-      <div className="card-grid g4">
-        {list.map((it) => <SkillHubCard key={it[2] + it[0]} item={it} onOpenDetail={onOpenDetail} />)}
-      </div>
-      {list.length === 0 && <div className="hub-blank">该分类下暂无技能</div>}
+      {cathead(['全部'])}
+      <div className="hub-blank">当前无法获取 SkillHub 目录，请连接 Hub 或稍后重试</div>
     </>
   )
 }
@@ -500,14 +478,15 @@ function RecoView() {
         {SK_CATS.map((c) => <div key={c} className={`cat ${cat === c ? 'active' : ''}`.trim()} onClick={() => setCat(c)}>{c}</div>)}
       </div>
       <div className="card-grid g4">
-        {SK_GRID.map(([ic, n, d]) => (
-          <div className="scard" key={n}>
-            <div className="sc-ic">{ic}</div>
-            <div className="sc-info"><div className="sc-n">{n}</div><div className="sc-d">{d}</div></div>
-            <RecoBtn name={n} />
+        {SK_GRID.filter((s) => cat === '全部' || s.category === cat).map((s) => (
+          <div className="scard" key={s.slug}>
+            <div className="sc-ic">{s.icon}</div>
+            <div className="sc-info"><div className="sc-n">{s.name}</div><div className="sc-d">{s.description}</div></div>
+            <RecoBtn skillKey={s.slug} displayName={s.name} />
           </div>
         ))}
       </div>
+      {SK_GRID.filter((s) => cat === '全部' || s.category === cat).length === 0 && <div className="hub-blank">该分类下暂无技能</div>}
     </>
   )
 }
@@ -637,8 +616,12 @@ function ConnectorsPane() {
                 on={added}
                 onToggle={(e) => {
                   e.stopPropagation()
-                  useLoadoutStore.getState().toggle('conn', n)
-                  toast((added ? '已移除 · ' : '已添加到本会话 · ') + n)
+                  if (added) {
+                    useLoadoutStore.getState().toggle('conn', n)
+                    toast('已移除 · ' + n)
+                  } else {
+                    summonConnector(n)
+                  }
                 }}
               />
             </div>

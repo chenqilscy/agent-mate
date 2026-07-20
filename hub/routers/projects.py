@@ -34,7 +34,7 @@ def create_project(body: CreateProjectBody, account: Account = CurrentAccount) -
             raise HTTPException(403, "只读组织成员不能建项目")  # WB-156
     p = db.create_project(
         name=name, owner_id=account.id, org_id=body.org_id, instruction=body.instruction,
-        connectors=body.connectors, experts=body.experts, skills=body.skills,
+        connectors=body.connectors, experts=body.experts, skills=db.canonical_skill_keys(body.skills),
     )
     return {**p.to_dict(), "role": Role.OWNER.value}
 
@@ -72,7 +72,10 @@ def update_project(project_id: str, body: UpdateProjectBody, account: Account = 
     role = _require_access(project_id, account)
     if not can_write(role):
         raise HTTPException(403, "Viewer is read-only")
-    p = db.update_project(project_id, **body.model_dump(exclude_unset=True))
+    patch = body.model_dump(exclude_unset=True)
+    if "skills" in patch:
+        patch["skills"] = db.canonical_skill_keys(patch["skills"])
+    p = db.update_project(project_id, **patch)
     assert p is not None
     return {**p.to_dict(), "role": role.value}
 

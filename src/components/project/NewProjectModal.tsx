@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCatalog, useCatalogStore } from '../../stores/catalogStore'
 import { useKnowledgeStore } from '../../stores/knowledgeStore'
 import { useProjectStore } from '../../stores/projectStore'
-import { useSkillStore } from '../../stores/skillStore'
+import { skillDisplayName, useSkillStore } from '../../stores/skillStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
 import type { ProjectInfo } from '../../lib/types'
@@ -14,7 +14,8 @@ function iconOf(kind: Kind, name: string): string {
   const cat = useCatalogStore.getState()
   if (kind === 'conn') return cat.NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
   if (kind === 'exp') return cat.NP_EXPERTS.find((e) => e[1] === name)?.[0] ?? '🧑'
-  return cat.SK_GRID.find((s) => s[1] === name)?.[0] ?? '🧩'
+  const label = skillDisplayName(name)
+  return cat.SK_GRID.find((s) => s.name === label || s.slug === name)?.icon ?? '🧩'
 }
 
 // The new-project flow (spec 4.2): name + instruction (with template presets) +
@@ -101,7 +102,7 @@ export function NewProjectModal({ open, onClose, onCreated }: {
       <div className="np-chips">
         {[...sel[kind]].map((n) => (
           <span className="np-chip" key={n} title={n}>
-            <span>{iconOf(kind, n)}</span><span className="np-lbl">{kind === 'kb' ? (kbs.find((k) => k.id === n)?.name ?? '已删除知识库') : n}</span>
+            <span>{iconOf(kind, n)}</span><span className="np-lbl">{kind === 'kb' ? (kbs.find((k) => k.id === n)?.name ?? '已删除知识库') : kind === 'skill' ? skillDisplayName(n) : n}</span>
             <span className="x" onClick={() => removeChip(kind, n)}>×</span>
           </span>
         ))}
@@ -180,8 +181,9 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
   useEffect(() => { if (kind === 'skill' && !skillsLoaded) void loadSkills() }, [kind, skillsLoaded, loadSkills])
 
   const skillItems = useMemo(() => {
-    const icon = (n: string) => SK_GRID.find((s) => s[1] === n)?.[0] ?? '🧩'
+    const icon = (n: string) => SK_GRID.find((s) => s.name === n || s.slug === n)?.icon ?? '🧩'
     const built = builtinSkills.map((b) => ({
+      key: b.slug,
       name: b.name,
       desc: b.description,
       icon: icon(b.name),
@@ -189,8 +191,9 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
     }))
     // 停用的不列：后端 instructions_for 对 disabled 返回 None，列出来等于骗用户（铁律#1）。
     const inst = installedSkills
-      .filter((s) => !s.disabled && !built.some((b) => b.name === s.name))
+      .filter((s) => !s.disabled && !built.some((b) => b.key === (s.slug || s.key)))
       .map((s) => ({
+        key: s.slug || s.key,
         name: s.name,
         desc: s.description || `${s.source === 'skillhub' ? 'SkillHub' : '本地'} 技能${s.version ? ' · v' + s.version : ''}`,
         icon: icon(s.name),
@@ -261,9 +264,9 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
             ) : (
               <div className="selgrid">
                 {skillItems.filter((s) => match(s.name) || match(s.desc)).map((s) => {
-                  const on = sel.has(s.name)
+                  const on = sel.has(s.key)
                   return (
-                    <div className={`selcard ${on ? 'sel' : ''}`.trim()} key={s.name} onClick={() => onToggle(s.name)}>
+                    <div className={`selcard ${on ? 'sel' : ''}`.trim()} key={s.key} onClick={() => onToggle(s.key)}>
                       <div style={{ display: 'flex', gap: 11, alignItems: 'center' }}>
                         <div className="sc-ic">{s.icon}</div>
                         {/* tag 内联在 .sc-n 内 —— 同连接器 picker 的 .pn 用法；.conn-tag 是

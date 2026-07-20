@@ -16,6 +16,7 @@ export function matchSkill(installed: InstalledSkill[], name: string): Installed
 // 内置技能（WB-180）：不在磁盘上，`GET /api/skills` 的磁盘扫描列不出，只能问 /skills/builtin。
 // tools 为空 = 纯提示词技能（按本项目定义「技能 = 提示词 + 工具包」，同样是真技能）。
 export interface BuiltinSkill {
+  slug: string
   name: string
   description: string
   tools: string[]
@@ -109,3 +110,19 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     }
   },
 }))
+
+// 运行时与持久化都存 slug；展示名只在渲染边界反查，避免同名技能覆盖身份（WB-183 Phase B）。
+export function skillDisplayName(key: string): string {
+  const state = useSkillStore.getState()
+  return state.builtin.find((s) => s.slug === key || s.name === key)?.name
+    ?? matchSkill(state.installed, key)?.name
+    ?? key
+}
+
+export function skillStableKey(key: string): string {
+  const state = useSkillStore.getState()
+  const builtin = state.builtin.find((s) => s.slug === key || s.name === key)
+  if (builtin) return builtin.slug
+  const installed = matchSkill(state.installed, key)
+  return installed?.slug || installed?.key || key
+}

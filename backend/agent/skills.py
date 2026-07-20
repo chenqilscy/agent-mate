@@ -5,14 +5,15 @@ adds any tools it carries to the agent's toolset. Most skills are instruction-on
 (they steer behaviour); the "Web Access" skill ships a real `web_fetch` tool — a
 genuinely new capability the base agent lacks — proving toolpacks work.
 
-Names match the frontend skill picker (SK_GRID); unknown names get a generic
-instruction so every catalog skill still has an effect.
+Runtime identity is the stable skill slug. Display names are resolved only for UI text;
+unknown identities are skipped and reported honestly instead of receiving a generic prompt.
 """
 from __future__ import annotations
 
 import csv
 import io
 import ipaddress
+import logging
 import re
 import socket
 import statistics
@@ -26,6 +27,7 @@ from agent.sandbox import SandboxError, resolve_in_sandbox
 from agent.tools import Tool, ToolOutcome
 
 _MAX = 6000
+_log = logging.getLogger("workbuddy.skills")
 
 
 def _is_blocked_host(host: str) -> bool:
@@ -279,6 +281,50 @@ def builtin_list() -> list[dict[str, Any]]:
         }
         for s in db.skill_specs()
     ]
+
+
+def canonical_skill_key(key: str) -> str | None:
+    """目录名/展示名/磁盘 key → 稳定 slug；无法唯一解析时返回 None。"""
+    from storage import db
+    spec = db.skill_spec_for(key)
+    if spec:
+        return str(spec["slug"])
+    from agent import skills_store
+    installed = skills_store.canonical_slug(key)
+    if installed:
+        return installed
+    # 一个合法 slug 即使当前机器尚未安装，也仍是可持久化的稳定身份；运行时会诚实报未就绪。
+    # 中文/带空格的纯展示名无法解析时则返回 None，由持久化调用方清理。
+    raw = (key or "").strip()
+    return raw if skills_store.valid_slug(raw) else None
+
+
+def canonical_skill_keys(keys: list[str], *, keep_unknown: bool = False) -> list[str]:
+    """把一组技能身份归一为 slug 并去重。
+
+    持久化配置使用默认值：未知商品卡直接丢弃；即时聊天可 `keep_unknown=True`，
+    让运行时继续通过 SSE 诚实报告“未安装或已停用”，而不是静默吞掉。
+    """
+    out: list[str] = []
+    for raw in keys:
+        value = canonical_skill_key(raw)
+        if value is None and keep_unknown:
+            value = (raw or "").strip() or None
+        elif value is None and (raw or "").strip():
+            _log.warning("drop unresolved persisted skill identity: %s", (raw or "").strip())
+        if value and value not in out:
+            out.append(value)
+    return out
+
+
+def skill_display_name(key: str) -> str:
+    """稳定 slug → 人类可读名称；身份与展示彻底分离。"""
+    from storage import db
+    spec = db.skill_spec_for(key)
+    if spec:
+        return str(spec["name"] or spec["slug"])
+    from agent import skills_store
+    return skills_store.display_name_for(key) or key
 
 
 def skill_def(name: str) -> tuple[str, list[Tool]] | None:

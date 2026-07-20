@@ -3,7 +3,7 @@ id: WB-179
 title: 技能身份断裂 —— loadout 存展示名 + skill_def 兜底话术伪装能力（铁律#1）
 severity: P1
 area: fullstack
-status: in-progress
+status: fixed
 origin: 既有实现
 files:
   - backend/agent/skills.py:8
@@ -134,3 +134,12 @@ Manager 项目配置 picker / 目录五处）。已把迁移清单挂进 WB-183�
 `in-progress` —— slug 迁移归 WB-183，其余已修。
 
 - commit：未提交（待用户确认）。
+
+## 处理记录（2026-07-20）· slug 全链路收口
+
+- Chat 即时 loadout、项目、助理、Hub 镜像与 Manager 项目配置统一保存 slug；SSE/芯片只在渲染边界反查展示名。
+- 启动迁移把历史展示名转换为 slug；无法解析的旧假商品名丢弃并记录，迁移幂等。
+- 真 API 验证：`[Web Access（浏览器自动化）, excel-csv, 不存在的技能]` 持久化为
+  `[web-access, excel-csv]`；真 LLM 技能/连接器回归 15/15 通过。
+
+状态改为 `fixed`。

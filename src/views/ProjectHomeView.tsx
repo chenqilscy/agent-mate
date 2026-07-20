@@ -15,6 +15,7 @@ import { HubCommentsPanel } from '../components/hub/HubCommentsPanel'
 import { useWorkItemStore } from '../stores/workItemStore'
 import { useCatalogStore } from '../stores/catalogStore'
 import { useKnowledgeStore } from '../stores/knowledgeStore'
+import { skillDisplayName, useSkillStore } from '../stores/skillStore'
 
 type Tab = '动态' | '计划' | '任务' | '负载' | '甘特' | '资产' | '讨论'
 type Kind = 'conn' | 'exp' | 'skill' | 'kb'
@@ -27,7 +28,8 @@ function iconOf(kind: Kind, name: string): string {
   const cat = useCatalogStore.getState()
   if (kind === 'conn') return cat.NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
   if (kind === 'exp') return cat.NP_EXPERTS.find((e) => e[1] === name)?.[0] ?? '🧑'
-  return cat.SK_GRID.find((s) => s[1] === name)?.[0] ?? '🧩'
+  const label = skillDisplayName(name)
+  return cat.SK_GRID.find((s) => s.name === label || s.slug === name)?.icon ?? '🧩'
 }
 
 const IC_ADD = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
@@ -43,6 +45,8 @@ export function ProjectHomeView() {
   const startProject = useChatStore((s) => s.startProject)
   const openSession = useChatStore((s) => s.openSession)
   const send = useChatStore((s) => s.send)
+  useSkillStore((s) => s.builtin)
+  useSkillStore((s) => s.installed)
 
   const [project, setProject] = useState<ProjectInfo | null>(active)
   const [tab, setTab] = useState<Tab>('动态')
@@ -120,7 +124,9 @@ export function ProjectHomeView() {
 
   const cfgSection = (k: Kind, label: string) => {
     const items = project[FIELD[k]] ?? []
-    const labelOf = (name: string) => k === 'kb' ? (kbs.find((kb) => kb.id === name)?.name ?? '已删除知识库') : name
+    const labelOf = (name: string) => k === 'kb'
+      ? (kbs.find((kb) => kb.id === name)?.name ?? '已删除知识库')
+      : k === 'skill' ? skillDisplayName(name) : name
     return (
       <div className="pjcfg-sec">
         <div className="pjcfg-h">

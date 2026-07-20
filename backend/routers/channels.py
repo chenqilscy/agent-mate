@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from agent.skills import canonical_skill_keys
 from channels import manager
 from storage import db
 from storage.models import LOCAL_USER_ID
@@ -72,7 +73,7 @@ async def create_assistant(body: AssistantBody) -> dict:
     a = db.create_assistant(
         owner_id=LOCAL_USER_ID, name=name, avatar=body.avatar, instruction=body.instruction,
         model=body.model, mode=mode, workspace=(body.workspace or "default"),
-        experts=body.experts or [], skills=body.skills or [], connectors=body.connectors or [],
+        experts=body.experts or [], skills=canonical_skill_keys(body.skills or []), connectors=body.connectors or [],
         enabled=True if body.enabled is None else body.enabled,
     )
     await manager.refresh()
@@ -88,6 +89,8 @@ def get_assistant(assistant_id: str) -> dict:
 async def update_assistant(assistant_id: str, body: AssistantBody) -> dict:
     _owned_assistant(assistant_id)
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "skills" in patch:
+        patch["skills"] = canonical_skill_keys(patch["skills"] or [])
     if "mode" in patch and patch["mode"] not in _VALID_MODES:
         patch.pop("mode")
     db.update_assistant(assistant_id, **patch)
