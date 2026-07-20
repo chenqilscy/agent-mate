@@ -1,6 +1,6 @@
 ---
 id: WB-131
-title: WorkBuddy Manager 导航/IA 专业化重构（分区侧栏 + 顶栏 + 概览页 + 收编黑话）
+title: AgentMate Manager 导航/IA 专业化重构（分区侧栏 + 顶栏 + 概览页 + 收编黑话）
 severity: P2
 area: frontend
 status: fixed
@@ -13,7 +13,7 @@ created: 2026-07-12
 
 ## 问题
 
-WorkBuddy Manager（App 云端管理端，定位见 epic [WB-112](WB-112-manager-positioning-data-spec.md)）
+AgentMate Manager（App 云端管理端，定位见 epic [WB-112](WB-112-manager-positioning-data-spec.md)）
 当前左栏是一条**扁平混杂**的菜单（[console.html:326](../../hub/web/console.html#L326)）：
 `项目 · 目录运营中心 · 组织 · 通知 · 设置`。作为一个云端 admin console，这套 IA 不专业：
 

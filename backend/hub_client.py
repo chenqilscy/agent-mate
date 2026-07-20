@@ -1,4 +1,4 @@
-"""本地 backend 作为 WorkBuddy Hub 客户端（WB-062）。
+"""本地 backend 作为 AgentMate Hub 客户端（WB-062）。
 
 所有调用 **guarded**：未接 Hub（HUB_URL 空）/ 不可达 / 非 200 → 返回 None，**从不抛异常**，
 保证离线/未登录纯本地照跑（架构设计 §6「回退优先」）。这些是**同步阻塞**调用（httpx.get）——

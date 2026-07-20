@@ -3,7 +3,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wb_testkit import Checker, account, call, db_get, wipe_users
+from agentmate_testkit import Checker, account, call, db_get, wipe_users
 
 OWN, VIEWER = "etest_owner", "etest_viewer"
 c = Checker()

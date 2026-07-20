@@ -10,7 +10,7 @@ files:
   - backend/mcp_servers/telegram.py:1
   - backend/agent/scheduler.py:1
   - backend/config.py:62
-  - docs/workbuddy-实现方案.md:257
+  - docs/agentmate-实现方案.md:257
 created: 2026-07-08
 ---
 
@@ -19,7 +19,7 @@ created: 2026-07-08
 「助理页」（[AssistantView.tsx](../../src/views/AssistantView.tsx)）定位是**让 AI 助手通过外部渠道触达用户**，
 但当前是纯原型占位：三条写死的 canned 消息、假的连接状态 `🟢 微信小程序`、`onSend` 只弹
 `toast('助理外部渠道连通功能将在 M5 落地')`（[AssistantView.tsx:52](../../src/views/AssistantView.tsx#L52)）。
-方案 [workbuddy-实现方案.md:257](../../docs/workbuddy-实现方案.md#L257) 将其标为 P2/M5+，一直未落地。
+方案 [agentmate-实现方案.md:257](../../docs/agentmate-实现方案.md#L257) 将其标为 P2/M5+，一直未落地。
 
 企业微信/WhatsApp 依赖用户不具备的渠道凭证，本期**只做 Telegram**：把 Telegram 收到的消息
 接入既有 agent 工具循环 [runtime.run_chat()](../../backend/agent/runtime.py#L174)，再把回复发回 Telegram。
@@ -38,7 +38,7 @@ created: 2026-07-08
 
 ## 影响
 
-P2：这是原型里承诺、方案里排期但从未落地的一整个一级视图的核心能力。做完即让 WorkBuddy 的
+P2：这是原型里承诺、方案里排期但从未落地的一整个一级视图的核心能力。做完即让 AgentMate 的
 助手能从桌面 App 之外（手机 Telegram）被驱动，是「助理」概念的第一次真正兑现。属增量新能力，
 默认关（未配 token/未开开关时零变化，纯本地全功能不受影响）。
 
@@ -53,7 +53,7 @@ P2：这是原型里承诺、方案里排期但从未落地的一整个一级视
    - **鉴权**：白名单 + `/start` 配对。`.env` 有 `TELEGRAM_CHAT_ID` 就只认它；没设则第一个发 `/start`
      的 chat 自动绑定为主人并持久化锁定；其余 chat 一律忽略。
    - **会话映射**：新增极小表 `channel_sessions(channel, chat_id, session_id, owner_id, created_at)`，
-     `chat_id ↔ session_id` 一对一，续聊不断线（一个 Telegram 会话 = 一个长期 WorkBuddy 会话，kind=`assistant`）。
+     `chat_id ↔ session_id` 一对一，续聊不断线（一个 Telegram 会话 = 一个长期 AgentMate 会话，kind=`assistant`）。
    - **驱动**：headless 消费 `run_chat(session, user, text)`（同 scheduler：`async for _ in ...: pass`），
      完成后取该会话最后一条 assistant 消息 `db.list_messages()` 作为回复文本，`sendMessage` 发回（>4096 分片）。
    - 防重叠（同一 chat 串行）、单条超时、错误隔离（一条消息失败不杀循环）。

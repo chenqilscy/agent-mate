@@ -19,7 +19,7 @@ function BotMessage({ msg, streaming }: { msg: ChatMessage; streaming: boolean }
     <div className="msg bot" id={`msg-${msg.id}`}>
       <CatLogo className="bot-ic" />
       <div className="bot-body">
-        <div className="bot-nm">WorkBuddy</div>
+        <div className="bot-nm">AgentMate</div>
         <div className={`bot-st ${collapsed ? 'clpsd' : ''}`.trim()} onClick={() => hasTrace && setCollapsed((v) => !v)}>
           {running ? (
             <><span className="run-ic" />执行中…</>

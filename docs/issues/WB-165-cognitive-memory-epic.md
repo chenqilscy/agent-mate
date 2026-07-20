@@ -15,7 +15,7 @@ created: 2026-07-14
 
 ## 问题
 
-WorkBuddy 的用户记忆（WB-148 + WB-162 优化后）仍是「按最近/手动注入固定预算」的朴素机制：
+AgentMate 的用户记忆（WB-148 + WB-162 优化后）仍是「按最近/手动注入固定预算」的朴素机制：
 去重靠精确字符串 + LLM 序号引用、注入与当前对话无关、无强度/衰减/使用强化、硬删除无留痕。
 参考同仓库邻居项目 **AgentOS**（`D:\work\local\AgentOS`，`packages/core/src/memory/`）的「白盒认知记忆」，
 把其成熟机制移植进来。经用户确认，采纳**全部三档**（累加式）。
@@ -44,7 +44,7 @@ P2：功能可用不阻塞。但这是一次质变——注入从「最近一批
 - **WB-168 档三（白盒管理 UI）**：`/api/memory` 扩展（stats/search/importance/archive/rollback/trace/decaying）+
   设置·记忆面板升级为白盒（检索 playground / 重要度滑杆 / 强度条 / 状态徽标 / 归档·回滚 / 溯源链 / 衰退预览），复用既有 class。
 
-**范围裁剪**（相对 AgentOS）：不移植 layer 分层（WorkBuddy 记忆单一为「用户事实」）、不移植 scope（用 owner_id 隔离已足）、
+**范围裁剪**（相对 AgentOS）：不移植 layer 分层（AgentMate 记忆单一为「用户事实」）、不移植 scope（用 owner_id 隔离已足）、
 不移植 dream 睡眠整合（decay_gc 已够）。LLM 结构化抽取（WB-162）保留，只把落库改走新 service。
 
 ## 验证

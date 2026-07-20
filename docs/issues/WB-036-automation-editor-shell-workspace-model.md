@@ -15,7 +15,7 @@ created: 2026-07-06
 
 ## 问题
 
-对照目标产品（WorkBuddy v5.2.3）截图，本 clone 的自动化编辑体验明显更薄：
+对照参考产品（腾讯 WorkBuddy v5.2.3）截图，本项目当时的自动化编辑体验明显更薄：
 
 - 目标是**全屏编辑页**（面包屑「自动化 / <名称>」+ 右上「取消/保存」+ 右侧「运行历史」侧栏），
   当前只有一个 `.np-*` 小弹窗（[`AutomationView.tsx:167`](../../src/views/AutomationView.tsx#L167) `AutomationModal`）。

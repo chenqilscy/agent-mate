@@ -41,7 +41,7 @@ def _user_data_dir() -> Path:
         base = Path.home() / "Library" / "Application Support"
     else:
         base = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
-    d = base / "WorkBuddy"
+    d = base / "AgentMate"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -93,17 +93,17 @@ class Settings:
     KDOCS_TOKEN: str = os.getenv("KDOCS_TOKEN", "").strip()
 
     # DB + workspace live in DATA_DIR (backend/ in dev, per-user data dir when frozen).
-    # WORKBUDDY_DB overrides the DB path (isolated tests / running a second instance).
-    DB_PATH: Path = Path(os.getenv("WORKBUDDY_DB", str(DATA_DIR / "workbuddy.db")))
+    # AGENTMATE_DB overrides the DB path (isolated tests / running a second instance).
+    DB_PATH: Path = Path(os.getenv("AGENTMATE_DB", str(DATA_DIR / "agentmate.db")))
 
     WORKSPACE_ROOT: Path = Path(
-        os.getenv("WORKBUDDY_WORKSPACE", str(DATA_DIR / "workspace"))
+        os.getenv("AGENTMATE_WORKSPACE", str(DATA_DIR / "workspace"))
     ).resolve()
 
     # SkillHub 已安装技能目录（WB-055）。真实安装把 skill 解压到这里，agent 扫描
-    # <dir>/*/SKILL.md 加载。与出货版 WorkBuddy 及 skillhub CLI 的默认约定一致。
+    # <dir>/*/SKILL.md 加载。与出货版 AgentMate 及 skillhub CLI 的默认约定一致。
     SKILLS_DIR: Path = Path(
-        os.getenv("WORKBUDDY_SKILLS_DIR", str(Path.home() / ".workbuddy" / "skills"))
+        os.getenv("AGENTMATE_SKILLS_DIR", str(Path.home() / ".agentmate" / "skills"))
     ).expanduser().resolve()
     # skillhub CLI（本机脚本，install.sh --cli-only 装到 ~/.skillhub/）。安装技能时
     # 用后端自己的 Python 直接跑它，避免依赖 bash wrapper / PATH。
@@ -128,7 +128,7 @@ class Settings:
         os.getenv("ASR_MODEL_DIR", str(DATA_DIR / "models" / "whisper"))
     ).resolve()
 
-    # WorkBuddy Hub（中心控制平面，WB-061/062）。HUB_URL 空 = 未接 Hub = 纯本地（离线优先）：
+    # AgentMate Hub（中心控制平面，WB-061/062）。HUB_URL 空 = 未接 Hub = 纯本地（离线优先）：
     # 本地 backend 作为 Hub 客户端持 Hub token 调其 /api/auth/verify 等。凭据/工作区文件绝不上云。
     HUB_URL: str = os.getenv("HUB_URL", "").strip().rstrip("/")
     # 团队时间线上报开关（WB-062 Phase 3）。默认关——执行产出默认不上云（隐私，铁律 4）。

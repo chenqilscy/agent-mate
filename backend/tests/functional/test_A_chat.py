@@ -5,7 +5,7 @@ trace / SSE tool event), not the model's wording. Runs stop as soon as the
 decisive event fires — the effect is already committed."""
 import sys, time, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wb_testkit import (Checker, call, stream, health_llm, account, session_id, events_of, text_join,
+from agentmate_testkit import (Checker, call, stream, health_llm, account, session_id, events_of, text_join,
                         has_step, stop_run, read_ws, ws_exists, plant_file, wipe_users)
 
 U = "atest_A"

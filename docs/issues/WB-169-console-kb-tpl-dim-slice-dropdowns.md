@@ -15,7 +15,7 @@ created: 2026-07-14
 
 ## 问题
 
-WorkBuddy Manager 控制台「知识库模板」编辑器（`hub/web/console.html` 的 `knowledgeManage`，
+AgentMate Manager 控制台「知识库模板」编辑器（`hub/web/console.html` 的 `knowledgeManage`，
 category `KB_TPLS`）有三处可改进（用户反馈，对照编辑器截图）：
 
 1. **缺少「向量维度」配置**。当前只有「向量模型」下拉（`kb-emb`），没有向量维度的展示/选择。

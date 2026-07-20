@@ -1,4 +1,4 @@
-"""WorkBuddy Hub —— 中心控制平面服务入口（WB-061）。
+"""AgentMate Hub —— 中心控制平面服务入口（WB-061）。
 
 独立于本地 backend：账号/组织/项目/成员/邀请的权威源 + 鉴权签发。可自托管的单体，
 默认 SQLite。绝不承载 LLM 凭据 / 沙箱文件（那些永远只在本地）。
@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
                 pass
 
 
-app = FastAPI(title="WorkBuddy Hub API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="AgentMate Hub API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=False,
     allow_methods=["*"], allow_headers=["*"],
@@ -61,11 +61,11 @@ app.add_middleware(
 
 @app.get("/", response_class=HTMLResponse)
 def console() -> str:
-    """WorkBuddy Manager —— Hub 自带的 web 管理端（原 BuddyWebMgr，WB-068/078/112）：单文件、同源调 /api，无构建管线。"""
+    """AgentMate Manager —— Hub 自带的 web 管理端（原 BuddyWebMgr，WB-068/078/112）：单文件、同源调 /api，无构建管线。"""
     try:
         return _CONSOLE.read_text(encoding="utf-8")
     except OSError:
-        return "<h1>WorkBuddy Manager</h1><p>console.html missing</p>"
+        return "<h1>AgentMate Manager</h1><p>console.html missing</p>"
 
 
 @app.get("/api/health")

@@ -20,7 +20,7 @@ from channels import telegram_api as tg
 from storage import db
 from storage.models import LOCAL_USER_ID
 
-log = logging.getLogger("workbuddy.channels")
+log = logging.getLogger("agentmate.channels")
 
 POLL_TIMEOUT = 30
 EMAIL_POLL = 45       # 邮件轮询间隔（秒）

@@ -6,7 +6,7 @@ area: fullstack
 status: fixed
 origin: 既有实现
 files:
-  - docs/workbuddy-助理-架构设计.md
+  - docs/agentmate-助理-架构设计.md
   - backend/channels/telegram_bridge.py
   - backend/channels/telegram_api.py
   - backend/routers/channels.py
@@ -27,7 +27,7 @@ created: 2026-07-08
 4. 每个助理独立设置 指令 / 技能 / 连接器 / 专家 / 大模型 / 权限 / 工作空间；
 5. 完善的 UI。
 
-权威设计见 [`docs/workbuddy-助理-架构设计.md`](../workbuddy-助理-架构设计.md)。
+权威设计见 [`docs/agentmate-助理-架构设计.md`](../agentmate-助理-架构设计.md)。
 
 ## 已定决策（本 epic 的边界）
 

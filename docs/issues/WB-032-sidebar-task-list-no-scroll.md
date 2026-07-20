@@ -19,7 +19,7 @@ created: 2026-07-06
 其子项顺序为 `.sb-head` / `.sb-search` / `.nav` / 「任务」`.sb-sec`+`.sb-list` / 「空间」`.sb-sec`+`.sb-list` / `.sb-flex`(flex:1 占位) / `.sb-foot`。
 
 两个 `.sb-list`（`src/styles/app.css:51`）都**没有 `overflow-y` 也没有可滚动的高度约束**。
-原型 `docs/workbuddy-v2.html` 只有 2 个任务 + 3 个空间，用 `.sb-flex`(flex:1) 占位把 `.sb-foot` 顶到底部就够了，从没预期会话很多。
+原型 `docs/tencent-agentmate-reference.html` 只有 2 个任务 + 3 个空间，用 `.sb-flex`(flex:1) 占位把 `.sb-foot` 顶到底部就够了，从没预期会话很多。
 真实应用里任务累积到 20+ 条后，列表总高超过侧栏可用高度：由于 flex 子项默认 `flex-shrink:1` 且未设 `overflow`，
 列表被挤压、超出部分被裁掉，且没有任何滚动条 —— 用户无法看到/点击靠下的历史会话。
 

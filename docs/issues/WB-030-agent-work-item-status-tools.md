@@ -17,7 +17,7 @@ created: 2026-07-06
 ## 问题
 
 WB-029 让待办作为 `🔖` 引用 chip 进入 Composer，但 agent 拿到后**只能读文本、不能操作计划项**。
-参考 WorkBuddy（用户截图）：待办作为任务交给 agent → agent `todo show` 看详情、`todo transition`
+参考腾讯 WorkBuddy（用户截图）：待办作为任务交给 agent → agent `todo show` 看详情、`todo transition`
 把状态流转到「完成」→ 看板回写。那套来自外部 MCP `wb-issues`（`todo_<id>` 任务系统），
 我们仓库没有；我们的 agent 是自研内置工具循环。目标：在**我们的 `work_items`** 上复刻该能力。
 

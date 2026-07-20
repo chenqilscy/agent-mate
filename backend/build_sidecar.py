@@ -1,7 +1,7 @@
 """Build the backend sidecar and stage it for Tauri.
 
-Runs PyInstaller (workbuddy-backend.spec → dist/workbuddy-backend.exe), then
-copies it to ../src-tauri/binaries/workbuddy-backend-<rust-target-triple>.exe —
+Runs PyInstaller (agentmate-backend.spec → dist/agentmate-backend.exe), then
+copies it to ../src-tauri/binaries/agentmate-backend-<rust-target-triple>.exe —
 the name Tauri's `bundle.externalBin` expects.
 
 Run with the backend venv's python:
@@ -29,11 +29,11 @@ def target_triple() -> str:
 
 def main() -> None:
     subprocess.run(
-        [sys.executable, "-m", "PyInstaller", "workbuddy-backend.spec",
+        [sys.executable, "-m", "PyInstaller", "agentmate-backend.spec",
          "--distpath", "dist", "--workpath", ".pyi-build", "--noconfirm"],
         cwd=BACKEND, check=True,
     )
-    exe = "workbuddy-backend.exe" if sys.platform == "win32" else "workbuddy-backend"
+    exe = "agentmate-backend.exe" if sys.platform == "win32" else "agentmate-backend"
     src = BACKEND / "dist" / exe
     dst_dir = ROOT / "src-tauri" / "binaries"
     dst_dir.mkdir(parents=True, exist_ok=True)
@@ -47,7 +47,7 @@ def main() -> None:
     if sys.platform == "win32":
         triples |= {"x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"}
     for triple in triples:
-        dst = dst_dir / f"workbuddy-backend-{triple}{suffix}"
+        dst = dst_dir / f"agentmate-backend-{triple}{suffix}"
         shutil.copy2(src, dst)
         print(f"sidecar staged → {dst}")
 

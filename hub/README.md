@@ -1,7 +1,7 @@
-# WorkBuddy Hub（中心控制平面服务）
+# AgentMate Hub（中心控制平面服务）
 
-WorkBuddy 从纯 local-first 走向「本地执行 + 云端控制平面」重构的**中心服务**（见
-[`docs/workbuddy-hub-架构设计.md`](../docs/workbuddy-hub-架构设计.md)、epic
+AgentMate 从纯 local-first 走向「本地执行 + 云端控制平面」重构的**中心服务**（见
+[`docs/agentmate-hub-架构设计.md`](../docs/agentmate-hub-架构设计.md)、epic
 [`WB-058`](../docs/issues/WB-058-hub-control-plane-epic.md)）。本目录（WB-061）是它的**骨架**：
 账号 / 组织 / 项目 / 成员·角色 / 邀请的**权威源**，以及鉴权签发。
 

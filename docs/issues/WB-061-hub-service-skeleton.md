@@ -6,7 +6,7 @@ area: backend
 status: fixed
 origin: 既有实现
 files:
-  - docs/workbuddy-hub-架构设计.md
+  - docs/agentmate-hub-架构设计.md
   - backend/auth/deps.py:30
   - backend/storage/db.py:68
 created: 2026-07-07
@@ -29,7 +29,7 @@ P1：这是 [WB-058](WB-058-hub-control-plane-epic.md) #2 的核心地基。骨�
 
 ## 建议修法
 
-按 [架构设计 §3/§7/§9](../workbuddy-hub-架构设计.md)：
+按 [架构设计 §3/§7/§9](../agentmate-hub-架构设计.md)：
 
 - **独立服务、同仓（monorepo）**：放本仓库新目录 **`hub/`**（技术栈沿用 FastAPI；库先 SQLite 亦可，规模上来换 Postgres）。与本地 `backend/` 代码解耦、可单独部署与启动，但共享一份 git 历史。不另起仓库。
 - **权威表**：`accounts`、`orgs`/`teams`、`projects`、`project_members`（角色沿用 `Role` 枚举 Owner/Admin/Member/Viewer）、`invites`。多租户由 `org_id` 贯穿。

@@ -14,7 +14,7 @@ created: 2026-07-09
 ## 问题
 
 BuddyWebMgr 控制台（`hub/web/console.html`）「目录运营中心」的 **专家 / 专家团** 两个 tab 目前只是
-**裸管理表单 + 纯文本列表**（新增/编辑/停用/删除 catalog_items）。而 WorkBuddy App 的
+**裸管理表单 + 纯文本列表**（新增/编辑/停用/删除 catalog_items）。而 AgentMate App 的
 `src/views/ExpertsView.tsx` 有一套**精美浏览橱窗**：精选场景卡（EXP_SCENES）+ 专家/专家团子标签 +
 分类筛选（EXP_CATS）+ 富卡片（EXP_GRID/EXP_TEAMS）+ 详情弹窗（能力介绍/擅长领域/团队成员/试试这样问我）。
 

@@ -5,15 +5,15 @@
 
 ## 这是什么
 
-WorkBuddy —— 从高保真原型 [`docs/workbuddy-v2.html`](docs/workbuddy-v2.html) 按方案
-[`docs/workbuddy-实现方案.md`](docs/workbuddy-实现方案.md) 落地的**可真实运行**的桌面 AI-agent 应用。
+AgentMate —— 从腾讯 WorkBuddy 的高保真参考原型 [`docs/tencent-workbuddy-reference.html`](docs/tencent-workbuddy-reference.html) 按方案
+[`docs/agentmate-实现方案.md`](docs/agentmate-实现方案.md) 落地的**可真实运行**的桌面 AI-agent 应用。
 前端 React 19 + Vite + TS + Zustand（`src/`），后端 Python FastAPI + SSE + 自研 agent 工具循环 + SQLite（`backend/`）。
 Local-first：后端跑在用户本机 localhost，浏览器（`:5173` 代理 `/api` 到 `:8000`）只是显示器。
 
 进度：M0–M5 + §11 项目工作台 A–D 已完成并验证；Tauri 2 桌面外壳（路线 A：外壳/sidecar/安装包/托盘·更新脚手架）已落地；
 能力补全（路线 B：自动化 + 内置/第三方 MCP 连接器 + 更多真实技能工具）已落地；
 **M7 协作 C1–C4**（真账户鉴权 / 项目成员·角色·邀请 / 队友执行只读可见+动态署名 / 消息中心真事件）已完成并验证（共享后端即 Hub）。
-**WorkBuddy Hub 重构（local-first 执行 + 云端控制平面，epic WB-058，见 [`docs/workbuddy-hub-架构设计.md`](docs/workbuddy-hub-架构设计.md)）已完成并验证**：
+**AgentMate Hub 重构（local-first 执行 + 云端控制平面，epic WB-058，见 [`docs/agentmate-hub-架构设计.md`](docs/agentmate-hub-架构设计.md)）已完成并验证**：
 WB-059 目录真定义入库（内置人格/连接器注册表 → DB，运行时读库）、WB-060 橱窗目录入库（`catalog.ts` → DB + API + 前端 `catalogStore`）、
 WB-061 Hub 服务骨架（独立同仓 [`hub/`](hub/)：账号/组织/项目/成员·角色/邀请权威源 + 鉴权签发，FastAPI + SQLite，可单独启动 :8100）、
 WB-062 本地⇄Hub 同步三期（鉴权桥 / 下行 pull 项目·成员镜像 / 上行 outbox 回传团队时间线）、

@@ -12,14 +12,14 @@ files:
   - src/data/catalog.ts:66
   - backend/storage/catalog_showcase.json
   - backend/storage/db.py:677
-  - backend/workbuddy.db
+  - backend/agentmate.db
 created: 2026-07-16
 ---
 
 ## 问题
 
 「专家·技能·连接器 → 专家」页堆了过多目录数据，用户诉求是「不需要这么多专家数据」。
-当前量级（`backend/workbuddy.db` 表 `catalog_showcase`）：
+当前量级（`backend/agentmate.db` 表 `catalog_showcase`）：
 
 | kind | 现状 | 说明 |
 | --- | --- | --- |
@@ -39,7 +39,7 @@ created: 2026-07-16
    → 前端退回 `src/data/catalog.ts` 里硬编码的 16 个专家。
 
 即：数据有**三层**（前端静态兜底 `src/data/catalog.ts` → 后端种子 `catalog_showcase.json` → 运行库
-`workbuddy.db`），只改一层都不是真裁剪。
+`agentmate.db`），只改一层都不是真裁剪。
 
 ## 触发场景
 
@@ -79,7 +79,7 @@ P3：纯目录数据体量/信噪比问题，不影响功能正确性，也不�
 
 1. `src/data/catalog.ts` —— `EXP_SCENES` / `EXP_CATS` / `EXP_GRID` / `EXP_TEAMS` 四段裁到保留名单（静态兜底层）。
 2. `backend/storage/catalog_showcase.json` —— 同名四个 kind 裁到一致（种子层）。
-3. `backend/workbuddy.db` 的 `catalog_showcase` —— 删掉落选行（运行库层）。
+3. `backend/agentmate.db` 的 `catalog_showcase` —— 删掉落选行（运行库层）。
    因每个 kind 都还留有行（≥1），`_seed_showcase` 的 kind 查重会跳过 → 不会重种。
 
 三层内容需**逐字一致**，否则「后端断连时看到的目录」与「正常状态」不是同一份。
@@ -102,7 +102,7 @@ P3：纯目录数据体量/信噪比问题，不影响功能正确性，也不�
 2. `backend/storage/catalog_showcase.json`（种子层）：同名四个 kind 裁到与 ①**逐字一致**。
    改法是脚本按保留名单过滤后整份回写 —— 先验证过 `json.loads → json.dumps(ensure_ascii=False, indent=1)`
    往返与原文**逐字节相同**，故回写不会顺带重排其余 20 个 kind。
-3. `backend/workbuddy.db`（运行库层）：按种子对账 —— 落选行 DELETE，留存行 UPDATE（含 `sort` 重排 0..n-1，
+3. `backend/agentmate.db`（运行库层）：按种子对账 —— 落选行 DELETE，留存行 UPDATE（含 `sort` 重排 0..n-1，
    与 `_seed_showcase` 的 `enumerate` 语义对齐）。删除前用 sqlite backup API 备份（活动库带 WAL，直接 copy 会漏未 checkpoint 的 WAL）。
 
 保留名单（择取原则：优先留 `catalog_experts` 里**有人格**的，保证留下的专家真能用，而非有卡无魂）：
@@ -117,7 +117,7 @@ P3：纯目录数据体量/信噪比问题，不影响功能正确性，也不�
 ### 验证
 
 - `npx tsc --noEmit` 通过（`catalog.ts` 元组类型未破）。
-- **陷阱 1 回归（关键）**：没有重启用户正在跑的 :8000，而是把裁剪后的库复制一份，用 `WORKBUDDY_DB`
+- **陷阱 1 回归（关键）**：没有重启用户正在跑的 :8000，而是把裁剪后的库复制一份，用 `AGENTMATE_DB`
   env 覆盖（`config.py:81` 为隔离测试预留）指向副本，**连跑两次真 `db.init_db()`**（即 `main.py:102`
   的冷启动路径，含 `_seed_catalog`+`_seed_showcase`）→ 四个 kind 仍为 3/6/7/3，未被重种。
 - **层间一致性**：写脚本从 `catalog.ts` 正则抽取四段与种子 JSON 逐字比对 → 四项全 OK
@@ -129,5 +129,5 @@ P3：纯目录数据体量/信噪比问题，不影响功能正确性，也不�
 - **边界**：专家团 × OPC·一人公司 / 内容创作 两组无卡 → 正常落到既有空态 `.hub-blank`「该分类下暂无专家团」
   （该空态在裁剪前即可达，如 行业顾问 × 专家团，非本次引入）。
 - commit：本次提交 `chore(WB-176): 精简专家/专家团橱窗数据 …`（共享树并发，走私有 GIT_INDEX_FILE
-  + commit-tree + update-ref CAS 构建，未触碰工作区与共享 INDEX）。运行库 `workbuddy.db` 的对账
+  + commit-tree + update-ref CAS 构建，未触碰工作区与共享 INDEX）。运行库 `agentmate.db` 的对账
   不进仓库（`.gitignore` 已排除），属本机运行时数据。

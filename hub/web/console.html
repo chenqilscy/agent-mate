@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>WorkBuddy Manager · WorkBuddy App 管理端</title>
+<title>AgentMate Manager · AgentMate App 管理端</title>
 <style>
   :root { --bg:#0f1420; --panel:#161c2b; --panel2:#1d2436; --line:#2a3348; --ink:#e7ecf5; --dim:#93a0b8; --brand:#16b37a; --brand2:#2e7df6; --danger:#ef4444; --chip:#232c40; }
   * { box-sizing:border-box; }
@@ -338,7 +338,7 @@ function render(){
   const admin = ME.is_platform_admin;
   app.innerHTML = `
     <div class="topbar">
-      <div class="logo">M</div><b>WorkBuddy Manager</b><span class="badge">App 管理端</span>
+      <div class="logo">M</div><b>AgentMate Manager</b><span class="badge">App 管理端</span>
       <div class="grow"></div>
       <button class="bell" id="nav-bell" title="通知">🔔<span class="ndot" id="bell-dot"></span></button>
       <span>${esc(ME.name)}</span>${admin?'<span class="badge admin">平台管理员</span>':''}
@@ -380,7 +380,7 @@ function nvItem(view,label,catsec){
 
 function authView(){
   return `<div class="auth"><div class="card">
-    <h1>WorkBuddy Manager</h1><div class="sub">WorkBuddy App 管理端 · 登录或注册</div>
+    <h1>AgentMate Manager</h1><div class="sub">AgentMate App 管理端 · 登录或注册</div>
     <div class="tabs"><button data-k="login" class="active">登录</button><button data-k="register">注册</button></div>
     <div class="field"><label>用户名</label><input id="au-name" autocomplete="username"></div>
     <div class="field"><label>密码（≥4 位）</label><input id="au-pw" type="password" autocomplete="current-password"></div>
@@ -405,7 +405,7 @@ function wireAuth(){
 // ---------- 概览 / 仪表盘（WB-131）：admin console 首屏，汇总真实数据（铁律#1，不造假；缺数据 catch→0） ----------
 async function overviewView(m){
   const admin = ME.is_platform_admin;
-  m.innerHTML = `<h1>概览</h1><div class="sub">WorkBuddy Manager · App 云端管理端总览</div>
+  m.innerHTML = `<h1>概览</h1><div class="sub">AgentMate Manager · App 云端管理端总览</div>
     <div id="ov-cards" class="muted">加载中…</div>`;
   const box = document.getElementById("ov-cards");
   const [proj, orgs, exp, conn, skill, feat] = await Promise.all([
@@ -2026,7 +2026,7 @@ function sgDetail(c){
       ${(c.tags&&c.tags.length)?`<div class="sg-msec">标签</div><div class="sg-mtags">${c.tags.map(t=>`<span class="pill">${esc(t)}</span>`).join("")}</div>`:""}
       <div id="sg-md-slot"></div>
     </div>
-    <div class="sg-mfoot"><span class="muted" style="font-size:12px">Hub 门户为浏览视图；安装/试用在 WorkBuddy 客户端</span><div class="grow"></div><a class="sg-mlink" href="https://skillhub.cn" target="_blank" rel="noopener">skillhub.cn ↗</a></div>
+    <div class="sg-mfoot"><span class="muted" style="font-size:12px">Hub 门户为浏览视图；安装/试用在 AgentMate 客户端</span><div class="grow"></div><a class="sg-mlink" href="https://skillhub.cn" target="_blank" rel="noopener">skillhub.cn ↗</a></div>
   </div>`;
   document.body.appendChild(ov);
   const close=()=>{ ov.remove(); document.removeEventListener("keydown",onkey); };

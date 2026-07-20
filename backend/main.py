@@ -1,4 +1,4 @@
-"""WorkBuddy backend entrypoint (FastAPI + SSE).
+"""AgentMate backend entrypoint (FastAPI + SSE).
 
 Local-first: this runs on the user's machine as a localhost service. The browser
 (Vite dev server, or the Tauri shell in M5) is just the display. All routes pass
@@ -11,7 +11,7 @@ import logging
 import sys
 
 # MCP-server subcommand: when the bundled exe re-execs itself as
-# `WorkBuddy.exe --mcp-server=<name>` (see agent/mcp_client.py), run that FastMCP
+# `AgentMate.exe --mcp-server=<name>` (see agent/mcp_client.py), run that FastMCP
 # server on stdio and exit — never start the web app. Handled first, before the
 # heavy web-app imports, so a connector process stays lightweight.
 for _arg in sys.argv[1:]:
@@ -28,7 +28,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 # httpx 的 INFO 行包含完整请求 URL；部分第三方 API 把凭据放在路径中，绝不能进终端/日志（WB-200）。
-# 业务层的 workbuddy.* 日志不受影响，连接成功/失败仍可观察。
+# 业务层的 agentmate.* 日志不受影响，连接成功/失败仍可观察。
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
@@ -43,7 +43,7 @@ from config import FROZEN, settings
 from routers import asr, auth, automations, catalog, channels, chat, data, experts, files, hub, kdocs, knowledge, me, memory, milestones, models, notifications, prefs, projects, security, sessions, skills, work_items
 from storage import db
 
-app = FastAPI(title="WorkBuddy API", version="0.1.0")
+app = FastAPI(title="AgentMate API", version="0.1.0")
 
 # Reject oversized JSON API bodies before they are buffered (WB-010). File uploads
 # stream and enforce their own 50MB cap, so they're exempt from this smaller limit.
@@ -108,7 +108,7 @@ def _startup() -> None:
     db.init_db()
     migrated = db.migrate_skill_identities(agent_skills.canonical_skill_key)
     if migrated["changed"] or migrated["dropped"]:
-        logging.getLogger("workbuddy.skills").info("skill identity migration: %s", migrated)
+        logging.getLogger("agentmate.skills").info("skill identity migration: %s", migrated)
 
 
 @app.on_event("startup")

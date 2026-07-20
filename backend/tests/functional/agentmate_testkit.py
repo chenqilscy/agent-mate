@@ -1,4 +1,4 @@
-"""Shared kit for WorkBuddy detailed functional tests against a LIVE backend.
+"""Shared kit for AgentMate detailed functional tests against a LIVE backend.
 
 These are INTEGRATION / end-to-end tests: they need the backend running on
 :8000 (real LLM configured in backend/.env) and hit the real SQLite DB. Run them
@@ -11,7 +11,7 @@ induces an action; we stream until the decisive event (diff/step/work_item),
 then STOP the run (the side effect is already committed) and verify it on disk/DB.
 That makes LLM-driven tests rigorous instead of flaky.
 
-Overrides via env: WB_TEST_BASE, WORKBUDDY_DB, WORKBUDDY_WORKSPACE.
+Overrides via env: AGENTMATE_TEST_BASE, AGENTMATE_DB, AGENTMATE_WORKSPACE.
 """
 import json, time, os, sqlite3, shutil, sys, urllib.request, urllib.error
 from pathlib import Path
@@ -19,9 +19,9 @@ from pathlib import Path
 _BACKEND = Path(__file__).resolve().parents[2]   # backend/tests/functional/ -> backend/
 sys.path.insert(0, str(_BACKEND))
 from config import settings as _settings
-BASE = os.environ.get("WB_TEST_BASE", "http://127.0.0.1:8000/api")
-DB = os.environ.get("WORKBUDDY_DB", str(_BACKEND / "workbuddy.db"))
-WS = Path(os.environ.get("WORKBUDDY_WORKSPACE", str(_BACKEND / "workspace")))
+BASE = os.environ.get("AGENTMATE_TEST_BASE", "http://127.0.0.1:8000/api")
+DB = os.environ.get("AGENTMATE_DB", str(_BACKEND / "agentmate.db"))
+WS = Path(os.environ.get("AGENTMATE_WORKSPACE", str(_BACKEND / "workspace")))
 PW = "pw1234"
 THROTTLE = 2.0  # seconds paced before each real /chat run (rate-limit friendly)
 

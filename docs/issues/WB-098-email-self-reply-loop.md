@@ -26,7 +26,7 @@ P1：一旦发生就是邮件风暴（对外发信、不可控），必须先修
 
 ## 建议修法
 
-给助手发出的回信打一个标记头 `X-WorkBuddy-Assistant: 1`（`email_api.send_reply`），`fetch_unseen`
+给助手发出的回信打一个标记头 `X-AgentMate-Assistant: 1`（`email_api.send_reply`），`fetch_unseen`
 遇到带此头的邮件直接跳过（那是我们自己发的回信）。这样：用户原始邮件（无此头）正常处理一次；
 助手回信（有此头）被收取时跳过，循环打破——且不影响"从账号自己发测试信"。
 
@@ -37,7 +37,7 @@ P1：一旦发生就是邮件风暴（对外发信、不可控），必须先修
 
 ## 处理记录（2026-07-09）
 
-- 改动：`email_api.send_reply` 给回信加 `X-WorkBuddy-Assistant: 1` 头；`fetch_unseen` 遇带此头的邮件
+- 改动：`email_api.send_reply` 给回信加 `X-AgentMate-Assistant: 1` 头；`fetch_unseen` 遇带此头的邮件
   直接 `continue` 跳过（那是助手自己发的回信）。真机 Gmail 自测（白名单=账号自己）时发现此循环隐患。
 - 验证：`py_compile` 通过；重启 :8000 加载。真机自测（用户从 chenqilscy@gmail.com 自发）循环打破待用户发信确认。
 - commit：（同 WB-097 之后单独提交）

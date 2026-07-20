@@ -34,14 +34,14 @@ P2：功能闭环缺一环，但当前客户端持久化已可用、不阻塞浏
 - 明确「已安装 / 已关闭」与会话 `loadout.skills` 的关系：已安装且未关闭的技能是否默认进 loadout，
   还是仍需显式挂载；SkillHub 商店的静态目录与真实可执行技能（`backend/agent/skills.py`）如何对应。
 - 与 SkillHub CLI（`~/.skillhub`，见项目记忆 skillhub-cli）的关系：是否用 `skillhub install --dir`
-  把技能真正装进 workbuddy 的 skills 目录，让"安装"= 真实落盘可用。
+  把技能真正装进 agentmate 的 skills 目录，让"安装"= 真实落盘可用。
 
 ## 验证
 
 - 安装后换会话/刷新/换设备，已安装列表一致；已安装技能确实能被 agent 调用（真实工具事件，非模拟）。
 
 ## 处理记录（2026-07-07）
-- 后端：新增 `agent/skills_store.py`（扫描 `~/.workbuddy/skills/*/SKILL.md`、真实跑
+- 后端：新增 `agent/skills_store.py`（扫描 `~/.agentmate/skills/*/SKILL.md`、真实跑
   skillhub CLI `install --dir` 下载解压、uninstall/toggle(.disabled)/detail/reveal、
   search 解析展示名→slug）；`routers/skills.py` 暴露 `/api/skills`（list/search/detail/
   install/{key}/uninstall|toggle|reveal），`main.py` 注册；`config.py` 加 `SKILLS_DIR`/`SKILLHUB_CLI`；

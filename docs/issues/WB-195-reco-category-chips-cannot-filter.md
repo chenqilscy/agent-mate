@@ -8,7 +8,7 @@ origin: 🏚 迁移遗留
 files:
   - src/views/ExpertsView.tsx:481
   - src/data/catalog.ts:110
-  - docs/workbuddy-v2.html:1363
+  - docs/tencent-agentmate-reference.html:1363
 created: 2026-07-17
 ---
 
@@ -28,7 +28,7 @@ const [cat, setCat] = useState('全部')
 
 根因不是忘了写过滤，而是**数据形状里没有分类**：`SK_GRID` 是 `[icon, name, desc]` 三元组
 （`catalog.ts:110`），每条卡没有 category 字段 —— 以当前数据**过滤无从实现**。
-原型 `docs/workbuddy-v2.html:1363` 同样是无过滤的 `SK_GRID.map(...)`，属迁移遗留的装饰。
+原型 `docs/tencent-agentmate-reference.html:1363` 同样是无过滤的 `SK_GRID.map(...)`，属迁移遗留的装饰。
 
 对比：同页「SkillHub」段的分类 chip **是真的**（`SkillHubView` 按 `card.category`/`skillCats` 过滤）
 —— 因为镜像卡带 category。所以同一个面板上下两段，分类 chip 一真一假，外观完全一样。

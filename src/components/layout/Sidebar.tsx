@@ -201,7 +201,7 @@ export function Sidebar() {
           <circle cx="24.5" cy="25" r="2.7" fill="#eafff6" />
         </svg>
         <div className="sb-title">
-          <b>WorkBuddy</b>
+          <b>AgentMate</b>
           <small>v5.2.3</small>
         </div>
         <div className="sb-icos">

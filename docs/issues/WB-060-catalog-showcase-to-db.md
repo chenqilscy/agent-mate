@@ -28,7 +28,7 @@ P2（择机）：纯展示、不阻断功能，但为 Hub 目录（[WB-058](WB-0
 
 ## 建议修法
 
-按 [架构设计 §5](../workbuddy-hub-架构设计.md)，与 [WB-059](WB-059-catalog-definitions-to-db.md) 的表**统一**（同一张表既是橱窗又是真定义，用 `functional`/`status` 区分；橱窗卡 = 不接真实能力）：
+按 [架构设计 §5](../agentmate-hub-架构设计.md)，与 [WB-059](WB-059-catalog-definitions-to-db.md) 的表**统一**（同一张表既是橱窗又是真定义，用 `functional`/`status` 区分；橱窗卡 = 不接真实能力）：
 
 ### 后端
 - `storage/db.py`：橱窗项并入 `catalog_experts`/`catalog_connectors`/`catalog_skills`（+ `catalog_expert_teams`/`catalog_automation_templates`/`catalog_inspirations`/`catalog_project_templates`）。含 `category`/`badge`/`sort`/`featured`/`downloads`/`stars` 等展示字段。

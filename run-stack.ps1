@@ -1,4 +1,4 @@
-# WorkBuddy 三层本地栈一键启动：Hub(:8100) + backend(:8000, 接 Hub) + frontend(:5173)
+# AgentMate 三层本地栈一键启动：Hub(:8100) + backend(:8000, 接 Hub) + frontend(:5173)
 #
 # 用法（在仓库根，PowerShell）：  ./run-stack.ps1
 # 每层在独立窗口启动；已在运行的端口会跳过。关掉对应窗口即停该层。

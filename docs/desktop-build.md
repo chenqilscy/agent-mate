@@ -1,6 +1,6 @@
 # 桌面版构建与发布（路线 A）
 
-WorkBuddy 用 Tauri 2 打成桌面应用：前端在系统 WebView2 里显示，Rust 壳负责窗口、
+AgentMate 用 Tauri 2 打成桌面应用：前端在系统 WebView2 里显示，Rust 壳负责窗口、
 托盘、自动更新，并把 Python 后端作为 **sidecar** 打成单文件 exe 一起分发、启动时拉起、
 退出时清理。本文覆盖构建、发布、签名与已知事项。
 
@@ -14,7 +14,7 @@ WorkBuddy 用 Tauri 2 打成桌面应用：前端在系统 WebView2 里显示，
 
 两种方式：
 
-**浏览器开发**（全功能、开发库 `backend/workbuddy.db`）：
+**浏览器开发**（全功能、开发库 `backend/agentmate.db`）：
 ```bash
 cd backend && ./.venv/Scripts/python.exe main.py     # 后端 :8000
 pnpm dev                                              # Vite :5173
@@ -27,7 +27,7 @@ backend/.venv/Scripts/python.exe backend/build_sidecar.py   # 构建 sidecar（�
 pnpm dev                                                     # Vite :5173
 pnpm tauri:dev                                               # 原生窗口，壳自动拉起 sidecar 后端
 ```
-> 桌面壳用的是**打包版后端**：数据目录在 `%LOCALAPPDATA%/WorkBuddy`，与开发库隔离。
+> 桌面壳用的是**打包版后端**：数据目录在 `%LOCALAPPDATA%/AgentMate`，与开发库隔离。
 
 ## 构建安装包
 
@@ -38,8 +38,8 @@ backend/.venv/Scripts/python.exe backend/build_sidecar.py
 pnpm tauri build
 ```
 产物在 `src-tauri/target/release/bundle/`：
-- `msi/WorkBuddy_<ver>_x64_en-US.msi`（WiX）
-- `nsis/WorkBuddy_<ver>_x64-setup.exe`（NSIS）
+- `msi/AgentMate_<ver>_x64_en-US.msi`（WiX）
+- `nsis/AgentMate_<ver>_x64-setup.exe`（NSIS）
 
 **注意**：`tauri build` 的 `beforeBuildCommand` 是 `pnpm build`（含 `tsc -b`），**要求整个
 前端类型检查通过**。若因在改的代码报 TS 错，先修好，或临时用 `npx vite build` 预构建 dist
@@ -47,17 +47,17 @@ pnpm tauri build
 
 ## 架构要点
 
-- **sidecar**：`backend/build_sidecar.py` 跑 `workbuddy-backend.spec`（onefile），按 Rust
+- **sidecar**：`backend/build_sidecar.py` 跑 `agentmate-backend.spec`（onefile），按 Rust
   目标三元组命名拷进 `src-tauri/binaries/`。Windows 上 Tauri 按 `x86_64-pc-windows-msvc`
   匹配（即便 host 是 gnu），脚本已同时放 msvc/gnu 两个名字。
 - **进程接管**：`src-tauri/src/lib.rs` 启动时 `spawn` sidecar、drain 其输出、退出时 kill。
 - **前端 API 基址**：壳内自动走绝对 `http://127.0.0.1:8000/api`（无 Vite 代理），后端 CORS
   已放行 tauri 源。
-- **冻结感知**：`config.py` 打包后把 DB/工作区放 `%LOCALAPPDATA%/WorkBuddy`，`.env` 在
+- **冻结感知**：`config.py` 打包后在 `%LOCALAPPDATA%/AgentMate` 存放 DB/工作区，`.env` 在
   exe 旁/数据目录查找。
 - **本地连接器**：内置 MCP 服务器（本地便签/时间助手/工作区检索）在打包版里改用**内存
   传输**同进程运行（不起子进程），可用。第三方 stdio 连接器（GitHub）打包版默认禁用，
-  可设 `WORKBUDDY_BUNDLE_CONNECTORS=1` 尝试。
+  可设 `AGENTMATE_BUNDLE_CONNECTORS=1` 尝试。
 
 ## 自动更新（脚手架，接端点即生效）
 

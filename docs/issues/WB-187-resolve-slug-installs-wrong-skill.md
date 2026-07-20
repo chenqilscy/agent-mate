@@ -45,7 +45,7 @@ return str(results[0].get("slug", "")).strip() or None   # ← 取第一条
 ```
 POST /api/skills/install {"slug": "", "name": "不存在的技能xyz"}
 → HTTP 200 {"ok": true, ...}
-→ ~/.workbuddy/skills/self-improving-agent/ 被真实创建
+→ ~/.agentmate/skills/self-improving-agent/ 被真实创建
 → _skillhub_meta.json = {"slug":"self-improving-agent","name":"不存在的技能xyz","version":"3.0.24"}
 → GET /api/skills 清单里显示：key=self-improving-agent, name=不存在的技能xyz
 ```
@@ -77,7 +77,7 @@ P2。用户视角是「装了个技能，名字对得上」，实际磁盘上是
 ## 验证
 
 - `py_compile` 过。
-- `POST /api/skills/install {"name":"不存在的技能xyz"}` → **404**，`~/.workbuddy/skills/` 无新目录。
+- `POST /api/skills/install {"name":"不存在的技能xyz"}` → **404**，`~/.agentmate/skills/` 无新目录。
 - `POST /api/skills/install {"name":"skill-creator"}`（精确命中）→ 仍能正常安装。
 - 装完后 `GET /api/skills` 里该技能的 name 是**其真实名**，不是调用方传的字符串。
 
@@ -132,7 +132,7 @@ search('腾讯微云') → 1. self-improving-agent  ← 装这个
 - `resolve_slug('不存在的技能xyz')` → `None`（修复前 → `find-skills`）。
 - 回归：`resolve_slug('humanizer')` → `humanizer`（按 slug）、`resolve_slug('Humanizer')` → `humanizer`（按 name）。
 - 端到端（隔离 TestClient 打真路由）：`POST /api/skills/install {"name":"不存在的技能xyz"}`
-  → **HTTP 404**「SkillHub 未找到「不存在的技能xyz」」，`~/.workbuddy/skills/` **无新目录**
+  → **HTTP 404**「SkillHub 未找到「不存在的技能xyz」」，`~/.agentmate/skills/` **无新目录**
   （测试前后目录清单逐字相等）。
 - 静态卡影响面：38 张逐个跑 `resolve_slug`，37 命中 / 1 诚实 404（如上）。
 

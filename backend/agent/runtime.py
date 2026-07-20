@@ -41,7 +41,7 @@ from storage import db, provider_seed
 from storage.models import Session, User
 
 SYSTEM_PROMPT = (
-    "你是 WorkBuddy，一个运行在用户本机的智能职场助手。\n"
+    "你是 AgentMate，一个运行在用户本机的智能工作伙伴。\n"
     "你可以使用提供的工具在工作区（沙箱目录）内操作：列目录(list_dir)、读文件(read_file)、"
     "写文件(write_file)、运行命令(run_command)、更新待办清单(update_plan)；"
     "遇到影响方向的关键决策时用 ask_user 向用户确认。\n"
@@ -52,7 +52,7 @@ SYSTEM_PROMPT = (
 
 # Plan mode (spec 5.3): plan, don't execute. Confirm key decisions via ask_user.
 PLAN_SYSTEM_PROMPT = (
-    "你是 WorkBuddy，现在处于【计划模式】。\n"
+    "你是 AgentMate，现在处于【计划模式】。\n"
     "只做规划，不做改动：可以用 list_dir / read_file 了解现状，用 update_plan 记录步骤，"
     "遇到影响方向的关键决策时**务必用 ask_user 向用户确认**（一次最多问 3 个选择题）。\n"
     "禁止调用 write_file / run_command——这一步只产出方案，不落地。\n"
@@ -445,7 +445,7 @@ async def run_chat(
         mcp_skipped: list[dict[str, str]] = []
         if active_connectors and not plan and not ask:
             mcp_tools, mcp_stack, mcp_skipped = await open_connectors(
-                active_connectors, env={"WORKBUDDY_NOTES_DIR": str(current_root())}
+                active_connectors, env={"AGENTMATE_NOTES_DIR": str(current_root())}
             )
         mcp_by_name = {t.qualified: t for t in mcp_tools}
         schemas = (

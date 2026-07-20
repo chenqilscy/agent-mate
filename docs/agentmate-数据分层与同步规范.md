@@ -1,12 +1,12 @@
-# WorkBuddy 数据分层与同步规范
+# AgentMate 数据分层与同步规范
 
-> 状态：v1（2026-07-10 立）。本规范是 **WorkBuddy App ⇄ WorkBuddy Manager** 之间"哪些数据上云、哪些留本地、怎么同步"的**唯一准绳**。
+> 状态：v1（2026-07-10 立）。本规范是 **AgentMate App ⇄ AgentMate Manager** 之间"哪些数据上云、哪些留本地、怎么同步"的**唯一准绳**。
 > 新增任何实体前，先按 §5 的决策流程给它归层，再写代码。相关落地见 epic [WB-112](issues/WB-112-manager-positioning-data-spec.md)。
 
 ## 0. 定位
 
-- **WorkBuddy App**（本地 backend `:8000` + React `:5173`）：**local-first 执行端**。用户实际干活的地方，离线可用。是前端的**唯一入口**（前端只连本地 backend）。
-- **WorkBuddy Manager**（原 BuddyWebMgr，Hub `:8100`，目录 `hub/`）：**云端管理端 / 控制平面**。账号·组织·项目·成员·协作的**权威源**，多端统一管理。它**不执行**任务、**不持有**凭据。
+- **AgentMate App**（本地 backend `:8000` + React `:5173`）：**local-first 执行端**。用户实际干活的地方，离线可用。是前端的**唯一入口**（前端只连本地 backend）。
+- **AgentMate Manager**（原 BuddyWebMgr，Hub `:8100`，目录 `hub/`）：**云端管理端 / 控制平面**。账号·组织·项目·成员·协作的**权威源**，多端统一管理。它**不执行**任务、**不持有**凭据。
 
 一句话：**App 干活、Manager 管人管项目**。本地 backend 内嵌一个 guarded Hub 客户端，对"协作实体"做读镜像+写代理，对"私有实体"一律不上云。
 

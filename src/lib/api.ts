@@ -218,7 +218,7 @@ export const api = {
       `/connectors/kdocs/folder?drive_id=${encodeURIComponent(driveId)}&parent_id=${encodeURIComponent(parentId)}&kuid=${encodeURIComponent(kuid)}`,
     ),
 
-  // SkillHub 技能 · 真实安装/发现/管理（WB-055）。清单来自 ~/.workbuddy/skills 磁盘扫描，
+  // SkillHub 技能 · 真实安装/发现/管理（WB-055）。清单来自 ~/.agentmate/skills 磁盘扫描，
   // 安装走真实 skillhub CLI 下载解压。key = 技能目录名。
   listSkills: () => get<{ skills: InstalledSkill[]; cli: boolean }>('/skills'),
   // SkillHub 实时搜索（WB-070）：本地 backend 优先经 Hub 查询代理（富字段），未接/不可达 → 回退本地 CLI。

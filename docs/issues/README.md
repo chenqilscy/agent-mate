@@ -1,4 +1,4 @@
-# WorkBuddy Issues 登记册
+# AgentMate Issues 登记册
 
 本目录是项目的问题登记与处理台账。**所有发现的问题先登记为一条 issue，再处理**。
 处理流程与规范由 skill `issue-tracker` 定义（`.claude/skills/issue-tracker/SKILL.md`），
@@ -75,7 +75,7 @@
 | [WB-055](WB-055-skillhub-install-backend.md) | ✅ | P2 | backend | SkillHub 已安装技能落到后端 + 会话真正挂载（真实安装/发现/注入） |
 | [WB-056](WB-056-skill-detail-view.md) | ✅ | P2 | frontend | 技能详情页（渲染 SKILL.md + 预览/源码 + 去试试/启用/打开文件夹/卸载） |
 | [WB-057](WB-057-skill-detail-preview-before-install.md) | ✅ | P2 | backend | 技能详情支持"安装前预览"（从 SkillHub 拉取，而非仅本地磁盘） |
-| [WB-058](WB-058-hub-control-plane-epic.md) | ✅ | P1 | backend | WorkBuddy Hub —— local-first 执行 + 云端控制平面重构（总纲/epic） |
+| [WB-058](WB-058-hub-control-plane-epic.md) | ✅ | P1 | backend | AgentMate Hub —— local-first 执行 + 云端控制平面重构（总纲/epic） |
 | [WB-059](WB-059-catalog-definitions-to-db.md) | ✅ | P2 | backend | 目录「真定义」入库 —— 内置专家人格 + 连接器启动注册表 从硬编码迁到 DB |
 | [WB-060](WB-060-catalog-showcase-to-db.md) | ✅ | P2 | frontend | 橱窗目录入库 —— catalog.ts 静态商品卡迁到 DB + API，前端改从接口取 |
 | [WB-061](WB-061-hub-service-skeleton.md) | ✅ | P1 | backend | Hub 服务骨架 —— 独立中心服务：账号/组织/项目/成员/邀请权威源 + 鉴权签发 |
@@ -102,7 +102,7 @@
 | [WB-083](WB-083-catalog-connectors-crud.md) | ✅ | P2 | frontend | 目录运营中心 —— 连接器 类型化 CRUD（launch spec 编辑器：内置/stdio；secret_env 仅变量名） |
 | [WB-084](WB-084-catalog-skills-skillhub.md) | ✅ | P2 | fullstack | 目录运营中心 —— 技能 + SkillHub（浏览/搜索/上架/手动同步；接已就绪的 WB-069 后端） |
 | [WB-085](WB-085-assistant-page-toolbar-real.md) | ✅ | P2 | frontend | 助理页顶栏按钮接真实 transcript —— 对话内搜索/分享导出/历史提问（去掉 toast 占位，复用 ChatView） |
-| [WB-086](WB-086-multi-assistant-multi-channel-epic.md) | ✅ | P1 | fullstack | 多助理·多渠道 —— 助理子系统重构（总纲/epic；设计见 docs/workbuddy-助理-架构设计.md；S1-087/S2-088/S3+S4-089） |
+| [WB-086](WB-086-multi-assistant-multi-channel-epic.md) | ✅ | P1 | fullstack | 多助理·多渠道 —— 助理子系统重构（总纲/epic；设计见 docs/agentmate-助理-架构设计.md；S1-087/S2-088/S3+S4-089） |
 | [WB-087](WB-087-multi-assistant-backend-model.md) | ✅ | P1 | backend | 多助理 S1 —— 后端模型(assistants/channels) + CRUD + 多 bot 渠道管理器 + run_chat 接 workspace/mode + 迁移 |
 | [WB-088](WB-088-multi-assistant-frontend.md) | ✅ | P1 | frontend | 多助理 S2 —— 前端多助理管理 UI（主从：列表/新建/设置/对话/渠道；合并 S3 前端） |
 | [WB-089](WB-089-multi-assistant-consolidate.md) | ✅ | P1 | fullstack | 多助理 S3+S4 收尾 —— 移除兼容层 + 端到端验证 + 关闭 epic WB-086 |
@@ -113,7 +113,7 @@
 | [WB-095](WB-095-skillhub-api-key-setting.md) | ✅ | P3 | fullstack | BuddyWebMgr 设置页保存 SkillHub API key（Hub 服务端存储/打码回显/注入取数；skh_ 个人·sk-ent- 企业） |
 | [WB-096](WB-096-email-channel.md) | ✅ | P2 | fullstack | 助理邮件渠道 —— IMAP 收 + SMTP 发（多渠道新类型，白名单+暗号，接入多助理，复用 ChannelManager） |
 | [WB-097](WB-097-channel-typemenu-clipped.md) | ✅ | P2 | ui | 助理「新增渠道」类型菜单被滚动容器裁切 —— 改用 Popover（fixed 定位不裁切，复用 .pop-item） |
-| [WB-098](WB-098-email-self-reply-loop.md) | ✅ | P1 | backend | 邮件渠道自我回复循环 —— 回信打 X-WorkBuddy-Assistant 头，收信跳过自己回信（防邮件风暴） |
+| [WB-098](WB-098-email-self-reply-loop.md) | ✅ | P1 | backend | 邮件渠道自我回复循环 —— 回信打 X-AgentMate-Assistant 头，收信跳过自己回信（防邮件风暴） |
 | [WB-099](WB-099-console-grid-overflow.md) | ✅ | P3 | ui | BuddyWebMgr SkillHub 页横向溢出 —— grid 1fr→minmax(0,1fr)（SkillHub/看板/grid2 同修） |
 | [WB-100](WB-100-console-experts-showroom.md) | ✅ | P2 | frontend | BuddyWebMgr 专家/专家团升级为 App 同款浏览橱窗（精选场景+子标签+分类+富卡片+详情弹窗；替裸 CRUD，管理动作进弹窗；纯 vanilla 无后端改） |
 | [WB-101](WB-101-console-connector-gallery.md) | ✅ | P3 | ui | BuddyWebMgr 连接器补「浏览橱窗」—— 目录管理旁加 App 风格双列卡片橱窗（读同一 CONN_DEFS，cg- 前缀防撞并发） |
@@ -137,7 +137,7 @@
 | [WB-115](WB-115-pm-workload-task-comments.md) | ✅ | P2 | fullstack | PM 细化之三 协作联动 —— 按负责人工作量视图(前端聚合) + 任务级评论(Hub comments 加 work_item_id + 任务级端点 + 控制台抽屉评论区) |
 | [WB-114](WB-114-pm-task-templates-inline-edit.md) | ✅ | P2 | frontend | PM 细化之二（纯前端）任务模板 + 列表内联编辑(状态/优先级/负责人/里程碑点选即改) + 子任务进度条；依赖/自定义字段/附件需后端另设计 |
 | [WB-113](WB-113-pm-board-view-enhancements.md) | ✅ | P2 | frontend | PM 细化之一 看板/视图增强 —— 泳道分组(按负责人/里程碑) + 列 WIP 上限(超限标红·localStorage) + 保存的筛选视图 + 列表批量操作(改状态/负责人/里程碑/删除)；纯前端 console，续 pm- 前缀 |
-| [WB-112](WB-112-manager-positioning-data-spec.md) | 🟡 | P1 | fullstack | WorkBuddy Manager 管理端定位（epic）—— 改名 BuddyWebMgr→WorkBuddy Manager(done) + 数据分层规范 `docs/workbuddy-数据分层与同步规范.md`(done) + 统一用户/协作写代理/身份强映射/动态回读/镜像增量合并/PM 细化(待做) |
+| [WB-112](WB-112-manager-positioning-data-spec.md) | 🟡 | P1 | fullstack | AgentMate Manager 管理端定位（epic）—— 改名 BuddyWebMgr→AgentMate Manager(done) + 数据分层规范 `docs/agentmate-数据分层与同步规范.md`(done) + 统一用户/协作写代理/身份强映射/动态回读/镜像增量合并/PM 细化(待做) |
 | [WB-111](WB-111-portal-pm-workspace-redesign.md) | ✅ | P1 | frontend | BuddyWebMgr 门户项目管理专业化重构 —— 项目详情改标签页工作台(概览/任务/协作/配置) + Linear 风看板/列表/甘特(统计条·进度条·列容器·富卡片·头像·逾期高亮·今天线)；纯前端消费既有 WB-104/105 API，Hub :8100 四 tab×三视图 CDP 实测+拖拽真落库，0 报错 |
 | [WB-124](WB-124-model-management-custom-models.md) | ✅ | P2 | fullstack | 模型管理 —— 自定义模型全栈（多厂商 base/key、DB 按用户隔离、内置项可隐藏、切换真生效）：底部模型下拉「配置自定义模型」落地 + resolve 按 owner 路由到各厂商 base/key |
 | [WB-125](WB-125-merge-skillhub-into-skills-tab.md) | ✅ | P2 | frontend | 目录运营中心「SkillHub」顶层 tab 与「技能」tab 冗余 —— 把顶层 SkillHub 降为「技能」的第三子视图（浏览橱窗｜目录管理｜SkillHub 同步），与「连接器」范式对齐，顶层 5→4 tab（console.html 纯前端） |
@@ -146,7 +146,7 @@
 | [WB-128](WB-128-builtin-provider-channels.md) | ✅ | P2 | fullstack | 模型管理重构 —— 内置改「厂商渠道」（DeepSeek/智谱/MiniMax/Kimi/通义/OpenAI，真实 base+模型，填 key 即用）+ 移除假 Auto/倍率 + resolve 按 @provider 路由(含非标 chat_path) + 自定义作兜底 |
 | [WB-129](WB-129-provider-editable-base-live-models.md) | ✅ | P2 | fullstack | 厂商渠道 base_url/请求路径可显示可编辑（按 owner 覆盖预置，resolve 用有效值）+ 「拉取最新」在线列举厂商真实模型（打 `{base}/models`，治模型名过时）；实测真拉到用户 DeepSeek 的 v4-flash/pro |
 | [WB-130](WB-130-console-skill-detail-files.md) | ✅ | P3 | fullstack | 技能「文件信息」收敛到 Manager —— Hub 加单技能预览代理(HTTP 富元数据+CLI SKILL.md) + App 改走 Manager 取数(不再直连 SkillHub，本地兜底) + Manager 控制台弹窗懒加载渲染 SKILL.md/参考文件/版本来源 |
-| [WB-131](WB-131-manager-nav-ia-redesign.md) | ✅ | P2 | frontend | WorkBuddy Manager 导航/IA 专业化重构 —— 扁平混杂菜单改分区侧栏(工作区/目录/系统)+顶栏(组织切换·通知铃铛·账号)+新增概览页+收编 SkillHub/高级JSON、去运营黑话；纯前端 console.html，沿用现有 token（关联 epic WB-112 管理端定位） |
+| [WB-131](WB-131-manager-nav-ia-redesign.md) | ✅ | P2 | frontend | AgentMate Manager 导航/IA 专业化重构 —— 扁平混杂菜单改分区侧栏(工作区/目录/系统)+顶栏(组织切换·通知铃铛·账号)+新增概览页+收编 SkillHub/高级JSON、去运营黑话；纯前端 console.html，沿用现有 token（关联 epic WB-112 管理端定位） |
 | [WB-132](WB-132-model-capabilities-cost-meta.md) | ✅ | P2 | fullstack | 模型能力/成本元数据（模态/工具/推理 + 每百万token 输入·输出单价 + 上下文，启发式默认可编辑，为 Auto 铺路）+ 接入地址简化为仅 Base URL + 模型管理提到全局菜单入口（账号菜单，uiStore flag） |
 | [WB-133](WB-133-drop-hide-restore-unify-delete.md) | ✅ | P3 | frontend | 去掉厂商模型「隐藏/恢复」二层机制，预置/自加统一为一个「删除」（删的不再显示，要用再拉取/手填加回；复用既有端点，前端过滤 hidden） |
 | [WB-134](WB-134-curated-model-defaults-tiered-pricing.md) | ✅ | P2 | fullstack | 内置厂商按官方文档建准确「能力+定价」默认表（DeepSeek/智谱，preset 优先于名字启发式）+ 定价 schema 加缓存命中价/币种 + 更新过时 seed（DeepSeek→v4-flash/pro、智谱现役 GLM）；model_meta ALTER 迁移，reset 回 preset |
@@ -223,6 +223,8 @@
 | [WB-205](WB-205-skills-grid-horizontal-overflow.md) | ✅ | P2 | ui | Skills 页卡片网格改用 minmax(0,1fr)，长技能描述不再撑宽内容区；明暗主题与 1280/960/900/860px 实测无横向滚动 |
 | [WB-206](WB-206-add-skill-import-create-flow.md) | ✅ | P1 | fullstack | 添加技能补齐上传导入与对话创建，查找复用顶栏搜索框 |
 | [WB-207](WB-207-edit-installed-skill-fake-flow.md) | ⬜ | P2 | fullstack | 已安装技能的编辑入口挂载不存在的旧技能且不能保存修改 |
+| [WB-208](WB-208-rename-product-agentmate.md) | ✅ | P1 | fullstack | 产品品牌、路径、环境变量与构建标识已全部统一为 AgentMate |
+| [WB-209](WB-209-sidecar-missing-numpy.md) | ✅ | P1 | backend | PyInstaller sidecar 缺少 numpy，打包后端无法启动 |
 
 ## 来源
 
@@ -231,8 +233,8 @@
 其余为原型迁移遗留或既有实现。
 
 WB-058～063 来自 2026-07-07 的架构讨论：把「能力定义入库」与「多用户协作管理平台」
-两项诉求整合为 **WorkBuddy Hub（local-first 执行 + 云端控制平面）** 重构。总设计见
-[`docs/workbuddy-hub-架构设计.md`](../workbuddy-hub-架构设计.md)，WB-058 为总纲、WB-059～063 为分阶段子任务。
+两项诉求整合为 **AgentMate Hub（local-first 执行 + 云端控制平面）** 重构。总设计见
+[`docs/agentmate-hub-架构设计.md`](../agentmate-hub-架构设计.md)，WB-058 为总纲、WB-059～063 为分阶段子任务。
 
 WB-078～084 来自 2026-07-08 用户检查 Hub 站点后的诉求：把 Hub 控制台升级为完整 Web 管理门户并更名
 **BuddyWebMgr**（项目管理面 + 目录运营中心 + SkillHub）。总设计见

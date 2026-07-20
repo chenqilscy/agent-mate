@@ -30,8 +30,8 @@ base_env = {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", **env}
 ```
 
 ## 验证
-启动连接器后，在其子进程内打印 env 确认不含 `LLM_API_KEY`；本地 notes 连接器仍能正常读写 `WORKBUDDY_NOTES_DIR`。
+启动连接器后，在其子进程内打印 env 确认不含 `LLM_API_KEY`；本地 notes 连接器仍能正常读写 `AGENTMATE_NOTES_DIR`。
 
 ## 处理记录（2026-07-06）
 - 改动：连接器子进程 env 由 `{**os.environ,...}` 改为安全白名单 `_safe_base_env()`（仅转发 PATH/SYSTEMROOT/TEMP 等无害变量），绝不含 LLM_API_KEY/LLM_API_BASE。（backend/agent/mcp_client.py）
-- 验证：verify_backend.py「env excludes LLM_API_KEY / LLM_API_BASE、keeps PATH」PASS；本地 notes 连接器仍收到 WORKBUDDY_NOTES_DIR。
+- 验证：verify_backend.py「env excludes LLM_API_KEY / LLM_API_BASE、keeps PATH」PASS；本地 notes 连接器仍收到 AGENTMATE_NOTES_DIR。

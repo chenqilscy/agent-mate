@@ -27,7 +27,7 @@ created: 2026-07-06
 - [x] **ask_user 对畸形模型输出不健壮** — `runtime.py:344` 若模型把 `questions` 返回成字符串列表，`q.get(...)` 抛 `AttributeError`，整轮以「执行出错」中止。对每个 question 做类型校验/跳过。
 - [ ] **stop 时 httpx 连接靠 GC 关** — `runtime.py:267` stop `break` 出 `async for` 后，`stream_chat` 内 `httpx.AsyncClient` 不即时关闭。用 `contextlib.aclosing`。
 - [ ] **`--text-3`(#9AA0A6) 二级文字对比偏低**（约 2.5:1 on 白）— 占位符/时间戳/空态大量使用，低于 WCAG AA。属逐字迁移的设计 token，若要合规需整体上调。
-- [x] **首页「更多」快捷入口 chip 是占位 toast** — `HomeView.tsx:50` 场景 quick chips 末项 `⋯ 更多` 点击仅 `toast('更多快捷入口')`，无展开面板/目标视图（原型 `workbuddy-v2.html:1423` 亦如此；`catalog.ts:5` 每场景仅 3 项 + 更多，无「更多」数据源）。与同屏其它占位 toast（`打开成长计划`:28 / `选择工作空间`:79 / `默认权限`:84）同类。若要落地需补完整 quick-entry 数据 + 展开 UI；否则属设计既定占位，至少可让文案更明确（如「敬请期待」）。
+- [x] **首页「更多」快捷入口 chip 是占位 toast** — `HomeView.tsx:50` 场景 quick chips 末项 `⋯ 更多` 点击仅 `toast('更多快捷入口')`，无展开面板/目标视图（原型 `tencent-agentmate-reference.html:1423` 亦如此；`catalog.ts:5` 每场景仅 3 项 + 更多，无「更多」数据源）。与同屏其它占位 toast（`打开成长计划`:28 / `选择工作空间`:79 / `默认权限`:84）同类。若要落地需补完整 quick-entry 数据 + 展开 UI；否则属设计既定占位，至少可让文案更明确（如「敬请期待」）。
 
 ## 验证
 逐条勾除；升级项抽出独立 issue。
@@ -37,5 +37,5 @@ created: 2026-07-06
 - 其余项保持 open：多为设计取舍（跨文本节点搜索、--text-3 对比、plan/ask 提示词优先级）或性能/健壮性备忘（files usage 全量 rglob、stop 时 httpx 靠 GC 关、resolve_model rsplit 边角）；本条作为活备忘保留，升级项再抽独立 WB 编号。
 
 ## 处理记录（2026-07-06，追加）
-- 新增第 13 项并同日勾除：首页「更多」快捷入口 chip 文案由 `更多快捷入口` 改为 `更多快捷入口，敬请期待`，明确其为未实现占位（用户确认「保持占位」，最小改动）。改动：`src/views/HomeView.tsx:50`。同屏其余占位 toast（打开成长计划/选择工作空间/默认权限）与原型 `workbuddy-v2.html:1423` 未动。
+- 新增第 13 项并同日勾除：首页「更多」快捷入口 chip 文案由 `更多快捷入口` 改为 `更多快捷入口，敬请期待`，明确其为未实现占位（用户确认「保持占位」，最小改动）。改动：`src/views/HomeView.tsx:50`。同屏其余占位 toast（打开成长计划/选择工作空间/默认权限）与原型 `tencent-agentmate-reference.html:1423` 未动。
 - 验证：`npx tsc --noEmit` 通过；纯 toast 文案改动，无 CSS/token 变更，不涉主题翻转。

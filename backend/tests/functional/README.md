@@ -34,12 +34,12 @@ backend/.venv/Scripts/python.exe backend/tests/functional/test_B_projects.py
 
 ## 环境变量（可选覆盖）
 
-- `WB_TEST_BASE`（默认 `http://127.0.0.1:8000/api`）
-- `WORKBUDDY_DB`（默认 `backend/workbuddy.db`）——须与后端所用 DB 一致才能核对副作用
-- `WORKBUDDY_WORKSPACE`（默认 `backend/workspace`）
+- `AGENTMATE_TEST_BASE`（默认 `http://127.0.0.1:8000/api`）
+- `AGENTMATE_DB`（默认 `backend/agentmate.db`）——须与后端所用 DB 一致才能核对副作用
+- `AGENTMATE_WORKSPACE`（默认 `backend/workspace`）
 
 ## 注意
 
 - 是**集成测试**，需真后端 + 真 LLM，非纯单元测试；会产生真实 LLM 调用。
-- `wb_testkit.stream()` 内置 2s 节流，避免连跑触发 LLM 端点限流。
+- `agentmate_testkit.stream()` 内置 2s 节流，避免连跑触发 LLM 端点限流。
 - 需与后端所用的**同一个** SQLite 库对齐（副作用断言直接读该库）。

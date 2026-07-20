@@ -19,7 +19,7 @@ created: 2026-07-08
 ## 问题
 
 WB-086 epic 的 S1：把单助理后端泛化为多助理 + 多渠道的数据模型与运行时。见
-[`docs/workbuddy-助理-架构设计.md`](../workbuddy-助理-架构设计.md) §3/§5/§6。
+[`docs/agentmate-助理-架构设计.md`](../agentmate-助理-架构设计.md) §3/§5/§6。
 
 ## 建议修法
 

@@ -1,6 +1,6 @@
 """工作区检索 — a built-in local MCP server (stdio) for full-text search.
 
-Greps the project's workspace (WORKBUDDY_NOTES_DIR, set by the runtime to the
+Greps the project's workspace (AGENTMATE_NOTES_DIR, set by the runtime to the
 current project/session root) for a query string across text files, returning
 `relpath:line: text` hits. Complements the built-in read_file/list_dir tools
 (which can't search content). Zero external deps or credentials. Run standalone:
@@ -18,10 +18,10 @@ mcp = FastMCP("workspace-search")
 
 def _root() -> Path:
     # Resolved at call time (not import). Spawned-subprocess (standalone) honors the
-    # WORKBUDDY_NOTES_DIR the parent injects at spawn; in-process reads the per-run
+    # AGENTMATE_NOTES_DIR the parent injects at spawn; in-process reads the per-run
     # sandbox contextvar, which stays isolated across concurrent runs (a global env
     # would let two runs clobber each other's dir — WB-154).
-    env = os.environ.get("WORKBUDDY_NOTES_DIR")
+    env = os.environ.get("AGENTMATE_NOTES_DIR")
     if env:
         return Path(env).resolve()
     try:

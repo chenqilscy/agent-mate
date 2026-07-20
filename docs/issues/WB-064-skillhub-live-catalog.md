@@ -30,7 +30,7 @@ P2：导购数据不真实（假计数）；功能可用但内容陈旧/虚构�
 ## ⚠ 与 [[WB-060]] 的重叠（需协调，别撞车）
 
 并发会话的 [[WB-060]]「橱窗目录入库」也在解同一症状（干掉 catalog.ts 静态商品卡），
-但路线不同：WB-060 把商品卡迁到 **WorkBuddy 自己的 Hub DB + API**（其策展数据入库）；
+但路线不同：WB-060 把商品卡迁到 **AgentMate 自己的 Hub DB + API**（其策展数据入库）；
 本条 WB-064 是**直连 skillhub.cn 实时 rankings/search**（第三方站点真数据）。二者可能二选一，
 或分层（Hub DB 做策展/离线兜底，skillhub.cn 做实时来源）。动手前先与 WB-060 对齐，避免同改
 `catalog.ts` / `ExpertsView.tsx` 冲突。

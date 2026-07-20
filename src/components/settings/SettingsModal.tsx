@@ -335,12 +335,12 @@ function MemoryPanel() {
   return (
     <div className="set-body">
       <div className="set-ptitle">记忆</div>
-      <div className="set-pdesc">记忆让 WorkBuddy 记住你的偏好和习惯，对话越多越懂你。记忆仅本人可见。</div>
+      <div className="set-pdesc">记忆让 AgentMate 记住你的偏好和习惯，对话越多越懂你。记忆仅本人可见。</div>
 
       <div className="set-field" style={{ marginTop: 16 }}>
         <div className="set-fhd">
           <div className="set-fname">生成对话记忆</div>
-          <div className="set-fsub">开启后，WorkBuddy 会从对话中提取并记住相关事实，供未来对话按相关性注入。</div>
+          <div className="set-fsub">开启后，AgentMate 会从对话中提取并记住相关事实，供未来对话按相关性注入。</div>
         </div>
         <button className={`set-switch ${enabled ? 'on' : ''}`.trim()} onClick={toggle} role="switch" aria-checked={enabled} aria-label="生成对话记忆">
           <span className="set-switch-dot" />
@@ -480,7 +480,7 @@ function DataPanel() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `workbuddy-export-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = `agentmate-export-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(url)
       toast('已导出数据')

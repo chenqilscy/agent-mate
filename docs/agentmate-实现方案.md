@@ -1,8 +1,8 @@
-# WorkBuddy 真实实现方案
+# AgentMate 真实实现方案
 
 源于腾讯的 WorkBuddy 桌面应用形态。
 
-> 从高保真原型（`docs/workbuddy-v2.html`，约 2200 行单文件）到可运行的真实产品。
+> 从高保真原型（`docs/tencent-workbuddy-reference.html`，约 2200 行单文件）到可运行的真实产品。
 > 原则：不硬编码、不模拟——所有流式输出来自真实 LLM，所有状态可持久化，所有轨迹是真实的 Agent 事件。
 >
 > **文档结构**：正文（第一～十一节）是结论与蓝图，是唯一权威；文末「附录 A」是各项选型的论证依据（为什么这么选、否掉了什么、何时重估）。评审先读正文，对某项选型有疑问再查附录对应决策。
@@ -10,7 +10,7 @@
 > **实现进度（活文档，截至 2026-07-07）**：M0–M4 核心闭环、M5 技能与连接器 + Tauri 2 桌面壳、§11 项目工作台 A–D、M6 打磨（⌘F 搜索 / 900px 响应式 / 主题持久化 / MSI·NSIS 安装包）、M7 协作 C1–C4（真账户 / 成员·角色·邀请 / 队友只读可见 + 动态署名 / 消息中心）**均已落地并验证**；协作架构为「共享后端即 Hub」。**未做**：M8 实时围观、更深协作（评论 / @提及 / 在线状态，需实时通道）、独立 Cloud Hub 与按需上云、打包的自动更新端点与代码签名（需用户基建 / 证书）。**下文各节内嵌的「M5 将…」「M7 才…」等未来时表述以本进度条为准——多为原始排期语气，实际已完成。**
 >
 > **⚠️ 现状勘误（2026-07-14，WB-161）**：本文部分表述已被后续实现超越，以此处为准：
-> 1. **独立 Cloud Hub 已建成并运行**——下文若干处（含本进度条上一句、§3.1、§十）把「独立 Cloud Hub」列为未做/后续，实际 epic WB-058~063 已落地：独立同仓 `hub/` 服务（FastAPI + SQLite，默认 `127.0.0.1:8100`，账号/组织/项目/成员·角色/邀请权威源 + 鉴权签发），本地 backend 作其客户端（local-first 执行 + 云端控制平面，见 `docs/workbuddy-hub-架构设计.md`）。此后又有 WorkBuddy Manager（Web 管理门户 + 专业 PM）、多助理·多渠道、GLM 知识库、统一设置中心、模型管理等，均未反映在下文各节。
+> 1. **独立 Cloud Hub 已建成并运行**——下文若干处（含本进度条上一句、§3.1、§十）把「独立 Cloud Hub」列为未做/后续，实际 epic WB-058~063 已落地：独立同仓 `hub/` 服务（FastAPI + SQLite，默认 `127.0.0.1:8100`，账号/组织/项目/成员·角色/邀请权威源 + 鉴权签发），本地 backend 作其客户端（local-first 执行 + 云端控制平面，见 `docs/agentmate-hub-架构设计.md`）。此后又有 AgentMate Manager（Web 管理门户 + 专业 PM）、多助理·多渠道、GLM 知识库、统一设置中心、模型管理等，均未反映在下文各节。
 > 2. **样式不是 CSS Modules**——决策表与 §4.1/§4.2 写「CSS Modules / 各 `*.module.css`」，实际全仓**无一个 `*.module.css`**：样式是单一全局 `src/styles/{tokens,app}.css`（平铺全局 class，逐字沿用原型），暗色为 `body.dark` 变量覆盖。
 > 3. **LLM key 不再「只存 .env」**——模型管理（WB-124/128/136）已把各厂商 base/key 按 owner 存本机 DB；仍是「只在后端、绝不进前端」，但存储位置为「`backend/.env` 或本机 DB」。
 
@@ -88,7 +88,7 @@
 ### 4.1 目录结构
 
 ```
-workbuddy/
+agentmate/
 ├─ src/
 │  ├─ views/            # 八大页面，一一对应原型 data-view
 │  ├─ components/
@@ -265,7 +265,7 @@ P0 = MVP 必须，P1 = M2–M4，P2 = M5+：
 
 ## 八、工程注意事项
 
-安全上有三条硬线：LLM 输出必须经 DOMPurify 才能进 `dangerouslySetInnerHTML`；`run_cmd/edit_file` 严格锁在 workspace 沙箱且记录审计事件（对应"变更(57)"）；API Key 只存后端 `.env`，前端永不接触。性能上注意两点：长轨迹（几百个事件）用虚拟列表或分段折叠渲染；SSE 断线重连要带 `last_event_id` 续传。数据层从 M1 起按多用户预埋（UUID 主键、owner_id/project_id、角色枚举、auth 中间件桩），协作拓扑为 Local Agent + Cloud Hub（详见附录 A.3）。工程习惯上，原型文件保留为 `docs/workbuddy-v2.html` 进仓库——它就是活的视觉验收标准，每个组件做完对着它逐像素核对。
+安全上有三条硬线：LLM 输出必须经 DOMPurify 才能进 `dangerouslySetInnerHTML`；`run_cmd/edit_file` 严格锁在 workspace 沙箱且记录审计事件（对应"变更(57)"）；API Key 只存后端 `.env`，前端永不接触。性能上注意两点：长轨迹（几百个事件）用虚拟列表或分段折叠渲染；SSE 断线重连要带 `last_event_id` 续传。数据层从 M1 起按多用户预埋（UUID 主键、owner_id/project_id、角色枚举、auth 中间件桩），协作拓扑为 Local Agent + Cloud Hub（详见附录 A.3）。工程习惯上，原型文件保留为 `docs/tencent-workbuddy-reference.html` 进仓库——它就是活的视觉验收标准，每个组件做完对着它逐像素核对。
 
 ## 九、本地启动（现行）
 
@@ -289,7 +289,7 @@ pnpm install && pnpm dev                          # → http://localhost:5173
 
 ## 十、下一步
 
-初始蓝图（已完成，留作路线回顾）：从 M0 起初始化仓库 → 迁移设计令牌与 MenuBar/Sidebar → 打通第一条 SSE echo → M0+M1 后即拥有"真的 WorkBuddy 核心" → 按优先级清单逐项把原型里的每个交互接上真实数据。
+初始蓝图（已完成，留作路线回顾）：从 M0 起初始化仓库 → 迁移设计令牌与 MenuBar/Sidebar → 打通第一条 SSE echo → M0+M1 后即拥有真正的 AgentMate 核心 → 按优先级清单逐项把原型里的每个交互接上真实数据。
 
 > **进展更新（2026-07-07）**：M0–M7（C1–C4）+ §11 A–D + 路线 A（Tauri 桌面壳）/ 路线 B（自动化·连接器·技能）均已落地并验证。**后续候选**（择需推进）：M8 实时围观与更深协作（评论/@提及/在线状态，需实时通道）、独立 Cloud Hub 与产物按需上云、Tauri 打包的自动更新端点与代码签名（需用户基建/证书）、助理页外部渠道（企业微信等回调，需凭证）、GitHub 连接器实连（需用户 `GITHUB_TOKEN`）。
 
@@ -356,7 +356,7 @@ pnpm install && pnpm dev                          # → http://localhost:5173
 
 #### 论证
 
-先分清两件事。WorkBuddy 的桌面属性里，真正构成产品价值的是**桌面能力**，而不是桌面外观：
+先分清两件事。AgentMate 的桌面属性里，真正构成产品价值的是**桌面能力**，而不是桌面外观：
 
 | 桌面属性 | 归类 | 纯 Web（云后端）能做吗 |
 |---|---|---|
@@ -499,7 +499,7 @@ pnpm install && pnpm dev                          # → http://localhost:5173
 | 本地能力 | 文件/子进程/CDP/数据科学工具链齐全 | 文件与子进程同样能做，数据类工具弱 |
 | 模型接入 | openai sdk + litellm，OpenAI 兼容一套通吃 | Vercel AI SDK 体验好，能力等价 |
 
-对 WorkBuddy 而言，**M5 的连接器与技能是产品护城河，而它们的重心在 Python MCP 生态**——这是天平决定性的一侧。原型里 Agent 读写的 kdocs-mcp、Web Access、各类套件，社区实现大量是 Python stdio server；后端用 Python，等于和这些 server 同语言，进程管理、类型、调试都顺。
+对 AgentMate 而言，**M5 的连接器与技能是产品护城河，而它们的重心在 Python MCP 生态**——这是天平决定性的一侧。原型里 Agent 读写的 kdocs-mcp、Web Access、各类套件，社区实现大量是 Python stdio server；后端用 Python，等于和这些 server 同语言，进程管理、类型、调试都顺。
 
 **Node 全栈（前后端同 TS）值不值**：诱惑是"一种语言、类型贯通、共享 DTO"。代价是：把 MCP 与 Agent 工具生态里最成熟的一侧换成较弱的一侧，为了语言统一牺牲能力供给——对一个能力密集型 Agent 产品不划算。而"类型贯通"的收益可用更轻的方式拿到：**前后端契约用 OpenAPI 自动生成 TS 类型**（FastAPI 原生出 OpenAPI schema → `openapi-typescript` 生成前端类型），跨语言也能端到端类型安全，SSE 事件同样可定义 schema 共享。
 

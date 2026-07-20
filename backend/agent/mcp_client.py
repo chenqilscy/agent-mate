@@ -192,8 +192,8 @@ async def open_connectors(
 
         # ── Third-party server: spawn as a stdio subprocess. A frozen bundle can
         #    wedge on a held-open subprocess, so gate it (opt back in with
-        #    WORKBUDDY_BUNDLE_CONNECTORS=1).
-        if getattr(sys, "frozen", False) and os.environ.get("WORKBUDDY_BUNDLE_CONNECTORS") != "1":
+        #    AGENTMATE_BUNDLE_CONNECTORS=1).
+        if getattr(sys, "frozen", False) and os.environ.get("AGENTMATE_BUNDLE_CONNECTORS") != "1":
             skipped.append({"name": name, "reason": "桌面打包版暂不支持该连接器（开发环境可用）"})
             continue
         params = StdioServerParameters(

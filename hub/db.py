@@ -690,7 +690,7 @@ def mark_invite_accepted(invite_id: str, account_id: str) -> None:
 def list_catalog_items(category: str, scope: Optional[str] = None,
                        include_disabled: bool = False) -> list[dict]:
     """某 category 目录项。默认只返回 enabled（客户端下行）；`include_disabled` 时返回全部
-    并带 `enabled` 标志——供 WorkBuddy Manager 管理端列出/切换停用项（WB-082）。"""
+    并带 `enabled` 标志——供 AgentMate Manager 管理端列出/切换停用项（WB-082）。"""
     where = ["category=?"]
     params: list[Any] = [category]
     if scope:

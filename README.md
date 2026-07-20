@@ -1,8 +1,9 @@
-# WorkBuddy
+# AgentMate
 
-A real, runnable implementation of the WorkBuddy desktop app — built from the
-high-fidelity prototype in [`docs/workbuddy-v2.html`](docs/workbuddy-v2.html)
-following the plan in [`docs/workbuddy-实现方案.md`](docs/workbuddy-实现方案.md).
+A real, runnable local-first AI work companion. AgentMate was initially built
+from a high-fidelity reference prototype of Tencent WorkBuddy in
+[`docs/tencent-workbuddy-reference.html`](docs/tencent-workbuddy-reference.html), following the plan in
+[`docs/agentmate-实现方案.md`](docs/agentmate-实现方案.md), and is now an independent product.
 
 **Principle: nothing faked.** All streaming output comes from a real LLM, all
 state is persisted, all sidebar tasks are real sessions.
@@ -11,8 +12,8 @@ state is persisted, all sidebar tasks are real sessions.
 
 > 里程碑 M0–M4 的原始说明在下方保留（对这些阶段仍准确）。此后已落地：M5（专家/技能/真 MCP 连接器）、
 > M6（对话内搜索/响应式）、M7 协作（真账户鉴权 + 项目成员·角色·邀请 + 队友只读可见 + 消息中心）、
-> Tauri 2 桌面外壳（路线 A）、自动化/连接器补全（路线 B）、**WorkBuddy Hub**（云端控制平面，独立 `hub/`
-> 服务 :8100）、**WorkBuddy Manager**（Web 管理门户 + 专业 PM）、统一设置中心、GLM 知识库 RAG、模型管理、
+> Tauri 2 桌面外壳（路线 A）、自动化/连接器补全（路线 B）、**AgentMate Hub**（云端控制平面，独立 `hub/`
+> 服务 :8100）、**AgentMate Manager**（Web 管理门户 + 专业 PM）、统一设置中心、GLM 知识库 RAG、模型管理、
 > 多助理·多渠道（Telegram/邮件）、语音输入 ASR、金山文档面板等。逐条进度以 `docs/issues/` 台账为准。
 
 ### M0–M4（历史说明，仍准确）
@@ -89,9 +90,9 @@ Open http://localhost:5173. Without a key, chat streams a friendly "LLM not
 configured" error (the full SSE pipeline still runs); with a key you get real
 token-by-token streaming.
 
-### With WorkBuddy Hub (optional 3-tier)
+### With AgentMate Hub (optional 3-tier)
 
-The two commands above run WorkBuddy **local-first** (no cloud). To also run the
+The two commands above run AgentMate **local-first** (no cloud). To also run the
 control plane — [`hub/`](hub/), the authoritative source for accounts / orgs /
 projects / members and the shared catalog (including the periodic SkillHub mirror,
 WB-069) — start all three tiers:

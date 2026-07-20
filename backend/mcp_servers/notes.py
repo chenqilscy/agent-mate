@@ -1,7 +1,7 @@
 """A tiny real MCP server (stdio) used to prove the connector round-trip locally.
 
 It exposes two tools over the Model Context Protocol — add_note / list_notes —
-backed by a JSON file in the project workspace (WORKBUDDY_NOTES_DIR). Real
+backed by a JSON file in the project workspace (AGENTMATE_NOTES_DIR). Real
 connectors (GitHub / 腾讯文档 / …) are the same shape: a different MCP server
 launched the same way. Run standalone: `python notes.py` (speaks MCP on stdio).
 """
@@ -18,11 +18,11 @@ mcp = FastMCP("notes")
 
 def _dir() -> Path:
     # Resolved at call time (not import). As a spawned subprocess (standalone
-    # testing) the parent injects WORKBUDDY_NOTES_DIR at spawn — honor it. In-process
+    # testing) the parent injects AGENTMATE_NOTES_DIR at spawn — honor it. In-process
     # (the real path) nothing sets that env; read the per-run workspace root from the
     # sandbox contextvar instead, which is correctly isolated across concurrent runs
     # — a process-global env would let two runs clobber each other's dir (WB-154).
-    env = os.environ.get("WORKBUDDY_NOTES_DIR")
+    env = os.environ.get("AGENTMATE_NOTES_DIR")
     if env:
         return Path(env).resolve()
     try:

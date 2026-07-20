@@ -127,7 +127,7 @@ _SHOWCASE = ("hot", "featured", "newest", "recommended", "trending", "paid")
 
 
 def _http_json(url: str, key: str = "", timeout: int = 15) -> Any:
-    headers = {"User-Agent": "workbuddy-hub/0.1", "Accept": "application/json"}
+    headers = {"User-Agent": "agentmate-hub/0.1", "Accept": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
     with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as resp:
@@ -256,7 +256,7 @@ _SEARCH_TTL = 120.0
 _search_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 # 社区搜索接口（与 CLI 的 DEFAULT_SEARCH_URL 一致）；env 可覆盖。
 _SEARCH_URL = os.getenv("SKILLHUB_SEARCH_URL", "https://api.skillhub.cn/api/v1/search")
-_UA = "workbuddy-hub/0.1"
+_UA = "agentmate-hub/0.1"
 
 
 def _http_search(q: str, limit: int) -> list[dict[str, Any]]:

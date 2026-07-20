@@ -10,7 +10,7 @@ files:
   - src/views/ExpertsView.tsx:495
   - backend/storage/db.py:34
   - hub/skillhub_sync.py
-  - docs/workbuddy-hub-架构设计.md:116
+  - docs/agentmate-hub-架构设计.md:116
 created: 2026-07-16
 ---
 
@@ -24,7 +24,7 @@ created: 2026-07-16
 - grep `kit|bundle|套件` 覆盖 `backend/**/*.py` → **零命中**。
 - Hub 侧同样无 kit 概念；`skillhub_sync.py` 只镜像 `skill` / `skill-category` 两类。
 - `db.py:34` 的 `_SHOWCASE_SKIP` 把 `SKILLHUB_KITS` **明确排除出 seed** → 那 4 条永不入 App DB。
-- [架构设计文档:116](../workbuddy-hub-架构设计.md) 设计过 `catalog_skills.kit_id` 字段，**从未实现**。
+- [架构设计文档:116](../agentmate-hub-架构设计.md) 设计过 `catalog_skills.kit_id` 字段，**从未实现**。
 - 「安装套件」按钮是 toast 桩（见 WB-181 第 2 条）。
 
 即：这是一个**纯展示的虚构商品**，点击无效，数字杜撰。
@@ -62,7 +62,7 @@ P2，违反铁律#1。不是 P1 的原因：它是一个自成一体的 tab，�
 ## 验证
 
 - **若 A**：Manager 建一个含 3 个真实 slug 的套件 → App 拉到 → 点「安装套件」→
-  `~/.workbuddy/skills/` 下真出现 3 个目录 → 「我安装的」+3 → ＋ 菜单能选到（配合 WB-180）；
+  `~/.agentmate/skills/` 下真出现 3 个目录 → 「我安装的」+3 → ＋ 菜单能选到（配合 WB-180）；
   卡片上的「N 个技能」= 3 而非手写值。
 - **若 B**：grep `SKILLHUB_KITS|KitView|套件` 在 `src/` 下为空；技能页无「套件」tab；
   `npx tsc --noEmit` 过。

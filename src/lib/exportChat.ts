@@ -11,12 +11,12 @@ export function conversationToMarkdown(title: string, messages: ChatMessage[]): 
       if (body) out.push('## 🧑 我', '', body, '')
     } else {
       if (!body && !m.error) continue
-      out.push('## 🐝 WorkBuddy', '')
+      out.push('## 🐝 AgentMate', '')
       if (body) out.push(body, '')
       if (m.error) out.push(`> ⚠ ${m.error}`, '')
     }
   }
-  out.push('---', '', '_由 WorkBuddy 导出_')
+  out.push('---', '', '_由 AgentMate 导出_')
   return out.join('\n')
 }
 

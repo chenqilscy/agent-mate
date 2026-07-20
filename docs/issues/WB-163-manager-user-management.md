@@ -15,7 +15,7 @@ created: 2026-07-14
 
 ## 问题
 
-WorkBuddy Manager（Hub，`hub/`）是账号权威源（`accounts` 表 + `/api/auth/*`），
+AgentMate Manager（Hub，`hub/`）是账号权威源（`accounts` 表 + `/api/auth/*`），
 `is_platform_admin` 概念已存在（首个注册账号自举为平台管理员，`hub/db.py:314`），
 但**没有任何用户/账号管理端**：`console.html` 只有登录/注册表单（`au-name`），
 没有「查看全部平台用户、创建账号、改人格/套餐/管理员、重置密码、删账号」的管理页。

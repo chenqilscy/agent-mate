@@ -1,12 +1,12 @@
 ---
 id: WB-058
-title: WorkBuddy Hub —— local-first 执行 + 云端控制平面重构（总纲/epic）
+title: AgentMate Hub —— local-first 执行 + 云端控制平面重构（总纲/epic）
 severity: P1
 area: backend
 status: fixed
 origin: 既有实现
 files:
-  - docs/workbuddy-hub-架构设计.md
+  - docs/agentmate-hub-架构设计.md
   - backend/agent/experts.py:9
   - backend/agent/mcp_client.py:70
   - src/data/catalog.ts:1
@@ -33,11 +33,11 @@ created: 2026-07-07
 
 P1（方向级）：这是产品身份级重构（local-first → 「本地执行 + 云端控制平面」），跨多个里程碑。
 不先对齐架构与数据/协议边界就动手，极易大改中途返工。本 issue 作为**总纲**：锚定
-[Hub 架构设计文档](../workbuddy-hub-架构设计.md)，把工作拆成可独立交付的阶段，逐条落地。
+[Hub 架构设计文档](../agentmate-hub-架构设计.md)，把工作拆成可独立交付的阶段，逐条落地。
 
 ## 建议修法
 
-按 [架构设计文档](../workbuddy-hub-架构设计.md) 分阶段推进（每阶段一条子 issue）：
+按 [架构设计文档](../agentmate-hub-架构设计.md) 分阶段推进（每阶段一条子 issue）：
 
 | 阶段 | 内容 | Issue |
 |---|---|---|

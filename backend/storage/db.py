@@ -381,7 +381,7 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_catalog_downlink_cat ON catalog_downlink(category, sort);
 
         -- 外部渠道 ⇄ 会话映射（WB-072）：一个外部会话（如某个 Telegram chat）绑定到
-        -- 一个长期 WorkBuddy 会话，续聊不断线。同时充当白名单：存在绑定 = 已授权。
+        -- 一个长期 AgentMate 会话，续聊不断线。同时充当白名单：存在绑定 = 已授权。
         CREATE TABLE IF NOT EXISTS channel_sessions (
             channel TEXT NOT NULL,
             chat_id TEXT NOT NULL,
@@ -2933,7 +2933,7 @@ def _migrate_assistants() -> None:
     enabled = bool(enabled) if enabled is not None else settings.TELEGRAM_ASSISTANT
     a = create_assistant(
         owner_id=LOCAL_USER_ID,
-        name=(old.get("name") or "").strip() or "WorkBuddy 助理",
+        name=(old.get("name") or "").strip() or "AgentMate 助理",
         instruction=(old.get("persona") or "").strip() or None,
         model=(old.get("model") or "").strip() or None,
         session_id=sess["id"] if sess else None,

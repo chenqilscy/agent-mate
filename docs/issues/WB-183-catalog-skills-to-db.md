@@ -10,7 +10,7 @@ files:
   - backend/storage/db.py:252
   - backend/storage/db.py:34
   - backend/storage/catalog_showcase.json
-  - docs/workbuddy-hub-架构设计.md:114
+  - docs/agentmate-hub-架构设计.md:114
   - hub/skillhub_sync.py:22
 created: 2026-07-16
 ---
@@ -22,7 +22,7 @@ WB-059「目录真定义入库」把内置**专家人格** → `catalog_experts`
 
 - 6 条内置技能的定义（instructions + 工具包绑定）仍**硬编码**在
   [skills.py:243-250](../../backend/agent/skills.py) 的 Python dict 里。
-- [架构设计文档:114-117](../workbuddy-hub-架构设计.md) 设计过的表**从未建**：
+- [架构设计文档:114-117](../agentmate-hub-架构设计.md) 设计过的表**从未建**：
   ```
   catalog_skills  -- 技能橱窗目录（SK_GRID/SKILLHUB_*）
     id, slug, name, label, color, description, category,

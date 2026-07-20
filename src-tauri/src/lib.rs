@@ -1,4 +1,4 @@
-// WorkBuddy desktop shell (Tauri 2). The application uses a borderless window
+// AgentMate desktop shell (Tauri 2). The application uses a borderless window
 // without reserving a custom title-bar row. On startup we spawn the bundled Python backend as a sidecar
 // and kill it on exit. A system tray keeps the app alive when the window is
 // closed (X hides to tray; the tray's 退出 actually quits).
@@ -47,7 +47,7 @@ pub fn run() {
         .manage(Backend(Mutex::new(None)))
         .setup(|app| {
             // ---- backend sidecar: spawn + drain its output ----
-            match app.handle().shell().sidecar("workbuddy-backend") {
+            match app.handle().shell().sidecar("agentmate-backend") {
                 Ok(cmd) => match cmd.spawn() {
                     Ok((mut rx, child)) => {
                         app.state::<Backend>().0.lock().unwrap().replace(child);
@@ -59,18 +59,18 @@ pub fn run() {
                             }
                         });
                     }
-                    Err(e) => eprintln!("[workbuddy] backend spawn failed: {e}"),
+                    Err(e) => eprintln!("[agentmate] backend spawn failed: {e}"),
                 },
-                Err(e) => eprintln!("[workbuddy] backend sidecar missing: {e}"),
+                Err(e) => eprintln!("[agentmate] backend sidecar missing: {e}"),
             }
 
             // ---- system tray ----
-            let show_i = MenuItem::with_id(app, "show", "显示 WorkBuddy", true, None::<&str>)?;
+            let show_i = MenuItem::with_id(app, "show", "显示 AgentMate", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("WorkBuddy")
+                .tooltip("AgentMate")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -104,7 +104,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building WorkBuddy")
+        .expect("error while building AgentMate")
         .run(|app, event| {
             // Kill the backend on a real quit (tray → 退出 → app.exit).
             if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {

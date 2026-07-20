@@ -1,7 +1,7 @@
-# WeKnora 私有化部署 + 接入 WorkBuddy（WB-173）
+# WeKnora 私有化部署 + 接入 AgentMate（WB-173）
 
-WorkBuddy 知识库改用**自托管 WeKnora**（腾讯开源 RAG）做解析/切片/嵌入/向量库/检索。WeKnora 自己跑一套
-Docker 服务，WorkBuddy 后端只当它的**客户端**（`X-API-Key` 打 `http://localhost:8080/api/v1`）。嵌入用
+AgentMate 知识库改用**自托管 WeKnora**（腾讯开源 RAG）做解析/切片/嵌入/向量库/检索。WeKnora 自己跑一套
+Docker 服务，AgentMate 后端只当它的**客户端**（`X-API-Key` 打 `http://localhost:8080/api/v1`）。嵌入用
 **GLM `embedding-3` 的 OpenAI 兼容接口**（复用你的智谱 key，只调嵌入、不碰 GLM 知识库）。
 
 跟着这份跑一遍，最后把 **3 个值**填进 `backend/.env` 就接通了。跑不通把报错贴我。
@@ -45,14 +45,14 @@ EMBEDDING_API_KEY=<你的智谱 API Key>
 SYSTEM_AES_KEY=<32 字节随机串，例如 openssl rand -hex 16 的 32 位十六进制>
 TENANT_AES_KEY=<随机串>
 JWT_SECRET=<随机串>
-WEKNORA_API_KEY=<随机串>        # 这是 WeKnora 内部 MCP 用的，不是下面给 WorkBuddy 的那个
+WEKNORA_API_KEY=<随机串>        # 这是 WeKnora 内部 MCP 用的，不是下面给 AgentMate 的那个
 
 # —— 想用 Swagger 在线看接口就把 release 改成 debug（可选）——
 # GIN_MODE=debug
 ```
 
 > ⚠️ **两个「API Key」别搞混**：`.env` 里的 `WEKNORA_API_KEY` 是 WeKnora **内部 MCP** 用的；
-> 给 WorkBuddy 用的是第 3 步注册账号后拿到的**租户 API Key（`sk-...`）**。
+> 给 AgentMate 用的是第 3 步注册账号后拿到的**租户 API Key（`sk-...`）**。
 
 生成随机串（Git Bash）：`openssl rand -hex 16`（32 位十六进制 = 恰好 32 字节，给 `SYSTEM_AES_KEY`）。
 
@@ -69,7 +69,7 @@ docker compose up -d
 
 - 浏览器开 `http://localhost` （FRONTEND_PORT=80）。
 - 注册一个账号并登录（`.env` 默认 `DISABLE_REGISTRATION=false`，允许注册）。
-- 进**账号/个人信息页**，复制 **API Key（形如 `sk-xxxxxxxx`）**。**这个就是要给 WorkBuddy 的 `WEKNORA_API_KEY`。**
+- 进**账号/个人信息页**，复制 **API Key（形如 `sk-xxxxxxxx`）**。**这个就是要给 AgentMate 的 `WEKNORA_API_KEY`。**
 
 ## 4. 注册嵌入模型，拿 `embedding_model_id`
 
@@ -105,7 +105,7 @@ curl -s http://localhost:8080/api/v1/knowledge-bases -H "X-API-Key: sk-你的租
 想看全部接口：把 `.env` 的 `GIN_MODE=debug` 后 `docker compose up -d` 重启，开
 `http://localhost:8080/swagger/index.html`。
 
-## 6. 接进 WorkBuddy
+## 6. 接进 AgentMate
 
 把 3 个值填进 **`backend/.env`**（只存后端、绝不进前端）：
 

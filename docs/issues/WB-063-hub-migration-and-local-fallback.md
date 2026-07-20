@@ -6,7 +6,7 @@ area: backend
 status: fixed
 origin: 既有实现
 files:
-  - docs/workbuddy-hub-架构设计.md
+  - docs/agentmate-hub-架构设计.md
   - backend/auth/deps.py:30
   - backend/storage/db.py:68
 created: 2026-07-07
@@ -28,7 +28,7 @@ P2（择机，收尾）：依赖 WB-059/060/061/062 全部就绪。做好了才�
 
 ## 建议修法
 
-按 [架构设计 §8](../workbuddy-hub-架构设计.md)：
+按 [架构设计 §8](../agentmate-hub-架构设计.md)：
 
 - **存量导入**：首次登录 Hub 提供「导入本地数据」——项目/成员/自造专家/org 级目录**上行**；会话作为历史时间线可选上行或留本地（尊重隐私开关）。
 - **`LOCAL_USER_ID` 映射**到 Hub 账号，映射关系记本地；导入幂等、可重试。
@@ -59,6 +59,6 @@ P2（择机，收尾）：依赖 WB-059/060/061/062 全部就绪。做好了才�
 - `py_compile` 全过；隔离 backend × live hub E2E **15 项全过**（见上）；新表在现有库为纯增量、迁移安全。
 - 铁律：`HUB_URL` 空 = 纯本地零变化；import payload 无 LLM 凭据/连接器 secret/工作区文件（铁律 4/11）；导入仅在带有效 Hub token 时。
 
-**WorkBuddy Hub epic（[WB-058](WB-058-hub-control-plane-epic.md)）至此全部完成：** WB-059 真定义入库 · WB-060 橱窗入库 · WB-061 Hub 骨架 · WB-062 同步(三期) · WB-063 迁移与回退。
+**AgentMate Hub epic（[WB-058](WB-058-hub-control-plane-epic.md)）至此全部完成：** WB-059 真定义入库 · WB-060 橱窗入库 · WB-061 Hub 骨架 · WB-062 同步(三期) · WB-063 迁移与回退。
 
 commit：（见下）。

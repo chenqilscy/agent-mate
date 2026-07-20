@@ -66,7 +66,7 @@ export const IcGear = (p: P) => (
   <svg {...stroke(p)}><path d="M12 8a4 4 0 100 8 4 4 0 000-8z" /><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2l-.4-2.6H9.9l-.4 2.6a7 7 0 00-2 1.2l-2.4-1-2 3.4 2 1.6a7 7 0 000 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 002 1.2l.4 2.6h4.2l.4-2.6a7 7 0 002-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z" /></svg>
 )
 
-// Brand cat logo (the WorkBuddy mascot), used as bot avatar & app icon.
+// Brand cat logo (the AgentMate mascot), used as bot avatar & app icon.
 export const CatLogo = (p: P) => (
   <svg viewBox="0 0 40 40" aria-hidden="true" {...p}>
     <rect x="4" y="6" width="32" height="30" rx="9" fill="#16B37A" />

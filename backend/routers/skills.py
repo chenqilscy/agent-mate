@@ -1,6 +1,6 @@
 """SkillHub 已安装技能 —— 真实安装 / 发现 / 管理（WB-055）。
 
-技能是**每机器**的磁盘资源（~/.workbuddy/skills/），不按 owner 隔离；安装走真实
+技能是**每机器**的磁盘资源（~/.agentmate/skills/），不按 owner 隔离；安装走真实
 skillhub CLI 下载解压（agent/skills_store.py）。清单/详情来自真实文件，非模拟。
 """
 from __future__ import annotations
@@ -79,7 +79,7 @@ def skills_rankings(
 
 @router.get("/skills/preview")
 def preview_skill(slug: str = "", name: str = "", authorization: str = Header(default="")) -> dict:
-    # 安装前预览：未安装的技能也能看 SKILL.md（临时下载，不落 ~/.workbuddy/skills）。
+    # 安装前预览：未安装的技能也能看 SKILL.md（临时下载，不落 ~/.agentmate/skills）。
     # WB-130：优先经 Manager 取数（App 不直连 SkillHub）——有 slug 且已接 Hub → 走代理；
     # 未接/不可达/Manager 无果 → 回退本地 CLI 直连预览（离线兜底）。
     slug, name = slug.strip(), name.strip()

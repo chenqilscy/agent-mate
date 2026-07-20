@@ -1,6 +1,6 @@
 // skillStore — SkillHub 已安装技能（WB-055），后端为准。
 //
-// 「安装/卸载/关闭」是**真实**的：安装走后端 skillhub CLI 下载解压进 ~/.workbuddy/skills/，
+// 「安装/卸载/关闭」是**真实**的：安装走后端 skillhub CLI 下载解压进 ~/.agentmate/skills/，
 // 清单来自后端对该目录的磁盘扫描（不再是 localStorage 假状态）。已安装且未关闭的技能进
 // 会话 loadout 时，后端会注入其真实 SKILL.md（agent/skills_store.py）。
 import { create } from 'zustand'

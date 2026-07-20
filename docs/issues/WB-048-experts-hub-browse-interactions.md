@@ -16,7 +16,7 @@ created: 2026-07-07
 
 ## 问题
 
-「专家·技能·连接器」的专家页当前是一个静态展示壳，几处该有的交互都没接线（原型 `docs/workbuddy-v2.html:992` 也是静态壳，未落地）：
+「专家·技能·连接器」的专家页当前是一个静态展示壳，几处该有的交互都没接线（原型 `docs/tencent-agentmate-reference.html:992` 也是静态壳，未落地）：
 
 - **专家团子标签点不动**：`.subtab`「专家/专家团/最热/最新」都是无 state、无 `onClick` 的静态 `div`（[ExpertsView.tsx:43-49](../../src/views/ExpertsView.tsx#L43-L49)），点「专家团」不切换，永远渲染 `EXP_GRID`（单个专家）。
 - **分类不过滤**：`setCat` 更新了状态，但卡片网格恒定渲染整份 `EXP_GRID`，分类 tab 形同虚设（[ExpertsView.tsx:50-69](../../src/views/ExpertsView.tsx#L50-L69)）。

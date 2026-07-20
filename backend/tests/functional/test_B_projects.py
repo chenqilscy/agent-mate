@@ -2,7 +2,7 @@
 instruction injection, plan-item write-back, access isolation)."""
 import sys, time, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wb_testkit import (Checker, call, stream, health_llm, account, events_of, text_join,
+from agentmate_testkit import (Checker, call, stream, health_llm, account, events_of, text_join,
                         has_step, stop_run, read_ws, ws_exists, WS, wipe_users)
 
 OWN, MATE = "btest_own", "btest_mate"

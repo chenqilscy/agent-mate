@@ -14,7 +14,7 @@ created: 2026-07-14
 
 ## 问题
 
-内置连接器（`本地便签` notes、`工作区检索` search）走 MCP in-process 传输。`mcp_client.py:181-182` 把本轮 workspace 目录写进**进程全局** `os.environ["WORKBUDDY_NOTES_DIR"]`；`notes.py:22`/`search.py:22` 在**调用时**读同一全局 env。`asyncio.to_thread`/contextvar 都不隔离 `os.environ`，多个并发 `run_chat` 会互相覆盖。
+内置连接器（`本地便签` notes、`工作区检索` search）走 MCP in-process 传输。`mcp_client.py:181-182` 把本轮 workspace 目录写进**进程全局** `os.environ["AGENTMATE_NOTES_DIR"]`；`notes.py:22`/`search.py:22` 在**调用时**读同一全局 env。`asyncio.to_thread`/contextvar 都不隔离 `os.environ`，多个并发 `run_chat` 会互相覆盖。
 
 ## 触发场景
 
@@ -26,7 +26,7 @@ P1：跨项目数据串写/串读。in-process 连接器是打包版默认路径
 
 ## 建议修法
 
-不用进程全局 env 传 in-process 服务器的目录。方案：`notes.py`/`search.py` 的目录解析改为「优先读 `os.environ['WORKBUDDY_NOTES_DIR']`（spawned 子进程路径，spawn 时注入），否则回退 `agent.sandbox.current_root()`（in-process 路径，逐 run contextvar 快照，天然隔离）」；`mcp_client.py` 去掉第 181-182 行的全局写。in-process 服务器任务在本 run 的 context 下创建 → 读 contextvar 得本 run 的根，各 run 互不影响。
+不用进程全局 env 传 in-process 服务器的目录。方案：`notes.py`/`search.py` 的目录解析改为「优先读 `os.environ['AGENTMATE_NOTES_DIR']`（spawned 子进程路径，spawn 时注入），否则回退 `agent.sandbox.current_root()`（in-process 路径，逐 run contextvar 快照，天然隔离）」；`mcp_client.py` 去掉第 181-182 行的全局写。in-process 服务器任务在本 run 的 context 下创建 → 读 contextvar 得本 run 的根，各 run 互不影响。
 
 ## 验证
 
@@ -37,7 +37,7 @@ P1：跨项目数据串写/串读。in-process 连接器是打包版默认路径
 ## 处理记录（2026-07-14）
 
 - 改动：
-  - `backend/mcp_servers/notes.py` `_dir()` / `backend/mcp_servers/search.py` `_root()`：目录解析改为「`os.environ['WORKBUDDY_NOTES_DIR']` 优先（spawned 子进程），否则 `agent.sandbox.current_root()`（in-process，逐 run contextvar）」。
-  - `backend/agent/mcp_client.py`：删掉内置服务器分支里 `os.environ["WORKBUDDY_NOTES_DIR"] = ...` 的全局写。
+  - `backend/mcp_servers/notes.py` `_dir()` / `backend/mcp_servers/search.py` `_root()`：目录解析改为「`os.environ['AGENTMATE_NOTES_DIR']` 优先（spawned 子进程），否则 `agent.sandbox.current_root()`（in-process，逐 run contextvar）」。
+  - `backend/agent/mcp_client.py`：删掉内置服务器分支里 `os.environ["AGENTMATE_NOTES_DIR"] = ...` 的全局写。
 - 验证：py_compile 过；隔离测试脚本模拟两个并发 run（root A/B，交错设 root 后各自 add_note）→ 各 notes.json 落在各自项目目录（`ISOLATION_OK`），证明 contextvar 经 MCP in-memory 传输正确逐 run 隔离，不再串。
 - commit：未提交（待用户确认）。

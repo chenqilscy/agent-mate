@@ -43,7 +43,7 @@ P3：纯目录数据，不影响运行时；但橱窗是产品门面，摆着一
 - `src/data/catalog.ts` —— 前端静态兜底（`catalogStore.ts` 仅在后端返回该键时才覆盖）。
 - `backend/storage/catalog_showcase.json` —— 后端种子（`_seed_showcase` 按 kind 查重，
   某 kind 删空则下次启动整批重种）。
-- `workbuddy.db` 的 `catalog_showcase` 运行库 —— 按种子对账：落选行 DELETE、
+- `agentmate.db` 的 `catalog_showcase` 运行库 —— 按种子对账：落选行 DELETE、
   新增行 INSERT、留存行 sort 重排 0..n-1（与 `_seed_showcase` 的 enumerate 语义对齐）；
   `CONN_META` 是 `is_scalar=1` 单行整存，UPDATE 该行。
 
@@ -58,7 +58,7 @@ WeKnora 卡给 `CONN_META` 详情（同金山文档那条的结构）：`status:
 ## 验证
 
 - `npx tsc --noEmit` 通过。
-- 陷阱回归：用 `WORKBUDDY_DB` 指向库副本连跑两次真 `db.init_db()`，`CONNS` 仍为 8 条、
+- 陷阱回归：用 `AGENTMATE_DB` 指向库副本连跑两次真 `db.init_db()`，`CONNS` 仍为 8 条、
   不被重种；不重启用户正在跑的 :8000。
 - 层间一致性：从 `catalog.ts` 抽取 `CONNS`/`CONN_META` 与种子 JSON 逐字比对。
 - API：`GET /api/catalog` 返回的 `CONNS` = 8 条且含 WeKnora知识库、不含被删 5 条。
@@ -72,7 +72,7 @@ WeKnora 卡给 `CONN_META` 详情（同金山文档那条的结构）：`status:
     （`status:'tok'`、非 oauth，`tools` 逐字镜像 `backend/agent/tools.py` 的
     `knowledge_retrieve`/`knowledge_add`，不编造能力）。
   - `backend/storage/catalog_showcase.json` —— 同上两个 kind 定点同步（其余键零改动，不重排版）。
-  - `backend/workbuddy.db` 的 `catalog_showcase` —— 脚本按名字对账（保留留存行 id）：
+  - `backend/agentmate.db` 的 `catalog_showcase` —— 脚本按名字对账（保留留存行 id）：
     INSERT WeKnora×1、DELETE×5、留存行 sort 重排 0..7、`CONN_META` scalar 行 UPDATE。
 - 范围外（按用户界定未动）：`NP_CONNS`（新建项目连接器选择器）与 `NP_TPLS` 项目模板里仍有
   乐享知识库/腾讯文档/TAPD；Hub 的 `CONN_DEFS` 走 `NP_CONNS` 分类，与本次 `CONNS` 无关。
@@ -80,7 +80,7 @@ WeKnora 卡给 `CONN_META` 详情（同金山文档那条的结构）：`status:
   - `npx tsc --noEmit` 通过。
   - 层间一致性：脚本用括号配平从 `catalog.ts` 真抽取 `CONNS`/`CONN_META`，与种子 JSON
     `JSON.stringify` 逐字比对 —— 两 kind 全一致（8 条 / 2 键）。
-  - 陷阱回归：`sqlite3.backup` 取运行库快照，`WORKBUDDY_DB` 指向副本连跑两次真
+  - 陷阱回归：`sqlite3.backup` 取运行库快照，`AGENTMATE_DB` 指向副本连跑两次真
     `db.init_db()`（含 `_seed_showcase`）→ 仍 8 条、不被重种；未重启用户正在跑的 :8000。
   - 真 API：`GET /api/catalog` → `CONNS` 8 条、无被删 5 条、含 WeKnora；
     `CONN_META.WeKnora知识库.tools = [knowledge_retrieve, knowledge_add]`、`status=tok`（无需重启即生效）。

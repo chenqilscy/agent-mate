@@ -1,22 +1,22 @@
 # BuddyWebMgr —— Web 管理门户设计
 
 > 状态：设计稿（2026-07-08）。epic **WB-078**，子任务 WB-079～084。
-> 前置：[`workbuddy-hub-架构设计.md`](workbuddy-hub-架构设计.md)（Hub 控制平面总纲）。
+> 前置：[`agentmate-hub-架构设计.md`](agentmate-hub-架构设计.md)（Hub 控制平面总纲）。
 > 本文把原来那个「够用就好」的 Hub 控制台（`hub/web/console.html`，262 行）升级为一个**完整的 Web 管理门户**，
 > 并更名 **BuddyWebMgr**。
 
 ## 1. 背景与定位
 
-WorkBuddy = **local-first 执行内核**（本机 App 跑 agent、LLM、沙箱文件） **+ 云端控制平面**（Hub：账号/组织/项目/成员/目录的权威源）。
+AgentMate = **local-first 执行内核**（本机 App 跑 agent、LLM、沙箱文件） **+ 云端控制平面**（Hub：账号/组织/项目/成员/目录的权威源）。
 Hub 现有的 web 控制台只覆盖了控制平面的一小角：项目仅有 成员/邀请/讨论/在线/时间线，专家/技能/连接器只有一个**裸 JSON**「目录 Admin」，SkillHub 完全没有 UI。
 
 用户诉求（2026-07-08）：
-1. 门户的**项目管理**要与 WorkBuddy App 的项目管理对齐（当前完全不一致）。
+1. 门户的**项目管理**要与 AgentMate App 的项目管理对齐（当前完全不一致）。
 2. **技能 / 连接器 / 专家·专家团**要在门户里有正经管理。
 3. **SkillHub** 要在门户里有 UI（后端已在定时镜像 369 技能，见 WB-069）。
 4. 不再叫「Hub 站点」，**更名 BuddyWebMgr**。
 
-**定位（关键）**：BuddyWebMgr 是**管理控制台**，不是「WorkBuddy 的 Web 版」。见 §2 的硬约束。
+**定位（关键）**：BuddyWebMgr 是**管理控制台**，不是「AgentMate 的 Web 版」。见 §2 的硬约束。
 
 ## 2. 硬约束（决定「能对齐到哪」）
 
@@ -27,7 +27,7 @@ Hub 现有的 web 控制台只覆盖了控制平面的一小角：项目仅有 �
   （如 `secret_env: {GITHUB_PERSONAL_ACCESS_TOKEN: "GITHUB_TOKEN"}`，映射的是变量名不是值），故 launch spec 可安全入 Hub。
 - **离线优先不破坏**：门户是 Hub 的皮；Hub 不可达时本机 App 全功能照常（既有设计，不动）。
 
-因此「项目管理与 WorkBuddy 完全一致」的准确落地 = **对齐可管理的部分**：项目配置 + 成员/角色/邀请 + 团队计划·任务 + 讨论/在线/时间线；执行/资产留在 App（门户里对执行仅以**时间线**只读体现）。
+因此「项目管理与 AgentMate 完全一致」的准确落地 = **对齐可管理的部分**：项目配置 + 成员/角色/邀请 + 团队计划·任务 + 讨论/在线/时间线；执行/资产留在 App（门户里对执行仅以**时间线**只读体现）。
 
 ## 3. 现状盘点
 
@@ -99,7 +99,7 @@ App 的 work_items 目前**本地独有**。要在门户管理团队计划/任�
 
 **改**：`hub/web/console.html` 的 `<title>` / logo / 顶栏名 / 导航 / 文案 → **BuddyWebMgr**；`hub/main.py` `GET /` 服务它。
 **不改**（保持内部标识稳定、不惊动并发会话/既有环境）：代码目录 `hub/`、环境变量 `HUB_URL`、`hub_client`/`hub_sync`、路由 `prefix=/api`、DB 文件名等。
-> 「BuddyWebMgr 是 WorkBuddy Hub 的 web 管理门户」——对外名 BuddyWebMgr，对内技术名仍是 Hub。
+> 「BuddyWebMgr 是 AgentMate Hub 的 web 管理门户」——对外名 BuddyWebMgr，对内技术名仍是 Hub。
 
 ## 8. Issue 拆分（epic WB-078）
 

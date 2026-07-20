@@ -6,7 +6,7 @@ area: backend
 status: fixed
 origin: 既有实现
 files:
-  - docs/workbuddy-hub-架构设计.md
+  - docs/agentmate-hub-架构设计.md
   - hub/routers/timeline.py
   - backend/stores/notificationStore.ts
 created: 2026-07-07

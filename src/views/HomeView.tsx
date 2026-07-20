@@ -54,7 +54,7 @@ export function HomeView() {
       <div className="home-wrap">
         <div className="home-inner">
           <h1 className="hero-title">
-            WorkBuddy<br />
+            AgentMate<br />
             <span className="g">你的职场超能力</span>
           </h1>
           <div className="scenes">

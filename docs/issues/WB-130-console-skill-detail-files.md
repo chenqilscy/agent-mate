@@ -25,7 +25,7 @@ WB-127 给「SkillHub 同步」列表加了详情弹窗（`sgDetail()`，
 对比：App 客户端**已有**该能力——[WB-056](WB-056-skill-detail-view.md)（详情页渲染 SKILL.md +
 预览/源码）、[WB-057](WB-057-skill-detail-preview-before-install.md)（安装前从 SkillHub 拉预览）。
 Manager 端未做，因其定位为「浏览/目录运营视图」（弹窗底部原文：「Hub 门户为浏览视图；
-安装/试用在 WorkBuddy 客户端」）。
+安装/试用在 AgentMate 客户端」）。
 
 ## 触发场景
 

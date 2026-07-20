@@ -1,4 +1,4 @@
-// hubStore — 前端接 WorkBuddy Hub 的连接态（WB-067 Slice 2）。
+// hubStore — 前端接 AgentMate Hub 的连接态（WB-067 Slice 2）。
 //
 // 「连接 Hub」= 用 Hub 账号登录：本地 backend 代理到 Hub 拿 token，存为 app 自己的 token
 // （与 WB-070 syncFromHub 一致——app token 即 Hub token，本地 auth 桥认它）。之后评论/在线/通知

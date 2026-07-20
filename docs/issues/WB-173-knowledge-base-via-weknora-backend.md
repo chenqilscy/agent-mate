@@ -46,7 +46,7 @@ P2：功能性重构。自建方案（曾开 WB-173/174，已回退作废）不�
 ## 验证
 
 - `py_compile`；WeKnora 跑起来后真机：建库→传 pdf/md→轮询 parse_status 到 completed→retrieve 命中且形状对→删档删库。
-- **断言 WorkBuddy 全程只打 `:8080/api/v1`，无任何 GLM KB（/llm-application、/zrag）调用。**
+- **断言 AgentMate 全程只打 `:8080/api/v1`，无任何 GLM KB（/llm-application、/zrag）调用。**
 
 ## 处理记录
 
@@ -75,6 +75,6 @@ P2：功能性重构。自建方案（曾开 WB-173/174，已回退作废）不�
   `POST /retrieve` 3 命中（中文 body 须 `--data-binary @utf8file`，`-d` 直传中文会被 Git Bash GBK 化 → 400）；
   throwaway create→upload→poll(0→1)→delete 全通。
 - agent `knowledge_retrieve` 工具：真检索 koda 库「三种通信方式」，返回带来源名 + 相关度的片段；未挂载态提示正确。
-- `py_compile` 通过；断言 WorkBuddy 全程只打 `:37200/api/v1`，无任何 GLM KB 调用。
+- `py_compile` 通过；断言 AgentMate 全程只打 `:37200/api/v1`，无任何 GLM KB 调用。
 
 前端配套见 [[WB-174]]（已一并 fixed）。

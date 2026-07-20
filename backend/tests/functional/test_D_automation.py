@@ -3,7 +3,7 @@ in-flight dedup, the REAL scheduler firing a due automation, project binding,
 disabled-never-fires)."""
 import sys, time, sqlite3, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wb_testkit import Checker, call, health_llm, account, DB, wipe_users
+from agentmate_testkit import Checker, call, health_llm, account, DB, wipe_users
 
 U = "dtest_auto"
 c = Checker()

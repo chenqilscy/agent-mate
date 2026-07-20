@@ -1,4 +1,4 @@
-"""WorkBuddy Hub 配置（WB-061）—— 独立于 backend/config.py。
+"""AgentMate Hub 配置（WB-061）—— 独立于 backend/config.py。
 
 Hub 是中心控制平面服务（账号/组织/项目/成员/邀请的权威源）。可自托管的单体：
 默认 SQLite（hub.db），规模上来可换 Postgres。绝不承载 LLM 凭据（那永远只在本地）。
@@ -32,7 +32,7 @@ class Settings:
     )
     # CLI 子进程 cwd（search/rankings 不落盘，仅需一个可写目录，放仓库外避免污染）。
     SKILLHUB_WORK_DIR: Path = Path(
-        os.getenv("SKILLHUB_WORK_DIR", str(Path.home() / ".workbuddy" / "hub-skillhub"))
+        os.getenv("SKILLHUB_WORK_DIR", str(Path.home() / ".agentmate" / "hub-skillhub"))
     )
     # 定时同步间隔（秒）；0 = 关闭后台循环（仍可管理员手动触发）。默认 12h。
     SKILLHUB_SYNC_INTERVAL: int = int(os.getenv("SKILLHUB_SYNC_INTERVAL", str(12 * 3600)))

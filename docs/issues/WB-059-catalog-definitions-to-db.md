@@ -33,7 +33,7 @@ P2（择机）：不阻断现有功能，但它是 Hub 目录（[WB-058](WB-058-
 
 ## 建议修法
 
-按 [架构设计 §5](../workbuddy-hub-架构设计.md) 的目录模型：
+按 [架构设计 §5](../agentmate-hub-架构设计.md) 的目录模型：
 
 ### 后端
 - `storage/db.py`：新增 `catalog_experts` 与 `catalog_connectors` 表（沿用幂等建表 `CREATE TABLE IF NOT EXISTS` + 必要时 `_migrate`）。

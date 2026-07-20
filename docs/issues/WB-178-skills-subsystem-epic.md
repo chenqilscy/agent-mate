@@ -20,7 +20,7 @@ created: 2026-07-16
 2026-07-16 对技能功能做了一次从头审查（前端 + 后端 + Hub 三路），结论：
 **技能是两套互不相认的系统贴在一起**。
 
-- **真的那套**：`skills_store.py` 对 `~/.workbuddy/skills/` 的磁盘扫描/安装/启停 + SkillHub CLI 拉包
+- **真的那套**：`skills_store.py` 对 `~/.agentmate/skills/` 的磁盘扫描/安装/启停 + SkillHub CLI 拉包
   + 真实 SKILL.md 正文注入 + 3 个真跑的工具（`web_fetch`/`analyze_csv`/`html_to_markdown`，带真 SSRF 防护）。
 - **橱窗那套**：`catalog.ts` 的静态商品卡（`SK_GRID` 17 条 / `SKILLHUB_GRID` 39 条 / `SKILLHUB_KITS` 4 条），
   多数后端零能力。
@@ -38,7 +38,7 @@ catalog skill still has an effect"* —— **模拟行为被写进了架构注�
 |---|---|---|
 | 橱窗卡 | 展示名（三元组 `[icon,name,desc]` 第 2 项） | `腾讯微云` |
 | 会话/项目 loadout | 展示名字符串 | `projects.skills = ["腾讯微云"]` |
-| 磁盘/安装 | slug 目录名 | `~/.workbuddy/skills/tencent-weiyun__skillhub/` |
+| 磁盘/安装 | slug 目录名 | `~/.agentmate/skills/tencent-weiyun__skillhub/` |
 
 由此长出的断裂已拆为子任务 **WB-179 ~ WB-186**。
 

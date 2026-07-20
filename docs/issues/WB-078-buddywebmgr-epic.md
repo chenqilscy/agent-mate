@@ -22,7 +22,7 @@ Hub 的 web 控制台（`hub/web/console.html`，262 行）只覆盖控制平面
 
 ## 影响
 
-P1：门户是团队用 WorkBuddy 的管理入口，当前能力缺口大。
+P1：门户是团队用 AgentMate 的管理入口，当前能力缺口大。
 
 ## 建议修法
 

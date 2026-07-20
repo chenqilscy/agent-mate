@@ -41,7 +41,7 @@ export interface TeamMember { role: string; name: string; lead?: boolean }
 export interface ExpertTeam {
   icon: string
   name: string
-  source: string          // 出品方，如 CodeBuddy Teams / Expert Marketplace / WorkBuddy Team
+  source: string          // 出品方，如 CodeBuddy Teams / Expert Marketplace / AgentMate Team
   badge?: string          // 如 特邀专家
   intro: string           // 能力介绍
   strengths: string[]     // 擅长领域
@@ -99,7 +99,7 @@ export const EXP_TEAMS: ExpertTeam[] = [
 ]
 
 // SK_RECO 已删除（WB-184）：前端**零消费**（全仓库只有本处定义 + catalogStore 的类型/兜底
-// 各一处引用），是原型迁移遗留的死代码。原型 workbuddy-v2.html:1361 用过，React 版从未渲染。
+// 各一处引用），是原型迁移遗留的死代码。原型 tencent-workbuddy-reference.html:1361 用过，React 版从未渲染。
 
 // 推荐技能由后端 catalog_skills 真定义表生成。静态层只保留空类型兜底，后端不可用时诚实空态，
 // 不再复制一份会漂移的展示名/category/slug 快照（WB-183/184/195）。

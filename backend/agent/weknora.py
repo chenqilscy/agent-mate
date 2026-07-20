@@ -1,6 +1,6 @@
 """自托管 WeKnora（腾讯开源 RAG）REST 客户端（WB-173）。
 
-WorkBuddy 后端当 WeKnora 的客户端：`X-API-Key` 打 `{url}/api/v1`（默认 http://localhost:8080）。
+AgentMate 后端当 WeKnora 的客户端：`X-API-Key` 打 `{url}/api/v1`（默认 http://localhost:8080）。
 WeKnora 自己做解析/切片/嵌入/向量库/检索——本后端只建库/传档/列删/检索，**不再用 GLM 托管 KB**。
 嵌入 provider 在 WeKnora 侧配置（本项目定为 GLM embedding-3 的 OpenAI 兼容接口，见 docs/weknora-部署.md）。
 

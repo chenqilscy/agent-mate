@@ -27,7 +27,7 @@ from agent.sandbox import SandboxError, resolve_in_sandbox
 from agent.tools import Tool, ToolOutcome
 
 _MAX = 6000
-_log = logging.getLogger("workbuddy.skills")
+_log = logging.getLogger("agentmate.skills")
 
 
 def _is_blocked_host(host: str) -> bool:
@@ -59,7 +59,7 @@ def _guarded_get(url: str) -> httpx.Response:
             raise ValueError("仅支持 http(s) URL")
         if _is_blocked_host(parsed.hostname or ""):
             raise ValueError("拒绝访问本机/内网地址")
-        r = httpx.get(url, timeout=15, follow_redirects=False, headers={"User-Agent": "WorkBuddy/0.1"})
+        r = httpx.get(url, timeout=15, follow_redirects=False, headers={"User-Agent": "AgentMate/0.1"})
         loc = r.headers.get("location")
         if r.is_redirect and loc:
             url = str(r.url.join(loc))

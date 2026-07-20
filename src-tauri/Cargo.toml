@@ -1,15 +1,15 @@
 [package]
-name = "workbuddy"
+name = "agentmate"
 version = "0.1.0"
-description = "WorkBuddy — your workplace superpower (desktop shell)"
-authors = ["WorkBuddy"]
+description = "AgentMate — your intelligent work companion (desktop shell)"
+authors = ["AgentMate"]
 edition = "2021"
 rust-version = "1.77"
 
 # The Tauri app logic lives in the library so both the desktop binary (main.rs)
 # and any future mobile entry point share one `run()`.
 [lib]
-name = "workbuddy_lib"
+name = "agentmate_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -128,7 +128,7 @@ export function NewProjectModal({ open, onClose, onCreated }: {
           </div>
           <textarea
             className="np-ta"
-            placeholder="提供当前项目的背景信息和规范，让 WorkBuddy 的回复更精准、更符合要求。比如：项目目标、团队习惯、风格偏好、输出约束等"
+            placeholder="提供当前项目的背景信息和规范，让 AgentMate 的回复更精准、更符合要求。比如：项目目标、团队习惯、风格偏好、输出约束等"
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
           />

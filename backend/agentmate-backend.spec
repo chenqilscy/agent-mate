@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for the WorkBuddy backend sidecar (one-file exe).
+# PyInstaller spec for the AgentMate backend sidecar.
 # uvicorn and mcp import their impl modules dynamically, so collect them; the
 # mcp_servers subpackage is bundled so the `--mcp-server=<name>` re-exec works.
 from PyInstaller.utils.hooks import collect_submodules
@@ -22,7 +22,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['tkinter', 'PySide6', 'PyQt5', 'PyQt6', 'matplotlib', 'numpy', 'pandas'],
+    excludes=['tkinter', 'PySide6', 'PyQt5', 'PyQt6', 'matplotlib', 'pandas'],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
@@ -32,7 +32,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='workbuddy-backend',
+    name='agentmate-backend',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

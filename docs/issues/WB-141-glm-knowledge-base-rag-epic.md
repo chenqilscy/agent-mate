@@ -17,9 +17,9 @@ created: 2026-07-14
 
 ## 问题
 
-WorkBuddy 缺少 RAG 能力——agent 无法基于用户上传的资料库检索作答。GLM（智谱/bigmodel）提供
+AgentMate 缺少 RAG 能力——agent 无法基于用户上传的资料库检索作答。GLM（智谱/bigmodel）提供
 一整套知识库 REST API（建库/传文档/文档管理/文本检索/全模态检索/上下文增强），可接入为真正的
-知识库能力。用户诉求：「参考 GLM 知识库，在 WorkBuddy Manager 中实现」。
+知识库能力。用户诉求：「参考 GLM 知识库，在 AgentMate Manager 中实现」。
 
 **核心约束**：GLM 知识库所有 API 都要智谱 API Key，而铁律#4 规定 LLM Key 只存本地 backend
 （按 owner 存 DB）、绝不进 Hub/Manager。故功能天然分两面（呼应 Hub「云端控制平面 + local-first 执行」）：

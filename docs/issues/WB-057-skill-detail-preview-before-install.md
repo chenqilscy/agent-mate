@@ -15,7 +15,7 @@ created: 2026-07-07
 
 ## 问题
 
-[[WB-056]] 的技能详情页只读本地磁盘：`GET /api/skills/{key}` 走 `~/.workbuddy/skills/<key>`，
+[[WB-056]] 的技能详情页只读本地磁盘：`GET /api/skills/{key}` 走 `~/.agentmate/skills/<key>`，
 所以**必须先安装才能看到 SKILL.md/描述**。逻辑不对——用户应能在**安装前**就查看某个技能的
 详情（描述、SKILL.md、版本、references）再决定装不装。当前未安装的卡片根本点不开详情。
 
@@ -31,7 +31,7 @@ P2：导购体验缺一环（"先看后装"是商店的基本预期）；不涉�
 
 - 后端加"预览"：`GET /api/skills/preview?slug=&name=` —— 若已安装则返回本地详情（installed=true）；
   否则解析 slug，用 skillhub CLI 把 zip 下到**临时目录**读出 SKILL.md/_meta/references，返回同样的
-  详情结构（installed=false），随后删临时目录。按 slug 做小缓存避免重复下载。不污染 `~/.workbuddy/skills/`。
+  详情结构（installed=false），随后删临时目录。按 slug 做小缓存避免重复下载。不污染 `~/.agentmate/skills/`。
 - 详情响应加 `installed` 标志。前端 `SkillDetail` 接收「已装 key」或「slug/name」两种入口：
   已装拉本地详情、未装拉预览。未装时页面动作换成「安装」按钮（装完就地刷新为已装态）。
 - 前端所有卡片（精选/网格）都可点开详情（不再仅已安装可点）。

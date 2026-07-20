@@ -1,7 +1,7 @@
 """SkillHub 已安装技能的真实读写（WB-055）。
 
 一个 skill = `SKILLS_DIR/<dir>/SKILL.md`（+ 可选 _meta.json / _skillhub_meta.json /
-references/），和出货版 WorkBuddy 及 skillhub CLI 的落盘约定一致。这里做的是**真实**的：
+references/），和出货版 AgentMate 及 skillhub CLI 的落盘约定一致。这里做的是**真实**的：
 - scan()      扫描目录，解析 SKILL.md front-matter 得到已安装技能清单；
 - install()   用后端自己的 Python 直接跑 skillhub CLI 真正下载解压进 SKILLS_DIR；
 - uninstall() 删目录；set_disabled() 写/删 .disabled 标记；reveal() 打开资源管理器；
@@ -471,7 +471,7 @@ _preview_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 def preview(slug: str = "", name: str = "") -> dict[str, Any] | None:
     """安装前预览：已安装则给本地详情；否则把 zip 下到临时目录读 SKILL.md，读完即删。
-    不污染 ~/.workbuddy/skills/。"""
+    不污染 ~/.agentmate/skills/。"""
     slug = (slug or "").strip()
     name = (name or "").strip()
     if not slug and name:

@@ -19,7 +19,7 @@ created: 2026-07-06
 （`src/styles/app.css:352`），即「贴侧栏右缘、距底部 118px」。
 
 菜单在 DOM 里是 `.sidebar` 的最后一个子节点（`Sidebar.tsx:384`），与按钮无任何锚定关系。
-原型 `docs/workbuddy-v2.html` 里侧栏结构简单、这套坐标勉强能落在按钮附近；迁移到真实应用后，
+原型 `docs/tencent-agentmate-reference.html` 里侧栏结构简单、这套坐标勉强能落在按钮附近；迁移到真实应用后，
 侧栏中部多了 `.sb-scroll`（任务/空间/自动化）等大块内容、且「更多」固定在顶部，
 于是 `bottom:118px` 把菜单甩到了**侧栏右下角**，离触发它的「更多」按钮很远（见用户截图）。
 

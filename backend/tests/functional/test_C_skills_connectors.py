@@ -3,7 +3,7 @@ connectors return REAL data; skill toolpacks add REAL new tools; not-ready & pla
 gating). Experts are intentionally out of scope (per user)."""
 import sys, time, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wb_testkit import (Checker, call, stream, health_llm, account, events_of, text_join,
+from agentmate_testkit import (Checker, call, stream, health_llm, account, events_of, text_join,
                         has_step, loadout_label, stop_run, read_ws, plant_file, wipe_users)
 
 U = "ctest_sc"

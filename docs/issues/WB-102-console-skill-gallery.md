@@ -15,7 +15,7 @@ created: 2026-07-09
 
 BuddyWebMgr 控制台（`hub/web/console.html`）「目录运营中心」的 **技能** tab 目前只是
 **裸管理表单 + 纯文本列表**（`skillsCat`，SK_GRID 三元组 [icon,name,desc] 的增/改/停/删）。
-而 WorkBuddy App 的技能页（`src/views/ExpertsView.tsx:214` 起，`SkillsPane`）是一整套
+而 AgentMate App 的技能页（`src/views/ExpertsView.tsx:214` 起，`SkillsPane`）是一整套
 **精美浏览橱窗**：
 
 - 顶部 **精选技能**（SKILLHUB_FEATURED）大卡 + 「换一换」轮换；
