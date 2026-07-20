@@ -123,7 +123,13 @@ def pull_catalog(token: str) -> dict:
         for it in items
         if it.get("category") == "APP_SKILLS" and isinstance(it.get("data"), dict)
     ]
-    showcase_rows = [it for it in items if it.get("category") != "APP_SKILLS"]
+    # WB-215：第三方 SkillHub 是每台 App 的本地市场，不属于 Server 控制平面。
+    # 过滤旧 Server 版本可能仍残留的镜像/分类/精选，避免再次写入本地 downlink。
+    local_market_categories = {"skill", "skill-category", "SKILLHUB_FEATURED"}
+    showcase_rows = [
+        it for it in items
+        if it.get("category") != "APP_SKILLS" and it.get("category") not in local_market_categories
+    ]
     skill_result = db.replace_server_skill_catalog(skill_rows)
     db.replace_all_downlink(showcase_rows)
     return {

@@ -1,14 +1,13 @@
 // catalogStore — 橱窗目录（WB-060）。
 //
-// 普通橱窗以 catalog.ts 为静态兜底；技能推荐由 catalog_skills 真定义表生成，SkillHub 浏览只接受
-// Server 镜像或真实 rankings。两类技能数据不可达时使用诚实空态，不再回退静态假商品/假统计。
+// 普通橱窗以 catalog.ts 为静态兜底；技能推荐由 catalog_skills 真定义表生成。
+// 第三方 SkillHub 由本地 App 直接读取真实 rankings，不接受 Server 镜像（WB-215）。
 import { create } from 'zustand'
 import { api, TOKEN_KEY } from '../lib/api'
 import type { SkillCard } from '../lib/types'
 import * as C from '../data/catalog'
 import { useSkillStore } from './skillStore'
 
-// Server 镜像的 SkillHub 场景分类（WB-070）：来自 Server /api/v1/categories 快照 + 每类计数。
 export interface SkillCat { key: string; name: string; nameEn?: string; sortOrder?: number; count: number }
 
 // 由 API 供给的橱窗键（与后端 storage/db.showcase_all 对齐；不含 SKILLHUB_*）。
@@ -34,20 +33,17 @@ const SET_KEYS = new Set(['READY_CONNECTORS', 'NEEDS_TOKEN_CONNECTORS'])
 
 interface CatalogState extends Catalog {
   loaded: boolean
-  // WB-070：Server 镜像的 SkillHub 商店（已连 Server 并下行 pull 后有值）。空 = 未接 Server → 前端回退静态 SKILLHUB_*。
-  skillMirror: SkillCard[]
+  // WB-215：本地 App 直接读取的第三方 SkillHub 商店元数据。
+  skillMarketplace: SkillCard[]
   skillCats: SkillCat[]
-  // WB-109：Server SKILLHUB_FEATURED 精选（mgr「加入精选」下发的对象）。空 = 不展示精选区。
-  skillFeatured: SkillCard[]
   load: () => Promise<void>
 }
 
 export const useCatalogStore = create<CatalogState>((set) => ({
   ...FALLBACK,
   loaded: false,
-  skillMirror: [],
+  skillMarketplace: [],
   skillCats: [],
-  skillFeatured: [],
   load: async () => {
     try {
       const raw = (await api.getCatalog()) as Record<string, unknown>
@@ -56,22 +52,14 @@ export const useCatalogStore = create<CatalogState>((set) => ({
         if (raw[k] === undefined) continue // 后端未提供某项 → 保留兜底
         next[k] = SET_KEYS.has(k) ? new Set(raw[k] as string[]) : raw[k]
       }
-      // WB-070：Server SkillHub 镜像——category='skill' 是商店卡数组；'skill-category' 是 [{items:[12 类]}] 骨架。
-      // 这两类不在静态 catalog.ts 里（带连字符、非导出键），故独立承载；后端未下发则保持空、前端回退静态。
-      const mirror = Array.isArray(raw['skill']) ? (raw['skill'] as SkillCard[]) : []
-      const taxRow = Array.isArray(raw['skill-category']) ? (raw['skill-category'] as Array<{ items?: SkillCat[] }>)[0] : undefined
-      const cats = taxRow && Array.isArray(taxRow.items) ? taxRow.items : []
-      // WB-109：Server 下发的精选（mgr「加入精选」写的完整技能对象；无下发则该键缺席 → 空）。
-      const featured = Array.isArray(raw['SKILLHUB_FEATURED']) ? (raw['SKILLHUB_FEATURED'] as SkillCard[]) : []
-      set({ ...(next as Partial<CatalogState>), skillMirror: mirror, skillCats: cats, skillFeatured: featured, loaded: true })
+      set({ ...(next as Partial<CatalogState>), loaded: true })
     } catch {
       set({ loaded: true }) // 后端未连：保留静态兜底，不白屏
     }
   },
 }))
 
-// 登录态下触发一次本地 backend → Server 下行 pull（把 Server SkillHub 镜像等拉进本地 /api/catalog），
-// 拉到后重载目录并进（WB-070）。未接 Server / 未登录 → 静默，保留本地兜底。只跑一次，避免循环。
+// 登录态下触发一次本地 backend → Server 下行 pull（仅 AgentMate 自有目录与协作配置）。
 let serverPulled = false
 async function syncFromServer(): Promise<void> {
   if (serverPulled) return
@@ -86,11 +74,8 @@ async function syncFromServer(): Promise<void> {
   } catch { /* 未接 Server / 不可达：保留本地兜底 */ }
 }
 
-// 无 Server 镜像时的真实浏览兜底（WB-071）：拉 /api/skills/rankings（本地 CLI 跑真 skillhub.cn 排行），
-// rankings 仅带场景 key；中文 taxonomy 只以 Server 下发为权威。无 Server 时直接显示真实 key，
-// 不再在前端复制一份会漂移的分类快照（WB-183 Phase D）。
-async function fallbackToRankings(): Promise<void> {
-  if (useCatalogStore.getState().skillMirror.length > 0) return // 已有 Server 镜像 → 不重复拉
+// 第三方市场始终从本地 App 后端直读真实 SkillHub 排行，与 Server 登录/同步状态无关（WB-215）。
+async function loadSkillMarketplace(): Promise<void> {
   try {
     const r = await api.skillRankings('hot') // hot=较广的真实排行；离线/无 CLI → 抛错，回退静态
     const cards: SkillCard[] = (r.skills || []).map((c) => ({
@@ -104,7 +89,7 @@ async function fallbackToRankings(): Promise<void> {
     const cats: SkillCat[] = Object.entries(counts)
       .map(([key, count]) => ({ key, name: key, count }))
       .sort((a, b) => b.count - a.count)
-    useCatalogStore.setState({ skillMirror: cards, skillCats: cats })
+    useCatalogStore.setState({ skillMarketplace: cards, skillCats: cats })
   } catch { /* 离线 / 无 CLI：保持空，页面展示诚实空态 */ }
 }
 
@@ -114,9 +99,8 @@ export function useCatalog(): Catalog {
 }
 
 // 启动即拉取一次（兜底已就绪，拉到后 set() 触发消费组件重渲染；失败保留兜底、不白屏）。
-// 随后触发 Server 下行 pull 并进镜像（WB-070）；仍无 Server 镜像 → 用真实 rankings 兜底（WB-071）。
+// Server 下行与第三方市场并行、互不覆盖；市场只走本地 App（WB-215）。
 void (async () => {
   await useCatalogStore.getState().load()
-  await syncFromServer()
-  await fallbackToRankings()
+  await Promise.all([syncFromServer(), loadSkillMarketplace()])
 })()

@@ -40,8 +40,7 @@ MAX_SKILL_MD_BYTES = 512 * 1024
 
 # 技能 slug 白名单：仅字母数字与 . _ - ；杜绝路径分隔符与 `..`，因为 slug 会拼进
 # SKILLS_DIR/<slug> 与临时预览目录路径、并作为 `skillhub install <slug>` 的子进程
-# 参数（路径穿越 / CLI 参数注入面）。与 server/skillhub_client.py 的校验保持同一口径
-# ——WB-160 只硬化了 Server 侧，App 侧这个孪生站点漏网，见 WB-185。
+# 参数（路径穿越 / CLI 参数注入面）。第三方 SkillHub 只由本地 App 访问（WB-215）。
 _SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
@@ -419,7 +418,7 @@ def display_name_for(key: str) -> str | None:
 
 
 def _build_detail(d: Path, installed: bool, name_override: str = "") -> dict[str, Any] | None:
-    """从任意目录（已安装的 SKILLS_DIR 子目录 或 预览临时目录）构造详情。"""
+    """从已安装的 SKILLS_DIR 子目录构造完整文件详情。"""
     info = _info_from_dir(d)
     if not info:
         return None
@@ -448,62 +447,6 @@ def _build_detail(d: Path, installed: bool, name_override: str = "") -> dict[str
 def detail(key: str) -> dict[str, Any] | None:
     d = _safe_dir(key)
     return _build_detail(d, installed=True) if d else None
-
-
-def _installed_dir_for_slug(slug: str) -> Path | None:
-    root = skills_dir()
-    for d in (root.iterdir() if root.exists() else []):
-        if not d.is_dir():
-            continue
-        if d.name == slug or d.name.replace("__skillhub", "") == slug:
-            return d
-        if str(_read_json(d / SKILLHUB_META).get("slug") or "") == slug:
-            return d
-    return None
-
-
-# 安装前预览缓存（slug → (ts, detail)），避免重复下载。
-# 必须有 TTL：否则技能在 SkillHub 发了新版，本进程会永远返回旧预览（WB-186）。
-# 300s 与 server/skillhub_client.py 的 _PREVIEW_TTL 对齐，避免两侧行为不一致。
-_PREVIEW_TTL = 300.0
-_preview_cache: dict[str, tuple[float, dict[str, Any]]] = {}
-
-
-def preview(slug: str = "", name: str = "") -> dict[str, Any] | None:
-    """安装前预览：已安装则给本地详情；否则把 zip 下到临时目录读 SKILL.md，读完即删。
-    不污染 ~/.agentmate/skills/。"""
-    slug = (slug or "").strip()
-    name = (name or "").strip()
-    if not slug and name:
-        slug = resolve_slug(name) or ""
-    if not slug or not valid_slug(slug):  # WB-185：slug 会拼进 tmp/<slug> 与 CLI 参数
-        return None
-    inst = _installed_dir_for_slug(slug)
-    if inst:
-        return _build_detail(inst, installed=True)
-    hit = _preview_cache.get(slug)
-    if hit and (time.time() - hit[0]) < _PREVIEW_TTL:
-        return hit[1]
-    if not cli_available():
-        return None
-    tmp = Path(tempfile.mkdtemp(prefix="skhub-prev-"))
-    try:
-        _run_cli(["install", slug, "--dir", str(tmp), "--json", "--force"], timeout=120)
-        dest = tmp / slug
-        if not (dest / SKILL_MD).is_file():
-            return None
-        det = _build_detail(dest, installed=False, name_override=name)
-        if det:
-            det["key"] = ""      # 未安装无本地 key
-            det["slug"] = slug
-            if len(_preview_cache) > 64:
-                _preview_cache.clear()
-            _preview_cache[slug] = (time.time(), det)
-        return det
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ── 跑 skillhub CLI（后端自己的 Python，不依赖 bash wrapper / PATH）───────────
@@ -535,7 +478,7 @@ def _run_cli(args: list[str], timeout: int = 120) -> subprocess.CompletedProcess
 
 
 def search(query: str, limit: int = 8) -> list[dict[str, Any]]:
-    """在 SkillHub 注册表搜索，返回 [{slug,name,description,version,...}]。"""
+    """在 SkillHub 注册表搜索，返回仅含商店元数据的标准卡片。"""
     query = (query or "").strip()
     if not query or not cli_available():
         return []
@@ -553,8 +496,8 @@ def search(query: str, limit: int = 8) -> list[dict[str, Any]]:
     if isinstance(items, list):
         for it in items:
             if isinstance(it, dict) and it.get("slug"):
-                results.append(it)
-    return results
+                results.append(_normalize_card(it))
+    return decorate_cards(results, limit=limit)
 
 
 def resolve_slug(query: str) -> str | None:
@@ -581,8 +524,7 @@ def resolve_slug(query: str) -> str | None:
 
 
 # ── skillhub.cn 实时目录来源（WB-064）──────────────────────────────────────
-# 真实排行接口，供「分层」方案里 skillhub.cn 实时那一层用；WB-060 的 Server-DB
-# 目录层可消费本函数/端点做整合+离线兜底。清单来自 skillhub 站点，非模拟。
+# 真实排行接口，由本地 App 直接消费。清单来自 skillhub 站点，非模拟（WB-215）。
 _VALID_RANK_TYPES = {"all", "hot", "featured", "newest", "recommended", "trending", "paid"}
 _RANKINGS_TTL = 300.0  # 秒；排行变化慢，短缓存降低对站点的压力
 _rankings_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
@@ -642,11 +584,7 @@ def rankings(rtype: str = "featured", category: str = "", limit: int = 0) -> lis
 def decorate_cards(
     items: list[dict[str, Any]], category: str = "", limit: int = 0
 ) -> list[dict[str, Any]]:
-    """给商品卡按本机状态加工：标记已安装 + 按分类过滤 + 截断。
-
-    「已安装」是**本机磁盘**的知识，Console 给不出来，所以经 Server 代理取回的榜单
-    也要过这一步（WB-186）。
-    """
+    """给第三方商品卡按本机状态加工：标记已安装 + 按分类过滤 + 截断。"""
     inst = scan()
     inst_keys = {s["slug"] for s in inst} | {s["name"] for s in inst}
     cat = category.strip().lower()

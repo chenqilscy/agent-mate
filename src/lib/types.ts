@@ -445,7 +445,7 @@ export interface CreateAutomationInput {
 // SkillHub 商店卡（WB-070）：搜索/浏览的目录条目。
 // - Server 查询代理/镜像 → 富字段（下载/星/图标/分类齐全）；
 // - 本地 CLI 搜索兜底 → 仅 slug/name/description/version（其余可选、缺省）。
-export interface SkillCard {
+  export interface SkillCard {
   slug: string
   name: string
   description: string
@@ -456,7 +456,11 @@ export interface SkillCard {
   stars?: number
   iconUrl?: string
   tags?: string[]
-  verified?: boolean
+    verified?: boolean
+    source?: string
+    score?: number
+    subCategories?: string[]
+    installed?: boolean
   skillhub_category?: string
   skillhub_category_name?: string
 }
@@ -478,7 +482,7 @@ export interface SkillDetail extends InstalledSkill {
   frontmatter: Record<string, unknown>
   references: string[]
   dir: string
-  installed?: boolean                    // true=本地已安装；false=安装前预览（WB-057）
+    installed?: boolean                    // true=本地已安装；目录定义由 catalog 标识
   catalog?: boolean                      // true=目录内置/Server 定义，无需磁盘安装（WB-214）
   category?: string
   tools?: string[]

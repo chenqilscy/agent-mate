@@ -119,7 +119,7 @@ export const api = {
   getCatalog: () => get<Record<string, unknown>>('/catalog'),
 
   // 触发本地 backend 从 Server 下行 pull（项目/成员/目录镜像，WB-062/066/070）。
-  // 未接 Server → 后端无害返回 {server:false}；用于登录后刷新 Server SkillHub 镜像目录等。
+  // 未接 Server → 后端无害返回 {server:false}；用于登录后刷新 AgentMate 自有目录与协作数据。
   serverPull: () => send<{ server: boolean; catalog?: number }>('POST', '/server/pull'),
 
   // 前端接 Server 协作（WB-067 Slice 2）：都经本地 backend 代理转发到 Server；未接 Server → {server:false}/空。
@@ -221,17 +221,14 @@ export const api = {
   // SkillHub 技能 · 真实安装/发现/管理（WB-055）。清单来自 ~/.agentmate/skills 磁盘扫描，
   // 安装走真实 skillhub CLI 下载解压。key = 技能目录名。
   listSkills: () => get<{ skills: InstalledSkill[]; cli: boolean }>('/skills'),
-  // SkillHub 实时搜索（WB-070）：本地 backend 优先经 Server 查询代理（富字段），未接/不可达 → 回退本地 CLI。
+  // SkillHub 实时搜索：本地 App 直接查询第三方市场，Server 不参与（WB-215）。
   searchSkills: (q: string, limit = 12) =>
     get<{ results: SkillCard[]; source?: string }>(`/skills/search?q=${encodeURIComponent(q)}&limit=${limit}`),
-  // SkillHub 实时排行（WB-064 端点）：无 Server 镜像时技能浏览的真实兜底源（本地 CLI 跑 skill rankings）。
+  // SkillHub 实时排行：本地 App 后端直接执行 skill rankings。
   skillRankings: (type = 'featured') =>
-    get<{ type: string; skills: SkillCard[] }>(`/skills/rankings?type=${encodeURIComponent(type)}`),
+    get<{ type: string; skills: SkillCard[]; source: 'app' }>(`/skills/rankings?type=${encodeURIComponent(type)}`),
   skillDetail: (key: string) => get<{ skill: SkillDetail }>(`/skills/${encodeURIComponent(key)}`),
   skillCatalogDetail: (key: string) => get<{ skill: SkillDetail }>(`/skills/catalog/${encodeURIComponent(key)}`),
-  // 安装前预览：未安装也能看 SKILL.md（后端临时下载，不落盘）。
-  skillPreview: (q: { slug?: string; name?: string }) =>
-    get<{ skill: SkillDetail }>(`/skills/preview?slug=${encodeURIComponent(q.slug ?? '')}&name=${encodeURIComponent(q.name ?? '')}`),
   installSkill: (body: { slug?: string; name?: string }) =>
     send<{ ok: boolean; skill: InstalledSkill }>('POST', '/skills/install', body),
   importSkillFile: async (file: File) => {

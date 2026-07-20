@@ -316,6 +316,14 @@ def init_db() -> None:
         conn.execute("ALTER TABLE comments ADD COLUMN work_item_id TEXT NOT NULL DEFAULT ''")
     if _table_exists(conn, "catalog_skills"):
         conn.execute("UPDATE catalog_skills SET source='Server' WHERE source='Hub'")
+    # WB-215：第三方 SkillHub 改为每台 App 直接访问。清掉旧 Server 镜像、精选与凭据，
+    # 防止升级后的 Server 继续向客户端下发历史数据。
+    conn.execute(
+        "DELETE FROM catalog_items WHERE scope='builtin' AND "
+        "(kind IN ('skillhub','skillhub-taxonomy','featured') "
+        "OR category IN ('skill','skill-category','SKILLHUB_FEATURED'))"
+    )
+    conn.execute("DELETE FROM settings WHERE k='skillhub_api_key'")
     conn.commit()
     # 一次性：存量 work_items.assignee 自由文本 → account_id 强映射（WB-112c-B）。
     if get_setting("assignee_norm_v1") != "1":
@@ -815,32 +823,6 @@ def delete_catalog_item(item_id: str) -> bool:
     cur = get_conn().execute("DELETE FROM catalog_items WHERE id=?", (item_id,))
     get_conn().commit()
     return cur.rowcount > 0
-
-
-def replace_skillhub_mirror(rows: list[dict]) -> dict:
-    """原子替换 SkillHub 镜像目录（WB-069）：先删本来源 builtin 行，再插新的。
-
-    只动 `scope=builtin` 且 `kind IN (skillhub, skillhub-taxonomy)` 的行——不碰人工运营项
-    （[[WB-066]]，kind 为空/其它）或 org 覆盖（scope=org）。整段单事务，抓取失败时上层不调用本函数，
-    故不会出现「删了但没插」的空窗。rows: [{category, kind, data, sort}]。返回 {deleted, inserted}。
-    """
-    conn = get_conn()
-    now = time.time()
-    cur = conn.execute(
-        "DELETE FROM catalog_items WHERE scope='builtin' AND kind IN ('skillhub','skillhub-taxonomy')"
-    )
-    deleted = cur.rowcount
-    inserted = 0
-    for r in rows:
-        conn.execute(
-            "INSERT INTO catalog_items (id,category,scope,org_id,kind,data,enabled,sort,version,created_at,updated_at) "
-            "VALUES (?,?,?,?,?,?,1,?,1,?,?)",
-            (new_uuid(), r["category"], "builtin", None, r["kind"],
-             json.dumps(r["data"], ensure_ascii=False), r.get("sort", 0), now, now),
-        )
-        inserted += 1
-    conn.commit()
-    return {"deleted": deleted, "inserted": inserted}
 
 
 def list_all_catalog_items(scope: str = "builtin", include_disabled: bool = False) -> list[dict]:

@@ -7,7 +7,6 @@
 """
 from __future__ import annotations
 
-import urllib.parse
 from typing import Any, Optional
 
 import httpx
@@ -225,35 +224,6 @@ def list_all_catalog(token: str) -> Optional[list[dict[str, Any]]]:
     d = _get("/api/catalog", token)
     items = d.get("items") if isinstance(d, dict) else None
     return items if isinstance(items, list) else None
-
-
-def search_skillhub(token: str, q: str, limit: int = 12) -> Optional[list[dict[str, Any]]]:
-    """经 Server 查询代理实时搜 SkillHub（WB-070）。None = 未接/不可达/无结果 → 调用方回退本地。"""
-    qs = urllib.parse.urlencode({"q": q, "limit": limit})
-    d = _get(f"/api/catalog/skills/search?{qs}", token)
-    res = d.get("results") if isinstance(d, dict) else None
-    return res if isinstance(res, list) and res else None
-
-
-def skill_rankings(token: str, rtype: str = "featured", limit: int = 0) -> Optional[list[dict[str, Any]]]:
-    """经 Console 取实时榜单（WB-186）——App 不直连 SkillHub，与 search/preview 同口径（WB-130）。
-    Console 走 HTTP showcase 无需 CLI，故没装 CLI 的本机也能拿到真实榜单。
-    None = 未接/不可达/无结果 → 调用方回退本地 CLI 直连（离线兜底）。"""
-    qs = urllib.parse.urlencode({"type": rtype, "limit": limit})
-    d = _get(f"/api/catalog/skills/rankings?{qs}", token)
-    res = d.get("skills") if isinstance(d, dict) else None
-    return res if isinstance(res, list) and res else None
-
-
-def skill_preview(token: str, slug: str, name: str = "") -> Optional[dict[str, Any]]:
-    """经 Console 取单技能预览（SKILL.md + 富元数据，WB-130）——App 不直连 SkillHub。
-    None = 未接/不可达/Console 无果 → 调用方回退本地 CLI 预览（离线兜底）。"""
-    path = f"/api/catalog/skills/{urllib.parse.quote(slug)}/preview"
-    if name:
-        path += "?" + urllib.parse.urlencode({"name": name})
-    d = _get(path, token)
-    sk = d.get("skill") if isinstance(d, dict) else None
-    return sk if isinstance(sk, dict) else None
 
 
 # ---- 团队计划/任务 work_items 代理（WB-091）：server-origin 项目的看板走 Server 权威 ----

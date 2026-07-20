@@ -1,10 +1,10 @@
-// 技能详情页（WB-056 + WB-057）—— 渲染真实 SKILL.md，安装前也能看。
+// 技能详情页（WB-056 + WB-215）。
 //
-// 已安装：走本地详情 GET /api/skills/{key}；未安装：走预览 GET /api/skills/preview
-// （后端临时下载读 SKILL.md，不落盘）。未安装时动作是「安装」，装完就地刷成已装态。
+// 已安装：读取本地 SKILL.md/源码/references；未安装：只展示商店卡元数据，不下载技能包。
+// 安装成功后就地切换为本地完整详情。
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
-import type { SkillDetail as SkillDetailData } from '../../lib/types'
+import type { SkillCard, SkillDetail as SkillDetailData } from '../../lib/types'
 import { renderMarkdown } from '../../lib/markdown'
 import { useSkillStore } from '../../stores/skillStore'
 import { useLoadoutStore } from '../../stores/loadoutStore'
@@ -12,8 +12,8 @@ import { useChatStore } from '../../stores/chatStore'
 import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
 
-// 详情入口：已安装用 key；未安装用 slug/name（后端预览解析）。
-export type SkillTarget = { key?: string; slug?: string; name?: string; catalog?: boolean }
+// 详情入口：已安装用 key；AgentMate 自有目录用 catalog+slug；第三方未安装项必须带商店卡元数据。
+export type SkillTarget = { key?: string; slug?: string; name?: string; catalog?: boolean; card?: SkillCard }
 
 const IcFolder = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
 const IcTrash = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" /></svg>
@@ -23,29 +23,34 @@ const IcSpin = () => <svg className="spin" viewBox="0 0 24 24" fill="none" strok
 
 export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: () => void }) {
   const [data, setData] = useState<SkillDetailData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [reloadN, setReloadN] = useState(0)
+  const [loading, setLoading] = useState(Boolean(target.key || target.catalog))
+  const [installedKey, setInstalledKey] = useState(target.key || '')
   const [view, setView] = useState<'preview' | 'source'>('preview')
   const [menu, setMenu] = useState(false)
   const [installing, setInstalling] = useState(false)
   const toggle = useSkillStore((s) => s.toggle)
   const uninstall = useSkillStore((s) => s.uninstall)
-  // 已装态从 store 取（toggle 联动）；预览态从 data 取。
-  const storeSkill = useSkillStore((s) => (data?.key ? s.installed.find((x) => x.key === data.key) : undefined))
+  const storeSkill = useSkillStore((s) => {
+    const identity = data?.key || installedKey || target.card?.slug || target.card?.name || ''
+    return identity ? s.installed.find((x) => x.key === identity || x.slug === identity || x.name === identity) : undefined
+  })
 
   useEffect(() => {
     let alive = true
+    if (!target.catalog && !installedKey) {
+      setData(null)
+      setLoading(false)
+      return () => { alive = false }
+    }
     setLoading(true)
     const p = target.catalog && target.slug
       ? api.skillCatalogDetail(target.slug)
-      : target.key
-        ? api.skillDetail(target.key)
-        : api.skillPreview({ slug: target.slug, name: target.name })
+      : api.skillDetail(installedKey)
     p.then((r) => { if (alive) setData(r.skill) })
       .catch(() => { if (alive) { setData(null); toast('读取技能失败') } })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [target.key, target.slug, target.name, target.catalog, reloadN])
+  }, [installedKey, target.slug, target.catalog])
 
   useEffect(() => {
     if (!menu) return
@@ -54,11 +59,16 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
     return () => document.removeEventListener('click', h)
   }, [menu])
 
-  const installed = storeSkill ? true : (data?.installed ?? !!target.key)
+  const marketCard = target.card
+  const installed = storeSkill ? true : (data?.installed ?? Boolean(installedKey))
   const catalogSkill = data?.catalog ?? false
   const disabled = storeSkill?.disabled ?? data?.disabled ?? false
-  const name = data?.name ?? target.name ?? target.key ?? ''
-  const localKey = data?.key || target.key || ''
+  const name = data?.name ?? marketCard?.name ?? target.name ?? target.key ?? ''
+  const description = data?.description ?? marketCard?.description ?? ''
+  const version = data?.version ?? marketCard?.version ?? ''
+  const source = data?.source ?? marketCard?.source ?? ''
+  const category = data?.category ?? marketCard?.skillhub_category_name ?? marketCard?.category ?? ''
+  const localKey = data?.key || installedKey || ''
 
   const tryIt = () => {
     useLoadoutStore.getState().summonSkills([data?.slug || localKey || name])
@@ -68,9 +78,12 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
   }
   const doInstall = async () => {
     setInstalling(true)
-    await useSkillStore.getState().install(name, data?.slug ?? target.slug)
+    await useSkillStore.getState().install(name, marketCard?.slug ?? target.slug)
     setInstalling(false)
-    setReloadN((n) => n + 1) // 就地刷新为已装态
+    const installedSkill = useSkillStore.getState().installed.find((x) =>
+      x.slug === (marketCard?.slug ?? target.slug) || x.name === name,
+    )
+    if (installedSkill) setInstalledKey(installedSkill.key)
   }
   const reveal = () => {
     if (localKey) api.revealSkill(localKey).then(() => toast('已打开文件夹')).catch(() => toast('无法打开目录'))
@@ -86,7 +99,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
 
       {loading && !data ? (
         <div className="cap-blank">加载中…</div>
-      ) : !data ? (
+      ) : !data && !marketCard ? (
         <div className="cap-blank">未找到该技能</div>
       ) : (
         <>
@@ -94,11 +107,11 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="skd-title">
                 {name}
-                {data.version && <span className="skd-ver">v{data.version}</span>}
-                {data.source && <span className="skd-ver">{data.source}</span>}
-                {!installed && <span className="skd-ver skd-preview">未安装 · 预览</span>}
+                {version && <span className="skd-ver">v{version}</span>}
+                {source && <span className="skd-ver">{source}</span>}
+                {!installed && <span className="skd-ver skd-preview">未安装</span>}
               </div>
-              {data.description && <div className="skd-desc">{data.description}</div>}
+              {description && <div className="skd-desc">{description}</div>}
             </div>
             <div className="skd-actions">
               {installed ? (
@@ -131,29 +144,41 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
             </div>
           </div>
 
-          <div className="skd-card">
-            <div className="skd-viewtoggle">
-              <button className={view === 'preview' ? 'on' : ''} aria-label="预览" title="预览" onClick={() => setView('preview')}><IcEye /></button>
-              <button className={view === 'source' ? 'on' : ''} aria-label={catalogSkill ? '定义' : '源码'} title={catalogSkill ? '定义' : '源码'} onClick={() => setView('source')}><IcCode /></button>
+          {data ? (
+            <div className="skd-card">
+              <div className="skd-viewtoggle">
+                <button className={view === 'preview' ? 'on' : ''} aria-label="预览" title="预览" onClick={() => setView('preview')}><IcEye /></button>
+                <button className={view === 'source' ? 'on' : ''} aria-label={catalogSkill ? '定义' : '源码'} title={catalogSkill ? '定义' : '源码'} onClick={() => setView('source')}><IcCode /></button>
+              </div>
+              {view === 'preview' ? (
+                <div className="skd-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(data.body || data.markdown) }} />
+              ) : (
+                <pre className="skd-src">{data.markdown}</pre>
+              )}
             </div>
-            {view === 'preview' ? (
-              <div className="skd-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(data.body || data.markdown) }} />
-            ) : (
-              <pre className="skd-src">{data.markdown}</pre>
-            )}
-          </div>
+          ) : (
+            <div className="skd-card skd-market-card">
+              <div className="skd-market-title">技能介绍</div>
+              <div className="skd-market-copy">{description || '该技能暂未提供描述信息。'}</div>
+              <div className="skd-market-note">安装后可查看 SKILL.md、源码、引用文件并管理本地技能。</div>
+            </div>
+          )}
 
-          {data.references.length > 0 && (
+          {data && data.references.length > 0 && (
             <div className="skd-refs">
               <span className="skd-refs-l">references</span>
               {data.references.map((r) => <span className="ec-tag" key={r}>{r}</span>)}
             </div>
           )}
-          {(data.category || (data.tools?.length ?? 0) > 0) && (
+          {(category || (data?.tools?.length ?? 0) > 0 || (marketCard?.tags?.length ?? 0) > 0 || marketCard?.downloads !== undefined || marketCard?.stars !== undefined) && (
             <div className="skd-refs">
-              {data.category && <><span className="skd-refs-l">分类</span><span className="ec-tag">{data.category}</span></>}
-              {(data.tools?.length ?? 0) > 0 && <span className="skd-refs-l">工具</span>}
-              {data.tools?.map((tool) => <span className="ec-tag" key={tool}>{tool}</span>)}
+              {category && <><span className="skd-refs-l">分类</span><span className="ec-tag">{category}</span></>}
+              {(data?.tools?.length ?? 0) > 0 && <span className="skd-refs-l">工具</span>}
+              {data?.tools?.map((tool) => <span className="ec-tag" key={tool}>{tool}</span>)}
+              {(marketCard?.tags?.length ?? 0) > 0 && <span className="skd-refs-l">标签</span>}
+              {marketCard?.tags?.map((tag) => <span className="ec-tag" key={tag}>{tag}</span>)}
+              {marketCard?.downloads !== undefined && <span className="ec-tag">下载 {marketCard.downloads}</span>}
+              {marketCard?.stars !== undefined && <span className="ec-tag">收藏 {marketCard.stars}</span>}
             </div>
           )}
         </>

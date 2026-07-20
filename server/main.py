@@ -7,9 +7,7 @@
 """
 from __future__ import annotations
 
-import asyncio
 import sys
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 # 扁平 import（同 backend）：无论从何处启动，都把 server/ 放进模块搜索路径。
@@ -23,36 +21,13 @@ from fastapi.responses import HTMLResponse  # noqa: E402
 _CONSOLE = Path(__file__).resolve().parent / "web" / "console.html"
 
 import db  # noqa: E402
-import skillhub_sync  # noqa: E402
 from config import settings  # noqa: E402
-from routers import accounts, auth, catalog, comments, invites, knowledge, milestones, notifications, orgs, projects, settings as settings_router, timeline, work_items  # noqa: E402
+from routers import accounts, auth, catalog, comments, invites, knowledge, milestones, notifications, orgs, projects, timeline, work_items  # noqa: E402
 
 db.init_db()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """启动后台 SkillHub 目录镜像同步循环（WB-069）；间隔=0 时不启。
-
-    取数主路径是直连公开 HTTP（WB-094），无需本机 CLI；故不再用 `cli_available()`
-    作前置（旧逻辑会让无 CLI 环境定期同步一次都不启，WB-126）。HTTP/CLI 全不可用时
-    `rankings_all()` 优雅返回 []，本轮 upsert 0 条，不崩。
-    """
-    task = None
-    if settings.SKILLHUB_SYNC_INTERVAL > 0:
-        task = asyncio.create_task(skillhub_sync.run_periodic())
-    try:
-        yield
-    finally:
-        if task is not None:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-
-app = FastAPI(title="AgentMate Server API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="AgentMate Server API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=False,
     allow_methods=["*"], allow_headers=["*"],
@@ -85,7 +60,6 @@ app.include_router(notifications.router)
 app.include_router(work_items.router)
 app.include_router(milestones.router)
 app.include_router(knowledge.router)
-app.include_router(settings_router.router)
 
 
 if __name__ == "__main__":

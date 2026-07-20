@@ -133,7 +133,7 @@
   .pkc-row .pi { width:26px; height:26px; border-radius:7px; background:var(--chip); display:grid; place-items:center; font-size:14px; flex-shrink:0; }
   .pkc-row .pn { font-size:13.5px; font-weight:700; }
   .pkc-row .pd { font-size:11.8px; color:var(--dim); margin-top:3px; }
-  /* 技能浏览橱窗（WB-102）：对齐主应用 App 的技能页（精选/推荐·SkillHub/富卡★⬇/详情），套 console 暗色 token。sg- 前缀防撞并发改动 */
+  /* AgentMate 自有技能目录预览；第三方 SkillHub 不进入 Server（WB-215）。 */
   .sg-sectitle { font-size:14px; font-weight:700; margin:22px 0 12px; }
   .sg-grid { display:grid; gap:14px; }
   .sg-g4 { grid-template-columns:repeat(4,minmax(0,1fr)); }
@@ -353,7 +353,7 @@ function render(){
           ${nvItem("catalog","专家","experts")}${nvItem("catalog","连接器","connectors")}${nvItem("catalog","技能","skills")}${nvItem("catalog","知识库","knowledge")}
         </div>`:""}
         ${admin?`<div class="nv-group"><div class="nv-gtitle">系统</div>
-          ${nvItem("users","用户")}${nvItem("settings","设置")}${nvItem("catalog","高级 JSON","raw")}
+          ${nvItem("users","用户")}${nvItem("catalog","高级 JSON","raw")}
         </div>`:""}
       </div>
       <div class="main" id="main"></div>
@@ -370,7 +370,6 @@ function render(){
   else if(VIEW==="users") usersView(m);
   else if(VIEW==="notifs") notifsView(m);
   else if(VIEW==="catalog") catalogView(m);
-  else if(VIEW==="settings") settingsView(m);
 }
 // 侧栏项：普通页按 VIEW 高亮；目录子页（catsec）按 VIEW===catalog && CATVIEW 高亮
 function nvItem(view,label,catsec){
@@ -408,13 +407,12 @@ async function overviewView(m){
   m.innerHTML = `<h1>概览</h1><div class="sub">AgentMate Console · Server 管理总览</div>
     <div id="ov-cards" class="muted">加载中…</div>`;
   const box = document.getElementById("ov-cards");
-  const [proj, orgs, exp, conn, skill, feat] = await Promise.all([
+  const [proj, orgs, exp, conn, skill] = await Promise.all([
     api("GET","/projects").catch(()=>({projects:[]})),
     api("GET","/orgs").catch(()=>({orgs:[]})),
     admin?api("GET","/catalog/EXP_GRID?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
     admin?api("GET","/catalog/CONN_DEFS?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
-    admin?api("GET","/catalog/skill?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
-    admin?api("GET","/catalog/SKILLHUB_FEATURED?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
+    admin?api("GET","/catalog/APP_SKILLS?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
   ]);
   const stat=(label,val,sub)=>`<div class="ov-stat"><div class="ov-val">${val}</div><div class="ov-lbl">${esc(label)}</div>${sub?`<div class="ov-sub">${esc(sub)}</div>`:""}</div>`;
   box.className="";
@@ -423,13 +421,13 @@ async function overviewView(m){
       ${stat("组织",(orgs.orgs||[]).length)}
       ${admin?stat("下发专家",(exp.items||[]).length):""}
       ${admin?stat("下发连接器",(conn.items||[]).length):""}
-      ${admin?stat("技能镜像",(skill.items||[]).length, `${(feat.items||[]).length} 个精选`):""}
+      ${admin?stat("推荐技能",(skill.items||[]).length):""}
     </div>
     <div class="card" style="margin-top:14px"><h3>快速入口</h3>
       <div class="ov-links">
         <button class="line" data-go="projects">→ 项目</button>
         <button class="line" data-go="orgs">→ 组织与成员</button>
-        ${admin?`<button class="line" data-go="catalog:skills">→ 技能目录</button><button class="line" data-go="catalog:experts">→ 专家目录</button><button class="line" data-go="settings">→ 设置</button>`:""}
+        ${admin?`<button class="line" data-go="catalog:skills">→ 技能目录</button><button class="line" data-go="catalog:experts">→ 专家目录</button>`:""}
       </div></div>`;
   box.querySelectorAll("[data-go]").forEach(b=> b.onclick=()=>{ const [v,c]=b.dataset.go.split(":"); VIEW=v; if(c) CATVIEW=c; CUR=null; render(); });
 }
@@ -1369,7 +1367,7 @@ async function notifsView(m){
   }catch(e){ document.getElementById("n-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 
-// ---------- 目录运营中心（WB-082 框架 + 专家/专家团；WB-083 连接器；WB-084 技能+SkillHub）----------
+// ---------- 目录运营中心（专家/专家团、连接器、AgentMate 自有技能与知识库）----------
 // 维护下发给客户端的内置目录（catalog_items），客户端 pull 后覆盖本地、离线回落本地 builtin 兜底。
 let CATVIEW = "experts";
 let CONNSUB = "gallery";   // 连接器 tab 子视图（WB-101）：gallery 浏览橱窗 / manage 目录管理
@@ -1869,22 +1867,17 @@ async function knowledgeManage(body){
   }catch(e){ F("kb-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 
-// 技能（WB-102）：子切换「浏览橱窗 | 目录管理 | SkillHub 同步」（WB-125 把原顶层 SkillHub tab 并进来作第三子视图，
-// 与「连接器」范式对齐）。浏览橱窗 = App 同款整页技能（精选+换一换 / 推荐·SkillHub / 分类 chips / 富卡★⬇ /
-// 只读详情 / 实时搜索），读同一 Server 目录数据；目录管理 = 原 SK_GRID CRUD；SkillHub 同步 = 原 skillhubCat（手动同步 CLI /
-// 按真实榜单字段筛选排序 / 加入·取消精选 → 生产 SKILLHUB_FEATURED）。
-// Server 门户无本地技能后端，install/我安装的/SKILL.md 不搬（不做假动作，铁律#1）。
-let SKILLSUB = "gallery";   // gallery 浏览橱窗 / manage 目录管理 / skillhub SkillHub 同步
+// 技能：Server 只运营 AgentMate 自有 APP_SKILLS；第三方 SkillHub 留在本地 App（WB-215）。
+let SKILLSUB = "gallery";
 async function skillsCat(body){
   body.innerHTML = `
     <div class="tabs" style="margin-bottom:14px">
-      <button data-ss="gallery" class="${SKILLSUB==='gallery'?'active':''}">浏览橱窗</button>
+      <button data-ss="gallery" class="${SKILLSUB==='gallery'?'active':''}">目录预览</button>
       <button data-ss="manage" class="${SKILLSUB==='manage'?'active':''}">目录管理</button>
-      <button data-ss="skillhub" class="${SKILLSUB==='skillhub'?'active':''}">SkillHub 同步</button>
     </div>
     <div id="sk-sub"></div>`;
   body.querySelectorAll("[data-ss]").forEach(b=> b.onclick=()=>{ SKILLSUB=b.dataset.ss; skillsCat(body); });
-  ({gallery:skillsGallery, manage:skillsManage, skillhub:skillhubCat}[SKILLSUB]||skillsGallery)(document.getElementById("sk-sub"));
+  ({gallery:skillsGallery, manage:skillsManage}[SKILLSUB]||skillsGallery)(document.getElementById("sk-sub"));
 }
 
 // 目录管理：APP_SKILLS 对象是 App catalog_skills 的 Server 权威覆盖源；项目只保存 slug。
@@ -1910,203 +1903,16 @@ async function skillsManage(body){
   }catch(e){F("sk-list").innerHTML=`<div class="err">${esc(e.message)}</div>`;}
 }
 
-// ── 浏览橱窗静态兜底（Server 目录空/未同步时；接 Server 后用真数据覆盖，与 App local-first 一致）──
-// Server/真实 rankings 不可用时使用诚实空态，不再内置虚假下载量与星标快照。
-let SG_SEG="skillhub", SG_CAT="全部", SG_FEAToff=0, SG_Q="", SG_LAST=[];
-
-function sgDl(v){ if(typeof v==="string") return v; v=v||0; return v>=10000?(v/10000).toFixed(1)+"万":(v>=1000?Math.round(v/1000)+"k":String(v)); }
-function sgFcard(f,i){
-  const ic = f.iconUrl ? `<span class="sg-fic"><img src="${esc(f.iconUrl)}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='🧩'"></span>` : `<span class="sg-fic">${esc(f.icon)}</span>`;
-  return `<div class="sg-fcard sg-click" data-fi="${i}">${f.badge?`<span class="sg-fbadge">${esc(f.badge)}</span>`:""}
-    <div class="sg-fh">${ic}<div class="sg-fn" title="${esc(f.name)}">${esc(f.name)}</div></div>
-    <div class="sg-fd">${esc(f.desc)}</div></div>`;
-}
-function sgHcard(c,i){
-  const ic = c.iconUrl ? `<span class="sg-hic"><img src="${esc(c.iconUrl)}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='🧩'"></span>` : `<span class="sg-hic" style="background:${esc(c.color||'#6B7280')}">${esc(c.label||(String(c.name||'?').trim()[0]||'?').toUpperCase())}</span>`;
-  const cat = c.skillhub_category_name ? `<span class="sg-hstat" style="margin-left:auto">${esc(c.skillhub_category_name)}</span>` : "";
-  return `<div class="sg-hcard sg-click" data-hi="${i}">
-    <div class="sg-hh">${ic}<div class="sg-hn" title="${esc(c.name||c.slug||'?')}">${esc(c.name||c.slug||"?")}</div></div>
-    <div class="sg-hd">${esc(c.description||"")}</div>
-    <div class="sg-hfoot"><span class="sg-hstat">⬇ ${sgDl(c.downloads)}</span><span class="sg-hstat">★ ${c.stars||0}</span>${cat}</div></div>`;
-}
-function sgScard(d){ return `<div class="sg-scard"><span class="sg-sic">${esc(d.icon||"🧩")}</span><div style="flex:1;min-width:0"><div class="sg-sn">${esc(d.name||d.slug||"?")}</div><div class="sg-sd">${esc(d.description||"")}</div></div></div>`; }
-function sgCathead(chips){
-  return `<div class="sg-cathead"><div class="sg-cats">${chips.map(c=>`<div class="sg-cat ${SG_CAT===c?'active':''}" data-cat="${esc(c)}">${esc(c)}</div>`).join("")}</div>
-    <div class="sg-cathead-r"><a class="sg-link" href="https://skillhub.cn" target="_blank" rel="noopener">skillhub.cn ↗</a></div></div>`;
-}
-
-async function skillsGallery(sub){
-  sub.innerHTML = `<div style="margin-bottom:14px"><input id="sg-q" placeholder="搜索技能（实时，直连）" value="${esc(SG_Q)}" style="max-width:320px"></div>
-    <div id="sg-main" class="muted">加载中…</div>`;
-  const qin=document.getElementById("sg-q");
-  qin.onkeydown=e=>{ if(e.key==="Enter"){ SG_Q=qin.value.trim(); skillsGallery(sub); } };
-  const main=document.getElementById("sg-main");
-  if(SG_Q) sgSearch(main); else sgBrowse(main);
-}
-function sgBrowse(main){
-  main.className="";
-  main.innerHTML = `<div id="sg-feat"></div>
-    <div class="sg-seg">
-      <div class="sg-seg-item ${SG_SEG==='reco'?'active':''}" data-seg="reco">推荐</div>
-      <div class="sg-seg-item ${SG_SEG==='skillhub'?'active':''}" data-seg="skillhub">SkillHub</div>
-    </div>
-    <div id="sg-segbody"></div>`;
-  main.querySelectorAll("[data-seg]").forEach(b=> b.onclick=()=>{ SG_SEG=b.dataset.seg; SG_CAT="全部"; sgBrowse(main); });
-  sgFeatured(document.getElementById("sg-feat"));
-  const sb=document.getElementById("sg-segbody");
-  if(SG_SEG==="reco") sgReco(sb); else sgSkillhub(sb);
-}
-async function sgFeatured(el){
-  let feats=[];
-  try{ const {items}=await api("GET","/catalog/SKILLHUB_FEATURED"); feats=(items||[]).map(it=>{ const d=it.data||{}; return { iconUrl:d.iconUrl||"", icon:(String(d.name||d.slug||"?").trim()[0]||"?").toUpperCase(), name:d.name||d.slug||"?", desc:d.description||"", badge:d.skillhub_category_name||"", card:d }; }); }catch(e){}
-  if(!feats.length){ el.innerHTML=""; return; }
-  const n=Math.min(4,feats.length);
-  const items=Array.from({length:n},(_,i)=>feats[(SG_FEAToff+i)%feats.length]);
-  el.innerHTML=`<div class="sg-flexright" style="margin:6px 0 12px"><div class="sg-sectitle" style="margin:0">精选技能</div>
-      <div class="sg-rt" id="sg-refresh">↻ 换一换</div></div>
-    <div class="sg-grid sg-g4">${items.map((f,i)=>sgFcard(f,i)).join("")}</div>`;
-  document.getElementById("sg-refresh").onclick=()=>{ SG_FEAToff=(SG_FEAToff+n)%feats.length; sgFeatured(el); };
-  el.querySelectorAll("[data-fi]").forEach(c=> c.onclick=()=> sgDetail(items[+c.dataset.fi].card));
-}
-async function sgReco(sb){
-  sb.innerHTML=`<div id="sg-reco" class="muted" style="margin-top:14px">加载中…</div>`;
-  let list=[];
-  try{ const {items}=await api("GET","/catalog/APP_SKILLS"); list=(items||[]).map(it=>it.data).filter(d=>d&&d.slug); }catch(e){}
-  const el=document.getElementById("sg-reco"); el.className="";
-  const cats=["全部",...new Set(list.map(d=>d.category).filter(Boolean))];
-  const shown=list.filter(d=>SG_CAT==="全部"||d.category===SG_CAT);
-  el.innerHTML = `${sgCathead(cats)}${shown.length? `<div class="sg-grid sg-g4">${shown.map(sgScard).join("")}</div>` : '<div class="sg-blank">该分类下暂无技能</div>'}`;
-  el.querySelectorAll("[data-cat]").forEach(b=>b.onclick=()=>{SG_CAT=b.dataset.cat;sgReco(sb);});
-}
-async function sgSkillhub(sb){
-  sb.innerHTML=`<div id="sg-cathead"></div><div id="sg-server-list" class="muted" style="margin-top:4px">加载中…</div>`;
-  let mirror=[], cats=[];
-  try{ const {items}=await api("GET","/catalog/skill"); mirror=(items||[]).map(it=>it.data).filter(Boolean); }catch(e){}
-  try{ const {items}=await api("GET","/catalog/skill-category"); cats=(items&&items[0]&&items[0].data&&items[0].data.items)||[]; }catch(e){}
-  const head=document.getElementById("sg-cathead"), list=document.getElementById("sg-server-list");
-  let chips, cards;
-  if(mirror.length){
-    chips=["全部",...cats.filter(c=>c.count>0).map(c=>c.name)];
-    cards=mirror.filter(c=> SG_CAT==="全部" || c.skillhub_category_name===SG_CAT);
-  } else {
-    chips=["全部"];
-    cards=[];
-  }
-  head.innerHTML=sgCathead(chips);
-  head.querySelectorAll("[data-cat]").forEach(b=> b.onclick=()=>{ SG_CAT=b.dataset.cat; sgSkillhub(sb); });
-  list.className="";
-  list.innerHTML = cards.length? `<div class="sg-grid sg-g4">${cards.map((c,i)=>sgHcard(c,i)).join("")}</div>` : '<div class="sg-blank">该分类下暂无技能</div>';
-  SG_LAST=cards; list.querySelectorAll("[data-hi]").forEach(c=> c.onclick=()=> sgDetail(SG_LAST[+c.dataset.hi]));
-}
-async function sgSearch(main){
-  main.className="";
-  main.innerHTML=`<div class="sg-sectitle" style="margin:6px 0 12px">搜索「${esc(SG_Q)}」</div><div id="sg-sr" class="muted">搜索中…</div>`;
-  const el=document.getElementById("sg-sr");
-  try{ const r=await api("GET","/catalog/skills/search?q="+encodeURIComponent(SG_Q)+"&limit=40");
-    if(r && r.cli===false){ el.className=""; el.innerHTML='<div class="sg-blank">SkillHub CLI 不可用，无法实时搜索</div>'; return; }
-    const results=(r&&r.results)||[]; el.className="";
-    el.innerHTML = results.length? `<div class="sg-grid sg-g4">${results.map((c,i)=>sgHcard(c,i)).join("")}</div>` : '<div class="sg-blank">没有找到相关技能</div>';
-    SG_LAST=results; el.querySelectorAll("[data-hi]").forEach(c=> c.onclick=()=> sgDetail(SG_LAST[+c.dataset.hi]));
-  }catch(e){ el.className=""; el.innerHTML=`<div class="err">${esc(e.message)}</div>`; }
-}
-function sgDetail(c){
-  if(!c) return;
-  const badges=[c.skillhub_category_name, c.source?shSrc(c.source):""].filter(Boolean);
-  const ic = c.iconUrl ? `<span class="sg-mic"><img src="${esc(c.iconUrl)}" style="width:100%;height:100%;object-fit:cover"></span>` : `<span class="sg-mic" style="background:${esc(c.color||'#2E7DF6')}">${esc(c.icon||c.label||(String(c.name||'?').trim()[0]||'?').toUpperCase())}</span>`;
-  const stats=[];
-  if(c.stars!=null) stats.push(`<span class="sg-hstat">★ ${c.stars||0}</span>`);
-  if(c.downloads!=null) stats.push(`<span class="sg-hstat">⬇ ${sgDl(c.downloads)}</span>`);
-  const ov=document.createElement("div"); ov.className="sg-overlay";
-  ov.innerHTML=`<div class="sg-modal" role="dialog" aria-modal="true" aria-label="${esc(c.name||"技能")}">
-    <div class="sg-mh">${ic}<div style="flex:1;min-width:0"><div class="sg-mtitle">${esc(c.name||c.slug||"?")}</div>
-      <div class="sg-mtags">${badges.map(b=>`<span class="pill">${esc(b)}</span>`).join("")}${stats.join("")}</div></div>
-      <button class="sg-mx" aria-label="关闭">×</button></div>
-    <div class="sg-mbody"><div class="sg-msec" style="margin-top:0">能力介绍</div>
-      <div class="sg-mdesc">${esc(c.description||"（无简介）")}</div>
-      ${(c.tags&&c.tags.length)?`<div class="sg-msec">标签</div><div class="sg-mtags">${c.tags.map(t=>`<span class="pill">${esc(t)}</span>`).join("")}</div>`:""}
-      <div id="sg-md-slot"></div>
-    </div>
-    <div class="sg-mfoot"><span class="muted" style="font-size:12px">Server 门户为浏览视图；安装/试用在 AgentMate 客户端</span><div class="grow"></div><a class="sg-mlink" href="https://skillhub.cn" target="_blank" rel="noopener">skillhub.cn ↗</a></div>
-  </div>`;
-  document.body.appendChild(ov);
-  const close=()=>{ ov.remove(); document.removeEventListener("keydown",onkey); };
-  function onkey(e){ if(e.key==="Escape") close(); }
-  ov.onmousedown=e=>{ if(e.target===ov) close(); };
-  ov.querySelector(".sg-mx").onclick=close;
-  document.addEventListener("keydown",onkey);
-  // WB-130：有 slug 的 SkillHub 技能 → 懒加载 Console 单技能预览代理（SKILL.md + 参考文件 + 版本/来源）。
-  // Console 统一对 SkillHub 取数；无 CLI / 取数失败 → 诚实提示，不造假（铁律#1）。
-  if(c.slug){
-    const slot=ov.querySelector("#sg-md-slot");
-    slot.innerHTML=`<div class="sg-msec">文件信息</div><div class="muted" style="font-size:12px">加载 SKILL.md…</div>`;
-    api("GET","/catalog/skills/"+encodeURIComponent(c.slug)+"/preview").then(r=>{
-      const s=r&&r.skill;
-      if(!s){ slot.innerHTML=`<div class="sg-msec">文件信息</div><div class="muted" style="font-size:12px">${r&&r.cli===false?"Console 未装 SkillHub CLI，暂无法取 SKILL.md 正文（元数据亦无）":"未取到该技能的 SKILL.md（取数失败）"}</div>`; return; }
-      const meta=[s.version?`v${esc(s.version)}`:"", s.author?`作者 ${esc(s.author)}`:"", s.category?esc(s.category):""].filter(Boolean);
-      const refs=s.references||[];
-      slot.innerHTML =
-        (meta.length?`<div class="sg-msec">版本 / 来源</div><div class="sg-mtags">${meta.map(m=>`<span class="pill">${m}</span>`).join("")}${s.sourceUrl?` <a class="sg-mlink" href="${esc(s.sourceUrl)}" target="_blank" rel="noopener">源仓库 ↗</a>`:""}</div>`:"")+
-        (refs.length?`<div class="sg-msec">参考文件（${refs.length}）</div><div class="sg-mtags">${refs.map(x=>`<span class="pill">${esc(x)}</span>`).join("")}</div>`:"")+
-        ((s.markdown||s.body)?`<div class="sg-msec">SKILL.md</div><pre class="sg-md">${esc(s.markdown||s.body)}</pre>`:`<div class="sg-msec">SKILL.md</div><div class="muted" style="font-size:12px">Console 无法取到正文（无 CLI 时公开 HTTP 不提供 SKILL.md）</div>`);
-    }).catch(e=>{ slot.innerHTML=`<div class="sg-msec">文件信息</div><div class="err" style="font-size:12px">${esc(e.message)}</div>`; });
-  }
-}
-
-// SkillHub（WB-084 + WB-092 向真站对齐）：左筛选（发布来源/排序/场景）+ 右富卡片（图标/来源/★/⬇）。
-// 排序/来源只用镜像已有字段（source·score·downloads·stars·installs）；「需 API Key 筛选、近期飙升/最近上新」
-// SkillHub 榜单 feed 不提供该数据，诚实不做（见 WB-092）。搜索经 Server 代理直连 HTTP（CLI 兜底，WB-094）。
-let SH_Q="", SH_CAT="", SH_SRC="", SH_SORT="score";
-const SH_SORTS=[["score","推荐精选"],["downloads","下载量"],["stars","收藏量"],["installs","安装量"],["created_at","最近上新"]];
-function shNum(n){ n=n||0; return n>=10000? (n/10000).toFixed(1)+"万" : String(n); }
-function shSrc(s){ return s==="clawhub"?"ClawHub":(s==="enterprise"?"企业":(s==="community"?"社区":(s||""))); }
-async function skillhubCat(body){
-  const sideBtn=(v,l,cur)=>`<button class="line" data-v="${esc(v)}" style="text-align:left;${cur===v?'background:var(--chip)':''}">${l}</button>`;
-  body.innerHTML = `
-    <div class="card"><div class="row"><button id="sh-sync">手动同步 SkillHub</button><span class="muted" id="sh-msg" style="font-size:12.5px"></span></div>
-      <div class="row" style="margin-top:10px"><input id="sh-q" placeholder="搜索 SkillHub（实时，直连）" value="${esc(SH_Q)}"><button class="line" id="sh-search">搜索</button><button class="ghost" id="sh-clearq">清空</button></div></div>
-    <div style="display:grid;grid-template-columns:180px minmax(0,1fr);gap:14px;align-items:start">
-      <div class="card">
-        <div class="muted" style="font-size:11px;margin-bottom:6px">发布来源</div>
-        <div id="sh-src" style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">${[["","全部"],["skillhub","SkillHub"],["clawhub","ClawHub"]].map(([v,l])=>sideBtn(v,l,SH_SRC)).join("")}</div>
-        <div class="muted" style="font-size:11px;margin-bottom:6px">排序方式</div>
-        <div id="sh-sort" style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">${SH_SORTS.map(([v,l])=>sideBtn(v,l,SH_SORT)).join("")}</div>
-        <div class="muted" style="font-size:11px;margin-bottom:6px">场景分类</div>
-        <div id="sh-cats" style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:12px">…</span></div>
-      </div>
-      <div id="sh-list" class="muted">加载中…</div>
-    </div>`;
-  const F=id=>document.getElementById(id);
-  F("sh-sync").onclick=async()=>{ F("sh-msg").textContent="同步中…（直连 SkillHub，稍候）"; try{ const r=await api("POST","/catalog/skills/sync"); F("sh-msg").textContent="已同步："+(r.inserted!=null?(r.inserted+" 条"):JSON.stringify(r)); skillhubCat(body);}catch(e){F("sh-msg").textContent=e.message;} };
-  F("sh-search").onclick=()=>{ SH_Q=F("sh-q").value.trim(); skillhubCat(body); };
-  F("sh-q").onkeydown=(e)=>{ if(e.key==="Enter"){ SH_Q=F("sh-q").value.trim(); skillhubCat(body); } };
-  F("sh-clearq").onclick=()=>{ SH_Q=""; skillhubCat(body); };
-  F("sh-src").querySelectorAll("[data-v]").forEach(b=> b.onclick=()=>{ SH_SRC=b.dataset.v; SH_Q=""; skillhubCat(body); });
-  F("sh-sort").querySelectorAll("[data-v]").forEach(b=> b.onclick=()=>{ SH_SORT=b.dataset.v; skillhubCat(body); });
-  let featBySlug={};
-  try{ const {items}=await api("GET","/catalog/SKILLHUB_FEATURED?all=true"); items.forEach(it=>{ if(it.data&&it.data.slug) featBySlug[it.data.slug]=it.id; }); }catch(e){}
-  try{ const {items}=await api("GET","/catalog/skill-category?all=true"); const tax=(items[0]&&items[0].data&&items[0].data.items)||[];
-    F("sh-cats").innerHTML = [sideBtn("","全部",SH_CAT)].concat(tax.map(c=>`<button class="line" data-cat="${esc(c.key)}" style="text-align:left;${SH_CAT===c.key?'background:var(--chip)':''}">${esc(c.name)} ${c.count||""}</button>`)).join("");
-    F("sh-cats").querySelectorAll("[data-cat],[data-v]").forEach(b=> b.onclick=()=>{ SH_CAT=b.dataset.cat!==undefined?b.dataset.cat:b.dataset.v; SH_Q=""; skillhubCat(body); });
-  }catch(e){}
+// AgentMate 自有推荐技能预览；这里只读 APP_SKILLS，不读取或代理第三方 SkillHub。
+async function skillsGallery(body){
+  body.innerHTML = `<div class="sg-sectitle" style="margin:6px 0 12px">AgentMate 推荐技能</div><div id="sg-reco" class="muted">加载中…</div>`;
   try{
-    let skills, note="";
-    if(SH_Q){ const r=await api("GET","/catalog/skills/search?q="+encodeURIComponent(SH_Q)+"&limit=40"); skills=(r.results||[]).map(d=>({data:d})); if(!r.cli) note='<div class="muted">SkillHub CLI 不可用，无法实时搜索（客户端会回退本地兜底）</div>'; }
-    else {
-      const {items}=await api("GET","/catalog/skill?all=true");
-      skills=items.filter(it=>{ const d=it.data||{};
-        if(SH_CAT && d.skillhub_category!==SH_CAT) return false;
-        if(SH_SRC==="clawhub" && d.source!=="clawhub") return false;
-        if(SH_SRC==="skillhub" && !(d.source==="community"||d.source==="enterprise")) return false;
-        return true; });
-      skills.sort((a,b)=> (b.data[SH_SORT]||0)-(a.data[SH_SORT]||0));
-    }
-    const shown=skills.slice(0,80);
-    F("sh-list").innerHTML = note || (skills.length? `<div class="muted" style="font-size:12px;margin-bottom:8px">${skills.length} 个技能${SH_Q?"（搜索）":""} · 点条目查看详情</div>`+shown.map((it,i)=>{ const d=it.data||{}; const fid=featBySlug[d.slug];
-      return `<div class="list-item sg-click" data-detail="${i}" title="查看详情">${d.iconUrl?`<img src="${esc(d.iconUrl)}" style="width:36px;height:36px;border-radius:8px;object-fit:cover;background:var(--chip);flex-shrink:0" onerror="this.style.display='none'">`:`<span style="font-size:22px">🧩</span>`}<div style="flex:1;min-width:0"><div class="t">${esc(d.name||d.slug||"?")} ${d.source?`<span class="pill">${esc(shSrc(d.source))}</span>`:""} ${d.skillhub_category_name?`<span class="pill">${esc(d.skillhub_category_name)}</span>`:""} ${d.stars?`<span class="muted" style="font-size:11px">★${d.stars}</span>`:""} ${d.downloads?`<span class="muted" style="font-size:11px">⬇${shNum(d.downloads)}</span>`:""}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.description||"")}</div></div><button class="${fid?'ghost':'line'}" data-feat="${esc(d.slug||"")}">${fid?"取消精选":"加入精选"}</button></div>`; }).join("") : '<div class="muted">无结果</div>');
-    F("sh-list").querySelectorAll("[data-detail]").forEach(c=> c.onclick=()=> sgDetail((shown[+c.dataset.detail]||{}).data));
-    F("sh-list").querySelectorAll("[data-feat]").forEach(b=> b.onclick=async(e)=>{ e.stopPropagation(); const slug=b.dataset.feat, fid=featBySlug[slug]; try{ if(fid) await api("DELETE","/catalog/item/"+fid); else { const sk=skills.find(x=>x.data.slug===slug); await api("POST","/catalog",{category:"SKILLHUB_FEATURED",data:sk.data,kind:"featured"}); } skillhubCat(body);}catch(e){F("sh-msg").textContent=e.message;} });
-    F("sh-msg").textContent = `${Object.keys(featBySlug).length} 个已精选`;
-  }catch(e){ F("sh-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+    const {items}=await api("GET","/catalog/APP_SKILLS");
+    const list=(items||[]).map(it=>it.data).filter(d=>d&&d.slug);
+    const el=document.getElementById("sg-reco");
+    el.className="";
+    el.innerHTML=list.length?`<div class="sg-grid sg-g4">${list.map(d=>`<div class="sg-scard"><span class="sg-sic">${esc(d.icon||"🧩")}</span><div style="flex:1;min-width:0"><div class="sg-sn">${esc(d.name||d.slug)}</div><div class="sg-sd">${esc(d.description||"")}</div></div></div>`).join("")}</div>`:'<div class="sg-blank">还没有推荐技能；App 会继续使用本机内置定义</div>';
+  }catch(e){ document.getElementById("sg-reco").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 
 // 高级 JSON（保留裸目录项编辑，供特殊类别 / 兜底）
@@ -2127,26 +1933,6 @@ async function rawCat(body){
     document.getElementById("c-list").innerHTML = items.length? items.map(it=>`<div class="list-item"><div style="flex:1;min-width:0"><div class="t">${esc(it.category)} <span class="pill">sort ${it.sort}</span>${it.enabled?"":' <span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(JSON.stringify(it.data))}</div></div><button class="danger" data-del="${it.id}">删除</button></div>`).join("") : '<div class="muted">Server 目录为空（客户端将回落本地 builtin 兜底）</div>';
     body.querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); rawCat(body);}catch(e){document.getElementById("c-err").textContent=e.message;} });
   }catch(e){ document.getElementById("c-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
-}
-
-// ---------- 设置（WB-095）：平台管理员维护 SkillHub API key ----------
-async function settingsView(m){
-  m.innerHTML = `<h1>设置</h1><div class="sub">平台服务端凭据 / 配置</div>
-    <div class="card"><h3>SkillHub API Key</h3>
-      <div id="sk-status" class="muted" style="margin-bottom:10px">加载中…</div>
-      <div class="field"><label>API Key（skh_ 个人 / sk-ent- 企业）</label><input id="sk-key" placeholder="skh_… 或 sk-ent-…"></div>
-      <div class="err" id="sk-err"></div>
-      <div class="row"><button id="sk-save">保存</button><button class="danger" id="sk-clear">清除</button></div>
-      <div class="muted" style="font-size:12px;margin-top:10px">存于 Server 服务端（仅打码回显、绝不回传全 key）。读公开目录本不需要 key；配了则取数带 Bearer（可解锁 paid / 企业私有 registry）。</div>
-    </div>`;
-  async function load(){
-    try{ const s=(await api("GET","/settings")).skillhub_api_key;
-      document.getElementById("sk-status").innerHTML = s.configured? `已配置 · <code>${esc(s.hint)}</code>${s.kind?` · ${esc(s.kind)}`:""}` : "未配置";
-    }catch(e){ document.getElementById("sk-status").innerHTML=`<span class="err">${esc(e.message)}</span>`; }
-  }
-  document.getElementById("sk-save").onclick=async()=>{ const k=document.getElementById("sk-key").value.trim(); document.getElementById("sk-err").textContent=""; if(!k){document.getElementById("sk-err").textContent="请输入 key";return;} try{ await api("PUT","/settings/skillcap-key",{key:k}); document.getElementById("sk-key").value=""; load(); }catch(e){document.getElementById("sk-err").textContent=e.message;} };
-  document.getElementById("sk-clear").onclick=async()=>{ try{ await api("DELETE","/settings/skillcap-key"); load(); }catch(e){document.getElementById("sk-err").textContent=e.message;} };
-  load();
 }
 
 boot();

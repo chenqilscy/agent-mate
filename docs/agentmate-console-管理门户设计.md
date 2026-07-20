@@ -1,6 +1,6 @@
 # AgentMate Console —— Web 管理控制台设计
 
-> 状态：设计稿（2026-07-08）。epic **WB-078**，子任务 WB-079～084。
+> 状态：已落地；2026-07-20 经 **WB-215** 修订技能边界：Console 只管理 AgentMate 自有推荐技能，第三方 SkillHub 留在本地 App。
 > 前置：[`agentmate-server-架构设计.md`](agentmate-server-架构设计.md)（Server 控制平面总纲）。
 > 本文把原来那个「够用就好」的 Server 控制台升级为一个**完整的 Web 管理控制台**，
 > 最终产品名为 **AgentMate Console**，由 `server/web/console.html` 提供。
@@ -8,12 +8,12 @@
 ## 1. 背景与定位
 
 AgentMate = **local-first 执行内核**（本机 App 跑 agent、LLM、沙箱文件） **+ 云端控制平面**（Server：账号/组织/项目/成员/目录的权威源）。
-Server 现有的 web 控制台只覆盖了控制平面的一小角：项目仅有 成员/邀请/讨论/在线/时间线，专家/技能/连接器只有一个**裸 JSON**「目录 Admin」，SkillHub 完全没有 UI。
+Server 的 Web 控制台负责项目、组织、协作及 AgentMate 自有目录的控制平面管理。
 
 用户诉求（2026-07-08）：
 1. 门户的**项目管理**要与 AgentMate App 的项目管理对齐（当前完全不一致）。
 2. **技能 / 连接器 / 专家·专家团**要在门户里有正经管理。
-3. **SkillHub** 要在门户里有 UI（后端已在定时镜像 369 技能，见 WB-069）。
+3. 第三方 **SkillHub** 由每台 App 直接浏览与安装，不进入门户（WB-215 修订）。
 4. 管理界面使用独立、职责清晰的产品名 **AgentMate Console**。
 
 **定位（关键）**：AgentMate Console 是 **AgentMate Server 的 Web 管理控制台**，不是「AgentMate App 的 Web 版」，也不是独立服务。见 §2 的硬约束。
@@ -35,8 +35,8 @@ Server 现有的 web 控制台只覆盖了控制平面的一小角：项目仅�
 - `models.py`：`Account`(含 `is_platform_admin`) / `Org` / `Project`(**已含 `instruction`/`connectors`/`experts`/`skills`**) / `Invite`。
 - 路由：`auth` `orgs` `projects`(成员/角色/邀请) `comments`(评论+@) `notifications` `timeline` `catalog`。
 - `catalog_items`：`category`/`kind`/`data`(JSON)/`sort`/`enabled`/`scope='builtin'`；类别沿用 App 橱窗
-  （`EXP_GRID` `EXP_TEAMS` `EXP_CATS` `EXP_SCENES` / `CONNS` `CONN_META` / `SK_GRID` `SKILLHUB_*` / `NP_*` `PROJ_TPL` …）。
-- SkillHub：`skillhub_sync`（定时镜像→`replace_skillhub_mirror`）+ `skillhub_client`（CLI search 代理），端点 `POST /catalog/skills/sync`、`GET /catalog/skills/search`。
+  （`EXP_GRID` `EXP_TEAMS` `EXP_CATS` `EXP_SCENES` / `CONNS` `CONN_META` / `APP_SKILLS` / `NP_*` `PROJ_TPL` …）。
+- SkillHub：不属于 Server；搜索、排行、安装和安装后文件读取均由本地 App 负责。
 - **缺**：`work_items`（计划/任务）在 Server 无模型、无同步（App 本地独有）。
 
 **AgentMate Console（`server/web/console.html`）**：auth / 项目(成员·邀请·讨论·在线·时间线) / 组织 / 通知 / 目录 Admin(裸 JSON)。
@@ -50,7 +50,7 @@ Server 现有的 web 控制台只覆盖了控制平面的一小角：项目仅�
 ```
 AgentMate Console
 ├─ 项目            项目管理面（配置 / 成员·角色·邀请 / 计划·任务 / 讨论·在线·时间线）
-├─ 目录运营中心     专家 · 专家团 · 连接器 · 技能 · SkillHub（类型化 CRUD + 下发）   〔平台管理员〕
+├─ 目录运营中心     专家 · 专家团 · 连接器 · AgentMate 推荐技能（类型化 CRUD + 下发） 〔平台管理员〕
 ├─ 组织            组织及成员（既有）
 ├─ 通知            @提及与协作事件（既有）
 └─ 账号            当前账号 / 平台管理员徽标 / 退出
@@ -70,14 +70,13 @@ AgentMate Console
 - **专家**（`EXP_GRID`）：icon / 名称 / 副标题 / 简介 / 标签 / 分类（`EXP_CATS`）/ **persona**（真定义，可选下发）。
 - **专家团**（`EXP_TEAMS`）：名称 / 图标 / 成员专家清单（引用专家名）。
 - **连接器**（`CONNS`+`CONN_META`）：icon / 名称 / 状态(rdy/tok) / launch spec 编辑器（内置 `builtin_server` 或第三方 `command/args`；`requires`/`requires_bin`；`secret_env` **仅变量名**）。
-- **技能**（`SK_GRID`）：icon / 名称 / 简介 / 分类（`SK_CATS`）。
+- **技能**（`APP_SKILLS`）：slug / icon / 名称 / 简介 / 分类 / 指令 / 工具。
 - 通用能力：启用/停用（`enabled`）、排序（`sort`）、删除；保留「高级：裸 JSON」兜底特殊类别。
 
-### 5.3 SkillHub（WB-084）
-- **浏览**：Server 镜像的技能目录（`SKILLHUB_*` + `replace_skillhub_mirror` 存的行），分类过滤。
-- **搜索**：走 `GET /catalog/skills/search`（CLI 代理，不可用则空+`cli:false`）。
-- **上架/精选**：把镜像里的技能标记进 `SKILLHUB_FEATURED` 供客户端首页展示。
-- **手动同步**：`POST /catalog/skills/sync` 按钮 + 上次同步统计。
+### 5.3 第三方 SkillHub 边界（WB-215）
+- Server 不同步、不代理、不存储第三方商店目录，也不持有第三方市场凭据。
+- App 后端直接读取搜索与排行元数据，并在本机执行安装。
+- 未安装时只展示商店描述；安装后才从本地技能目录读取 SKILL.md、源码与 references。
 
 ### 5.4 团队计划 / 任务（WB-081，最重）
 App 的 work_items 目前**本地独有**。要在门户管理团队计划/任务，需要 Server 侧新增并双向同步：
@@ -112,7 +111,7 @@ App 的 work_items 目前**本地独有**。要在门户管理团队计划/任�
 | **WB-080** | frontend | 项目管理面 —— 配置编辑（指令 + 连接器/专家/技能 picker，读目录、写 `PATCH /projects`） | 中 |
 | **WB-082** | frontend | 目录运营中心框架 + **专家 / 专家团** 类型化 CRUD（替裸 JSON） | 中 |
 | **WB-083** | frontend | 目录运营中心 —— **连接器** 类型化 CRUD（launch spec 编辑器） | 中 |
-| **WB-084** | fullstack | 目录运营中心 —— **技能 + SkillHub**（浏览/搜索/上架/手动同步） | 中 |
+| **WB-084** | fullstack | 历史实现：技能目录运营；其中第三方 SkillHub 集中管理部分已由 WB-215 移除 | 中 |
 | **WB-081** | backend | **团队计划/任务** —— Server `work_items` 模型 + 路由 + 本地⇄Server 同步 + 门户看板 | 大 |
 
 **建议顺序**：WB-079（改名骨架）→ WB-080（项目配置）→ WB-082/083/084（目录运营中心）→ WB-081（计划/任务，最重殿后）。

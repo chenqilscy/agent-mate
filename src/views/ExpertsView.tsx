@@ -258,15 +258,15 @@ function editSkill(name: string) {
   toast('已载入 skill-creator · 去编辑「' + name + '」')
 }
 
-// 展示名 → 图标/底色；只读真实推荐目录/Server 镜像，不再回退静态 SkillHub 假统计卡。
+// 展示名 → 图标/底色；只读真实推荐目录/本地市场，不回退静态 SkillHub 假统计卡。
 function skillTile(name: string): { icon: string; color: string } {
   const catalog = useCatalogStore.getState()
   const inst = catalog.INSTALLED.find((x) => x[2] === name)
   if (inst) return { icon: inst[0], color: inst[1] }
   const recommended = catalog.SK_GRID.find((x) => x.name === name || x.slug === name)
   if (recommended) return { icon: recommended.icon, color: '#6B7280' }
-  const mirror = [...catalog.skillFeatured, ...catalog.skillMirror].find((x) => x.name === name || x.slug === name)
-  if (mirror) return { icon: (mirror.name.trim()[0] || '?').toUpperCase(), color: '#6B7280' }
+  const market = catalog.skillMarketplace.find((x) => x.name === name || x.slug === name)
+  if (market) return { icon: (market.name.trim()[0] || '?').toUpperCase(), color: '#6B7280' }
   return { icon: (name.trim()[0] || '?').toUpperCase(), color: '#6B7280' }
 }
 
@@ -318,59 +318,16 @@ function InstallBtn({ name }: { name: string }) {
   )
 }
 
-// 精选技能大卡（顶部）。仅展示 Server 真实精选；无下发时不伪造一组静态精选。
-type FeaturedItem = { iconUrl?: string; icon: string; name: string; desc: string; badge?: string }
-function FeaturedCard({ item, onOpenDetail }: { item: FeaturedItem; onOpenDetail: (target: SkillTarget) => void }) {
-  const { iconUrl, icon, name, desc, badge } = item
-  const inst = useSkillStore((s) => matchSkill(s.installed, name))
-  return (
-    <div className="fcard clickable" onClick={() => onOpenDetail(inst ? { key: inst.key } : { name })}>
-      {badge && <span className="fc-badge">{badge}</span>}
-      <div className="fc-h">
-        {iconUrl
-          ? <img className="fc-ic" src={iconUrl} alt="" style={{ objectFit: 'cover' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
-          : <span className="fc-ic">{icon}</span>}
-        <div className="fc-n" title={name}>{name}</div>
-        {inst ? <InstalledCtl skill={inst} /> : <InstallBtn name={name} />}
-      </div>
-      <div className="fc-d">{desc}</div>
-    </div>
-  )
-}
-
-// 精选技能区（4 个一屏，「换一换」轮换池）。
-function FeaturedSkills({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) => void }) {
-  const [off, setOff] = useState(0)
-  const hubFeat = useCatalogStore((s) => s.skillFeatured)
-  const pool: FeaturedItem[] = hubFeat.map((c) => ({ iconUrl: c.iconUrl, icon: (String(c.name || c.slug || '?').trim()[0] || '?').toUpperCase(), name: c.name || c.slug || '', desc: c.description || '', badge: c.skillhub_category_name || '' }))
-  if (pool.length === 0) return null
-  const n = Math.min(4, pool.length)
-  const items = Array.from({ length: n }, (_, i) => pool[(off + i) % pool.length])
-  return (
-    <>
-      <div className="flex-right" style={{ marginTop: 2 }}>
-        <div className="sec-title">精选技能</div>
-        <div className="rt" onClick={() => { setOff((o) => (o + n) % pool.length); toast('已换一批') }}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 019-9 9 9 0 016 2.3L21 8M21 12a9 9 0 01-9 9 9 9 0 01-6-2.3L3 16" /></svg>换一换
-        </div>
-      </div>
-      <div className="card-grid g4">
-        {items.map((it) => <FeaturedCard key={it.name} item={it} onOpenDetail={onOpenDetail} />)}
-      </div>
-    </>
-  )
-}
-
 // 数字格式化（下载量）：≥1000 → k 缩写，与静态卡视觉一致。
 function fmtNum(n?: number): string {
   const v = n ?? 0
   return v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)
 }
 
-// Server 镜像/搜索的商店卡（对象形，区别于静态元组卡 SkillHubCard）。图标优先 iconUrl，缺省取首字母。
+// 本地 App 市场/搜索的第三方商店卡。图标优先 iconUrl，缺省取首字母。
 function MirrorSkillCard({ card, onOpenDetail }: { card: SkillCard; onOpenDetail: (target: SkillTarget) => void }) {
-  const inst = useSkillStore((s) => matchSkill(s.installed, card.name))
-  const target: SkillTarget = inst ? { key: inst.key } : { name: card.slug || card.name }
+  const inst = useSkillStore((s) => matchSkill(s.installed, card.slug || card.name))
+  const target: SkillTarget = inst ? { key: inst.key } : { card }
   return (
     <div className="hcard clickable" onClick={() => onOpenDetail(target)}>
       <div className="hc-h">
@@ -391,7 +348,7 @@ function MirrorSkillCard({ card, onOpenDetail }: { card: SkillCard; onOpenDetail
   )
 }
 
-// 技能搜索结果（WB-070）：调本地 /api/skills/search（后端优先 Server 代理、回退本地 CLI），去抖 300ms。
+// 技能搜索结果：调本地 /api/skills/search，由 App 直接访问 SkillHub，去抖 300ms。
 function SkillSearchResults({ q, onOpenDetail }: { q: string; onOpenDetail: (target: SkillTarget) => void }) {
   const [results, setResults] = useState<SkillCard[]>([])
   const [loading, setLoading] = useState(false)
@@ -425,10 +382,9 @@ function SkillSearchResults({ q, onOpenDetail }: { q: string; onOpenDetail: (tar
 }
 
 // SkillHub 目录：分类过滤 + skillhub.cn 链接 + 排序 + 网格。
-// WB-070：有 Server 镜像（catalogStore.skillMirror，已连 Server 并 pull）→ 用镜像的真实 369 技能，
-// 按 Server taxonomy 分类过滤；无 Server 镜像时由 catalogStore 尝试真实 rankings，失败则诚实空态。
+// 数据只来自本地 App 的真实 rankings；Server 登录状态不影响第三方市场（WB-215）。
 function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) => void }) {
-  const mirror = useCatalogStore((s) => s.skillMirror)
+  const marketplace = useCatalogStore((s) => s.skillMarketplace)
   const skillCats = useCatalogStore((s) => s.skillCats)
   const [cat, setCat] = useState('全部')
   const cathead = (chips: string[]) => (
@@ -448,9 +404,9 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
     </div>
   )
 
-  if (mirror.length > 0) {
+  if (marketplace.length > 0) {
     const chips = ['全部', ...skillCats.filter((c) => c.count > 0).map((c) => c.name)]
-    const list = mirror.filter((c) => cat === '全部' || c.skillhub_category_name === cat)
+    const list = marketplace.filter((c) => cat === '全部' || c.skillhub_category_name === cat)
     return (
       <>
         {cathead(chips)}
@@ -465,7 +421,7 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
   return (
     <>
       {cathead(['全部'])}
-      <div className="cap-blank">当前无法获取 SkillHub 目录，请连接 AgentMate Server 或稍后重试</div>
+      <div className="cap-blank">当前无法获取 SkillHub 目录，请检查本地网络或稍后重试</div>
     </>
   )
 }
@@ -505,7 +461,6 @@ function SkillsPane({ query, onOpenDetail }: { query: string; onOpenDetail: (tar
   }
   return (
     <div className="cap-pane show">
-      <FeaturedSkills onOpenDetail={onOpenDetail} />
       <div className="sk-seg">
         <div className={`sk-seg-item ${seg === 'reco' ? 'active' : ''}`.trim()} onClick={() => setSeg('reco')}>推荐</div>
         <div className={`sk-seg-item ${seg === 'skillhub' ? 'active' : ''}`.trim()} onClick={() => setSeg('skillhub')}>SkillHub</div>

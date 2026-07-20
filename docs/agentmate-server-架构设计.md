@@ -73,13 +73,14 @@ M7「协作」是靠**「共享后端即 Server」**实现的——多个用户�
 |---|---|---|---|---|
 | 账号 / 组织·团队 | **Server** | 镜像缓存 | 下行 | Server 签发 token |
 | 项目元数据 + 成员/角色/邀请 | **Server** | 镜像缓存 | 下行 | 本地按缓存成员表做访问控制 |
-| 目录：专家/技能/连接器**定义 + 橱窗** | **Server** | 镜像缓存/下发 | 下行 | #1；本地可叠加本机 override（本地装的技能/自造专家） |
+| AgentMate 自有目录：专家/推荐技能/连接器定义 | **Server** | 镜像缓存/下发 | 下行 | 本地可叠加本机 override（本地装的技能/自造专家） |
+| 第三方 SkillHub 商店元数据 | **本地 App 直连** | 短缓存 | 不同步 | Server 不镜像、不代理、不精选（WB-215） |
 | 会话 / 消息 / trace | **本地** | 权威 | 上行(append) | 回传 Server 供团队时间线（只读镜像，Server 不改） |
 | 待办 / 工作项 | 本地写 | 权威→同步 | 双向 | 先本地权威 + 上行；双向冲突用 `updated_at` LWW |
 | 运行记录 / 自动化 | **本地** | 权威 | 上行 | |
 | LLM 凭据（`LLM_API_KEY`…） | **本地 only** | 权威 | 不同步 | 铁律 4，绝不上云 |
 | 沙箱工作区文件 | **本地 only** | 权威 | 不同步 | 大文件/私密不上云；只上报「装了什么技能」等元数据 |
-| 已安装技能（磁盘） | 本地 | 权威 | 上行元数据 | 目录定义在 Server，**安装动作**仍本地（SkillHub CLI） |
+| 已安装技能（磁盘） | 本地 | 权威 | 上行元数据 | 安装后才可读取 SKILL.md/源码/references；安装动作走本地 SkillHub CLI |
 
 **原则**：控制平面数据 **Server 下行覆盖**本地镜像；执行产出**本地权威、上行 append**；
 凭据与工作区文件**永不上云**。
@@ -111,9 +112,8 @@ catalog_connectors       -- 连接器定义（并入 mcp_client.CONNECTORS 的�
   tools[](json), prompts[], requires[], category,
   scope, org_id, enabled, sort, version, ...
 
-catalog_skills           -- 技能橱窗目录（SK_GRID/SKILLHUB_*）；已安装技能仍在磁盘，这里是可浏览目录 + SkillHub 元数据
-  id, slug, name, label, color, description, category,
-  downloads, stars, badge, source, featured bool, kit_id,
+catalog_skills           -- AgentMate 自有推荐技能定义；第三方 SkillHub 不入 Server
+  id, slug, name, label, color, description, category, instructions, tools,
   scope, org_id, enabled, sort, version, ...
 
 -- 附：catalog_automation_templates(AUTO) / catalog_inspirations(INSP) / catalog_project_templates(NP_TPLS)
