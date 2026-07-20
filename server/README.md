@@ -18,6 +18,18 @@ python main.py            # 默认 127.0.0.1:8100
 
 依赖 `fastapi` + `uvicorn`（见 `requirements.txt`）。与 backend 同族，本地可复用同一 venv。
 
+## Console 前端
+
+Server 同源托管 AgentMate Console。WB-234 起逐页迁移到 React 19 + Ant Design 6：
+
+```bash
+pnpm build:console       # 仓库根执行，输出 server/web/console-dist/
+pnpm dev:console         # 可选：:8103 开发服务，/api 代理到 Server :8100
+```
+
+当前 `/catalog/skills` 使用新构建，其余尚未迁移的页面仍由 `server/web/console.html` 提供；
+新页面的预览/推荐位标签会进入 `/legacy/*`，迁移期间两套页面共用同源 Bearer token 与真实 `/api/*`。
+
 ## API（`/api` 前缀）
 
 - **鉴权**：`POST /auth/register`、`POST /auth/login`（→ `{token, account}`）、`POST /auth/logout`、

@@ -347,6 +347,8 @@
 const API = ""; // same-origin
 const TK = "agentmate.console.token";
 let ME = null, VIEW = "overview", CUR = null; // CUR = open project
+// WB-234：React Console 逐页迁移期间，旧页面固定在 /legacy 前缀下，避免导航回新路由。
+const LEGACY_BASE = window.location.pathname === "/legacy" || window.location.pathname.startsWith("/legacy/") ? "/legacy" : "";
 
 // WB-218：与 App 一致，把顶层视图映射到稳定 URL。Console 仍保持零构建单文件，
 // 但页面可直达、可刷新，也能使用浏览器前进/后退。
@@ -365,7 +367,8 @@ const PAGE_TITLES = {
 function cleanPath(path){ const p=(path||"/").replace(/\/+$/,""); return p||"/"; }
 function decodePart(value){ try{return decodeURIComponent(value);}catch(e){return null;} }
 function readPageRoute(pathname=window.location.pathname){
-  const path=cleanPath(pathname);
+  const routedPath=LEGACY_BASE && pathname.startsWith(LEGACY_BASE) ? pathname.slice(LEGACY_BASE.length)||"/" : pathname;
+  const path=cleanPath(routedPath);
   const page=Object.entries(PAGE_ROUTES).find(([,p])=>p===path);
   if(page) return {view:page[0],valid:true};
   const catalog=Object.entries(CATALOG_ROUTES).find(([,p])=>p===path);
@@ -375,9 +378,11 @@ function readPageRoute(pathname=window.location.pathname){
   return {view:"overview",valid:false};
 }
 function pathForPage(view,catview,projectId){
-  if(view==="projects"&&projectId) return "/projects/"+encodeURIComponent(projectId);
-  if(view==="catalog") return CATALOG_ROUTES[catview]||CATALOG_ROUTES.experts;
-  return PAGE_ROUTES[view]||"/";
+  let path;
+  if(view==="projects"&&projectId) path="/projects/"+encodeURIComponent(projectId);
+  else if(view==="catalog") path=CATALOG_ROUTES[catview]||CATALOG_ROUTES.experts;
+  else path=PAGE_ROUTES[view]||"/";
+  return LEGACY_BASE+path;
 }
 function applyPageRoute(replaceInvalid=true){
   const route=readPageRoute();
@@ -1982,7 +1987,8 @@ function knowledgeEditor(body,it){
 }
 
 // 技能定义与推荐位分开运营；第三方 SkillHub 只保存推荐指针，不镜像商店或技能包（WB-217）。
-let SKILLSUB = "gallery";
+const REQUESTED_SKILL_SUB = new URLSearchParams(location.search).get("tab");
+let SKILLSUB = ["gallery","manage","recommendations"].includes(REQUESTED_SKILL_SUB) ? REQUESTED_SKILL_SUB : "gallery";
 async function skillsCat(body){
   body.innerHTML = `
     <div class="tabs" style="margin-bottom:14px">
