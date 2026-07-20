@@ -83,6 +83,7 @@ def install_catalog_skill(key: str) -> dict:
             str(spec.get("description") or ""),
             str(spec["instructions"]),
             str(spec.get("version") or ""),
+            spec.get("files") if isinstance(spec.get("files"), list) else [],
         )
     except skills_store.SkillImportError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc

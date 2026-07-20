@@ -234,6 +234,7 @@
 | [WB-216](WB-216-recommended-skills-real-install.md) | ✅ | P1 | fullstack | 推荐技能错误按内置免安装处理，与 SkillHub 安装模型不一致 |
 | [WB-217](WB-217-server-managed-skill-recommendations.md) | ✅ | P1 | fullstack | 技能定义与推荐位配置耦合，推荐内容无法独立运营 |
 | [WB-218](WB-218-console-url-routing.md) | ✅ | P1 | frontend | AgentMate Console 内存态视图改为可直达多页面路由 |
+| [WB-219](WB-219-console-skill-editor-files.md) | ✅ | P1 | fullstack | Console 技能编辑缺少弹窗与真实文件管理 |
 
 ## 来源
 

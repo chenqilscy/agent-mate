@@ -129,6 +129,16 @@
   .np-x:hover { background:var(--chip); }
   .np-body { padding:6px 22px 12px; overflow-y:auto; }
   .np-foot { display:flex; align-items:center; gap:10px; padding:14px 22px 18px; border-top:1px solid var(--line); flex-shrink:0; }
+  /* WB-219 技能编辑弹窗 + 文本文件管理：沿用 np 弹窗与现有 token，不引入新视觉体系。 */
+  .sk-edit-modal { width:760px; }
+  .sk-edit-tabs { display:flex; gap:18px; border-bottom:1px solid var(--line); margin-bottom:14px; }
+  .sk-edit-tab { background:transparent; color:var(--dim); border-radius:0; padding:8px 2px; border-bottom:2px solid transparent; margin-bottom:-1px; }
+  .sk-edit-tab.active { color:var(--ink); border-bottom-color:var(--brand); }
+  .sk-file-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .sk-file-row { display:flex; align-items:center; gap:10px; padding:9px 11px; border:1px solid var(--line); border-radius:9px; margin-bottom:7px; background:var(--panel2); }
+  .sk-file-row code { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sk-file-form { border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:12px; background:var(--panel2); }
+  .sk-file-form textarea { min-height:170px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; }
   .pkc-row { display:flex; gap:11px; align-items:flex-start; border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-bottom:8px; background:var(--panel2); }
   .pkc-row .pi { width:26px; height:26px; border-radius:7px; background:var(--chip); display:grid; place-items:center; font-size:14px; flex-shrink:0; }
   .pkc-row .pn { font-size:13.5px; font-weight:700; }
@@ -1933,25 +1943,59 @@ async function skillsCat(body){
 
 // 目录管理：APP_SKILLS 对象是 App catalog_skills 的 Server 权威覆盖源；项目只保存 slug。
 async function skillsManage(body){
-  body.innerHTML = `<div class="card"><h3 id="sk-h">新增技能</h3><input type="hidden" id="sk-id">
-      <div class="grid2"><div class="field"><label>slug（稳定身份）</label><input id="sk-slug" placeholder="my-skill"></div><div class="field"><label>名称</label><input id="sk-name"></div></div>
-      <div class="grid2"><div class="field"><label>图标 emoji</label><input id="sk-icon" placeholder="🧩"></div><div class="field"><label>分类</label><input id="sk-cat" placeholder="办公效率"></div></div>
-      <div class="field"><label>简介</label><textarea id="sk-desc"></textarea></div>
-      <div class="field"><label>技能指令（注入模型）</label><textarea id="sk-instr"></textarea></div>
-      <div class="grid2"><div class="field"><label>工具名（逗号分隔，仅代码已注册的工具会生效）</label><input id="sk-tools"></div><div class="field"><label>来源</label><input id="sk-source" value="Server"></div></div>
-      <div class="row"><input id="sk-sort" type="number" value="0" style="width:80px"><span class="muted" style="font-size:12px">排序</span><div class="grow"></div><button class="ghost" id="sk-clear">清空</button><button id="sk-save">保存</button></div>
-      <div class="err" id="sk-err"></div></div>
-    <div id="sk-list" class="muted">加载中…</div>`;
-  const F=id=>document.getElementById(id);
-  function fill(it){ const d=it?it.data:{}; F("sk-id").value=it?it.id:""; F("sk-slug").value=d.slug||""; F("sk-icon").value=d.icon||""; F("sk-name").value=d.name||""; F("sk-cat").value=d.category||""; F("sk-desc").value=d.description||""; F("sk-instr").value=d.instructions||""; F("sk-tools").value=(d.tools||[]).join(", "); F("sk-source").value=d.source||"Server"; F("sk-sort").value=it?it.sort:0; F("sk-h").textContent=it?"编辑技能":"新增技能"; }
-  F("sk-clear").onclick=()=>fill(null);
-  F("sk-save").onclick=async()=>{ F("sk-err").textContent=""; const data={slug:F("sk-slug").value.trim(),name:F("sk-name").value.trim(),icon:F("sk-icon").value.trim()||"🧩",category:F("sk-cat").value.trim(),description:F("sk-desc").value.trim(),instructions:F("sk-instr").value.trim(),tools:F("sk-tools").value.split(",").map(x=>x.trim()).filter(Boolean),source:F("sk-source").value.trim()||"Server"}; if(!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(data.slug)){F("sk-err").textContent="slug 仅允许字母、数字与 . _ -";return;} if(!data.name){F("sk-err").textContent="名称必填";return;} const id=F("sk-id").value,sort=Number(F("sk-sort").value)||0; try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"APP_SKILLS",data,sort}); skillsManage(body);}catch(e){F("sk-err").textContent=e.message;} };
+  body.innerHTML = `<div class="row" style="margin-bottom:14px"><div><h3 style="margin:0">技能库</h3><div class="muted" style="font-size:12px">维护技能定义、生成的 SKILL.md 与随技能安装的文本文件</div></div><div class="grow"></div><button id="sk-new">新增技能</button></div><div id="sk-list" class="muted">加载中…</div>`;
+  const list=body.querySelector("#sk-list");
   try{ const {items}=await api("GET","/catalog/APP_SKILLS?all=true");
-    F("sk-list").innerHTML=items.length? items.map(it=>{const d=it.data||{}; return `<div class="list-item"><span style="font-size:20px">${esc(d.icon||"🧩")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d.name||"?")} <span class="pill">${esc(d.slug||"")}</span> ${d.category?`<span class="pill">${esc(d.category)}</span>`:""} ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.description||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`;}).join(""):'<div class="muted">还没有技能目录项；App 会继续使用本机内置定义</div>';
-    F("sk-list").querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>{fill(items.find(x=>x.id===b.dataset.ed));window.scrollTo(0,0);});
-    F("sk-list").querySelectorAll("[data-tog]").forEach(b=>b.onclick=async()=>{const[id,en]=b.dataset.tog.split(":");try{await api("PATCH","/catalog/item/"+id,{enabled:!!+en});skillsManage(body);}catch(e){F("sk-err").textContent=e.message;}});
-    F("sk-list").querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{try{await api("DELETE","/catalog/item/"+b.dataset.del);skillsManage(body);}catch(e){F("sk-err").textContent=e.message;}});
-  }catch(e){F("sk-list").innerHTML=`<div class="err">${esc(e.message)}</div>`;}
+    list.className="";
+    list.innerHTML=items.length? items.map(it=>{const d=it.data||{},n=Array.isArray(d.files)?d.files.length:0; return `<div class="list-item"><span style="font-size:20px">${esc(d.icon||"🧩")}</span><div style="flex:1;min-width:0"><div class="t">${esc(d.name||"?")} <span class="pill">${esc(d.slug||"")}</span> ${d.category?`<span class="pill">${esc(d.category)}</span>`:""} <span class="pill">${n+1} 个文件</span> ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.description||"")}</div></div><button class="line" data-files="${it.id}">文件</button><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`;}).join(""):'<div class="muted">还没有技能目录项；App 会继续使用本机内置定义</div>';
+    const refresh=()=>skillsManage(body);
+    body.querySelector("#sk-new").onclick=()=>skillEditor(null,refresh,"info");
+    list.querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>skillEditor(items.find(x=>x.id===b.dataset.ed),refresh,"info"));
+    list.querySelectorAll("[data-files]").forEach(b=>b.onclick=()=>skillEditor(items.find(x=>x.id===b.dataset.files),refresh,"files"));
+    list.querySelectorAll("[data-tog]").forEach(b=>b.onclick=async()=>{const[id,en]=b.dataset.tog.split(":");try{await api("PATCH","/catalog/item/"+id,{enabled:!!+en});refresh();}catch(e){list.innerHTML=`<div class="err">${esc(e.message)}</div>`;}});
+    list.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{try{await api("DELETE","/catalog/item/"+b.dataset.del);refresh();}catch(e){list.innerHTML=`<div class="err">${esc(e.message)}</div>`;}});
+  }catch(e){list.innerHTML=`<div class="err">${esc(e.message)}</div>`;}
+}
+
+function skillEditor(it,onSaved,startTab="info"){
+  const d=it?(it.data||{}):{}, files=Array.isArray(d.files)?d.files.map(f=>({path:String(f.path||""),content:String(f.content||"")})):[];
+  let editFile=-1,tab=startTab;
+  const ov=document.createElement("div"); ov.className="np-overlay open";
+  ov.innerHTML=`<div class="np-modal sk-edit-modal" role="dialog" aria-modal="true" aria-label="${it?"编辑技能":"新增技能"}">
+    <div class="np-h">${it?"编辑技能":"新增技能"}<button class="np-x" aria-label="关闭">×</button></div>
+    <div class="np-body"><div class="sk-edit-tabs"><button class="sk-edit-tab" data-tab="info">基本信息</button><button class="sk-edit-tab" data-tab="files">文件 <span class="pill" id="skf-count"></span></button></div>
+      <div id="ske-info">
+        <div class="grid2"><div class="field"><label>slug（稳定身份）</label><input id="ske-slug" placeholder="my-skill"></div><div class="field"><label>名称</label><input id="ske-name"></div></div>
+        <div class="grid2"><div class="field"><label>图标 emoji</label><input id="ske-icon" placeholder="🧩"></div><div class="field"><label>分类</label><input id="ske-cat" placeholder="办公效率"></div></div>
+        <div class="field"><label>简介</label><textarea id="ske-desc"></textarea></div>
+        <div class="field"><label>技能指令（生成 SKILL.md 正文并注入模型）</label><textarea id="ske-instr" style="min-height:150px"></textarea></div>
+        <div class="grid2"><div class="field"><label>工具名（逗号分隔，仅代码已注册的工具会生效）</label><input id="ske-tools"></div><div class="field"><label>来源</label><input id="ske-source"></div></div>
+        <div class="field"><label>排序</label><input id="ske-sort" type="number" style="width:90px"></div>
+      </div>
+      <div id="ske-files" class="hidden">
+        <div class="sk-file-row"><code>SKILL.md</code><span class="pill">自动生成</span><span class="muted" style="font-size:12px">由基本信息与技能指令生成</span><div class="grow"></div><button class="line" id="skf-instr">编辑指令</button></div>
+        <div id="skf-list"></div>
+        <div class="sk-file-form"><div class="sk-file-head"><b id="skf-title">新增文件</b><div class="grow"></div><button class="ghost hidden" id="skf-cancel">取消编辑</button></div>
+          <div class="field"><label>相对路径</label><input id="skf-path" placeholder="references/guide.md"></div>
+          <div class="field"><label>UTF-8 文本内容</label><textarea id="skf-content" placeholder="# 使用说明"></textarea></div>
+          <div class="row"><span class="muted" style="font-size:12px">最多 128 个文件，总计 1MB；禁止绝对路径、.. 与保留文件</span><div class="grow"></div><button id="skf-save">保存文件</button></div>
+        </div>
+      </div><div class="err" id="ske-err"></div>
+    </div>
+    <div class="np-foot"><div class="grow"></div><button class="line" id="ske-cancel">取消</button><button id="ske-save">保存技能</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  const F=id=>ov.querySelector("#"+id), close=()=>{document.removeEventListener("keydown",onKey);ov.remove();};
+  const onKey=e=>{if(e.key==="Escape")close();}; document.addEventListener("keydown",onKey);
+  F("ske-slug").value=d.slug||""; F("ske-name").value=d.name||""; F("ske-icon").value=d.icon||""; F("ske-cat").value=d.category||""; F("ske-desc").value=d.description||""; F("ske-instr").value=d.instructions||""; F("ske-tools").value=(d.tools||[]).join(", "); F("ske-source").value=d.source||"Server"; F("ske-sort").value=it?it.sort:0;
+  function showTab(next){tab=next;ov.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));F("ske-info").classList.toggle("hidden",tab!=="info");F("ske-files").classList.toggle("hidden",tab!=="files");}
+  function resetFile(){editFile=-1;F("skf-title").textContent="新增文件";F("skf-path").value="";F("skf-content").value="";F("skf-cancel").classList.add("hidden");}
+  function renderFiles(){F("skf-count").textContent=String(files.length+1);F("skf-list").innerHTML=files.length?files.map((f,i)=>`<div class="sk-file-row"><code>${esc(f.path)}</code><span class="muted" style="font-size:12px">${f.content.length} 字符</span><div class="grow"></div><button class="line" data-fed="${i}">编辑</button><button class="danger" data-fdel="${i}">删除</button></div>`).join(""):'<div class="muted" style="padding:8px 2px">暂无附加文件；可新增 references、脚本或模板文本。</div>';F("skf-list").querySelectorAll("[data-fed]").forEach(b=>b.onclick=()=>{editFile=Number(b.dataset.fed);const f=files[editFile];F("skf-title").textContent="编辑文件";F("skf-path").value=f.path;F("skf-content").value=f.content;F("skf-cancel").classList.remove("hidden");});F("skf-list").querySelectorAll("[data-fdel]").forEach(b=>b.onclick=()=>{files.splice(Number(b.dataset.fdel),1);resetFile();renderFiles();});}
+  function saveFile(){const path=F("skf-path").value.replace(/\\/g,"/").trim(),content=F("skf-content").value,parts=path.split("/"),name=(parts[parts.length-1]||"").toLowerCase(),reserved=["skill.md","_skillhub_meta.json","_meta.json",".disabled"];F("ske-err").textContent="";if(!path||path.length>240||path.startsWith("/")||parts.some(p=>!p||p==="."||p===".."||p.includes(":"))){F("ske-err").textContent="请输入安全的相对路径";return false;}if(reserved.includes(name)){F("ske-err").textContent="该文件名由 AgentMate 保留";return false;}if(files.some((f,i)=>i!==editFile&&f.path.toLowerCase()===path.toLowerCase())){F("ske-err").textContent="文件路径不能重复";return false;}const row={path,content};if(editFile>=0)files[editFile]=row;else files.push(row);resetFile();renderFiles();return true;}
+  ov.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+  F("skf-instr").onclick=()=>{showTab("info");F("ske-instr").focus();};F("skf-save").onclick=saveFile;F("skf-cancel").onclick=resetFile;
+  F("ske-save").onclick=async()=>{F("ske-err").textContent="";if(F("skf-path").value.trim()&&!saveFile()){showTab("files");return;}const data={slug:F("ske-slug").value.trim(),name:F("ske-name").value.trim(),icon:F("ske-icon").value.trim()||"🧩",category:F("ske-cat").value.trim(),description:F("ske-desc").value.trim(),instructions:F("ske-instr").value.trim(),tools:F("ske-tools").value.split(",").map(x=>x.trim()).filter(Boolean),files,source:F("ske-source").value.trim()||"Server"};if(!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(data.slug)){F("ske-err").textContent="slug 仅允许字母、数字与 . _ -";showTab("info");return;}if(!data.name){F("ske-err").textContent="名称必填";showTab("info");return;}try{if(it)await api("PATCH","/catalog/item/"+it.id,{data,sort:Number(F("ske-sort").value)||0});else await api("POST","/catalog",{category:"APP_SKILLS",data,sort:Number(F("ske-sort").value)||0});close();onSaved();}catch(e){F("ske-err").textContent=e.message;}};
+  F("ske-cancel").onclick=close;ov.querySelector(".np-x").onclick=close;ov.onmousedown=e=>{if(e.target===ov)close();};renderFiles();showTab(tab);
 }
 
 function recDateValue(v){ if(!v)return ""; const d=new Date(Number(v)*1000); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); }

@@ -392,7 +392,8 @@ def create_skill(slug: str, name: str, description: str, instructions: str) -> d
 
 
 def install_catalog_skill(
-    slug: str, name: str, description: str, instructions: str, version: str = ""
+    slug: str, name: str, description: str, instructions: str, version: str = "",
+    files: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Install an AgentMate catalog definition as a real local skill snapshot."""
     slug = (slug or "").strip()
@@ -417,8 +418,17 @@ def install_catalog_skill(
         "---\n\n"
         f"{instructions}\n"
     )
+    package_files: list[tuple[str, bytes]] = [(SKILL_MD, markdown.encode("utf-8"))]
+    for item in files or []:
+        if not isinstance(item, dict):
+            raise SkillImportError("目录技能文件格式无效", 422)
+        path = str(item.get("path") or "")
+        content = item.get("content")
+        if not isinstance(content, str):
+            raise SkillImportError("目录技能文件内容必须是文本", 422)
+        package_files.append((path, content.encode("utf-8")))
     return _install_import_files(
-        [(SKILL_MD, markdown.encode("utf-8"))],
+        package_files,
         f"{slug}.md",
         installed_source="agentmate",
     )

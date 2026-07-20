@@ -7,6 +7,7 @@ org 级目录运营（团队 Admin）留后续。
 from __future__ import annotations
 
 import re
+from pathlib import PurePosixPath
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -57,6 +58,11 @@ class CatalogItemBody(BaseModel):
     sort: int = 0
 
 
+_MAX_SKILL_FILES = 128
+_MAX_SKILL_FILES_BYTES = 1024 * 1024
+_RESERVED_SKILL_FILES = {"skill.md", "_skillhub_meta.json", "_meta.json", ".disabled"}
+
+
 def _validate_app_skill(data: Any, *, ignore_id: str = "") -> None:
     if not isinstance(data, dict):
         raise HTTPException(400, "APP_SKILLS data must be an object")
@@ -66,6 +72,32 @@ def _validate_app_skill(data: Any, *, ignore_id: str = "") -> None:
         raise HTTPException(400, "invalid skill slug")
     if not name:
         raise HTTPException(400, "skill name is required")
+    files = data.get("files", [])
+    if not isinstance(files, list):
+        raise HTTPException(400, "skill files must be a list")
+    if len(files) > _MAX_SKILL_FILES:
+        raise HTTPException(413, f"skill files exceed {_MAX_SKILL_FILES} entries")
+    seen: set[str] = set()
+    total = 0
+    for entry in files:
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str) or not isinstance(entry.get("content"), str):
+            raise HTTPException(400, "each skill file requires string path and content")
+        raw_path = entry["path"].replace("\\", "/").strip()
+        path = PurePosixPath(raw_path)
+        if (
+            not raw_path or len(raw_path) > 240 or path.is_absolute()
+            or any(part in {"", ".", ".."} or ":" in part or "\x00" in part for part in path.parts)
+        ):
+            raise HTTPException(400, "invalid skill file path")
+        canonical = path.as_posix().casefold()
+        if path.name.casefold() in _RESERVED_SKILL_FILES:
+            raise HTTPException(400, f"reserved skill file: {path.name}")
+        if canonical in seen:
+            raise HTTPException(409, "duplicate skill file path")
+        seen.add(canonical)
+        total += len(entry["content"].encode("utf-8"))
+        if total > _MAX_SKILL_FILES_BYTES:
+            raise HTTPException(413, "skill files exceed 1MB")
     for row in db.list_catalog_items("APP_SKILLS", scope="builtin", include_disabled=True):
         if row["id"] != ignore_id and isinstance(row.get("data"), dict) and row["data"].get("slug") == slug:
             raise HTTPException(409, "skill slug already exists")

@@ -344,6 +344,7 @@ def init_db() -> None:
             description TEXT NOT NULL DEFAULT '',
             instructions TEXT NOT NULL DEFAULT '',
             tools TEXT NOT NULL DEFAULT '[]',
+            files TEXT NOT NULL DEFAULT '[]',
             category TEXT NOT NULL DEFAULT '',
             source TEXT NOT NULL DEFAULT '',
             enabled INTEGER NOT NULL DEFAULT 1,
@@ -690,6 +691,11 @@ def _migrate_columns() -> None:
          time.time(), old_creator_instruction),
     )
 
+    # WB-219：Server 自有技能可携带安全文本文件（references/脚本/模板），随目录下行并在安装时落盘。
+    have_cs = {r["name"] for r in conn.execute("PRAGMA table_info(catalog_skills)").fetchall()}
+    if "files" not in have_cs:
+        conn.execute("ALTER TABLE catalog_skills ADD COLUMN files TEXT NOT NULL DEFAULT '[]'")
+
     # WB-134: model_meta 增缓存命中输入价 + 币种（定价分档 / ¥·$ 区分）。
     have_mm = {r["name"] for r in conn.execute("PRAGMA table_info(model_meta)").fetchall()}
     for col, ddl in (("input_cost_cached", "input_cost_cached REAL"), ("currency", "currency TEXT")):
@@ -771,12 +777,13 @@ def _seed_catalog() -> None:
             continue
         conn.execute(
             """INSERT INTO catalog_skills
-               (id,scope,owner_id,slug,name,icon,description,instructions,tools,category,source,
+               (id,scope,owner_id,slug,name,icon,description,instructions,tools,files,category,source,
                 enabled,sort,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (new_uuid(), "builtin", None, slug, s["name"], s.get("icon", "🧩"),
              s.get("description", ""), s.get("instructions", ""),
-             json.dumps(s.get("tools", []), ensure_ascii=False), s.get("category", ""),
+             json.dumps(s.get("tools", []), ensure_ascii=False),
+             json.dumps(s.get("files", []), ensure_ascii=False), s.get("category", ""),
              "内置", 1, i, now, now),
         )
     conn.commit()
@@ -1511,7 +1518,7 @@ def skill_specs() -> list[dict[str, Any]]:
     （同连接器「launch spec 存库、实现在代码」的分工）。
     """
     rows = get_conn().execute(
-        "SELECT scope,slug,name,icon,description,instructions,tools,category,source "
+        "SELECT scope,slug,name,icon,description,instructions,tools,files,category,source "
         "FROM catalog_skills WHERE enabled=1 "
         "ORDER BY CASE scope WHEN 'server' THEN 0 ELSE 1 END, sort, name"
     ).fetchall()
@@ -1525,10 +1532,15 @@ def skill_specs() -> list[dict[str, Any]]:
             tools = json.loads(r["tools"]) if r["tools"] else []
         except (json.JSONDecodeError, TypeError):
             tools = []
+        try:
+            files = json.loads(r["files"]) if r["files"] else []
+        except (json.JSONDecodeError, TypeError):
+            files = []
         out.append({
             "slug": r["slug"], "name": r["name"], "icon": r["icon"],
             "description": r["description"], "instructions": r["instructions"],
             "tools": tools if isinstance(tools, list) else [],
+            "files": files if isinstance(files, list) else [],
             "category": r["category"], "source": r["source"], "scope": r["scope"],
         })
     return out
@@ -1557,19 +1569,27 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
         tools = raw.get("tools", [])
         if not isinstance(tools, list):
             tools = []
+        files = raw.get("files", [])
+        if not isinstance(files, list):
+            files = []
+        files = [
+            {"path": str(item.get("path", "")), "content": str(item.get("content", ""))}
+            for item in files if isinstance(item, dict) and item.get("path")
+        ]
         seen.add(slug)
         rows.append((
             new_uuid(), "server", None, slug, name, str(raw.get("icon", "🧩")),
             str(raw.get("description", "")), str(raw.get("instructions", "")),
-            json.dumps([str(t) for t in tools], ensure_ascii=False), str(raw.get("category", "")),
+            json.dumps([str(t) for t in tools], ensure_ascii=False),
+            json.dumps(files, ensure_ascii=False), str(raw.get("category", "")),
             str(raw.get("source", "Server")), 1, int(raw.get("sort", index)), now, now,
         ))
     with conn:
         conn.execute("DELETE FROM catalog_skills WHERE scope='server'")
         conn.executemany(
             """INSERT INTO catalog_skills
-               (id,scope,owner_id,slug,name,icon,description,instructions,tools,category,source,
-                enabled,sort,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               (id,scope,owner_id,slug,name,icon,description,instructions,tools,files,category,source,
+                enabled,sort,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
     return {"inserted": len(rows), "skipped": skipped}

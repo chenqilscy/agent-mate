@@ -56,7 +56,7 @@ class SkillCatalogContractTest(unittest.TestCase):
 
     def test_server_catalog_overrides_by_slug_and_drives_categories(self) -> None:
         result = db.replace_server_skill_catalog([
-            {"slug": "excel-csv", "name": "表格分析（运营版）", "icon": "📊", "description": "Server 描述", "instructions": "Server 指令", "tools": ["analyze_csv", "not-real"], "category": "办公效率"},
+            {"slug": "excel-csv", "name": "表格分析（运营版）", "icon": "📊", "description": "Server 描述", "instructions": "Server 指令", "tools": ["analyze_csv", "not-real"], "files": [{"path": "references/columns.md", "content": "# 字段"}], "category": "办公效率"},
             {"slug": "bad slug", "name": "非法项"},
         ])
         self.assertEqual({"inserted": 1, "skipped": 1}, result)
@@ -64,6 +64,7 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertIsNotNone(spec)
         self.assertEqual("表格分析（运营版）", spec["name"])
         self.assertEqual("Server 指令", spec["instructions"])
+        self.assertEqual([{"path": "references/columns.md", "content": "# 字段"}], spec["files"])
         self.assertEqual(1, len([s for s in db.skill_specs() if s["slug"] == "excel-csv"]))
 
         catalog = db.showcase_all()
@@ -172,6 +173,28 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertIsNone(skill_def("web-access"))
         self.assertTrue(skills_store.uninstall("web-access"))
         self.assertFalse(catalog_detail("web-access")["installed"])
+
+    def test_server_catalog_files_are_installed_to_real_skill_directory(self) -> None:
+        from agent import skills_store
+
+        db.replace_server_skill_catalog([{
+            "slug": "ops-guide", "name": "运营指南", "description": "带配套文件的技能",
+            "instructions": "执行前阅读 references/guide.md。", "tools": [], "category": "商业运营",
+            "files": [
+                {"path": "references/guide.md", "content": "# 运营检查表\n"},
+                {"path": "templates/report.txt", "content": "结论：{{summary}}\n"},
+            ],
+        }])
+        spec = db.skill_spec_for("ops-guide")
+        self.assertIsNotNone(spec)
+        result = skills_store.install_catalog_skill(
+            spec["slug"], spec["name"], spec["description"], spec["instructions"], files=spec["files"],
+        )
+        self.assertTrue(result["ok"])
+        root = settings.SKILLS_DIR / "ops-guide"
+        self.assertTrue((root / "SKILL.md").is_file())
+        self.assertEqual("# 运营检查表\n", (root / "references" / "guide.md").read_text(encoding="utf-8"))
+        self.assertEqual("结论：{{summary}}\n", (root / "templates" / "report.txt").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ sys.path.insert(0, str(SERVER))
 import db  # noqa: E402
 from config import settings  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
-from routers.catalog import _validate_skill_recommendation, list_all_catalog  # noqa: E402
+from routers.catalog import _validate_app_skill, _validate_skill_recommendation, list_all_catalog  # noqa: E402
 
 
 class SkillRecommendationContractTest(unittest.TestCase):
@@ -84,6 +84,23 @@ class SkillRecommendationContractTest(unittest.TestCase):
         db.delete_catalog_item(rows[0]["id"])
         db.init_db()
         self.assertEqual([], db.list_catalog_items("SKILL_RECOMMENDATIONS", scope="builtin", include_disabled=True))
+
+    def test_app_skill_files_require_safe_unique_text_paths(self) -> None:
+        base = {"slug": "file-skill", "name": "文件技能", "files": [
+            {"path": "references/guide.md", "content": "# Guide"},
+            {"path": "scripts/check.py", "content": "print('ok')"},
+        ]}
+        _validate_app_skill(base)
+        for files, message in (
+            ([{"path": "../secret.txt", "content": "x"}], "invalid skill file path"),
+            ([{"path": "SKILL.md", "content": "x"}], "reserved skill file"),
+            ([{"path": "A.md", "content": "x"}, {"path": "a.md", "content": "y"}], "duplicate skill file path"),
+            ([{"path": "guide.md", "content": 42}], "requires string path and content"),
+        ):
+            with self.assertRaisesRegex(HTTPException, message):
+                _validate_app_skill({**base, "files": files})
+        with self.assertRaisesRegex(HTTPException, "exceed 1MB"):
+            _validate_app_skill({**base, "files": [{"path": "large.txt", "content": "x" * (1024 * 1024 + 1)}]})
 
 
 if __name__ == "__main__":
