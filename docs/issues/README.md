@@ -220,6 +220,7 @@
 | [WB-202](WB-202-app-navigation-settings-menu-groups.md) | ✅ | P2 | ui | 左侧导航与设置中心功能菜单扁平混杂，缺少按使用、配置与治理的语义分组 |
 | [WB-203](WB-203-remove-top-text-menus.md) | ✅ | P3 | ui | 顶部标题栏保留无实际功能的编辑、窗口、帮助文字菜单 |
 | [WB-204](WB-204-skill-regression-gate.md) | ✅ | P2 | test | 新增离线身份/Hub覆盖/category 契约门禁与 npm 入口；真 LLM 技能/连接器测试同步改为 slug 并 15/15 通过 |
+| [WB-205](WB-205-skills-grid-horizontal-overflow.md) | ✅ | P2 | ui | Skills 页卡片网格改用 minmax(0,1fr)，长技能描述不再撑宽内容区；明暗主题与 1280/960/900/860px 实测无横向滚动 |
 
 ## 来源
 

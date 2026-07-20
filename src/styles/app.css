@@ -229,10 +229,11 @@
 .search-box input { border: none; outline: none; flex: 1; font-family: inherit; font-size: 13px; color: var(--text); background: transparent; }
 
 .card-grid { display: grid; gap: 14px; }
-.g1 { grid-template-columns: 1fr; }
-.g2 { grid-template-columns: 1fr 1fr; }
-.g3 { grid-template-columns: repeat(3, 1fr); }
-.g4 { grid-template-columns: repeat(4, 1fr); }
+.card-grid > * { min-width: 0; }
+.g1 { grid-template-columns: minmax(0, 1fr); }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .tpl { border: 1px solid var(--border); border-radius: 13px; padding: 15px 16px; background: #fff; cursor: pointer; transition: .15s; display: flex; gap: 12px; align-items: flex-start; }
 .tpl:hover { border-color: var(--brand); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
 .tpl .t-ic { width: 30px; height: 30px; border-radius: 8px; background: var(--brand-soft); display: grid; place-items: center; flex-shrink: 0; color: var(--brand-600); }
@@ -1400,7 +1401,7 @@ body.dark .wb-date { color-scheme: dark; }
   .chat-scroll, .chat-foot { padding-left: 5%; padding-right: 5%; }
   .hero-title { font-size: 24px; }
   .insp-cols { columns: 2 200px; }
-  .card-grid.g4 { grid-template-columns: 1fr 1fr; }
+  .card-grid.g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .view.split { position: relative; }
   .ovpanel.open { position: absolute; right: 0; top: 0; bottom: 0; z-index: 40; box-shadow: var(--shadow-md); }
   /* Full-width chat when the overview panel overlays it, and keep the find bar in view. */
