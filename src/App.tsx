@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { MenuBar } from './components/layout/MenuBar'
+import { NavigationToggle } from './components/layout/NavigationToggle'
 import { Sidebar } from './components/layout/Sidebar'
 import { ToastHost } from './components/ui/ToastHost'
 import { HomeView } from './views/HomeView'
@@ -140,9 +140,9 @@ export function App() {
 
   return (
     <div className="win">
-      <MenuBar />
       <div className={['shell', navOpen && 'nav-open', sidebarCollapsed && 'sidebar-collapsed'].filter(Boolean).join(' ')}>
         <Sidebar />
+        <NavigationToggle />
         {/* Scrim behind the off-canvas sidebar (≤900px); inert at wide widths. */}
         <div className="nav-scrim" onClick={() => setNavOpen(false)} />
         <main className="main" id="main">

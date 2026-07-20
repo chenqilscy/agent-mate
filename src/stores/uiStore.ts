@@ -26,7 +26,7 @@ interface UIState {
   navOpen: boolean
   // Wide-screen (>900px) docked-sidebar collapse. Distinct from navOpen (the
   // ≤900px drawer): here the sidebar is fully hidden and re-opened via the
-  // menubar hamburger. Reset when the window narrows past 900px (App.tsx).
+  // shell edge handle. Reset when the window narrows past 900px (App.tsx).
   sidebarCollapsed: boolean
   // 设置中心弹窗（WB-146）：统一多标签设置面板，账号浮层「设置」打开。
   settingsOpen: boolean

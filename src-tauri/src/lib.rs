@@ -1,6 +1,5 @@
-// WorkBuddy desktop shell (Tauri 2). Borderless window (the app draws its own
-// menubar); window controls + dragging come from the frontend via
-// @tauri-apps/api. On startup we spawn the bundled Python backend as a sidecar
+// WorkBuddy desktop shell (Tauri 2). The application uses a borderless window
+// without reserving a custom title-bar row. On startup we spawn the bundled Python backend as a sidecar
 // and kill it on exit. A system tray keeps the app alive when the window is
 // closed (X hides to tray; the tray's 退出 actually quits).
 use std::sync::Mutex;

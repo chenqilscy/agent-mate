@@ -4,22 +4,11 @@
 
 .win { width: 100%; height: 100vh; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
 
-/* ---- Windows-style menubar ---- */
-.menubar { height: 32px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-2); padding-left: 8px; -webkit-user-select: none; user-select: none; }
-.mb-left { display: flex; align-items: center; gap: 2px; font-size: 12px; color: var(--text-2); }
-.mb-left .app-ic { width: 18px; height: 18px; margin-right: 6px; }
-.mb-left b { color: var(--text); font-size: 12.5px; margin-right: 10px; }
-.mb-win { display: flex; height: 32px; }
-.mb-win button { width: 44px; height: 32px; border: none; background: transparent; cursor: pointer; color: var(--text-2); display: grid; place-items: center; font-size: 12px; }
-.mb-win button:hover { background: var(--chip); }
-.mb-win button.close:hover { background: #E81123; color: #fff; }
-.mb-win svg { width: 11px; height: 11px; }
-
 .shell { flex: 1; display: flex; min-height: 0; position: relative; }
 /* Off-canvas nav plumbing — inert until the ≤900px media query activates it. */
-.mb-burger { display: none; width: 30px; height: 30px; border: none; background: transparent; color: var(--text-2); border-radius: 7px; cursor: pointer; place-items: center; margin-right: 2px; }
-.mb-burger:hover { background: var(--chip); }
-.mb-burger svg { width: 18px; height: 18px; }
+.shell-nav-toggle { display: none; position: absolute; left: 0; top: 50%; z-index: 50; width: 30px; height: 44px; transform: translateY(-50%); border: 1px solid var(--border); border-left: 0; border-radius: 0 9px 9px 0; background: var(--chip); color: var(--text-2); cursor: pointer; place-items: center; box-shadow: var(--shadow-sm); }
+.shell-nav-toggle:hover { color: var(--text); background: var(--border); }
+.shell-nav-toggle svg { width: 17px; height: 17px; }
 .nav-scrim { display: none; }
 
 /* ---- Sidebar ---- */
@@ -89,11 +78,10 @@
 .sb-scl { display: grid; place-items: center; width: 18px; height: 18px; border: none; background: transparent; color: var(--text-3); cursor: pointer; border-radius: 5px; flex-shrink: 0; }
 .sb-scl svg { width: 13px; height: 13px; }
 .sb-scl:hover { background: var(--border); color: var(--text); }
-/* Collapse is a wide-screen concept only; ≤900px uses the off-canvas drawer. When
-   collapsed, the menubar hamburger is forced visible so it can re-open the sidebar. */
-.mb-burger.show { display: grid; }
+/* Collapse is a wide-screen concept only; ≤900px uses the off-canvas drawer. */
 @media (min-width: 901px) {
   .shell.sidebar-collapsed .sidebar { display: none; }
+  .shell.sidebar-collapsed > .shell-nav-toggle { display: grid; }
 }
 
 /* ---- Main ---- */
@@ -1385,8 +1373,8 @@ body.dark .wb-date { color-scheme: dark; }
   .selgrid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 900px) {
-  /* Sidebar becomes an off-canvas drawer, revealed by the menubar hamburger. */
-  .mb-burger { display: grid; }
+  /* Sidebar becomes an off-canvas drawer, revealed by the edge handle. */
+  .shell-nav-toggle { display: grid; }
   .sidebar {
     position: absolute; left: 0; top: 0; bottom: 0; z-index: 60; width: 260px;
     transform: translateX(-100%); transition: transform .22s ease;

@@ -57,7 +57,7 @@ body.dark {
   --hl-attr: #7ee787;
   color-scheme: dark;
 }
-body.dark .win, body.dark .sidebar, body.dark .main, body.dark .menubar,
+body.dark .win, body.dark .sidebar, body.dark .main,
 body.dark .kd-right, body.dark .kd-frame { background: #1B1F24; }
 body.dark .composer, body.dark .tpl, body.dark .ecard, body.dark .scard, body.dark .conn,
 body.dark .pop, body.dark .profile, body.dark .more-menu, body.dark .scene, body.dark .qchip,
@@ -72,7 +72,6 @@ body.dark .scene.active, body.dark .hub-tab.active { background: var(--chip); co
 body.dark .csend { background: var(--brand); }
 body.dark .sc-top { background: linear-gradient(135deg, #20362C, #1E2A36); }
 body.dark .pf-row .up { background: var(--brand); color: #fff; }
-body.dark .mb-win button.close:hover { background: #E81123; }
 
 /* dark-mode readability: these used var(--ink) as a dark surface + white text,
    but --ink flips to a LIGHT color in dark mode → white-on-light was unreadable.
