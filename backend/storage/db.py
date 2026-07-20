@@ -316,6 +316,7 @@ def init_db() -> None:
             id TEXT PRIMARY KEY,
             scope TEXT NOT NULL DEFAULT 'builtin',
             owner_id TEXT,
+            slug TEXT NOT NULL DEFAULT '',
             name TEXT NOT NULL,
             icon TEXT NOT NULL DEFAULT '',
             description TEXT NOT NULL DEFAULT '',
@@ -675,6 +676,16 @@ def _migrate_columns() -> None:
     if "knowledge_ids" not in have_p:
         conn.execute("ALTER TABLE projects ADD COLUMN knowledge_ids TEXT NOT NULL DEFAULT '[]'")
 
+    # WB-220：连接器推荐位引用稳定 slug；存量 builtin 用产品种子回填。
+    have_cc = {r["name"] for r in conn.execute("PRAGMA table_info(catalog_connectors)").fetchall()}
+    if "slug" not in have_cc:
+        conn.execute("ALTER TABLE catalog_connectors ADD COLUMN slug TEXT NOT NULL DEFAULT ''")
+    for connector in BUILTIN_CONNECTORS:
+        conn.execute(
+            "UPDATE catalog_connectors SET slug=? WHERE scope='builtin' AND name=? AND slug=''",
+            (connector.get("slug", ""), connector["name"]),
+        )
+
     # WB-206：旧库已种过 skill-creator-guide，_seed_catalog 按 slug 查重不会覆盖；只迁移仍为
     # 原始种子值的行，保留 Console/用户已运营过的自定义定义。
     old_creator_instruction = "当用户想创建自定义技能时，说明技能 = 提示词 + 工具包 的结构，并给出可落地的模板。"
@@ -762,9 +773,9 @@ def _seed_catalog() -> None:
             continue
         conn.execute(
             """INSERT INTO catalog_connectors
-               (id,scope,owner_id,name,icon,description,status,launch,enabled,sort,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (new_uuid(), "builtin", None, name, c.get("icon", ""), c.get("description", ""),
+               (id,scope,owner_id,slug,name,icon,description,status,launch,enabled,sort,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (new_uuid(), "builtin", None, c.get("slug", ""), name, c.get("icon", ""), c.get("description", ""),
              c.get("status", "rdy"), json.dumps(c.get("launch", {}), ensure_ascii=False),
              1, i, now, now),
         )
@@ -1486,7 +1497,7 @@ def _row_to_catalog_connector(r: sqlite3.Row) -> CatalogConnector:
     except (json.JSONDecodeError, TypeError):
         launch = {}
     return CatalogConnector(
-        id=r["id"], scope=r["scope"], owner_id=r["owner_id"], name=r["name"], icon=r["icon"],
+        id=r["id"], scope=r["scope"], owner_id=r["owner_id"], slug=r["slug"], name=r["name"], icon=r["icon"],
         description=r["description"], status=r["status"], launch=launch if isinstance(launch, dict) else {},
         enabled=bool(r["enabled"]), sort=r["sort"], created_at=r["created_at"], updated_at=r["updated_at"],
     )
@@ -1494,9 +1505,10 @@ def _row_to_catalog_connector(r: sqlite3.Row) -> CatalogConnector:
 
 def connector_specs() -> dict[str, dict[str, Any]]:
     """连接器名 → 启动 spec（enabled 行），替代 mcp_client 里原硬编码的 CONNECTORS 字典。
-    同名多行时以 sort 靠前者为准（builtin 种子 sort 小、稳定生效）。"""
+    Server 同名定义覆盖 builtin；Server 不下发或被清空时自动回退 builtin。"""
     rows = get_conn().execute(
-        "SELECT name, launch FROM catalog_connectors WHERE enabled=1 ORDER BY sort"
+        "SELECT name, launch FROM catalog_connectors WHERE enabled=1 "
+        "ORDER BY CASE scope WHEN 'server' THEN 0 ELSE 1 END, sort, name"
     ).fetchall()
     out: dict[str, dict[str, Any]] = {}
     for r in rows:
@@ -1544,6 +1556,80 @@ def skill_specs() -> list[dict[str, Any]]:
             "category": r["category"], "source": r["source"], "scope": r["scope"],
         })
     return out
+
+
+def connector_catalog_specs() -> list[dict[str, Any]]:
+    """返回去重后的连接器公开元数据，供推荐位解析；不包含本机凭据值。"""
+    rows = get_conn().execute(
+        "SELECT scope,slug,name,icon,description,status FROM catalog_connectors WHERE enabled=1 "
+        "ORDER BY CASE scope WHEN 'server' THEN 0 ELSE 1 END, sort, name"
+    ).fetchall()
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        if row["name"] in seen:
+            continue
+        seen.add(row["name"])
+        out.append({
+            "slug": row["slug"], "name": row["name"], "icon": row["icon"], "description": row["description"],
+            "status": row["status"], "scope": row["scope"],
+        })
+    return out
+
+
+def replace_server_connector_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
+    """把 Server 的公开连接器定义映射进本机运行目录；密钥值和 OAuth 状态永不接收。"""
+    conn = get_conn()
+    now = time.time()
+    rows: list[tuple[Any, ...]] = []
+    seen_names: set[str] = set()
+    skipped = 0
+    for index, raw in enumerate(items):
+        if not isinstance(raw, dict):
+            skipped += 1
+            continue
+        name = str(raw.get("name", "")).strip()
+        status = str(raw.get("status", "")).strip()
+        launch = raw.get("launch")
+        if not name or name in seen_names or status not in {"rdy", "tok"} or not isinstance(launch, dict):
+            skipped += 1
+            continue
+        builtin_server = str(launch.get("builtin_server", "")).strip()
+        command = str(launch.get("command", "")).strip()
+        if bool(builtin_server) == bool(command):
+            skipped += 1
+            continue
+        secret_env = launch.get("secret_env", {})
+        if not isinstance(secret_env, dict) or not all(
+            isinstance(k, str) and isinstance(v, str)
+            and re.fullmatch(r"[A-Z_][A-Z0-9_]*", k) and re.fullmatch(r"[A-Z_][A-Z0-9_]*", v)
+            for k, v in secret_env.items()
+        ):
+            skipped += 1
+            continue
+        safe_launch = {
+            key: value for key, value in launch.items()
+            if key in {"builtin_server", "builtin", "command", "args", "secret_env", "requires", "requires_bin"}
+        }
+        seen_names.add(name)
+        slug = str(raw.get("slug", "")).strip()
+        if not _SKILL_SLUG_RE.fullmatch(slug):
+            skipped += 1
+            continue
+        rows.append((
+            new_uuid(), "server", None, slug, name, str(raw.get("icon", "🔗")),
+            str(raw.get("desc") or raw.get("description") or ""), status,
+            json.dumps(safe_launch, ensure_ascii=False), 1, int(raw.get("sort", index)), now, now,
+        ))
+    with conn:
+        conn.execute("DELETE FROM catalog_connectors WHERE scope='server'")
+        conn.executemany(
+            "INSERT INTO catalog_connectors "
+            "(id,scope,owner_id,slug,name,icon,description,status,launch,enabled,sort,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            rows,
+        )
+    return {"inserted": len(rows), "skipped": skipped}
 
 
 def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
@@ -1732,6 +1818,34 @@ def showcase_all() -> dict[str, Any]:
     out["SK_CATS"] = ["全部", *dict.fromkeys(
         s["category"] for s in recommendations if s.get("category")
     )]
+    # WB-220：连接器定义进入本机真运行目录，推荐位只解析公开卡片；凭据/授权态仍由本机接口判定。
+    connector_specs_public = connector_catalog_specs()
+    connector_by_slug = {c["slug"]: c for c in connector_specs_public if c.get("slug")}
+    raw_connector_recommendations = downlink.get("CONNECTOR_RECOMMENDATIONS")
+    if raw_connector_recommendations is None:
+        connector_recommendations = [
+            {"placement": "connectors.recommended", **connector}
+            for connector in connector_specs_public
+        ]
+    else:
+        connector_recommendations = []
+        now = time.time()
+        for raw in raw_connector_recommendations:
+            if not isinstance(raw, dict) or raw.get("placement", "connectors.recommended") != "connectors.recommended":
+                continue
+            if raw.get("_enabled", True) is False:
+                continue
+            try:
+                starts_at = float(raw.get("starts_at") or 0)
+                ends_at = float(raw.get("ends_at") or 0)
+            except (TypeError, ValueError):
+                continue
+            if (starts_at and now < starts_at) or (ends_at and now >= ends_at):
+                continue
+            base = connector_by_slug.get(str(raw.get("connector_slug", "")).strip())
+            if base:
+                connector_recommendations.append({"placement": "connectors.recommended", **base})
+    out["CONNECTOR_RECOMMENDATIONS"] = connector_recommendations
     return out
 
 

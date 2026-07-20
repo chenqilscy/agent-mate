@@ -519,7 +519,7 @@ function ConnAddBtn({ on, onToggle }: { on: boolean; onToggle: (e: MouseEvent) =
 
 function ConnectorsPane() {
   const [detail, setDetail] = useState<[string, string, string] | null>(null)
-  const { CONNS, CONN_META } = useCatalog()
+  const { CONNECTOR_RECOMMENDATIONS, CONN_META } = useCatalog()
   const connectors = useLoadoutStore((s) => s.connectors)
   // 真实连接态 → 卡片上的「● 已连接」。两类：OAuth（金山文档，问 kdocs 授权态）与
   // 表单型（WeKnora · WB-188，问 /api/knowledge/config 是否已配 key）。
@@ -537,16 +537,18 @@ function ConnectorsPane() {
   return (
     <div className="cap-pane show">
       <div className="card-grid g2" style={{ marginTop: 6 }}>
-        {CONNS.map(([ic, n, d]) => {
+        {CONNECTOR_RECOMMENDATIONS.map((connector) => {
+          const { icon: ic, name: n, description: d, status } = connector
           const meta = CONN_META[n]
           const added = connectors.includes(n)
           const open = () => setDetail([ic, n, d])
           // oauth / 表单型连接器显示实时连接态；其它显示静态标签。
-          const badge = meta && ((meta.oauth || meta.configKind)
+          const badge = meta ? ((meta.oauth || meta.configKind)
             ? (authed[n]
                 ? <span className="conn-tag rdy">● 已连接</span>
                 : <span className="conn-tag tok">{meta.statusLabel}</span>)
             : <span className={`conn-tag ${meta.status}`}>{meta.statusLabel}</span>)
+            : <span className={`conn-tag ${status}`}>{status === 'rdy' ? '内置即用' : '需连接'}</span>
           return (
             <div
               className="conn" key={n} role="button" tabIndex={0} onClick={open}

@@ -1,4 +1,4 @@
-"""AgentMate Server 首次启动的自有技能目录种子。
+"""AgentMate Server 首次启动的自有能力目录种子。
 
 运行时只读 catalog_items；本文件只负责把产品随附的默认技能写入 Server 权威目录。
 第三方 SkillHub 数据、Key 与技能包不得进入这里。
@@ -15,4 +15,15 @@ DEFAULT_APP_SKILLS: list[dict[str, Any]] = [
     {"slug": "word-doc", "name": "Word 文档生成", "icon": "📄", "category": "办公效率", "description": "以规范的长文档结构组织输出：标题层级、要点、表格与结论。", "instructions": "以规范的长文档结构组织输出：清晰的标题层级、要点、必要的表格与结论。", "tools": [], "source": "Server"},
     {"slug": "excel-csv", "name": "Excel 文件处理", "icon": "📊", "category": "数据分析", "description": "对工作区里的 CSV 做行列/数值列统计，基于真实数据作答。", "instructions": "处理表格数据时：对工作区里的 CSV 用 analyze_csv 获取行列/数值列统计，再基于真实数据作答；输出用清晰的表格结构。", "tools": ["analyze_csv"], "source": "Server"},
     {"slug": "stock-analyzer", "name": "股票综合分析器", "icon": "📈", "category": "商业运营", "description": "分基本面 / 消息面 / 资金面三维展开，结论先行并提示风险。", "instructions": "做股票分析时分三维展开：基本面、消息面、资金面，结论先行并提示风险。", "tools": [], "source": "Server"},
+]
+
+
+# Server 只保存可公开下发的启动定义和所需凭据“变量名”，不保存 token / OAuth 凭据值。
+DEFAULT_CONNECTORS: list[dict[str, Any]] = [
+    {"slug": "local-notes", "name": "本地便签", "icon": "📝", "desc": "在本机保存、查询和整理便签。", "status": "rdy", "launch": {"builtin_server": "notes", "builtin": True}},
+    {"slug": "clock", "name": "时间助手", "icon": "⏰", "desc": "查询当前时间与时区，辅助安排时间。", "status": "rdy", "launch": {"builtin_server": "clock", "builtin": True}},
+    {"slug": "workspace-search", "name": "工作区检索", "icon": "🔍", "desc": "在当前项目工作区内检索文件和内容。", "status": "rdy", "launch": {"builtin_server": "search", "builtin": True}},
+    {"slug": "telegram", "name": "Telegram", "icon": "✈️", "desc": "通过本机配置的机器人发送 Telegram 消息。", "status": "tok", "launch": {"builtin_server": "telegram", "builtin": True, "requires": ["TELEGRAM_BOT_TOKEN"]}},
+    {"slug": "kdocs", "name": "金山文档", "icon": "📄", "desc": "创建、搜索和管理金山文档（WPS 云文档）。", "status": "tok", "launch": {"builtin_server": "kdocs", "builtin": True, "requires_bin": ["kdocs-cli"]}},
+    {"slug": "github", "name": "GitHub", "icon": "🐙", "desc": "通过 GitHub MCP 管理仓库、Issue 与 Pull Request。", "status": "tok", "launch": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"], "secret_env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "GITHUB_TOKEN"}, "requires": ["GITHUB_TOKEN"]}},
 ]

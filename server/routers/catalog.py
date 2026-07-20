@@ -20,6 +20,9 @@ from models import Account
 router = APIRouter(prefix="/api", tags=["catalog"])
 _SKILL_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _PLACEMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_ENV_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+_BUILTIN_CONNECTOR_SERVERS = {"notes", "clock", "search", "telegram", "kdocs"}
+_RECOMMENDATION_CATEGORIES = {"SKILL_RECOMMENDATIONS", "CONNECTOR_RECOMMENDATIONS"}
 
 
 def _require_admin(account: Account) -> None:
@@ -36,10 +39,11 @@ def list_all_catalog(all: bool = False, account: Account = CurrentAccount) -> di
     if not inc:
         # 推荐位需要把“已配置但全部停用”与“从未配置”区分开：前者应诚实显示空，
         # 后者才允许 App local-first 回退。因此下行携带推荐位 enabled 状态。
-        items.extend(
-            row for row in _skill_recommendations()
-            if not any(current["id"] == row["id"] for current in items)
-        )
+        for category in _RECOMMENDATION_CATEGORIES:
+            items.extend(
+                row for row in db.list_catalog_items(category, scope="builtin", include_disabled=True)
+                if not any(current["id"] == row["id"] for current in items)
+            )
         items.sort(key=lambda row: (row["category"], row["sort"]))
     return {"items": items}
 
@@ -156,6 +160,88 @@ def _skill_is_recommended(slug: str) -> bool:
     )
 
 
+def _connector_recommendations() -> list[dict]:
+    return db.list_catalog_items(
+        "CONNECTOR_RECOMMENDATIONS", scope="builtin", include_disabled=True,
+    )
+
+
+def _validate_connector_definition(data: Any, *, ignore_id: str = "") -> None:
+    """只接受公开启动定义；secret_env 的键和值都只能是环境变量名，杜绝把密钥值写进 Server。"""
+    if not isinstance(data, dict):
+        raise HTTPException(400, "CONN_DEFS data must be an object")
+    slug = str(data.get("slug", "")).strip()
+    name = str(data.get("name", "")).strip()
+    status = str(data.get("status", "")).strip()
+    launch = data.get("launch")
+    if not _SKILL_SLUG_RE.fullmatch(slug):
+        raise HTTPException(400, "invalid connector slug")
+    if not name:
+        raise HTTPException(400, "connector name is required")
+    if status not in {"rdy", "tok"}:
+        raise HTTPException(400, "connector status must be rdy or tok")
+    if not isinstance(launch, dict):
+        raise HTTPException(400, "connector launch must be an object")
+    builtin_server = str(launch.get("builtin_server", "")).strip()
+    command = str(launch.get("command", "")).strip()
+    if bool(builtin_server) == bool(command):
+        raise HTTPException(400, "connector launch requires exactly one of builtin_server or command")
+    if builtin_server and builtin_server not in _BUILTIN_CONNECTOR_SERVERS:
+        raise HTTPException(400, "unknown builtin connector server")
+    for key in ("requires", "requires_bin", "args"):
+        value = launch.get(key, [])
+        if not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value):
+            raise HTTPException(400, f"connector launch {key} must be a string list")
+    for value in launch.get("requires", []):
+        if not _ENV_NAME_RE.fullmatch(value):
+            raise HTTPException(400, "invalid connector environment variable name")
+    secret_env = launch.get("secret_env", {})
+    if not isinstance(secret_env, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) and _ENV_NAME_RE.fullmatch(k) and _ENV_NAME_RE.fullmatch(v)
+        for k, v in secret_env.items()
+    ):
+        raise HTTPException(400, "connector secret_env accepts environment variable names only")
+    for row in db.list_catalog_items("CONN_DEFS", scope="builtin", include_disabled=True):
+        current = row.get("data") if isinstance(row.get("data"), dict) else {}
+        if row["id"] != ignore_id and (current.get("slug") == slug or current.get("name") == name):
+            raise HTTPException(409, "connector slug or name already exists")
+
+
+def _validate_connector_recommendation(data: Any, *, ignore_id: str = "") -> None:
+    if not isinstance(data, dict):
+        raise HTTPException(400, "CONNECTOR_RECOMMENDATIONS data must be an object")
+    slug = str(data.get("connector_slug", "")).strip()
+    placement = str(data.get("placement", "connectors.recommended")).strip()
+    if not _SKILL_SLUG_RE.fullmatch(slug) or not _PLACEMENT_RE.fullmatch(placement):
+        raise HTTPException(400, "invalid connector recommendation")
+    exists = any(
+        isinstance(row.get("data"), dict) and row["data"].get("slug") == slug
+        for row in db.list_catalog_items("CONN_DEFS", scope="builtin", include_disabled=True)
+    )
+    if not exists:
+        raise HTTPException(400, "referenced connector does not exist")
+    try:
+        starts_at = float(data.get("starts_at") or 0)
+        ends_at = float(data.get("ends_at") or 0)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, "invalid recommendation schedule") from exc
+    if starts_at < 0 or ends_at < 0 or (starts_at and ends_at and ends_at <= starts_at):
+        raise HTTPException(400, "recommendation end time must be later than start time")
+    for row in _connector_recommendations():
+        current = row.get("data") if isinstance(row.get("data"), dict) else {}
+        if row["id"] != ignore_id and (
+            current.get("connector_slug"), current.get("placement", "connectors.recommended")
+        ) == (slug, placement):
+            raise HTTPException(409, "connector recommendation already exists in this placement")
+
+
+def _connector_is_recommended(slug: str) -> bool:
+    return any(
+        isinstance(row.get("data"), dict) and row["data"].get("connector_slug") == slug
+        for row in _connector_recommendations()
+    )
+
+
 @router.post("/catalog")
 def create_item(body: CatalogItemBody, account: Account = CurrentAccount) -> dict:
     _require_admin(account)
@@ -163,6 +249,10 @@ def create_item(body: CatalogItemBody, account: Account = CurrentAccount) -> dic
         _validate_app_skill(body.data)
     elif body.category == "SKILL_RECOMMENDATIONS":
         _validate_skill_recommendation(body.data)
+    elif body.category == "CONN_DEFS":
+        _validate_connector_definition(body.data)
+    elif body.category == "CONNECTOR_RECOMMENDATIONS":
+        _validate_connector_recommendation(body.data)
     iid = db.create_catalog_item(
         category=body.category, data=body.data, scope="builtin", kind=body.kind, sort=body.sort,
     )
@@ -189,6 +279,14 @@ def update_item(item_id: str, body: UpdateItemBody, account: Account = CurrentAc
             raise HTTPException(409, "skill is referenced by a recommendation")
     elif item["category"] == "SKILL_RECOMMENDATIONS" and body.data is not None:
         _validate_skill_recommendation(body.data, ignore_id=item_id)
+    elif item["category"] == "CONN_DEFS" and body.data is not None:
+        _validate_connector_definition(body.data, ignore_id=item_id)
+        old_slug = str(item.get("data", {}).get("slug", "")) if isinstance(item.get("data"), dict) else ""
+        new_slug = str(body.data.get("slug", "")) if isinstance(body.data, dict) else ""
+        if old_slug and old_slug != new_slug and _connector_is_recommended(old_slug):
+            raise HTTPException(409, "connector is referenced by a recommendation")
+    elif item["category"] == "CONNECTOR_RECOMMENDATIONS" and body.data is not None:
+        _validate_connector_recommendation(body.data, ignore_id=item_id)
     if not db.update_catalog_item(item_id, data=body.data, sort=body.sort, enabled=body.enabled):
         raise HTTPException(404, "catalog item not found")
     return {"ok": True}
@@ -204,6 +302,10 @@ def delete_item(item_id: str, account: Account = CurrentAccount) -> dict:
         slug = str(item["data"].get("slug", ""))
         if slug and _skill_is_recommended(slug):
             raise HTTPException(409, "skill is referenced by a recommendation")
+    if item["category"] == "CONN_DEFS" and isinstance(item.get("data"), dict):
+        slug = str(item["data"].get("slug", ""))
+        if slug and _connector_is_recommended(slug):
+            raise HTTPException(409, "connector is referenced by a recommendation")
     if not db.delete_catalog_item(item_id):
         raise HTTPException(404, "catalog item not found")
     return {"ok": True}

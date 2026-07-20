@@ -50,7 +50,7 @@ Server 的 Web 控制台负责项目、组织、协作及 AgentMate 自有目录
 ```
 AgentMate Console
 ├─ 项目            项目管理面（配置 / 成员·角色·邀请 / 计划·任务 / 讨论·在线·时间线）
-├─ 目录运营中心     专家 · 专家团 · 连接器 · 技能定义 · 技能推荐位（类型化 CRUD + 下发） 〔平台管理员〕
+├─ 目录运营中心     专家 · 专家团 · 连接器定义/推荐位 · 技能定义/推荐位（类型化 CRUD + 下发） 〔平台管理员〕
 ├─ 组织            组织及成员（既有）
 ├─ 通知            @提及与协作事件（既有）
 └─ 账号            当前账号 / 平台管理员徽标 / 退出
@@ -69,7 +69,8 @@ AgentMate Console
 用**类型化表单**替掉裸 JSON Admin；每类一张卡片列表 + 结构化编辑器，写 `catalog_items`，客户端 pull 后覆盖本地（WB-066 下发已就绪）。
 - **专家**（`EXP_GRID`）：icon / 名称 / 副标题 / 简介 / 标签 / 分类（`EXP_CATS`）/ **persona**（真定义，可选下发）。
 - **专家团**（`EXP_TEAMS`）：名称 / 图标 / 成员专家清单（引用专家名）。
-- **连接器**（`CONNS`+`CONN_META`）：icon / 名称 / 状态(rdy/tok) / launch spec 编辑器（内置 `builtin_server` 或第三方 `command/args`；`requires`/`requires_bin`；`secret_env` **仅变量名**）。
+- **连接器定义**（`CONN_DEFS`）：稳定 slug / icon / 名称 / 状态(rdy/tok) / launch spec 编辑器（内置 `builtin_server` 或第三方 `command/args`；`requires`/`requires_bin`；`secret_env` **仅变量名**）。
+- **连接器推荐位**（`CONNECTOR_RECOMMENDATIONS`）：connector_slug / placement / 排序 / 启停 / 生效时间；只引用定义，不保存 token 与 OAuth 状态。
 - **技能定义**（`APP_SKILLS`）：slug / icon / 名称 / 简介 / 分类 / 指令 / 工具。
 - **技能推荐位**（`SKILL_RECOMMENDATIONS`）：provider / skill_slug / placement / 编辑标题与简介 / 分类 / 排序 / 启停 / 生效时间；AgentMate 引用技能定义，SkillHub 只保存目录指针和展示文案。
 - 通用能力：启用/停用（`enabled`）、排序（`sort`）、删除；保留「高级：裸 JSON」兜底特殊类别。

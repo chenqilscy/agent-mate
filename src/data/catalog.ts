@@ -119,6 +119,17 @@ export interface SkillRecommendation extends RecommendedSkill {
 }
 export const SK_RECOMMENDATIONS: SkillRecommendation[] = []
 
+export interface ConnectorRecommendation {
+  slug: string
+  name: string
+  icon: string
+  description: string
+  status: 'rdy' | 'tok'
+  scope: string
+  placement: string
+}
+export const CONNECTOR_RECOMMENDATIONS: ConnectorRecommendation[] = []
+
 export const CONNS: [string, string, string][] = [
   ['📉', '通达信', '通过通达信 MCP 查询全球股票行情数据、条件选股、研究报告、公告资讯和宏观信息。'],
   ['✉️', 'QQ邮箱', '收发、搜索和整理 QQ 邮件。用自然语言读取邮件内容、汇总邮件线程、管理文件夹。'],

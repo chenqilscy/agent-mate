@@ -16,7 +16,7 @@ import uuid
 from typing import Any, Optional
 
 from config import settings
-from catalog_seed import DEFAULT_APP_SKILLS
+from catalog_seed import DEFAULT_APP_SKILLS, DEFAULT_CONNECTORS
 from models import Account, Invite, Org, Project, Role
 
 _local = threading.local()
@@ -366,6 +366,47 @@ def init_db() -> None:
             )
         conn.execute(
             "INSERT INTO settings (k,v,updated_at) VALUES ('skill_recommendations_v2','1',?)",
+            (now,),
+        )
+    # WB-220：连接器定义与推荐位独立。一次性迁移标记保证运营主动清空推荐后不会被重建。
+    connector_migrated = conn.execute(
+        "SELECT v FROM settings WHERE k='connector_recommendations_v1'"
+    ).fetchone()
+    if not connector_migrated:
+        now = time.time()
+        connector_count = conn.execute(
+            "SELECT COUNT(*) FROM catalog_items WHERE category='CONN_DEFS' AND scope='builtin'"
+        ).fetchone()[0]
+        if not connector_count:
+            for sort, connector in enumerate(DEFAULT_CONNECTORS):
+                conn.execute(
+                    "INSERT INTO catalog_items (id,category,scope,org_id,kind,data,enabled,sort,version,created_at,updated_at) "
+                    "VALUES (?,'CONN_DEFS','builtin',NULL,'',?,1,?,1,?,?)",
+                    (new_uuid(), json.dumps(connector, ensure_ascii=False), sort, now, now),
+                )
+        recommendation_count = conn.execute(
+            "SELECT COUNT(*) FROM catalog_items WHERE category='CONNECTOR_RECOMMENDATIONS' AND scope='builtin'"
+        ).fetchone()[0]
+        rows = [] if recommendation_count else conn.execute(
+            "SELECT data,sort FROM catalog_items WHERE category='CONN_DEFS' "
+            "AND scope='builtin' AND enabled=1 ORDER BY sort"
+        ).fetchall()
+        for row in rows:
+            try:
+                connector = json.loads(row["data"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            slug = str(connector.get("slug", "")).strip() if isinstance(connector, dict) else ""
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", slug):
+                continue
+            data = {"connector_slug": slug, "placement": "connectors.recommended"}
+            conn.execute(
+                "INSERT INTO catalog_items (id,category,scope,org_id,kind,data,enabled,sort,version,created_at,updated_at) "
+                "VALUES (?,'CONNECTOR_RECOMMENDATIONS','builtin',NULL,'',?,1,?,1,?,?)",
+                (new_uuid(), json.dumps(data, ensure_ascii=False), row["sort"], now, now),
+            )
+        conn.execute(
+            "INSERT INTO settings (k,v,updated_at) VALUES ('connector_recommendations_v1','1',?)",
             (now,),
         )
     conn.commit()

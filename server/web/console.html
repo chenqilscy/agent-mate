@@ -1430,7 +1430,7 @@ async function notifsView(m){
 // ---------- 目录运营中心（专家/专家团、连接器、AgentMate 自有技能与知识库）----------
 // 维护下发给客户端的内置目录（catalog_items），客户端 pull 后覆盖本地、离线回落本地 builtin 兜底。
 let CATVIEW = "experts";
-let CONNSUB = "gallery";   // 连接器 tab 子视图（WB-101）：gallery 浏览橱窗 / manage 目录管理
+let CONNSUB = "gallery";   // 连接器 tab 子视图：gallery 生效推荐 / manage 定义 / recommendations 推荐位
 let CONN_EDIT_ID = null;   // 从橱窗详情「编辑此连接器」跳目录管理时，带过去要载入编辑的项 id
 let KBSUB = "gallery";     // 知识库 tab 子视图（WB-145）：gallery 浏览橱窗 / manage 目录管理
 let KB_EDIT_ID = null;     // 从橱窗详情「编辑此模板」跳目录管理，带过去要载入编辑的项 id
@@ -1647,9 +1647,9 @@ function expTeamEdit(body, it){
   };
 }
 
-// 连接器目录（WB-083）：每条 = 权威定义对象 {icon,name,desc,status,launch}，存 category CONN_DEFS。
+// 连接器目录（WB-083/WB-220）：每条 = 权威定义对象 {slug,icon,name,desc,status,launch}，存 CONN_DEFS；
+// 推荐位只存 connector_slug 引用，凭据值与 OAuth 状态始终留在 App 本机。
 // launch spec 编辑器：内置(builtin_server) 或 第三方 stdio(command/args/secret_env 仅变量名/requires)。
-// 注：App 侧「浏览显示 + 真执行」消费 Server 连接器定义需 pull 映射（CONN_DEFS→NP_CONNS/本地 catalog_connectors），属后续。
 const BUILTIN_SERVERS = ["notes","clock","search","telegram","kdocs"];
 
 // 连接器 tab 分发（WB-101）：子切换「浏览橱窗 | 目录管理」，两者读同一份 CONN_DEFS。
@@ -1658,10 +1658,11 @@ async function connectorsCat(body){
     <div class="tabs" style="margin-bottom:14px">
       <button data-cs="gallery" class="${CONNSUB==='gallery'?'active':''}">浏览橱窗</button>
       <button data-cs="manage" class="${CONNSUB==='manage'?'active':''}">目录管理</button>
+      <button data-cs="recommendations" class="${CONNSUB==='recommendations'?'active':''}">推荐位管理</button>
     </div>
     <div id="cn-sub"></div>`;
   body.querySelectorAll("[data-cs]").forEach(b=> b.onclick=()=>{ CONNSUB=b.dataset.cs; connectorsCat(body); });
-  (CONNSUB==="manage"? connectorsManage : connectorsGallery)(document.getElementById("cn-sub"));
+  ({gallery:connectorsGallery,manage:connectorsManage,recommendations:connectorRecommendations}[CONNSUB]||connectorsGallery)(document.getElementById("cn-sub"));
 }
 
 // 浏览橱窗（WB-101）：对齐主应用 .conn 的双列卡片（icon+名称+rdy/tok 徽章+简介）+ 名称/简介搜索 + 只读详情浮层。
@@ -1669,7 +1670,9 @@ async function connectorsGallery(sub){
   sub.innerHTML = `<div class="cg-bar"><input id="cg-q" class="cg-search" placeholder="搜索连接器"></div><div id="cg-grid" class="muted">加载中…</div>`;
   const grid = document.getElementById("cg-grid");
   let items = [];
-  try{ const r = await api("GET","/catalog/CONN_DEFS?all=true"); items = r.items||[]; }
+  try{ const [defs,recs] = await Promise.all([api("GET","/catalog/CONN_DEFS?all=true"),api("GET","/catalog/CONNECTOR_RECOMMENDATIONS?all=true")]);
+    const now=Date.now()/1000, active=new Set((recs.items||[]).filter(r=>{const d=r.data||{};return r.enabled&&(!d.starts_at||now>=d.starts_at)&&(!d.ends_at||now<d.ends_at)&&d.placement==="connectors.recommended";}).map(r=>(r.data||{}).connector_slug));
+    items=(defs.items||[]).filter(it=>it.enabled&&active.has((it.data||{}).slug)); }
   catch(e){ grid.className=""; grid.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
   const badge = d => d.status==="rdy"?'<span class="cg-badge rdy">内置即用</span>':(d.status==="tok"?'<span class="cg-badge tok">需连接</span>':'');
   const draw = q => {
@@ -1719,9 +1722,10 @@ async function connectorsManage(body){
   body.innerHTML = `
     <div class="card"><h3 id="cn-h">新增连接器</h3><input type="hidden" id="cn-id">
       <div class="grid2">
+        <div class="field"><label>稳定 slug</label><input id="cn-slug" placeholder="github"></div>
         <div class="field"><label>图标 emoji</label><input id="cn-icon" placeholder="🔗"></div>
-        <div class="field"><label>名称</label><input id="cn-name"></div>
       </div>
+      <div class="field"><label>名称</label><input id="cn-name"></div>
       <div class="field"><label>简介</label><textarea id="cn-desc"></textarea></div>
       <div class="grid2">
         <div class="field"><label>状态</label><select id="cn-status"><option value="rdy">rdy 内置即用</option><option value="tok">tok 需凭据/CLI</option></select></div>
@@ -1749,7 +1753,7 @@ async function connectorsManage(body){
   function fill(it){
     const d = it? it.data : {}, L = (d&&d.launch) || {};
     F("cn-id").value = it? it.id : "";
-    F("cn-icon").value=d.icon||""; F("cn-name").value=d.name||""; F("cn-desc").value=d.desc||""; F("cn-status").value=d.status||"rdy";
+    F("cn-slug").value=d.slug||""; F("cn-icon").value=d.icon||""; F("cn-name").value=d.name||""; F("cn-desc").value=d.desc||""; F("cn-status").value=d.status||"rdy";
     const isStdio = !!L.command;
     F("cn-type").value = isStdio?"stdio":"builtin"; setType(F("cn-type").value);
     F("cn-bsrv").value=L.builtin_server||""; F("cn-breq").value=(!isStdio?(L.requires||[]):[]).join(", "); F("cn-bbin").value=(L.requires_bin||[]).join(", ");
@@ -1759,7 +1763,7 @@ async function connectorsManage(body){
   F("cn-clear").onclick=()=>fill(null);
   F("cn-save").onclick = async ()=>{
     F("cn-err").textContent="";
-    const name=F("cn-name").value.trim(); if(!name){ F("cn-err").textContent="名称必填"; return; }
+    const slug=F("cn-slug").value.trim(), name=F("cn-name").value.trim(); if(!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(slug)){ F("cn-err").textContent="slug 仅允许字母、数字与 . _ -"; return; } if(!name){ F("cn-err").textContent="名称必填"; return; }
     let launch;
     if(F("cn-type").value==="builtin"){
       launch={ builtin_server:F("cn-bsrv").value.trim(), builtin:true };
@@ -1772,7 +1776,7 @@ async function connectorsManage(body){
       if(Object.keys(senv).length) launch.secret_env=senv;
       const rq=csv(F("cn-sreq").value); if(rq.length) launch.requires=rq;
     }
-    const data={ icon:F("cn-icon").value.trim(), name, desc:F("cn-desc").value.trim(), status:F("cn-status").value, launch };
+    const data={ slug, icon:F("cn-icon").value.trim(), name, desc:F("cn-desc").value.trim(), status:F("cn-status").value, launch };
     const id=F("cn-id").value, sort=Number(F("cn-sort").value)||0;
     try{ if(id) await api("PATCH","/catalog/item/"+id,{data,sort}); else await api("POST","/catalog",{category:"CONN_DEFS",data,sort}); connectorsManage(body); }
     catch(e){ F("cn-err").textContent=e.message; }
@@ -1784,6 +1788,26 @@ async function connectorsManage(body){
     F("cn-list").querySelectorAll("[data-del]").forEach(b=> b.onclick=async()=>{ try{ await api("DELETE","/catalog/item/"+b.dataset.del); connectorsManage(body);}catch(e){F("cn-err").textContent=e.message;} });
     if(CONN_EDIT_ID){ const it=items.find(x=>x.id===CONN_EDIT_ID); CONN_EDIT_ID=null; if(it){ fill(it); window.scrollTo(0,0); } }  // 橱窗「编辑此连接器」带来的项，自动载入编辑（WB-101）
   }catch(e){ F("cn-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+}
+
+// WB-220：连接器推荐位独立于定义；删定义前由 API 检查引用，避免悬空卡片。
+async function connectorRecommendations(body){
+  body.innerHTML=`<div class="card"><h3>新增连接器推荐</h3><input type="hidden" id="cnr-id">
+    <div class="field"><label>连接器</label><select id="cnr-slug"></select></div>
+    <div class="grid2"><div class="field"><label>生效时间（可空）</label><input id="cnr-start" type="datetime-local"></div><div class="field"><label>结束时间（可空）</label><input id="cnr-end" type="datetime-local"></div></div>
+    <div class="row"><input id="cnr-sort" type="number" value="0" style="width:80px"><span class="muted" style="font-size:12px">排序</span><div class="grow"></div><button id="cnr-save">保存</button></div><div class="err" id="cnr-err"></div></div>
+    <div id="cnr-list" class="muted">加载中…</div>`;
+  const F=id=>document.getElementById(id);
+  try{
+    const [defs,recs]=await Promise.all([api("GET","/catalog/CONN_DEFS?all=true"),api("GET","/catalog/CONNECTOR_RECOMMENDATIONS?all=true")]);
+    const bySlug=new Map((defs.items||[]).map(it=>[(it.data||{}).slug,it.data||{}]));
+    F("cnr-slug").innerHTML=(defs.items||[]).map(it=>{const d=it.data||{};return `<option value="${esc(d.slug||"")}">${esc(d.name||d.slug||"?")}</option>`;}).join("");
+    const items=recs.items||[];
+    F("cnr-list").innerHTML=items.length?items.map(it=>{const d=it.data||{}, c=bySlug.get(d.connector_slug)||{};return `<div class="list-item"><span style="font-size:20px">${esc(c.icon||"🔗")}</span><div class="grow"><div class="t">${esc(c.name||d.connector_slug||"?")} ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d">${esc(d.connector_slug||"")}</div></div><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`;}).join(""):'<div class="muted">还没有连接器推荐位</div>';
+    F("cnr-list").querySelectorAll("[data-tog]").forEach(b=>b.onclick=async()=>{const[id,en]=b.dataset.tog.split(":");try{await api("PATCH","/catalog/item/"+id,{enabled:!!+en});connectorRecommendations(body);}catch(e){F("cnr-err").textContent=e.message;}});
+    F("cnr-list").querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{try{await api("DELETE","/catalog/item/"+b.dataset.del);connectorRecommendations(body);}catch(e){F("cnr-err").textContent=e.message;}});
+  }catch(e){F("cnr-list").innerHTML=`<div class="err">${esc(e.message)}</div>`;}
+  F("cnr-save").onclick=async()=>{const data={connector_slug:F("cnr-slug").value,placement:"connectors.recommended",starts_at:recDateEpoch(F("cnr-start").value),ends_at:recDateEpoch(F("cnr-end").value)};if(data.starts_at&&data.ends_at&&data.ends_at<=data.starts_at){F("cnr-err").textContent="结束时间必须晚于生效时间";return;}try{await api("POST","/catalog",{category:"CONNECTOR_RECOMMENDATIONS",data,sort:Number(F("cnr-sort").value)||0});connectorRecommendations(body);}catch(e){F("cnr-err").textContent=e.message;}};
 }
 
 // 知识库模板目录（WB-145）：策展下发给 App 的「建库模板」。每条 = {key,name,desc,icon,embedding_id,

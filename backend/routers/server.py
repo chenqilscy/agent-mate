@@ -32,6 +32,7 @@ def server_pull(authorization: str = Header(default="")) -> dict:
     return {
         "server": True, **result, "flushed": flushed.get("pushed", 0),
         "catalog": catalog.get("downlinked", 0), "skills": catalog.get("skills", 0),
+        "connectors": catalog.get("connectors", 0),
     }
 
 

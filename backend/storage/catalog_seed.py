@@ -37,17 +37,17 @@ BUILTIN_EXPERTS: list[dict[str, str]] = [
 #                   （secret_env 只把该连接器自己的凭据注入其子进程，绝不透传 os.environ，WB-011）
 # status: rdy 内置即用 · tok 需在 backend/.env 配凭据或本机装 CLI。
 BUILTIN_CONNECTORS: list[dict[str, Any]] = [
-    {"name": "本地便签", "icon": "📝", "status": "rdy",
+    {"slug": "local-notes", "name": "本地便签", "icon": "📝", "status": "rdy",
      "launch": {"builtin_server": "notes", "builtin": True}},
-    {"name": "时间助手", "icon": "⏰", "status": "rdy",
+    {"slug": "clock", "name": "时间助手", "icon": "⏰", "status": "rdy",
      "launch": {"builtin_server": "clock", "builtin": True}},
-    {"name": "工作区检索", "icon": "🔍", "status": "rdy",
+    {"slug": "workspace-search", "name": "工作区检索", "icon": "🔍", "status": "rdy",
      "launch": {"builtin_server": "search", "builtin": True}},
-    {"name": "Telegram", "icon": "✈️", "status": "tok",
+    {"slug": "telegram", "name": "Telegram", "icon": "✈️", "status": "tok",
      "launch": {"builtin_server": "telegram", "builtin": True, "requires": ["TELEGRAM_BOT_TOKEN"]}},
-    {"name": "金山文档", "icon": "📄", "status": "tok",
+    {"slug": "kdocs", "name": "金山文档", "icon": "📄", "status": "tok",
      "launch": {"builtin_server": "kdocs", "builtin": True, "requires_bin": ["kdocs-cli"]}},
-    {"name": "GitHub", "icon": "🐙", "status": "tok",
+    {"slug": "github", "name": "GitHub", "icon": "🐙", "status": "tok",
      "launch": {
          "command": "npx",
          "args": ["-y", "@modelcontextprotocol/server-github"],

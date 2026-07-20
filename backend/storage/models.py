@@ -131,6 +131,7 @@ class CatalogConnector:
     id: str
     scope: str  # "builtin" | "org" | "user"
     owner_id: Optional[str]
+    slug: str  # Server 推荐位引用的稳定身份；loadout 迁移前仍保存 name
     name: str  # 连接器名，即 loadout/项目里引用的 key（如 "本地便签"）
     icon: str
     description: str
