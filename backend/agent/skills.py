@@ -301,38 +301,53 @@ def _resolve_tools(names: list[str]) -> list[Tool]:
 
 
 def builtin_list() -> list[dict[str, Any]]:
-    """内置技能清单（供前端 loadout 选择器，WB-180）——**读库**（catalog_skills，WB-183）。
-
-    它们**不在磁盘上**（不是从 SkillHub 装的），故 `GET /api/skills` 的磁盘扫描列不出它们；
-    前端此前只能靠静态 SK_GRID 里的名字恰好撞上硬编码 SKILLS 的 key 才选得到。
-    `tools` 只报**代码里真有实现**的（库里写了但注册表没有的不算数，别让目录承诺不存在的能力）。
-    """
+    """已安装且启用的 AgentMate 目录技能，供 loadout 选择器读取。"""
     from storage import db  # 延迟导入，避免 storage.db ↔ agent.* 循环依赖
+    from agent import skills_store
+    installed = {
+        str(item["slug"]): item
+        for item in skills_store.scan()
+        if item.get("source") == "agentmate" and not item.get("disabled")
+    }
     return [
         {
             "slug": s["slug"],
-            "name": s["name"],
-            "description": s["description"] or s["instructions"],
+            "name": installed[str(s["slug"])]["name"],
+            "description": installed[str(s["slug"])]["description"] or s["description"],
             "tools": [t.name for t in _resolve_tools(s["tools"])],
         }
         for s in db.skill_specs()
+        if str(s["slug"]) in installed
     ]
 
 
 def catalog_detail(key: str) -> dict[str, Any] | None:
-    """Return a real catalog skill definition without pretending it is a disk SKILL.md.
-
-    Catalog skills (local builtin or a Server override) are usable without installation.
-    ``catalog=True`` lets the UI omit disk-only actions such as reveal and uninstall.
-    """
+    """Return catalog metadata; expose file content only after local installation."""
     from storage import db  # delayed to avoid storage.db <-> agent.* import cycles
+    from agent import skills_store
 
     spec = db.skill_spec_for(key)
     if not spec or not spec["instructions"]:
         return None
     resolved_tools = [tool.name for tool in _resolve_tools(spec["tools"])]
-    instructions = str(spec["instructions"])
-    source = str(spec.get("source") or ("Server" if spec.get("scope") == "server" else "内置"))
+    installed = next(
+        (
+            item for item in skills_store.scan()
+            if item.get("slug") == spec["slug"] and item.get("source") == "agentmate"
+        ),
+        None,
+    )
+    if installed:
+        detail = skills_store.detail(str(installed["key"]))
+        if detail:
+            return {
+                **detail,
+                "source": "AgentMate",
+                "catalog": True,
+                "category": str(spec.get("category") or ""),
+                "tools": resolved_tools,
+            }
+    source = "AgentMate"
     return {
         "key": "",
         "slug": str(spec["slug"]),
@@ -341,20 +356,20 @@ def catalog_detail(key: str) -> dict[str, Any] | None:
         "version": "",
         "source": source,
         "disabled": False,
-        "markdown": instructions,
-        "body": instructions,
+        "markdown": "",
+        "body": "",
         "frontmatter": {
             "slug": str(spec["slug"]),
             "category": str(spec.get("category") or ""),
             "source": source,
-            "tools": resolved_tools,
+            "tools": [],
         },
         "references": [],
         "dir": "",
-        "installed": True,
+        "installed": False,
         "catalog": True,
         "category": str(spec.get("category") or ""),
-        "tools": resolved_tools,
+        "tools": [],
     }
 
 
@@ -406,7 +421,8 @@ def skill_def(name: str) -> tuple[str, list[Tool]] | None:
     """把 loadout 里的技能名（或 slug）解析成 (指令, 工具包)；**解析不到返回 None**。
 
     两层，都是真的：
-    1. 目录技能（DB 的 `catalog_skills`，WB-183）——指令读库，工具名经 `_TOOL_REGISTRY` 解析；
+    1. 已安装的 AgentMate 目录技能——指令读本地 SKILL.md 快照，工具名由目录 DB 经
+       `_TOOL_REGISTRY` 解析；未安装/停用时不可用（WB-216）；
     2. 对应一个已安装且未停用的磁盘 skill（WB-055）→ 注入其真实 SKILL.md 正文。
 
     曾经还有第三层兜底 `f"运用「{name}」技能的专长完成相关任务。"` —— 那是**伪装**：
@@ -416,10 +432,22 @@ def skill_def(name: str) -> tuple[str, list[Tool]] | None:
     的既有范式（选了但加载不了就明说，不做静默 no-op），宁可少一个技能也不假装有。
     """
     from storage import db  # 延迟导入，避免 storage.db ↔ agent.* 循环依赖
+    from agent import skills_store  # 延迟导入，避免与 config/加载顺序耦合
     spec = db.skill_spec_for(name)  # 按 slug 或 name 命中（迁移期两者并存，WB-179）
     if spec and spec["instructions"]:
-        return (spec["instructions"], _resolve_tools(spec["tools"]))
-    from agent import skills_store  # 延迟导入，避免与 config/加载顺序耦合
+        installed = next(
+            (
+                item for item in skills_store.scan()
+                if item.get("slug") == spec["slug"]
+                and item.get("source") == "agentmate"
+                and not item.get("disabled")
+            ),
+            None,
+        )
+        if installed:
+            body = skills_store.instructions_for(str(installed["key"]))
+            if body:
+                return (body, _resolve_tools(spec["tools"]))
     body = skills_store.instructions_for(name)
     if body:
         return (body, [])

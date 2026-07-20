@@ -231,6 +231,7 @@
 | [WB-213](WB-213-reassign-local-stack-ports-8100-8102.md) | ✅ | P1 | fullstack | 本地三层服务端口统一调整为 8100、8101、8102 |
 | [WB-214](WB-214-recommended-skill-skillhub-interaction-parity.md) | ✅ | P2 | fullstack | 推荐技能与 SkillHub 卡片交互不一致，内置技能缺少详情入口 |
 | [WB-215](WB-215-local-skillhub-and-installed-only-content.md) | ✅ | P1 | fullstack | SkillHub 错误由 Server 集中管理，未安装技能可读取文件内容 |
+| [WB-216](WB-216-recommended-skills-real-install.md) | ✅ | P1 | fullstack | 推荐技能错误按内置免安装处理，与 SkillHub 安装模型不一致 |
 
 ## 来源
 

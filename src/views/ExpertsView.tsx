@@ -47,39 +47,9 @@ function summonConnector(name: string) {
   toast('已挂载「' + name + '」· 去试试')
 }
 
-// 「推荐」段卡片的 ＋（WB-181）。此前它是个纯谎言：只翻转组件内 useState + toast「已添加」，
-// 不进 loadout、不安装、刷新即复原。现在按卡片的**真实身份**分派——因为这一段的 SK_GRID
-// 混着三种互不相容的东西（实测 16 张：6 张内置 / 3 张可装 / 7 张上游根本不存在）：
-//   · 内置技能、已装且未停用 → 挂载进会话并跳 composer（同 SkillDetail 的「去试试」）
-//   · 其余 → 真安装（装不到会诚实报错，不再假装成功）
-// 三种身份混在一段里本身是数据问题，归 WB-184（数据源收敛）/ WB-183（目录入库）。
-//
-// 为什么是「挂载+跳转」而不是留在原地 toggle：loadout 是**会话级**的，`openSession` 与
-// 侧栏「新建任务」都会 reset 它（chatStore.ts:70 / Sidebar.tsx:171，WB-003 的正确行为）。
-// 留在原地 toggle 会得到「状态是真的、但用户一导航去用就没了」——真状态、假用处。
-// 本 app 既有的正确出路是 summon 系：设 loadout → startDraft（不 reset）→ setView，
-// 专家「召唤」(L30) 与 SkillDetail「去试试」(tryIt) 都走这条，这里保持一致。
 function RecoBtn({ skillKey, displayName }: { skillKey: string; displayName: string }) {
-  const builtin = useSkillStore((s) => s.builtin.find((b) => b.name === skillKey || b.slug === skillKey))
-  const inst = useSkillStore((s) => matchSkill(s.installed, skillKey))
-  if (!builtin && !(inst && !inst.disabled)) return <InstallBtn name={displayName} />
-  return (
-    <button
-      type="button"
-      className="add-btn"
-      aria-label="使用技能"
-      title={'使用「' + displayName + '」'}
-      onClick={(e) => {
-        e.stopPropagation()
-        useLoadoutStore.getState().summonSkills([builtin?.slug || inst?.slug || inst?.key || skillKey])
-        useChatStore.getState().startDraft('试试 · ' + displayName)
-        useUIStore.getState().setView('home')
-        toast('已挂载「' + displayName + '」· 去试试')
-      }}
-    >
-      <IcUse />
-    </button>
-  )
+  const inst = useSkillStore((s) => s.installed.find((item) => item.slug === skillKey && item.source === 'agentmate'))
+  return inst ? <InstalledCtl skill={inst} /> : <InstallBtn name={displayName} slug={skillKey} catalog />
 }
 
 function ExpertsPane() {
@@ -240,7 +210,6 @@ function ExpertDetailModal({ detail, onClose }: { detail: Detail; onClose: () =>
 const IcDl = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 11l5 5 5-5M5 21h14" /></svg>
 const IcStar = () => <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.3 6.9.6-5.2 4.5 1.6 6.8L12 17.3 5.8 20.8l1.6-6.8L2.2 8.9l6.9-.6z" /></svg>
 const IcPlusSm = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
-const IcUse = () => <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
 const IcPower = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 3v9" /><path d="M6.4 6.4a8 8 0 1 0 11.2 0" /></svg>
 const IcEdit = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
 const IcTrash = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" /></svg>
@@ -308,11 +277,17 @@ function InstalledCtl({ skill }: { skill: InstalledSkill }) {
 }
 
 // 安装按钮（未安装态）——真实安装，进行中转圈。
-function InstallBtn({ name }: { name: string }) {
+function InstallBtn({ name, slug, catalog = false }: { name: string; slug?: string; catalog?: boolean }) {
   const install = useSkillStore((s) => s.install)
-  const busy = useSkillStore((s) => s.installing.includes(name))
+  const installCatalog = useSkillStore((s) => s.installCatalog)
+  const busyKey = catalog ? (slug || name) : name
+  const busy = useSkillStore((s) => s.installing.includes(busyKey))
   return (
-    <button className="add-btn" aria-label="安装" disabled={busy} onClick={(e) => { e.stopPropagation(); void install(name) }}>
+    <button className="add-btn" aria-label="安装" disabled={busy} onClick={(e) => {
+      e.stopPropagation()
+      if (catalog && slug) void installCatalog(name, slug)
+      else void install(name, slug)
+    }}>
       {busy ? <IcSpin /> : <IcPlusSm />}
     </button>
   )

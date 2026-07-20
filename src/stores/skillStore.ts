@@ -13,8 +13,7 @@ export function matchSkill(installed: InstalledSkill[], name: string): Installed
   return installed.find((s) => s.name === name || s.slug === name || s.key === name)
 }
 
-// 内置技能（WB-180）：不在磁盘上，`GET /api/skills` 的磁盘扫描列不出，只能问 /skills/builtin。
-// tools 为空 = 纯提示词技能（按本项目定义「技能 = 提示词 + 工具包」，同样是真技能）。
+// AgentMate 目录技能（兼容旧 API 名 builtin）：只有真实安装且启用后才会返回（WB-216）。
 export interface BuiltinSkill {
   slug: string
   name: string
@@ -32,6 +31,7 @@ interface SkillState {
 
   load: (force?: boolean) => Promise<void>
   install: (name: string, slug?: string) => Promise<void>
+  installCatalog: (name: string, slug: string) => Promise<void>
   uninstall: (key: string) => Promise<void>
   toggle: (key: string, disabled: boolean) => Promise<void>
 }
@@ -88,6 +88,20 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     }
   },
 
+  installCatalog: async (name, slug) => {
+    if (get().installing.includes(slug)) return
+    set((s) => ({ installing: [...s.installing, slug] }))
+    try {
+      await api.installCatalogSkill(slug)
+      toast('已安装 · ' + name)
+      await get().load(true)
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '安装失败')
+    } finally {
+      set((s) => ({ installing: s.installing.filter((key) => key !== slug) }))
+    }
+  },
+
   uninstall: async (key) => {
     try {
       await api.uninstallSkill(key)
@@ -104,6 +118,7 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     try {
       await api.toggleSkill(key, disabled)
       toast(disabled ? '已关闭' : '已启用')
+      await get().load(true)
     } catch {
       set((s) => ({ installed: s.installed.map((x) => (x.key === key ? { ...x, disabled: !disabled } : x)) }))
       toast('操作失败')

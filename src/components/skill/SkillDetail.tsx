@@ -32,7 +32,8 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
   const uninstall = useSkillStore((s) => s.uninstall)
   const storeSkill = useSkillStore((s) => {
     const identity = data?.key || installedKey || target.card?.slug || target.card?.name || ''
-    return identity ? s.installed.find((x) => x.key === identity || x.slug === identity || x.name === identity) : undefined
+    const match = identity ? s.installed.find((x) => x.key === identity || x.slug === identity || x.name === identity) : undefined
+    return target.catalog && match?.source !== 'agentmate' ? undefined : match
   })
 
   useEffect(() => {
@@ -61,7 +62,6 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
 
   const marketCard = target.card
   const installed = storeSkill ? true : (data?.installed ?? Boolean(installedKey))
-  const catalogSkill = data?.catalog ?? false
   const disabled = storeSkill?.disabled ?? data?.disabled ?? false
   const name = data?.name ?? marketCard?.name ?? target.name ?? target.key ?? ''
   const description = data?.description ?? marketCard?.description ?? ''
@@ -78,10 +78,12 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
   }
   const doInstall = async () => {
     setInstalling(true)
-    await useSkillStore.getState().install(name, marketCard?.slug ?? target.slug)
+    if (target.catalog && target.slug) await useSkillStore.getState().installCatalog(name, target.slug)
+    else await useSkillStore.getState().install(name, marketCard?.slug ?? target.slug)
     setInstalling(false)
     const installedSkill = useSkillStore.getState().installed.find((x) =>
-      x.slug === (marketCard?.slug ?? target.slug) || x.name === name,
+      (x.slug === (marketCard?.slug ?? target.slug) || x.name === name)
+      && (!target.catalog || x.source === 'agentmate'),
     )
     if (installedSkill) setInstalledKey(installedSkill.key)
   }
@@ -117,24 +119,20 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
               {installed ? (
                 <>
                   <button className="cap-act" onClick={tryIt}>去试试</button>
-                  {!catalogSkill && (
-                    <>
-                      <div
-                        className={`sw ${disabled ? '' : 'on'}`.trim()} role="switch" aria-checked={disabled ? 'false' : 'true'}
-                        title={disabled ? '已关闭 · 点击启用' : '已启用 · 点击关闭'}
-                        onClick={() => toggle(localKey, !disabled)}
-                      />
-                      <div className="more-wrap" onClick={(e) => e.stopPropagation()}>
-                        <button className="hc-more" aria-label="更多" onClick={() => setMenu((v) => !v)}>⋯</button>
-                        {menu && (
-                          <div className="card-menu open skd-menu">
-                            <div className="more-item" onClick={reveal}><IcFolder />打开文件夹</div>
-                            <div className="more-item div" onClick={doUninstall}><IcTrash />卸载</div>
-                          </div>
-                        )}
+                  <div
+                    className={`sw ${disabled ? '' : 'on'}`.trim()} role="switch" aria-checked={disabled ? 'false' : 'true'}
+                    title={disabled ? '已关闭 · 点击启用' : '已启用 · 点击关闭'}
+                    onClick={() => toggle(localKey, !disabled)}
+                  />
+                  <div className="more-wrap" onClick={(e) => e.stopPropagation()}>
+                    <button className="hc-more" aria-label="更多" onClick={() => setMenu((v) => !v)}>⋯</button>
+                    {menu && (
+                      <div className="card-menu open skd-menu">
+                        <div className="more-item" onClick={reveal}><IcFolder />打开文件夹</div>
+                        <div className="more-item div" onClick={doUninstall}><IcTrash />卸载</div>
                       </div>
-                    </>
-                  )}
+                    )}
+                  </div>
                 </>
               ) : (
                 <button className="btn-dark" disabled={installing} onClick={doInstall}>
@@ -144,11 +142,11 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
             </div>
           </div>
 
-          {data ? (
+          {data && installed ? (
             <div className="skd-card">
               <div className="skd-viewtoggle">
                 <button className={view === 'preview' ? 'on' : ''} aria-label="预览" title="预览" onClick={() => setView('preview')}><IcEye /></button>
-                <button className={view === 'source' ? 'on' : ''} aria-label={catalogSkill ? '定义' : '源码'} title={catalogSkill ? '定义' : '源码'} onClick={() => setView('source')}><IcCode /></button>
+                <button className={view === 'source' ? 'on' : ''} aria-label="源码" title="源码" onClick={() => setView('source')}><IcCode /></button>
               </div>
               {view === 'preview' ? (
                 <div className="skd-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(data.body || data.markdown) }} />
@@ -164,7 +162,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
             </div>
           )}
 
-          {data && data.references.length > 0 && (
+          {installed && data && data.references.length > 0 && (
             <div className="skd-refs">
               <span className="skd-refs-l">references</span>
               {data.references.map((r) => <span className="ec-tag" key={r}>{r}</span>)}

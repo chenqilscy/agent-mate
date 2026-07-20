@@ -482,8 +482,8 @@ export interface SkillDetail extends InstalledSkill {
   frontmatter: Record<string, unknown>
   references: string[]
   dir: string
-    installed?: boolean                    // true=本地已安装；目录定义由 catalog 标识
-  catalog?: boolean                      // true=目录内置/Server 定义，无需磁盘安装（WB-214）
+  installed?: boolean                  // true=本地已安装
+  catalog?: boolean                    // true=AgentMate 推荐目录定义；仍需本地安装（WB-216）
   category?: string
   tools?: string[]
 }

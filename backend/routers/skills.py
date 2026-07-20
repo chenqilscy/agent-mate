@@ -38,7 +38,7 @@ def list_installed() -> dict:
 
 @router.get("/skills/builtin")
 def list_builtin() -> dict:
-    """内置技能（真工具包 / 真提示词），不在磁盘上，磁盘扫描列不出 —— 供 loadout 选择器（WB-180）。
+    """已安装的 AgentMate 目录技能，供 loadout 选择器（兼容旧路由名）。
 
     路由顺序：必须定义在 `/skills/{key}` 之前，否则会被它当成 key="builtin" 吃掉。
     """
@@ -66,6 +66,26 @@ def catalog_skill_detail(key: str) -> dict:
     if not d:
         raise HTTPException(404, "catalog skill not found")
     return {"skill": d, "source": "catalog"}
+
+
+@router.post("/skills/catalog/{key}/install")
+def install_catalog_skill(key: str) -> dict:
+    """Install an AgentMate recommended definition into the local skill directory."""
+    from storage import db
+
+    spec = db.skill_spec_for(key)
+    if not spec or not spec.get("instructions"):
+        raise HTTPException(404, "catalog skill not found")
+    try:
+        return skills_store.install_catalog_skill(
+            str(spec["slug"]),
+            str(spec["name"]),
+            str(spec.get("description") or ""),
+            str(spec["instructions"]),
+            str(spec.get("version") or ""),
+        )
+    except skills_store.SkillImportError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
 
 
 @router.get("/skills/{key}")

@@ -229,6 +229,8 @@ export const api = {
     get<{ type: string; skills: SkillCard[]; source: 'app' }>(`/skills/rankings?type=${encodeURIComponent(type)}`),
   skillDetail: (key: string) => get<{ skill: SkillDetail }>(`/skills/${encodeURIComponent(key)}`),
   skillCatalogDetail: (key: string) => get<{ skill: SkillDetail }>(`/skills/catalog/${encodeURIComponent(key)}`),
+  installCatalogSkill: (key: string) =>
+    send<{ ok: boolean; skill: InstalledSkill }>('POST', `/skills/catalog/${encodeURIComponent(key)}/install`),
   installSkill: (body: { slug?: string; name?: string }) =>
     send<{ ok: boolean; skill: InstalledSkill }>('POST', '/skills/install', body),
   importSkillFile: async (file: File) => {

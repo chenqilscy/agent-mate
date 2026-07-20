@@ -19,7 +19,9 @@ class SkillCatalogContractTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.old_path = settings.DB_PATH
+        self.old_skills_dir = settings.SKILLS_DIR
         settings.DB_PATH = Path(self.tmp.name) / "test.db"
+        settings.SKILLS_DIR = Path(self.tmp.name) / "skills"
         db._local = __import__("threading").local()
         db.init_db()
 
@@ -28,6 +30,7 @@ class SkillCatalogContractTest(unittest.TestCase):
         if conn is not None:
             conn.close()
         settings.DB_PATH = self.old_path
+        settings.SKILLS_DIR = self.old_skills_dir
         db._local = __import__("threading").local()
         self.tmp.cleanup()
 
@@ -84,24 +87,54 @@ class SkillCatalogContractTest(unittest.TestCase):
         spec = db.skill_spec_for("skill-creator-guide")
         self.assertIsNotNone(spec)
         self.assertEqual(["create_local_skill"], spec["tools"])
+        from agent import skills_store
         from agent.skills import skill_def
+        self.assertIsNone(skill_def("skill-creator-guide"))
+        skills_store.install_catalog_skill(
+            spec["slug"], spec["name"], spec["description"], spec["instructions"]
+        )
         resolved = skill_def("skill-creator-guide")
         self.assertIsNotNone(resolved)
         self.assertIn("真正创建并安装", resolved[0])
         self.assertEqual(["create_local_skill"], [tool.name for tool in resolved[1]])
 
-    def test_catalog_skill_detail_uses_real_definition_without_install(self) -> None:
-        from agent.skills import catalog_detail
+    def test_catalog_skill_requires_real_install_for_content_and_runtime(self) -> None:
+        from agent import skills_store
+        from agent.skills import builtin_list, catalog_detail, skill_def
 
         detail = catalog_detail("web-access")
         self.assertIsNotNone(detail)
         self.assertTrue(detail["catalog"])
-        self.assertTrue(detail["installed"])
+        self.assertFalse(detail["installed"])
         self.assertEqual("web-access", detail["slug"])
-        self.assertEqual("内置", detail["source"])
-        self.assertEqual(["web_fetch"], detail["tools"])
-        self.assertEqual(detail["body"], detail["markdown"])
-        self.assertIn("web_fetch", detail["body"])
+        self.assertEqual("AgentMate", detail["source"])
+        self.assertEqual([], detail["tools"])
+        self.assertEqual("", detail["body"])
+        self.assertEqual("", detail["markdown"])
+        self.assertEqual([], builtin_list())
+        self.assertIsNone(skill_def("web-access"))
+
+        spec = db.skill_spec_for("web-access")
+        result = skills_store.install_catalog_skill(
+            spec["slug"], spec["name"], spec["description"], spec["instructions"]
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual("agentmate", result["skill"]["source"])
+        self.assertTrue((settings.SKILLS_DIR / "web-access" / "SKILL.md").is_file())
+
+        installed = catalog_detail("web-access")
+        self.assertTrue(installed["installed"])
+        self.assertEqual("web-access", installed["key"])
+        self.assertEqual(["web_fetch"], installed["tools"])
+        self.assertIn("web_fetch", installed["body"])
+        self.assertEqual(["web-access"], [item["slug"] for item in builtin_list()])
+        self.assertIsNotNone(skill_def("web-access"))
+
+        self.assertTrue(skills_store.set_disabled("web-access", True))
+        self.assertEqual([], builtin_list())
+        self.assertIsNone(skill_def("web-access"))
+        self.assertTrue(skills_store.uninstall("web-access"))
+        self.assertFalse(catalog_detail("web-access")["installed"])
 
 
 if __name__ == "__main__":

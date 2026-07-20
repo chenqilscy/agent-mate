@@ -236,7 +236,9 @@ def _import_slug(frontmatter: dict[str, Any], root_hint: str, source_name: str, 
     return "local-" + hashlib.sha256(skill_md).hexdigest()[:12]
 
 
-def _install_import_files(files: list[tuple[str, bytes]], source_name: str) -> dict[str, Any]:
+def _install_import_files(
+    files: list[tuple[str, bytes]], source_name: str, *, installed_source: str = "local"
+) -> dict[str, Any]:
     if not files:
         raise SkillImportError("未选择任何技能文件")
     if len(files) > MAX_IMPORT_FILES:
@@ -306,7 +308,7 @@ def _install_import_files(files: list[tuple[str, bytes]], source_name: str) -> d
             "name": name,
             "version": str(frontmatter.get("version") or "").strip(),
             "installedAt": int(time.time() * 1000),
-            "source": "local",
+            "source": installed_source,
         }
         (staging / SKILLHUB_META).write_text(
             json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -387,6 +389,39 @@ def create_skill(slug: str, name: str, description: str, instructions: str) -> d
         f"{instructions}\n"
     )
     return _install_import_files([(SKILL_MD, markdown.encode("utf-8"))], f"{slug}.md")
+
+
+def install_catalog_skill(
+    slug: str, name: str, description: str, instructions: str, version: str = ""
+) -> dict[str, Any]:
+    """Install an AgentMate catalog definition as a real local skill snapshot."""
+    slug = (slug or "").strip()
+    name = (name or "").strip()
+    description = (description or "").strip()
+    instructions = (instructions or "").strip()
+    version = (version or "").strip()
+    if not valid_slug(slug):
+        raise SkillImportError("目录技能 slug 非法")
+    if not name or not description or not instructions:
+        raise SkillImportError("目录技能定义不完整", 422)
+    if len(name) > 120 or len(description) > 500 or len(instructions) > 50_000:
+        raise SkillImportError("目录技能名称、描述或指令过长", 422)
+    version_line = f"version: {json.dumps(version, ensure_ascii=False)}\n" if version else ""
+    markdown = (
+        "---\n"
+        f"name: {json.dumps(name, ensure_ascii=False)}\n"
+        f"slug: {slug}\n"
+        f"description: {json.dumps(description, ensure_ascii=False)}\n"
+        f"{version_line}"
+        "source: agentmate\n"
+        "---\n\n"
+        f"{instructions}\n"
+    )
+    return _install_import_files(
+        [(SKILL_MD, markdown.encode("utf-8"))],
+        f"{slug}.md",
+        installed_source="agentmate",
+    )
 
 
 def canonical_slug(key: str) -> str | None:
