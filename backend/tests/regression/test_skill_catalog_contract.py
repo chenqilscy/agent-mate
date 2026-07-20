@@ -51,16 +51,16 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertEqual(["excel-csv", "word-doc"], json.loads(conn.execute("SELECT skills FROM assistants WHERE id='a1'").fetchone()[0]))
         self.assertEqual({"changed": 0, "dropped": 0}, db.migrate_skill_identities(canonical_skill_key))
 
-    def test_hub_catalog_overrides_by_slug_and_drives_categories(self) -> None:
-        result = db.replace_hub_skill_catalog([
-            {"slug": "excel-csv", "name": "表格分析（运营版）", "icon": "📊", "description": "Hub 描述", "instructions": "Hub 指令", "tools": ["analyze_csv", "not-real"], "category": "办公效率"},
+    def test_server_catalog_overrides_by_slug_and_drives_categories(self) -> None:
+        result = db.replace_server_skill_catalog([
+            {"slug": "excel-csv", "name": "表格分析（运营版）", "icon": "📊", "description": "Server 描述", "instructions": "Server 指令", "tools": ["analyze_csv", "not-real"], "category": "办公效率"},
             {"slug": "bad slug", "name": "非法项"},
         ])
         self.assertEqual({"inserted": 1, "skipped": 1}, result)
         spec = db.skill_spec_for("excel-csv")
         self.assertIsNotNone(spec)
         self.assertEqual("表格分析（运营版）", spec["name"])
-        self.assertEqual("Hub 指令", spec["instructions"])
+        self.assertEqual("Server 指令", spec["instructions"])
         self.assertEqual(1, len([s for s in db.skill_specs() if s["slug"] == "excel-csv"]))
 
         catalog = db.showcase_all()

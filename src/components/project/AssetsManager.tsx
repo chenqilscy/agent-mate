@@ -111,8 +111,8 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
   return (
     <div onClick={() => setMenuFor(null)}>
       <div className="as-toolbar">
-        <button className="hub-act" onClick={newFolder}>新建文件夹</button>
-        <button className="hub-act" onClick={() => fileInput.current?.click()}>上传文件</button>
+        <button className="cap-act" onClick={newFolder}>新建文件夹</button>
+        <button className="cap-act" onClick={() => fileInput.current?.click()}>上传文件</button>
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => onUpload(e.target.files)} />
         <span className="as-quota">存储空间已用 {fmtSize(usage.used)} / {fmtSize(usage.quota)} <i>({pct.toFixed(2)}%)</i></span>
         <span style={{ flex: 1 }} />

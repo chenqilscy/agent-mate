@@ -11,7 +11,7 @@ import { PickerOverlay } from '../components/project/NewProjectModal'
 import { KanbanBoard, TaskList, WorkloadView, GanttView } from '../components/project/ProjectWork'
 import { AssetsManager } from '../components/project/AssetsManager'
 import { MembersModal } from '../components/project/MembersModal'
-import { HubCommentsPanel } from '../components/hub/HubCommentsPanel'
+import { ServerCommentsPanel } from '../components/server/ServerCommentsPanel'
 import { useWorkItemStore } from '../stores/workItemStore'
 import { useCatalogStore } from '../stores/catalogStore'
 import { useKnowledgeStore } from '../stores/knowledgeStore'
@@ -191,7 +191,7 @@ export function ProjectHomeView() {
 
             {tab === '资产' && <AssetsManager scope={{ project: project.id }} />}
 
-            {tab === '讨论' && <HubCommentsPanel projectId={project.id} />}
+            {tab === '讨论' && <ServerCommentsPanel projectId={project.id} />}
           </div>
 
           <div className="chat-foot">

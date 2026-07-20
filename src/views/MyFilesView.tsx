@@ -45,8 +45,8 @@ export function MyFilesView() {
         {tab === 'cloud' && (
           <div>
             <div className="mf-filter">
-              <button className="hub-act" onClick={() => toast('新建文件夹')}>新建文件夹</button>
-              <button className="hub-act" onClick={() => toast('上传文件')}>上传文件</button>
+              <button className="cap-act" onClick={() => toast('新建文件夹')}>新建文件夹</button>
+              <button className="cap-act" onClick={() => toast('上传文件')}>上传文件</button>
               <span className="mf-store">存储空间已用 880.1 KB / 5.00 GB <i title="存储说明">ⓘ</i></span>
               <span style={{ flex: 1 }} />
               <div className="search-box" style={{ margin: 0, width: 200 }}>

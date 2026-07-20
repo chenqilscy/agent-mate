@@ -22,7 +22,7 @@ class ProductBrandContractTest(unittest.TestCase):
             "src/components/chat/MessageList.tsx": '<div className="bot-nm">AgentMate</div>',
             "src/lib/exportChat.ts": "_由 AgentMate 导出_",
             "backend/agent/runtime.py": "你是 AgentMate",
-            "hub/web/console.html": "AgentMate Manager",
+            "server/web/console.html": "<title>AgentMate Console · Web 管理控制台</title>",
             "src-tauri/src/lib.rs": 'tooltip("AgentMate")',
         }
         for relative, marker in expected.items():
@@ -45,6 +45,20 @@ class ProductBrandContractTest(unittest.TestCase):
         legacy = "WORK" + "BUDDY"
         self.assertNotIn(legacy + "_", config)
         self.assertNotIn(legacy.lower() + "-backend", read("backend/build_sidecar.py"))
+
+    def test_server_and_console_names_match_their_roles(self) -> None:
+        backend_config = read("backend/config.py")
+        server_config = read("server/config.py")
+        server_main = read("server/main.py")
+        app_api = read("src/lib/api.ts")
+        old_env = "HUB" + "_URL"
+
+        self.assertIn('os.getenv("AGENTMATE_SERVER_URL"', backend_config)
+        self.assertNotIn(old_env, backend_config)
+        self.assertIn('str(SERVER_DIR / "server.db")', server_config)
+        self.assertIn('title="AgentMate Server API"', server_main)
+        self.assertIn("'/server/status'", app_api)
+        self.assertNotIn("'/hub/status'", app_api)
 
 
 if __name__ == "__main__":

@@ -128,19 +128,19 @@ class Settings:
         os.getenv("ASR_MODEL_DIR", str(DATA_DIR / "models" / "whisper"))
     ).resolve()
 
-    # AgentMate Hub（中心控制平面，WB-061/062）。HUB_URL 空 = 未接 Hub = 纯本地（离线优先）：
-    # 本地 backend 作为 Hub 客户端持 Hub token 调其 /api/auth/verify 等。凭据/工作区文件绝不上云。
-    HUB_URL: str = os.getenv("HUB_URL", "").strip().rstrip("/")
+    # AgentMate Server（中心控制平面，WB-061/062）。AGENTMATE_SERVER_URL 空 = 未接 Server = 纯本地（离线优先）：
+    # 本地 backend 作为 Server 客户端持 Server token 调其 /api/auth/verify 等。凭据/工作区文件绝不上云。
+    AGENTMATE_SERVER_URL: str = os.getenv("AGENTMATE_SERVER_URL", "").strip().rstrip("/")
     # 团队时间线上报开关（WB-062 Phase 3）。默认关——执行产出默认不上云（隐私，铁律 4）。
-    HUB_TIMELINE_UPLOAD: bool = os.getenv("HUB_TIMELINE_UPLOAD", "0").strip().lower() in ("1", "true", "yes")
+    AGENTMATE_SERVER_TIMELINE_UPLOAD: bool = os.getenv("AGENTMATE_SERVER_TIMELINE_UPLOAD", "0").strip().lower() in ("1", "true", "yes")
 
     @property
     def llm_configured(self) -> bool:
         return bool(self.LLM_API_KEY)
 
     @property
-    def hub_enabled(self) -> bool:
-        return bool(self.HUB_URL)
+    def server_enabled(self) -> bool:
+        return bool(self.AGENTMATE_SERVER_URL)
 
     @property
     def telegram_assistant_enabled(self) -> bool:

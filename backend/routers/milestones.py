@@ -1,14 +1,14 @@
 """Milestones —— 项目里程碑 / 迭代（WB-108）。
 
-与 work_items 一致的打通策略：hub-origin 项目走 Hub 权威 + 刷新本地镜像；
-Hub 不可达 / 本地项目 → 纯本地（离线优先）。Viewer 只读、Member+ 可写。
+与 work_items 一致的打通策略：server-origin 项目走 Server 权威 + 刷新本地镜像；
+Server 不可达 / 本地项目 → 纯本地（离线优先）。Viewer 只读、Member+ 可写。
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-import hub_client
+import server_client
 from auth.deps import current_user
 from storage import db
 from storage.models import Role
@@ -22,15 +22,15 @@ def _bearer(authorization: str) -> str:
     return authorization[7:].strip() if authorization[:7].lower() == "bearer " else ""
 
 
-def _hub_token(project_id: str, authorization: str) -> str:
-    """hub-origin 镜像项目 + 已接 Hub + 带 token → 返回 bearer，否则 ""（走本地）。"""
-    if not hub_client.hub_enabled():
+def _server_token(project_id: str, authorization: str) -> str:
+    """server-origin 镜像项目 + 已接 Server + 带 token → 返回 bearer，否则 ""（走本地）。"""
+    if not server_client.server_enabled():
         return ""
     tok = _bearer(authorization)
     if not tok:
         return ""
     proj = db.get_project(project_id)
-    if not proj or getattr(proj, "origin", "local") != "hub":
+    if not proj or getattr(proj, "origin", "local") != "server":
         return ""
     return tok
 
@@ -64,11 +64,11 @@ def list_items(project: str, authorization: str = Header(default="")) -> dict:
     user = current_user()
     if not db.get_project_for(project, user.id):
         raise HTTPException(404, "project not found")
-    tok = _hub_token(project, authorization)
+    tok = _server_token(project, authorization)
     if tok:
-        items = hub_client.list_milestones(tok, project)  # None = Hub 不可达
+        items = server_client.list_milestones(tok, project)  # None = Server 不可达
         if items is not None:
-            db.mirror_hub_milestones(project, items)
+            db.mirror_server_milestones(project, items)
             return {"milestones": items}
     return {"milestones": db.list_milestones(project)}
 
@@ -81,20 +81,20 @@ def create_item(body: CreateMilestoneBody, authorization: str = Header(default="
     status = body.status if body.status in M_STATUSES else "open"
     user = current_user()
     _require_project_write(body.project_id, user.id)
-    tok = _hub_token(body.project_id, authorization)
+    tok = _server_token(body.project_id, authorization)
     if tok:
-        created = hub_client.create_milestone(
+        created = server_client.create_milestone(
             tok, body.project_id,
             {"name": name, "description": body.description,
              "due_date": body.due_date or "", "status": status},
         )
         if created:
-            items = hub_client.list_milestones(tok, body.project_id)
+            items = server_client.list_milestones(tok, body.project_id)
             if items is not None:
-                db.mirror_hub_milestones(body.project_id, items)
+                db.mirror_server_milestones(body.project_id, items)
             return created
-        # hub-origin + Hub 不可达：别造会被下次镜像抹掉的本地里程碑，如实报错（WB-158）。
-        raise HTTPException(503, "Hub 暂不可达，里程碑未创建，请稍后重试")
+        # server-origin + Server 不可达：别造会被下次镜像抹掉的本地里程碑，如实报错（WB-158）。
+        raise HTTPException(503, "Server 暂不可达，里程碑未创建，请稍后重试")
     return db.create_milestone(
         project_id=body.project_id, name=name, description=body.description,
         due_date=(body.due_date or None), status=status,
@@ -110,18 +110,18 @@ def update_item(mid: str, body: UpdateMilestoneBody, authorization: str = Header
     if not existing:
         raise HTTPException(404, "milestone not found")
     _require_project_write(existing["project_id"], user.id)
-    tok = _hub_token(existing["project_id"], authorization)
+    tok = _server_token(existing["project_id"], authorization)
     if tok:
         patch = body.model_dump(exclude_unset=True)
         if patch:
-            up = hub_client.update_milestone(tok, existing["project_id"], mid, patch)
+            up = server_client.update_milestone(tok, existing["project_id"], mid, patch)
             if up:
-                items = hub_client.list_milestones(tok, existing["project_id"])
+                items = server_client.list_milestones(tok, existing["project_id"])
                 if items is not None:
-                    db.mirror_hub_milestones(existing["project_id"], items)
+                    db.mirror_server_milestones(existing["project_id"], items)
                 return up
-            # hub-origin + Hub 不可达：本地改动会被下次镜像还原，如实报错（WB-158）。
-            raise HTTPException(503, "Hub 暂不可达，改动未保存，请稍后重试")
+            # server-origin + Server 不可达：本地改动会被下次镜像还原，如实报错（WB-158）。
+            raise HTTPException(503, "Server 暂不可达，改动未保存，请稍后重试")
     updated = db.update_milestone(mid, **body.model_dump(exclude_unset=True))
     if not updated:
         raise HTTPException(404, "milestone not found")
@@ -135,14 +135,14 @@ def delete_item(mid: str, authorization: str = Header(default="")) -> dict:
     if not existing:
         raise HTTPException(404, "milestone not found")
     _require_project_write(existing["project_id"], user.id)
-    tok = _hub_token(existing["project_id"], authorization)
+    tok = _server_token(existing["project_id"], authorization)
     if tok:
-        if hub_client.delete_milestone(tok, existing["project_id"], mid):
-            items = hub_client.list_milestones(tok, existing["project_id"])
+        if server_client.delete_milestone(tok, existing["project_id"], mid):
+            items = server_client.list_milestones(tok, existing["project_id"])
             if items is not None:
-                db.mirror_hub_milestones(existing["project_id"], items)
+                db.mirror_server_milestones(existing["project_id"], items)
             return {"ok": True}
-        # hub-origin + Hub 不可达：本地删除会被下次镜像还原，如实报错（WB-158）。
-        raise HTTPException(503, "Hub 暂不可达，未删除，请稍后重试")
+        # server-origin + Server 不可达：本地删除会被下次镜像还原，如实报错（WB-158）。
+        raise HTTPException(503, "Server 暂不可达，未删除，请稍后重试")
     db.delete_milestone(mid)
     return {"ok": True}

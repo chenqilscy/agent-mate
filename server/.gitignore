@@ -1,0 +1,6 @@
+# Server 本地库与缓存（不入库）
+server.db
+server.db-*
+__pycache__/
+*.pyc
+.env

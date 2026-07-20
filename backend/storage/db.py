@@ -71,8 +71,47 @@ def new_uuid() -> str:
     return str(uuid.uuid4())
 
 
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    ).fetchone() is not None
+
+
+def _migrate_server_naming(conn: sqlite3.Connection) -> None:
+    """WB-210：把旧中心服务命名一次性前向迁移为 Server。
+
+    迁移完成后只保留 server_* 表/列和值；运行时没有旧变量、旧路由或双读兼容分支。
+    """
+    for old, new in (
+        ("hub_identities", "server_identities"),
+        ("hub_imports", "server_imports"),
+        ("hub_link", "server_link"),
+    ):
+        if _table_exists(conn, old) and not _table_exists(conn, new):
+            conn.execute(f"ALTER TABLE {old} RENAME TO {new}")
+
+    for table, columns in (
+        ("server_identities", (("hub_token", "server_token"),)),
+        ("server_imports", (("hub_id", "server_id"), ("hub_account_id", "server_account_id"))),
+        ("server_link", (("hub_account_id", "server_account_id"), ("hub_account_name", "server_account_name"))),
+    ):
+        if not _table_exists(conn, table):
+            continue
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for old, new in columns:
+            if old in have and new not in have:
+                conn.execute(f"ALTER TABLE {table} RENAME COLUMN {old} TO {new}")
+
+    if _table_exists(conn, "projects"):
+        conn.execute("UPDATE projects SET origin='server' WHERE origin='hub'")
+    if _table_exists(conn, "catalog_skills"):
+        conn.execute("UPDATE catalog_skills SET scope='server' WHERE scope='hub'")
+    conn.commit()
+
+
 def init_db() -> None:
     conn = get_conn()
+    _migrate_server_naming(conn)
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS users (
@@ -331,7 +370,7 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_catalog_showcase_kind ON catalog_showcase(kind, sort);
 
-        -- 上行同步 outbox（WB-062 Phase 3）：执行产出先落本地，再由后台 worker 推 Hub；
+        -- 上行同步 outbox（WB-062 Phase 3）：执行产出先落本地，再由后台 worker 推 Server；
         -- 确认后 synced=1；断线/离线自动补推。绝不放凭据/工作区文件进 payload（铁律 4/11）。
         CREATE TABLE IF NOT EXISTS outbox (
             id TEXT PRIMARY KEY,
@@ -345,32 +384,32 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox(synced, created_at);
 
-        -- 本地 user（= Hub account id）→ 其 Hub token，供后台 outbox worker 以本人身份推送。
-        CREATE TABLE IF NOT EXISTS hub_identities (
+        -- 本地 user（= Server account id）→ 其 Server token，供后台 outbox worker 以本人身份推送。
+        CREATE TABLE IF NOT EXISTS server_identities (
             user_id TEXT PRIMARY KEY,
-            hub_token TEXT NOT NULL,
+            server_token TEXT NOT NULL,
             updated_at REAL NOT NULL
         );
 
-        -- 存量导入映射（WB-063）：本地资源 → 其在 Hub 的 id，保证「重复导入不产生重复数据」。
-        CREATE TABLE IF NOT EXISTS hub_imports (
+        -- 存量导入映射（WB-063）：本地资源 → 其在 Server 的 id，保证「重复导入不产生重复数据」。
+        CREATE TABLE IF NOT EXISTS server_imports (
             local_id TEXT PRIMARY KEY,
             kind TEXT NOT NULL,
-            hub_id TEXT NOT NULL,
-            hub_account_id TEXT NOT NULL,
+            server_id TEXT NOT NULL,
+            server_account_id TEXT NOT NULL,
             created_at REAL NOT NULL
         );
 
-        -- LOCAL_USER_ID ↔ Hub 账号 的绑定（WB-063）：记住本机存量数据导入到了哪个 Hub 账号。
-        CREATE TABLE IF NOT EXISTS hub_link (
+        -- LOCAL_USER_ID ↔ Server 账号 的绑定（WB-063）：记住本机存量数据导入到了哪个 Server 账号。
+        CREATE TABLE IF NOT EXISTS server_link (
             local_user_id TEXT PRIMARY KEY,
-            hub_account_id TEXT NOT NULL,
-            hub_account_name TEXT NOT NULL DEFAULT '',
+            server_account_id TEXT NOT NULL,
+            server_account_name TEXT NOT NULL DEFAULT '',
             linked_at REAL NOT NULL
         );
 
-        -- Hub 目录下发镜像（WB-066）：客户端从 Hub 拉的目录项，覆盖本地 showcase 分类；
-        -- Hub 空/离线 → 本地 builtin 种子作兜底（架构 §5「Hub 下发 + 本地 override」）。
+        -- Server 目录下发镜像（WB-066）：客户端从 Server 拉的目录项，覆盖本地 showcase 分类；
+        -- Server 空/离线 → 本地 builtin 种子作兜底（架构 §5「Server 下发 + 本地 override」）。
         CREATE TABLE IF NOT EXISTS catalog_downlink (
             id TEXT PRIMARY KEY,
             category TEXT NOT NULL,
@@ -569,7 +608,7 @@ def init_db() -> None:
     _ensure_local_user()
     _seed_catalog()
     _seed_showcase()
-    # WB-183/184：这些旧橱窗数据已由 catalog_skills / Hub 实时镜像接管。清运行库孤儿，
+    # WB-183/184：这些旧橱窗数据已由 catalog_skills / Server 实时镜像接管。清运行库孤儿，
     # 防止旧版本种过的静态三元组与虚假 SkillHub 统计在升级后复活。
     conn.execute(
         "DELETE FROM catalog_showcase WHERE kind IN "
@@ -583,7 +622,7 @@ def _migrate_columns() -> None:
     """幂等补列：老库缺少后加的列时 ALTER TABLE 补上（CREATE TABLE IF NOT EXISTS 不会改已存在的表）。"""
     conn = get_conn()
     # WB-026: work_items 增 description / due_date / attachments。
-    # WB-108: 专业 PM 字段 priority / start_date / labels / parent_id / milestone_id（与 Hub 对齐）。
+    # WB-108: 专业 PM 字段 priority / start_date / labels / parent_id / milestone_id（与 Server 对齐）。
     have = {r["name"] for r in conn.execute("PRAGMA table_info(work_items)").fetchall()}
     for col, ddl in (
         ("description", "description TEXT NOT NULL DEFAULT ''"),
@@ -627,16 +666,16 @@ def _migrate_columns() -> None:
         if col not in have_s:
             conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT")
 
-    # WB-062 Phase 2: projects 增 origin（'local'|'hub'）——标记从 Hub 下行拉取的只读镜像项目。
+    # WB-062 Phase 2: projects 增 origin（'local'|'server'）——标记从 Server 下行拉取的只读镜像项目。
     have_p = {r["name"] for r in conn.execute("PRAGMA table_info(projects)").fetchall()}
     if "origin" not in have_p:
         conn.execute("ALTER TABLE projects ADD COLUMN origin TEXT NOT NULL DEFAULT 'local'")
-    # WB-198：项目级知识库是本机执行配置，Hub 镜像更新不覆盖该列。
+    # WB-198：项目级知识库是本机执行配置，Server 镜像更新不覆盖该列。
     if "knowledge_ids" not in have_p:
         conn.execute("ALTER TABLE projects ADD COLUMN knowledge_ids TEXT NOT NULL DEFAULT '[]'")
 
     # WB-206：旧库已种过 skill-creator-guide，_seed_catalog 按 slug 查重不会覆盖；只迁移仍为
-    # 原始种子值的行，保留 Manager/用户已运营过的自定义定义。
+    # 原始种子值的行，保留 Console/用户已运营过的自定义定义。
     old_creator_instruction = "当用户想创建自定义技能时，说明技能 = 提示词 + 工具包 的结构，并给出可落地的模板。"
     new_creator_instruction = (
         "帮助用户创建自定义技能：先澄清用途、触发场景、输入输出与约束，整理出稳定英文 slug、"
@@ -842,12 +881,12 @@ def delete_token(token: str) -> None:
     get_conn().commit()
 
 
-# ---- Hub 账号镜像（WB-062）----------------------------------------------
-# 本地 backend 把 Hub 校验过的账号镜像进 users（无本地口令），让所有 owner-scoped 代码
-# 无改动地认它；已校验的 Hub token 缓存进 auth_tokens，后续请求走本地、不再打 Hub。
+# ---- Server 账号镜像（WB-062）----------------------------------------------
+# 本地 backend 把 Server 校验过的账号镜像进 users（无本地口令），让所有 owner-scoped 代码
+# 无改动地认它；已校验的 Server token 缓存进 auth_tokens，后续请求走本地、不再打 Server。
 
 def upsert_external_user(user_id: str, name: str, plan: str = "体验版") -> None:
-    """把 Hub 账号镜像进本地 users（幂等 upsert，无 password_hash）。id = Hub account id。"""
+    """把 Server 账号镜像进本地 users（幂等 upsert，无 password_hash）。id = Server account id。"""
     get_conn().execute(
         "INSERT INTO users (id,name,role,plan) VALUES (?,?,?,?) "
         "ON CONFLICT(id) DO UPDATE SET name=excluded.name, plan=excluded.plan",
@@ -857,7 +896,7 @@ def upsert_external_user(user_id: str, name: str, plan: str = "体验版") -> No
 
 
 def cache_token(token: str, user_id: str) -> None:
-    """缓存已校验的 Hub token → account 映射（后续请求本地命中，不再校验 Hub）。"""
+    """缓存已校验的 Server token → account 映射（后续请求本地命中，不再校验 Server）。"""
     get_conn().execute(
         "INSERT OR IGNORE INTO auth_tokens (token,user_id,created_at) VALUES (?,?,?)",
         (token, user_id, time.time()),
@@ -865,20 +904,20 @@ def cache_token(token: str, user_id: str) -> None:
     get_conn().commit()
 
 
-def mirror_hub_project(
+def mirror_server_project(
     *, id: str, name: str, owner_id: str, instruction: str = "",
     connectors: Optional[list] = None, experts: Optional[list] = None, skills: Optional[list] = None,
 ) -> None:
-    """幂等镜像一个 Hub 项目进本地 projects（origin='hub'，只读镜像；WB-062 Phase 2）。
-    id/owner_id = Hub 侧 project/account id。WB-050 的 project_access_role 读同一批表，故镜像后
+    """幂等镜像一个 Server 项目进本地 projects（origin='server'，只读镜像；WB-062 Phase 2）。
+    id/owner_id = Server 侧 project/account id。WB-050 的 project_access_role 读同一批表，故镜像后
     本地访问控制「自动」认它——无需改访问校验。"""
     now = time.time()
     get_conn().execute(
         """INSERT INTO projects (id,name,owner_id,instruction,connectors,experts,skills,created_at,updated_at,origin)
-           VALUES (?,?,?,?,?,?,?,?,?,'hub')
+           VALUES (?,?,?,?,?,?,?,?,?,'server')
            ON CONFLICT(id) DO UPDATE SET name=excluded.name, owner_id=excluded.owner_id,
              instruction=excluded.instruction, connectors=excluded.connectors,
-             experts=excluded.experts, skills=excluded.skills, updated_at=excluded.updated_at, origin='hub'""",
+             experts=excluded.experts, skills=excluded.skills, updated_at=excluded.updated_at, origin='server'""",
         (id, name[:120], owner_id, instruction,
          json.dumps(connectors or [], ensure_ascii=False),
          json.dumps(experts or [], ensure_ascii=False),
@@ -887,8 +926,8 @@ def mirror_hub_project(
     get_conn().commit()
 
 
-def replace_hub_project_members(project_id: str, members: list[dict]) -> None:
-    """幂等重置一个镜像项目的成员表：清旧、按 Hub 返回重建（owner 不入表，由 owner_id 记）。
+def replace_server_project_members(project_id: str, members: list[dict]) -> None:
+    """幂等重置一个镜像项目的成员表：清旧、按 Server 返回重建（owner 不入表，由 owner_id 记）。
     同时把每个成员账号镜像进 users 以便显示名解析（WB-062 Phase 2）。"""
     conn = get_conn()
     conn.execute("DELETE FROM project_members WHERE project_id=?", (project_id,))
@@ -911,21 +950,21 @@ def replace_hub_project_members(project_id: str, members: list[dict]) -> None:
     conn.commit()
 
 
-# ---- Hub 上行 outbox + 身份（WB-062 Phase 3）----------------------------
+# ---- Server 上行 outbox + 身份（WB-062 Phase 3）----------------------------
 
-def set_hub_identity(user_id: str, hub_token: str) -> None:
-    """记住某账号的 Hub token，供后台 outbox worker 以本人身份推送。幂等 upsert。"""
+def set_server_identity(user_id: str, server_token: str) -> None:
+    """记住某账号的 Server token，供后台 outbox worker 以本人身份推送。幂等 upsert。"""
     get_conn().execute(
-        "INSERT INTO hub_identities (user_id,hub_token,updated_at) VALUES (?,?,?) "
-        "ON CONFLICT(user_id) DO UPDATE SET hub_token=excluded.hub_token, updated_at=excluded.updated_at",
-        (user_id, hub_token, time.time()),
+        "INSERT INTO server_identities (user_id,server_token,updated_at) VALUES (?,?,?) "
+        "ON CONFLICT(user_id) DO UPDATE SET server_token=excluded.server_token, updated_at=excluded.updated_at",
+        (user_id, server_token, time.time()),
     )
     get_conn().commit()
 
 
-def get_hub_identity(user_id: str) -> Optional[str]:
-    r = get_conn().execute("SELECT hub_token FROM hub_identities WHERE user_id=?", (user_id,)).fetchone()
-    return r["hub_token"] if r else None
+def get_server_identity(user_id: str) -> Optional[str]:
+    r = get_conn().execute("SELECT server_token FROM server_identities WHERE user_id=?", (user_id,)).fetchone()
+    return r["server_token"] if r else None
 
 
 def enqueue_outbox(*, kind: str, actor_id: str, project_id: str, payload: dict) -> None:
@@ -962,34 +1001,34 @@ def bump_outbox_tries(outbox_id: str) -> None:
     get_conn().commit()
 
 
-# ---- 存量导入 + LOCAL↔Hub 绑定（WB-063）--------------------------------
+# ---- 存量导入 + LOCAL↔Server 绑定（WB-063）--------------------------------
 
-def record_import(local_id: str, kind: str, hub_id: str, hub_account_id: str) -> None:
+def record_import(local_id: str, kind: str, server_id: str, server_account_id: str) -> None:
     get_conn().execute(
-        "INSERT OR REPLACE INTO hub_imports (local_id,kind,hub_id,hub_account_id,created_at) "
+        "INSERT OR REPLACE INTO server_imports (local_id,kind,server_id,server_account_id,created_at) "
         "VALUES (?,?,?,?,?)",
-        (local_id, kind, hub_id, hub_account_id, time.time()),
+        (local_id, kind, server_id, server_account_id, time.time()),
     )
     get_conn().commit()
 
 
 def get_import(local_id: str) -> Optional[dict]:
-    r = get_conn().execute("SELECT * FROM hub_imports WHERE local_id=?", (local_id,)).fetchone()
+    r = get_conn().execute("SELECT * FROM server_imports WHERE local_id=?", (local_id,)).fetchone()
     return dict(r) if r else None
 
 
-def set_hub_link(local_user_id: str, hub_account_id: str, hub_account_name: str = "") -> None:
+def set_server_link(local_user_id: str, server_account_id: str, server_account_name: str = "") -> None:
     get_conn().execute(
-        "INSERT INTO hub_link (local_user_id,hub_account_id,hub_account_name,linked_at) VALUES (?,?,?,?) "
-        "ON CONFLICT(local_user_id) DO UPDATE SET hub_account_id=excluded.hub_account_id, "
-        "hub_account_name=excluded.hub_account_name, linked_at=excluded.linked_at",
-        (local_user_id, hub_account_id, hub_account_name, time.time()),
+        "INSERT INTO server_link (local_user_id,server_account_id,server_account_name,linked_at) VALUES (?,?,?,?) "
+        "ON CONFLICT(local_user_id) DO UPDATE SET server_account_id=excluded.server_account_id, "
+        "server_account_name=excluded.server_account_name, linked_at=excluded.linked_at",
+        (local_user_id, server_account_id, server_account_name, time.time()),
     )
     get_conn().commit()
 
 
-def get_hub_link(local_user_id: str) -> Optional[dict]:
-    r = get_conn().execute("SELECT * FROM hub_link WHERE local_user_id=?", (local_user_id,)).fetchone()
+def get_server_link(local_user_id: str) -> Optional[dict]:
+    r = get_conn().execute("SELECT * FROM server_link WHERE local_user_id=?", (local_user_id,)).fetchone()
     return dict(r) if r else None
 
 
@@ -1474,13 +1513,13 @@ def skill_specs() -> list[dict[str, Any]]:
     rows = get_conn().execute(
         "SELECT scope,slug,name,icon,description,instructions,tools,category,source "
         "FROM catalog_skills WHERE enabled=1 "
-        "ORDER BY CASE scope WHEN 'hub' THEN 0 ELSE 1 END, sort, name"
+        "ORDER BY CASE scope WHEN 'server' THEN 0 ELSE 1 END, sort, name"
     ).fetchall()
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for r in rows:
         if r["slug"] in seen:
-            continue  # Hub 同 slug 覆盖 builtin；前端与运行时都只暴露一个稳定身份。
+            continue  # Server 同 slug 覆盖 builtin；前端与运行时都只暴露一个稳定身份。
         seen.add(r["slug"])
         try:
             tools = json.loads(r["tools"]) if r["tools"] else []
@@ -1495,10 +1534,10 @@ def skill_specs() -> list[dict[str, Any]]:
     return out
 
 
-def replace_hub_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
-    """用 Hub 的 APP_SKILLS 全量替换 App 侧 `scope=hub` 技能定义（WB-183 Phase C）。
+def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
+    """用 Server 的 APP_SKILLS 全量替换 App 侧 `scope=server` 技能定义（WB-183 Phase C）。
 
-    本机 builtin 行不动，Hub 不下发或下发为空时自然回退本机定义。slug 非法、字段缺失或重复的
+    本机 builtin 行不动，Server 不下发或下发为空时自然回退本机定义。slug 非法、字段缺失或重复的
     目录项跳过；工具名仍由运行时代码注册表裁决，运营数据不能凭空创造工具能力。
     """
     conn = get_conn()
@@ -1520,13 +1559,13 @@ def replace_hub_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
             tools = []
         seen.add(slug)
         rows.append((
-            new_uuid(), "hub", None, slug, name, str(raw.get("icon", "🧩")),
+            new_uuid(), "server", None, slug, name, str(raw.get("icon", "🧩")),
             str(raw.get("description", "")), str(raw.get("instructions", "")),
             json.dumps([str(t) for t in tools], ensure_ascii=False), str(raw.get("category", "")),
-            str(raw.get("source", "Hub")), 1, int(raw.get("sort", index)), now, now,
+            str(raw.get("source", "Server")), 1, int(raw.get("sort", index)), now, now,
         ))
     with conn:
-        conn.execute("DELETE FROM catalog_skills WHERE scope='hub'")
+        conn.execute("DELETE FROM catalog_skills WHERE scope='server'")
         conn.executemany(
             """INSERT INTO catalog_skills
                (id,scope,owner_id,slug,name,icon,description,instructions,tools,category,source,
@@ -1619,7 +1658,7 @@ def showcase_all() -> dict[str, Any]:
             scalar_kinds.add(r["kind"])
         else:
             out.setdefault(r["kind"], []).append(val)
-    # WB-066: Hub 目录下发覆盖本地（仅数组类分类）；无下发/离线 → 本地兜底。scalar 分类 skeleton 不覆盖。
+    # WB-066: Server 目录下发覆盖本地（仅数组类分类）；无下发/离线 → 本地兜底。scalar 分类 skeleton 不覆盖。
     for cat, items in downlink_by_category().items():
         if cat not in scalar_kinds:
             out[cat] = items
@@ -1635,7 +1674,7 @@ def showcase_all() -> dict[str, Any]:
 
 
 def replace_all_downlink(items: list[dict]) -> None:
-    """幂等重置 Hub 目录下发镜像：清空后按 Hub 返回全量重建（Hub 侧删除随之消失）。
+    """幂等重置 Server 目录下发镜像：清空后按 Server 返回全量重建（Server 侧删除随之消失）。
     items = [{category, data, sort}, ...]（WB-066）。"""
     conn = get_conn()
     conn.execute("DELETE FROM catalog_downlink")
@@ -1862,10 +1901,10 @@ def list_work_items(project_id: str) -> list[WorkItem]:
     return [_row_to_work_item(r) for r in rows]
 
 
-def mirror_hub_work_items(project_id: str, items: list[dict]) -> None:
-    """用 Hub 的 work_items 覆盖某 hub-origin 项目的本地 work_items（Hub 权威，WB-091）。
-    本地行 = Hub 行镜像（Hub id 作本地 id，供 update/delete 定位 + 离线读兜底）；
-    owner_id 空、attachments/due_date 取默认（Hub work_items 不带这些本地专有字段）。"""
+def mirror_server_work_items(project_id: str, items: list[dict]) -> None:
+    """用 Server 的 work_items 覆盖某 server-origin 项目的本地 work_items（Server 权威，WB-091）。
+    本地行 = Server 行镜像（Server id 作本地 id，供 update/delete 定位 + 离线读兜底）；
+    owner_id 空、attachments/due_date 取默认（Server work_items 不带这些本地专有字段）。"""
     conn = get_conn()
     conn.execute("DELETE FROM work_items WHERE project_id=?", (project_id,))
     for it in items:
@@ -1951,7 +1990,7 @@ def delete_work_item(item_id: str) -> None:
     conn.commit()
 
 
-# ---- milestones（WB-108；本地镜像 Hub 权威 + 本地项目自管）--------------
+# ---- milestones（WB-108；本地镜像 Server 权威 + 本地项目自管）--------------
 
 def list_milestones(project_id: str) -> list[dict]:
     rows = get_conn().execute(
@@ -2002,8 +2041,8 @@ def delete_milestone(mid: str) -> None:
     conn.commit()
 
 
-def mirror_hub_milestones(project_id: str, items: list[dict]) -> None:
-    """用 Hub 里程碑覆盖某 hub-origin 项目的本地镜像（Hub 权威，WB-108）。"""
+def mirror_server_milestones(project_id: str, items: list[dict]) -> None:
+    """用 Server 里程碑覆盖某 server-origin 项目的本地镜像（Server 权威，WB-108）。"""
     conn = get_conn()
     conn.execute("DELETE FROM milestones WHERE project_id=?", (project_id,))
     for i, it in enumerate(items):

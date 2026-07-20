@@ -159,7 +159,7 @@ export function AddSkillControl({ onCreate, onImported }: {
   return (
     <>
       <div className="skill-add-wrap" ref={root}>
-        <button className={`hub-act ${menuOpen ? 'on' : ''}`.trim()} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>
+        <button className={`cap-act ${menuOpen ? 'on' : ''}`.trim()} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>
           ＋ 添加技能
         </button>
         {menuOpen && (

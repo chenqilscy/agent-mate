@@ -8,12 +8,12 @@ from a high-fidelity reference prototype of Tencent WorkBuddy in
 **Principle: nothing faked.** All streaming output comes from a real LLM, all
 state is persisted, all sidebar tasks are real sessions.
 
-## Status: M0–M7 + Hub + Manager 全部落地（活台账见 `docs/issues/`）
+## Status: M0–M7 + Server + Console 全部落地（活台账见 `docs/issues/`）
 
 > 里程碑 M0–M4 的原始说明在下方保留（对这些阶段仍准确）。此后已落地：M5（专家/技能/真 MCP 连接器）、
 > M6（对话内搜索/响应式）、M7 协作（真账户鉴权 + 项目成员·角色·邀请 + 队友只读可见 + 消息中心）、
-> Tauri 2 桌面外壳（路线 A）、自动化/连接器补全（路线 B）、**AgentMate Hub**（云端控制平面，独立 `hub/`
-> 服务 :8100）、**AgentMate Manager**（Web 管理门户 + 专业 PM）、统一设置中心、GLM 知识库 RAG、模型管理、
+> Tauri 2 桌面外壳（路线 A）、自动化/连接器补全（路线 B）、**AgentMate Server**（云端控制平面，独立 `server/`
+> 服务 :8100）、**AgentMate Console**（Web 管理门户 + 专业 PM）、统一设置中心、GLM 知识库 RAG、模型管理、
 > 多助理·多渠道（Telegram/邮件）、语音输入 ASR、金山文档面板等。逐条进度以 `docs/issues/` 台账为准。
 
 ### M0–M4（历史说明，仍准确）
@@ -51,7 +51,7 @@ state is persisted, all sidebar tasks are real sessions.
     project's instruction injected as background; its side panel has 产物 /
     工作空间文件 / 变更 tabs (变更 = the real diff list).
 
-M5+（MCP 连接器 / Tauri 外壳 / 协作 / Hub / Manager / 知识库 / 多助理 …）均已落地——见上方状态段与 `docs/issues/` 台账。
+M5+（MCP 连接器 / Tauri 外壳 / 协作 / Server / Console / 知识库 / 多助理 …）均已落地——见上方状态段与 `docs/issues/` 台账。
 
 ## Architecture (Local-first)
 
@@ -90,26 +90,26 @@ Open http://localhost:5173. Without a key, chat streams a friendly "LLM not
 configured" error (the full SSE pipeline still runs); with a key you get real
 token-by-token streaming.
 
-### With AgentMate Hub (optional 3-tier)
+### With AgentMate Server (optional 3-tier)
 
 The two commands above run AgentMate **local-first** (no cloud). To also run the
-control plane — [`hub/`](hub/), the authoritative source for accounts / orgs /
+control plane — [`server/`](server/), the authoritative source for accounts / orgs /
 projects / members and the shared catalog (including the periodic SkillHub mirror,
 WB-069) — start all three tiers:
 
 ```
-Browser (:5173) ──/api──▶ backend (:8000) ──HUB_URL──▶ Hub (:8100)
+Browser (:5173) ──/api──▶ backend (:8000) ──AGENTMATE_SERVER_URL──▶ Server (:8100)
 ```
 
 ```powershell
-./run-stack.ps1     # Hub :8100 + backend :8000 (Hub-connected) + frontend :5173
+./run-stack.ps1     # Server :8100 + backend :8000 (Server-connected) + frontend :5173
 ```
 
 `run-stack.ps1` launches each tier in its own window and skips any port already
-listening. It points the backend at the Hub via `HUB_URL=http://127.0.0.1:8100`
+listening. It points the backend at the Server via `AGENTMATE_SERVER_URL=http://127.0.0.1:8100`
 (also settable in `backend/.env`). Remove that line for pure-local: every feature
 still works offline — the skills page just serves its static/local catalog instead
-of the Hub mirror.
+of the Server mirror.
 
 ### Example `.env` (DeepSeek)
 

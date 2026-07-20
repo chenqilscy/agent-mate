@@ -76,15 +76,15 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
   const doUninstall = () => { if (localKey) void uninstall(localKey); setMenu(false); onBack() }
 
   return (
-    <div className="hub-pane show">
+    <div className="cap-pane show">
       <div className="skd-head">
         <button className="btn-ghost" onClick={onBack}>‹ 技能</button>
       </div>
 
       {loading && !data ? (
-        <div className="hub-blank">加载中…</div>
+        <div className="cap-blank">加载中…</div>
       ) : !data ? (
-        <div className="hub-blank">未找到该技能</div>
+        <div className="cap-blank">未找到该技能</div>
       ) : (
         <>
           <div className="skd-top">
@@ -99,7 +99,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
             <div className="skd-actions">
               {installed ? (
                 <>
-                  <button className="hub-act" onClick={tryIt}>去试试</button>
+                  <button className="cap-act" onClick={tryIt}>去试试</button>
                   <div
                     className={`sw ${disabled ? '' : 'on'}`.trim()} role="switch" aria-checked={disabled ? 'false' : 'true'}
                     title={disabled ? '已关闭 · 点击启用' : '已启用 · 点击关闭'}

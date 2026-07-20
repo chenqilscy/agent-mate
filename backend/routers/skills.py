@@ -8,7 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
 
-import hub_client
+import server_client
 from agent import skills, skills_store
 
 router = APIRouter(prefix="/api", tags=["skills"])
@@ -52,11 +52,11 @@ def list_builtin() -> dict:
 
 @router.get("/skills/search")
 def search_skills(q: str = "", limit: int = 8, authorization: str = Header(default="")) -> dict:
-    # WB-070：优先经 Hub 查询代理（富字段：下载/星/图标），未接/不可达/空 → 回退本地 CLI 搜索（离线兜底）。
-    if q.strip() and hub_client.hub_enabled():
-        proxied = hub_client.search_skillhub(_bearer(authorization), q, limit)
+    # WB-070：优先经 Server 查询代理（富字段：下载/星/图标），未接/不可达/空 → 回退本地 CLI 搜索（离线兜底）。
+    if q.strip() and server_client.server_enabled():
+        proxied = server_client.search_skillhub(_bearer(authorization), q, limit)
         if proxied:
-            return {"results": proxied, "source": "hub"}
+            return {"results": proxied, "source": "server"}
     return {"results": skills_store.search(q, limit), "source": "local"}
 
 
@@ -65,31 +65,31 @@ def skills_rankings(
     type: str = "featured", category: str = "", limit: int = 0, authorization: str = Header(default="")
 ) -> dict:
     # skillhub.cn 实时目录（WB-064）：featured/hot/recommended/newest/trending/all/paid。
-    # WB-186：与 search/preview 同口径（WB-130「App 不直连 SkillHub，统一经 Manager」）——
-    # 接了 Hub 就走代理；未接/不可达/无果 → 回退本地 CLI 直连（离线兜底）。
-    # Manager 走 HTTP showcase 无需 CLI，故本机没装 CLI 时也能拿到真实榜单（此前只能吃前端静态假数据）。
-    if hub_client.hub_enabled():
-        proxied = hub_client.skill_rankings(_bearer(authorization), type, 0)
+    # WB-186：与 search/preview 同口径（WB-130「App 不直连 SkillHub，统一经 Console」）——
+    # 接了 Server 就走代理；未接/不可达/无果 → 回退本地 CLI 直连（离线兜底）。
+    # Console 走 HTTP showcase 无需 CLI，故本机没装 CLI 时也能拿到真实榜单（此前只能吃前端静态假数据）。
+    if server_client.server_enabled():
+        proxied = server_client.skill_rankings(_bearer(authorization), type, 0)
         if proxied:
-            # 「已安装」是本机磁盘的知识，Manager 给不出来 → 本地加工后再返回。
+            # 「已安装」是本机磁盘的知识，Console 给不出来 → 本地加工后再返回。
             return {"type": type, "skills": skills_store.decorate_cards(proxied, category, limit),
-                    "source": "hub"}
+                    "source": "server"}
     return {"type": type, "skills": skills_store.rankings(type, category, limit), "source": "local"}
 
 
 @router.get("/skills/preview")
 def preview_skill(slug: str = "", name: str = "", authorization: str = Header(default="")) -> dict:
     # 安装前预览：未安装的技能也能看 SKILL.md（临时下载，不落 ~/.agentmate/skills）。
-    # WB-130：优先经 Manager 取数（App 不直连 SkillHub）——有 slug 且已接 Hub → 走代理；
-    # 未接/不可达/Manager 无果 → 回退本地 CLI 直连预览（离线兜底）。
+    # WB-130：优先经 Console 取数（App 不直连 SkillHub）——有 slug 且已接 Server → 走代理；
+    # 未接/不可达/Console 无果 → 回退本地 CLI 直连预览（离线兜底）。
     slug, name = slug.strip(), name.strip()
     if slug and not skills_store.valid_slug(slug):
-        # WB-185：早拦——slug 还会被拼进发往 Manager 的代理 URL。
+        # WB-185：早拦——slug 还会被拼进发往 Console 的代理 URL。
         raise HTTPException(400, "非法 slug（仅允许字母、数字与 . _ -）")
-    if slug and hub_client.hub_enabled():
-        proxied = hub_client.skill_preview(_bearer(authorization), slug, name)
+    if slug and server_client.server_enabled():
+        proxied = server_client.skill_preview(_bearer(authorization), slug, name)
         if proxied:
-            return {"skill": proxied, "source": "hub"}
+            return {"skill": proxied, "source": "server"}
     d = skills_store.preview(slug=slug, name=name)
     if not d:
         raise HTTPException(404, f"SkillHub 未找到「{name or slug}」或预览失败")

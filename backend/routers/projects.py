@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-import hub_client
+import server_client
 from agent.skills import canonical_skill_keys
 from auth.deps import current_user
 from storage import db
@@ -19,36 +19,36 @@ _MANAGE_ROLES = {Role.OWNER, Role.ADMIN}
 _ROLE_CN = {"Owner": "所有者", "Admin": "管理员", "Member": "成员", "Viewer": "只读"}
 
 
-# ---- Manager 写代理（WB-112c）：hub-origin 项目的成员/配置写以 Manager 为权威 ----
-# 与 work_items 同模式：先本地角色 gate → 代理到 Manager → 成功后刷新本地镜像；
-# Manager 不可达 → 回退纯本地（离线优先）。只写本地会被下次 pull 覆盖 = 静默丢数据，故必须代理。
+# ---- Console 写代理（WB-112c）：server-origin 项目的成员/配置写以 Console 为权威 ----
+# 与 work_items 同模式：先本地角色 gate → 代理到 Console → 成功后刷新本地镜像；
+# Console 不可达 → 回退纯本地（离线优先）。只写本地会被下次 pull 覆盖 = 静默丢数据，故必须代理。
 
 def _bearer(authorization: str) -> str:
     return authorization[7:].strip() if authorization[:7].lower() == "bearer " else ""
 
 
-def _hub_token(project_id: str, authorization: str) -> str:
-    """该项目是否走 Manager 代理：Manager 已接 + 请求带 token + 项目 origin=='hub' → bearer，否则 ""。"""
-    if not hub_client.hub_enabled():
+def _server_token(project_id: str, authorization: str) -> str:
+    """该项目是否走 Console 代理：Console 已接 + 请求带 token + 项目 origin=='server' → bearer，否则 ""。"""
+    if not server_client.server_enabled():
         return ""
     tok = _bearer(authorization)
     if not tok:
         return ""
     proj = db.get_project(project_id)
-    if not proj or getattr(proj, "origin", "local") != "hub":
+    if not proj or getattr(proj, "origin", "local") != "server":
         return ""
     return tok
 
 
 def _mirror_members(tok: str, project_id: str) -> None:
-    mem = hub_client.list_project_members(tok, project_id)
+    mem = server_client.list_project_members(tok, project_id)
     if mem is not None:
-        db.replace_hub_project_members(project_id, mem)
+        db.replace_server_project_members(project_id, mem)
 
 
 def _mirror_project(p: dict) -> None:
-    """把 Manager 返回的项目 dict 刷进本地镜像（origin='hub'）。"""
-    db.mirror_hub_project(
+    """把 Console 返回的项目 dict 刷进本地镜像（origin='server'）。"""
+    db.mirror_server_project(
         id=p.get("id", ""), name=p.get("name", ""), owner_id=p.get("owner_id", ""),
         instruction=p.get("instruction", ""), connectors=p.get("connectors"),
         experts=p.get("experts"), skills=canonical_skill_keys(p.get("skills") or []),
@@ -166,21 +166,21 @@ def get_project(project_id: str) -> dict:
 @router.patch("/projects/{project_id}")
 def update_project(project_id: str, body: UpdateProjectBody, authorization: str = Header(default="")) -> dict:
     role = _require_manage(project_id, current_user().id)
-    tok = _hub_token(project_id, authorization)
+    tok = _server_token(project_id, authorization)
     if tok:
         patch = body.model_dump(exclude_unset=True)
         if "skills" in patch:
             patch["skills"] = canonical_skill_keys(patch["skills"] or [])
-        # knowledge_ids 是本机 WeKnora 执行配置，绝不上云；Manager 只收协作元数据。
+        # knowledge_ids 是本机 WeKnora 执行配置，绝不上云；Console 只收协作元数据。
         local_knowledge = patch.pop("knowledge_ids", None)
-        up = hub_client.update_project(tok, project_id, patch) if patch else db.get_project(project_id).to_dict()
+        up = server_client.update_project(tok, project_id, patch) if patch else db.get_project(project_id).to_dict()
         if up:
             if patch:
                 _mirror_project(up)
             if local_knowledge is not None:
                 db.update_project(project_id, knowledge_ids=list(dict.fromkeys(local_knowledge))[:20])
             return _view(db.get_project(project_id), role)
-        # Manager 不可达 → 回退本地
+        # Console 不可达 → 回退本地
     updated = db.update_project(
         project_id,
         name=body.name,
@@ -226,14 +226,14 @@ def add_member(project_id: str, body: AddMemberBody, authorization: str = Header
     me = current_user()
     _require_manage(project_id, me.id)
     role = _member_role(body.role)
-    tok = _hub_token(project_id, authorization)
+    tok = _server_token(project_id, authorization)
     if tok:
-        # Manager 按账号名解析成员（可加尚未镜像到本地的 Manager 账号）；成功后刷新本地成员镜像。
-        res = hub_client.add_member(tok, project_id, (body.name or "").strip(), role.value)
+        # Console 按账号名解析成员（可加尚未镜像到本地的 Console 账号）；成功后刷新本地成员镜像。
+        res = server_client.add_member(tok, project_id, (body.name or "").strip(), role.value)
         if res is not None:
             _mirror_members(tok, project_id)
             return {"members": db.list_project_members(project_id)}
-        # Manager 不可达 → 回退本地
+        # Console 不可达 → 回退本地
     found = db.get_user_by_name((body.name or "").strip())
     if not found:
         raise HTTPException(404, "用户不存在")
@@ -258,13 +258,13 @@ def update_member(project_id: str, user_id: str, body: UpdateMemberBody, authori
     me = current_user()
     _require_manage(project_id, me.id)
     role = _member_role(body.role)
-    tok = _hub_token(project_id, authorization)
+    tok = _server_token(project_id, authorization)
     if tok:
-        # hub-origin 项目里 user_id 即 Manager account id（镜像时同 id）。
-        if hub_client.update_member(tok, project_id, user_id, role.value) is not None:
+        # server-origin 项目里 user_id 即 Console account id（镜像时同 id）。
+        if server_client.update_member(tok, project_id, user_id, role.value) is not None:
             _mirror_members(tok, project_id)
             return {"members": db.list_project_members(project_id)}
-        # Manager 不可达 → 回退本地
+        # Console 不可达 → 回退本地
     if db.project_member_role(project_id, user_id) is None:
         raise HTTPException(404, "成员不存在")
     db.add_project_member(project_id, user_id, role)  # upsert = change role
@@ -286,12 +286,12 @@ def remove_member(project_id: str, user_id: str, authorization: str = Header(def
         _require_access(project_id, me.id)
     else:
         _require_manage(project_id, me.id)
-    tok = _hub_token(project_id, authorization)
+    tok = _server_token(project_id, authorization)
     if tok:
-        if hub_client.remove_member(tok, project_id, user_id):
+        if server_client.remove_member(tok, project_id, user_id):
             _mirror_members(tok, project_id)
             return {"ok": True}
-        # Manager 不可达 → 回退本地
+        # Console 不可达 → 回退本地
     if user_id == me.id:
         db.remove_project_member(project_id, user_id)
         return {"ok": True}

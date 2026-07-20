@@ -61,14 +61,14 @@ body.dark .win, body.dark .sidebar, body.dark .main,
 body.dark .kd-right, body.dark .kd-frame { background: #1B1F24; }
 body.dark .composer, body.dark .tpl, body.dark .ecard, body.dark .scard, body.dark .conn,
 body.dark .pop, body.dark .profile, body.dark .more-menu, body.dark .scene, body.dark .qchip,
-body.dark .search-box, body.dark .buddy-b, body.dark .hub-act, body.dark .btn-line,
+body.dark .search-box, body.dark .buddy-b, body.dark .cap-act, body.dark .btn-line,
 body.dark .my-proj, body.dark .ctool, body.dark .cicon, body.dark .insp, body.dark .inst-card,
 body.dark .activity, body.dark .scene-card, body.dark .mf-type, body.dark .pf-buddy .try,
 body.dark .hcard, body.dark .fcard, body.dark .card-menu, body.dark .hc-more,
 body.dark .skd-card, body.dark .skd-viewtoggle button.on,
 body.dark .kd-item,
 body.dark .seg2 b.on { background: #22272D; }
-body.dark .scene.active, body.dark .hub-tab.active { background: var(--chip); color: var(--text); }
+body.dark .scene.active, body.dark .cap-tab.active { background: var(--chip); color: var(--text); }
 body.dark .csend { background: var(--brand); }
 body.dark .sc-top { background: linear-gradient(135deg, #20362C, #1E2A36); }
 body.dark .pf-row .up { background: var(--brand); color: #fff; }

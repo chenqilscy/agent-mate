@@ -365,7 +365,7 @@ export interface AppNotification {
 }
 
 export type WorkStatus = 'todo' | 'doing' | 'paused' | 'done'
-// 专业 PM 优先级（WB-108，与 Hub 对齐）。'' = 未设。
+// 专业 PM 优先级（WB-108，与 Server 对齐）。'' = 未设。
 export type WorkPriority = '' | 'low' | 'medium' | 'high' | 'urgent'
 
 export interface WorkAttachment {
@@ -385,7 +385,7 @@ export interface WorkItem {
   description: string
   due_date: string | null
   attachments: WorkAttachment[]
-  // 专业 PM 字段（WB-108）：随 hub-origin 项目与门户双向同步。
+  // 专业 PM 字段（WB-108）：随 server-origin 项目与门户双向同步。
   priority: WorkPriority
   start_date: string | null
   labels: string[]
@@ -443,7 +443,7 @@ export interface CreateAutomationInput {
 }
 
 // SkillHub 商店卡（WB-070）：搜索/浏览的目录条目。
-// - Hub 查询代理/镜像 → 富字段（下载/星/图标/分类齐全）；
+// - Server 查询代理/镜像 → 富字段（下载/星/图标/分类齐全）；
 // - 本地 CLI 搜索兜底 → 仅 slug/name/description/version（其余可选、缺省）。
 export interface SkillCard {
   slug: string

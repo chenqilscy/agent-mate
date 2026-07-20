@@ -12,7 +12,7 @@ const COLS: { key: WorkStatus; label: string }[] = [
   { key: 'paused', label: '暂停' },
   { key: 'done', label: '完成' },
 ]
-// 优先级（WB-108，与 Hub 对齐）。'' = 未设；颜色沿用状态点的调色。
+// 优先级（WB-108，与 Server 对齐）。'' = 未设；颜色沿用状态点的调色。
 const PRIORITY_OPTS: { key: WorkPriority; label: string; color: string }[] = [
   { key: '', label: '无优先级', color: '#9AA0A6' },
   { key: 'low', label: '低', color: '#16B37A' },
@@ -51,7 +51,7 @@ function fmtDate(ts?: number): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
-// 任务模板（WB-122，per-project localStorage，对齐 Manager WB-114）。
+// 任务模板（WB-122，per-project localStorage，对齐 Console WB-114）。
 type WorkTemplate = { name: string; priority: WorkPriority; labels: string[]; milestone_id: string; description: string }
 function getTpl(pid: string | null): WorkTemplate[] {
   if (!pid) return []
@@ -60,7 +60,7 @@ function getTpl(pid: string | null): WorkTemplate[] {
 function setTpl(pid: string, t: WorkTemplate[]): void {
   try { localStorage.setItem(`pm.tpl.${pid}`, JSON.stringify(t)) } catch { /* quota */ }
 }
-// 看板 WIP 上限 + 保存视图（WB-123，per-project localStorage，对齐 Manager WB-113）。
+// 看板 WIP 上限 + 保存视图（WB-123，per-project localStorage，对齐 Console WB-113）。
 function getWip(pid: string | null): Record<string, number> {
   if (!pid) return {}
   try { return JSON.parse(localStorage.getItem(`pm.wip.${pid}`) || '{}') || {} } catch { return {} }
@@ -349,17 +349,17 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
   const addRef = useLoadoutStore((s) => s.addRef)
   const [editDesc, setEditDesc] = useState(false)
   const [descDraft, setDescDraft] = useState('')
-  // 任务级评论（WB-118）：经 Hub 代理，hub-origin/已连 Hub 项目可用。
+  // 任务级评论（WB-118）：经 Server 代理，server-origin/已连 Server 项目可用。
   const [comments, setComments] = useState<{ id: string; author_name: string; body: string; created_at: number }[]>([])
   const [cbody, setCbody] = useState('')
-  const [hubOn, setHubOn] = useState(true)
+  const [serverOn, setServerOn] = useState(true)
 
   // If the item vanishes (deleted elsewhere), close.
   useEffect(() => { if (!item) onClose() }, [item, onClose])
   useEffect(() => {
     if (!projectId) return
     let alive = true
-    void api.hubItemComments(projectId, itemId).then((r) => { if (alive) { setComments(r.comments || []); setHubOn(r.hub) } }).catch(() => {})
+    void api.serverItemComments(projectId, itemId).then((r) => { if (alive) { setComments(r.comments || []); setServerOn(r.server) } }).catch(() => {})
     return () => { alive = false }
   }, [projectId, itemId])
   if (!item) return null
@@ -386,9 +386,9 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
   const sendComment = async () => {
     const v = cbody.trim(); if (!v || !projectId) return
     try {
-      await api.hubPostItemComment(projectId, itemId, v)
+      await api.serverPostItemComment(projectId, itemId, v)
       setCbody('')
-      const r = await api.hubItemComments(projectId, itemId)
+      const r = await api.serverItemComments(projectId, itemId)
       setComments(r.comments || [])
     } catch { toast('评论失败') }
   }
@@ -450,11 +450,11 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
           </div>
 
           <div className="wb-td-sec-h">评论{comments.length > 0 ? ` ${comments.length}` : ''}</div>
-          {!hubOn ? (
-            <div className="pj-empty">连接 Hub 账号后可在任务下评论、@ 队友。</div>
+          {!serverOn ? (
+            <div className="pj-empty">连接 AgentMate Server 账号后可在任务下评论、@ 队友。</div>
           ) : (
             <>
-              <div className="hub-cmt-box" style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <div className="cap-cmt-box" style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <input className="np-input" style={{ flex: 1 }} value={cbody} placeholder="写条评论…用 @用户名 提及成员"
                   onChange={(e) => setCbody(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void sendComment() }} />
                 <button className="btn-dark" disabled={!cbody.trim()} onClick={() => void sendComment()}>发送</button>
@@ -761,12 +761,12 @@ export function KanbanBoard() {
         <FilterDropdown label={group === 'none' ? '不分组' : group === 'assignee' ? '按负责人' : '按里程碑'} options={[{ key: 'none', label: '不分组' }, { key: 'assignee', label: '按负责人' }, { key: 'milestone', label: '按里程碑' }]} onPick={(k) => setGroup(k as 'none' | 'assignee' | 'milestone')} />
         {kviews.length > 0 && <FilterDropdown label="📑 视图" options={kviews.map((v, i) => ({ key: String(i), label: v.name }))} onPick={applyKView} />}
         <button className="btn-ghost" style={{ height: 34 }} onClick={saveKView}>保存视图</button>
-        <button className={`hub-act ${wipEdit ? 'on' : ''}`.trim()} onClick={() => setWipEdit((v) => !v)}>WIP</button>
-        <button className={`hub-act ${batch ? 'on' : ''}`.trim()} onClick={() => (batch ? exitBatch() : setBatch(true))}>
+        <button className={`cap-act ${wipEdit ? 'on' : ''}`.trim()} onClick={() => setWipEdit((v) => !v)}>WIP</button>
+        <button className={`cap-act ${batch ? 'on' : ''}`.trim()} onClick={() => (batch ? exitBatch() : setBatch(true))}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" /></svg>
           批量操作
         </button>
-        <button className="hub-act wb-icon-btn" aria-label="搜索待办" onClick={() => setShowSearch((v) => !v)}>{IcSearch}</button>
+        <button className="cap-act wb-icon-btn" aria-label="搜索待办" onClick={() => setShowSearch((v) => !v)}>{IcSearch}</button>
       </div>
 
       {showSearch && (
@@ -805,7 +805,7 @@ export function KanbanBoard() {
   )
 }
 
-// 负载: 按负责人聚合工作量（WB-119，对齐 Manager pmViewWorkload）。含工时 est/spent 汇总。
+// 负载: 按负责人聚合工作量（WB-119，对齐 Console pmViewWorkload）。含工时 est/spent 汇总。
 export function WorkloadView() {
   const items = useWorkItemStore((s) => s.items).filter((i) => !i.parent_id)
   const today = (() => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` })()
@@ -849,7 +849,7 @@ export function WorkloadView() {
   )
 }
 
-// 甘特: 按 start/due 相对时间画横条（对齐 Manager pmViewGantt，WB-121）。今天线 + 月度刻度 + 优先级色条。
+// 甘特: 按 start/due 相对时间画横条（对齐 Console pmViewGantt，WB-121）。今天线 + 月度刻度 + 优先级色条。
 export function GanttView() {
   const items = useWorkItemStore((s) => s.items).filter((i) => !i.parent_id)
   const [detailId, setDetailId] = useState<string | null>(null)

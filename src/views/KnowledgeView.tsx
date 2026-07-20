@@ -130,7 +130,7 @@ export function KnowledgeView() {
             </div>
           </div>
           {!openKb && configured && (
-            <button className="hub-act on" onClick={() => { setPrefill(null); setShowCreate(true) }}>+ 新建知识库</button>
+            <button className="cap-act on" onClick={() => { setPrefill(null); setShowCreate(true) }}>+ 新建知识库</button>
           )}
         </div>
 
@@ -146,7 +146,7 @@ export function KnowledgeView() {
           </>
         )}
 
-        {/* 从模板新建（Manager 下发的策展模板，橱窗）。未接入时不给——点了必然 400。*/}
+        {/* 从模板新建（Console 下发的策展模板，橱窗）。未接入时不给——点了必然 400。*/}
         {!openKb && configured && KB_TPLS.length > 0 && (
           <>
             <div className="sec-title" style={{ marginTop: 18 }}>从模板新建</div>
@@ -297,7 +297,7 @@ export function KnowledgeView() {
 }
 
 // 建库弹窗：名称 / 描述 / 图标。复用 np-* 弹窗 class。嵌入模型由 WeKnora 服务端配置，前端无需选。
-// tpl（可选）= 从模板新建时的预填（Manager 下发的策展模板）。
+// tpl（可选）= 从模板新建时的预填（Console 下发的策展模板）。
 function CreateKbModal(props: {
   creating: boolean
   tpl?: KbTemplate | null

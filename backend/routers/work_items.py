@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-import hub_client
+import server_client
 from auth.deps import current_user
 from storage import db
 from storage.models import Role
@@ -111,31 +111,31 @@ def _view(wi, user) -> dict:
     return d
 
 
-# ---- Hub 代理（WB-091）：hub-origin 项目的 work_items 走 Hub 权威（团队共享）----
-# 读时把 Hub 结果镜像进本地（离线兜底 + 让 update/delete 能按 id 定位 project）；
-# 写时代理到 Hub 再刷新镜像。Hub 不可达 → 回退纯本地（离线优先，铁律 6 回退）。
+# ---- Server 代理（WB-091）：server-origin 项目的 work_items 走 Server 权威（团队共享）----
+# 读时把 Server 结果镜像进本地（离线兜底 + 让 update/delete 能按 id 定位 project）；
+# 写时代理到 Server 再刷新镜像。Server 不可达 → 回退纯本地（离线优先，铁律 6 回退）。
 
 def _bearer(authorization: str) -> str:
     return authorization[7:].strip() if authorization[:7].lower() == "bearer " else ""
 
 
-def _hub_token(project_id: str, authorization: str) -> str:
-    """该项目是否应走 Hub 代理：hub-origin 镜像项目 + 已接 Hub + 请求带 token → 返回 bearer，否则 ""。"""
-    if not hub_client.hub_enabled():
+def _server_token(project_id: str, authorization: str) -> str:
+    """该项目是否应走 Server 代理：server-origin 镜像项目 + 已接 Server + 请求带 token → 返回 bearer，否则 ""。"""
+    if not server_client.server_enabled():
         return ""
     tok = _bearer(authorization)
     if not tok:
         return ""
     proj = db.get_project(project_id)
-    if not proj or getattr(proj, "origin", "local") != "hub":
+    if not proj or getattr(proj, "origin", "local") != "server":
         return ""
     return tok
 
 
-def _hub_view(it: dict) -> dict:
-    """Hub work_item → 前端期望的视图形状。
-    专业 PM 字段（priority/start_date/labels/parent_id/milestone_id/due_date）随 Hub 透传；
-    owner_id/attachments 是本地专有、Hub 不带，补默认空。"""
+def _server_view(it: dict) -> dict:
+    """Server work_item → 前端期望的视图形状。
+    专业 PM 字段（priority/start_date/labels/parent_id/milestone_id/due_date）随 Server 透传；
+    owner_id/attachments 是本地专有、Server 不带，补默认空。"""
     ca = it.get("created_at") or 0
     labels = it.get("labels") or []
     return {
@@ -149,7 +149,7 @@ def _hub_view(it: dict) -> dict:
         "parent_id": it.get("parent_id", ""), "milestone_id": it.get("milestone_id", ""),
         "estimate_h": float(it.get("estimate_h") or 0), "spent_h": float(it.get("spent_h") or 0),
         "created_at": ca, "updated_at": it.get("updated_at") or ca,
-        # Hub 已按成员名解析 assignee_name（WB-112c-B）；缺失时用原值兜底。
+        # Server 已按成员名解析 assignee_name（WB-112c-B）；缺失时用原值兜底。
         "ago": _ago(ca), "assignee_name": it.get("assignee_name") or (it.get("assignee", "") or ""),
     }
 
@@ -170,12 +170,12 @@ def list_items(project: str, authorization: str = Header(default="")) -> dict:
     # Any member (incl. Viewer) can see a project's items (M7 C2).
     if not db.get_project_for(project, user.id):
         raise HTTPException(404, "project not found")
-    tok = _hub_token(project, authorization)
+    tok = _server_token(project, authorization)
     if tok:
-        items = hub_client.list_work_items(tok, project)  # None = Hub 不可达
+        items = server_client.list_work_items(tok, project)  # None = Server 不可达
         if items is not None:
-            db.mirror_hub_work_items(project, items)       # 刷新本地镜像
-            return {"items": [_hub_view(it) for it in items]}
+            db.mirror_server_work_items(project, items)       # 刷新本地镜像
+            return {"items": [_server_view(it) for it in items]}
     return {"items": [_view(wi, user) for wi in db.list_work_items(project)]}
 
 
@@ -189,9 +189,9 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
     labels = _clean_labels(body.labels)
     user = current_user()
     _require_project_write(body.project_id, user.id)
-    tok = _hub_token(body.project_id, authorization)
+    tok = _server_token(body.project_id, authorization)
     if tok:
-        created = hub_client.create_work_item(
+        created = server_client.create_work_item(
             tok, body.project_id,
             {"title": title, "status": status, "source": body.source,
              "description": (body.description or "").strip(),
@@ -201,13 +201,13 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
              "estimate_h": body.estimate_h or 0, "spent_h": body.spent_h or 0},
         )
         if created:
-            items = hub_client.list_work_items(tok, body.project_id)
+            items = server_client.list_work_items(tok, body.project_id)
             if items is not None:
-                db.mirror_hub_work_items(body.project_id, items)  # 让新项本地可定位
-            return _hub_view(created)
-        # hub-origin 项目 + Hub 不可达：别造一条会被下次 list 的镜像 DELETE 抹掉的本地行
+                db.mirror_server_work_items(body.project_id, items)  # 让新项本地可定位
+            return _server_view(created)
+        # server-origin 项目 + Server 不可达：别造一条会被下次 list 的镜像 DELETE 抹掉的本地行
         # （静默数据丢失 + 假成功，违反铁律#1）。如实报错让前端提示重试（WB-158）。
-        raise HTTPException(503, "Hub 暂不可达，任务未创建，请稍后重试")
+        raise HTTPException(503, "Server 暂不可达，任务未创建，请稍后重试")
     wi = db.create_work_item(
         project_id=body.project_id, owner_id=user.id, title=title, status=status, source=body.source,
         description=(body.description or "").strip(), due_date=(body.due_date or None),
@@ -230,7 +230,7 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
     if not existing:
         raise HTTPException(404, "work item not found")
     _require_project_write(existing.project_id, user.id)
-    tok = _hub_token(existing.project_id, authorization)
+    tok = _server_token(existing.project_id, authorization)
     if tok:
         fs = body.model_fields_set
         keys = ("title", "status", "description", "priority", "due_date",
@@ -241,14 +241,14 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
         if "labels" in patch:
             patch["labels"] = _clean_labels(patch["labels"])
         if patch:
-            up = hub_client.update_work_item(tok, existing.project_id, item_id, patch)
+            up = server_client.update_work_item(tok, existing.project_id, item_id, patch)
             if up:
-                items = hub_client.list_work_items(tok, existing.project_id)
+                items = server_client.list_work_items(tok, existing.project_id)
                 if items is not None:
-                    db.mirror_hub_work_items(existing.project_id, items)
-                return _hub_view(up)
-            # hub-origin + Hub 不可达：本地改动会被下次镜像还原，如实报错（WB-158）。
-            raise HTTPException(503, "Hub 暂不可达，改动未保存，请稍后重试")
+                    db.mirror_server_work_items(existing.project_id, items)
+                return _server_view(up)
+            # server-origin + Server 不可达：本地改动会被下次镜像还原，如实报错（WB-158）。
+            raise HTTPException(503, "Server 暂不可达，改动未保存，请稍后重试")
         # patch 为空（仅本地字段如附件）→ 落到下方本地更新即可。
     # due_date / start_date nullable: 显式 null 清空，省略则不动。
     fields = body.model_fields_set
@@ -280,14 +280,14 @@ def delete_item(item_id: str, authorization: str = Header(default="")) -> dict:
     if not existing:
         raise HTTPException(404, "work item not found")
     _require_project_write(existing.project_id, current_user().id)
-    tok = _hub_token(existing.project_id, authorization)
+    tok = _server_token(existing.project_id, authorization)
     if tok:
-        if hub_client.delete_work_item(tok, existing.project_id, item_id):
-            items = hub_client.list_work_items(tok, existing.project_id)
+        if server_client.delete_work_item(tok, existing.project_id, item_id):
+            items = server_client.list_work_items(tok, existing.project_id)
             if items is not None:
-                db.mirror_hub_work_items(existing.project_id, items)
+                db.mirror_server_work_items(existing.project_id, items)
             return {"ok": True}
-        # hub-origin + Hub 不可达：本地删除会被下次镜像还原，如实报错（WB-158）。
-        raise HTTPException(503, "Hub 暂不可达，未删除，请稍后重试")
+        # server-origin + Server 不可达：本地删除会被下次镜像还原，如实报错（WB-158）。
+        raise HTTPException(503, "Server 暂不可达，未删除，请稍后重试")
     db.delete_work_item(item_id)
     return {"ok": True}

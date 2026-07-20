@@ -10,9 +10,9 @@ import type { ProjectInfo, SessionInfo, ViewId } from '../../lib/types'
 import { activate } from '../../lib/a11y'
 import { LoginModal } from '../auth/LoginModal'
 import { MessageCenter } from './MessageCenter'
-import { HubConnectModal } from '../hub/HubConnectModal'
+import { ServerConnectModal } from '../server/ServerConnectModal'
 import { SettingsModal } from '../settings/SettingsModal'
-import { useHubStore } from '../../stores/hubStore'
+import { useServerStore } from '../../stores/serverStore'
 import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
 
 type NavItem = { id: ViewId; label: string; icon: ReactNode; cls?: string }
@@ -59,19 +59,19 @@ export function Sidebar() {
   const me = useAuthStore((s) => s.me)
   const loggedIn = useAuthStore((s) => s.loggedIn)
   const logout = useAuthStore((s) => s.logout)
-  // Hub 连接是全局态（账号级），入口放账号菜单——无项目也能首次连接（WB-076）。
-  const hubEnabled = useHubStore((s) => s.enabled)
-  const hubLinked = useHubStore((s) => s.linked)
-  const hubChecked = useHubStore((s) => s.checked)
-  const refreshHub = useHubStore((s) => s.refreshStatus)
-  const [hubOpen, setHubOpen] = useState(false)
+  // Server 连接是全局态（账号级），入口放账号菜单——无项目也能首次连接（WB-076）。
+  const serverEnabled = useServerStore((s) => s.enabled)
+  const serverLinked = useServerStore((s) => s.linked)
+  const serverChecked = useServerStore((s) => s.checked)
+  const refreshServer = useServerStore((s) => s.refreshStatus)
+  const [serverOpen, setServerOpen] = useState(false)
   const [loginOpen, setLoginOpen] = useState(false)
   const unread = useNotificationStore((s) => s.unread)
   const loadNotifs = useNotificationStore((s) => s.load)
   const [msgOpen, setMsgOpen] = useState(false)
 
   useEffect(() => { loadProjects() }, [loadProjects])
-  useEffect(() => { if (!hubChecked) void refreshHub() }, [hubChecked, refreshHub])
+  useEffect(() => { if (!serverChecked) void refreshServer() }, [serverChecked, refreshServer])
   // Message center (M7 C4): load on mount + poll lightly so the bell badge stays
   // live even while the center is closed.
   useEffect(() => {
@@ -443,10 +443,10 @@ export function Sidebar() {
           <div className="pf-row" onClick={() => { setSettingsOpen(true, 'account'); setProfileOpen(false) }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18" /></svg>设置中心
           </div>
-          {hubEnabled && (
-            <div className="pf-row" onClick={() => { setProfileOpen(false); setHubOpen(true) }}>
+          {serverEnabled && (
+            <div className="pf-row" onClick={() => { setProfileOpen(false); setServerOpen(true) }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 17H7A5 5 0 017 7h2M15 7h2a5 5 0 010 10h-2M8 12h8" /></svg>
-              {hubLinked ? `已连接 Hub · ${hubLinked.name}` : '连接 Hub'}
+              {serverLinked ? `已连接 AgentMate Server · ${serverLinked.name}` : '连接 AgentMate Server'}
             </div>
           )}
           <div className="pf-div" />
@@ -464,7 +464,7 @@ export function Sidebar() {
 
       {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
       {msgOpen && <MessageCenter onClose={() => setMsgOpen(false)} />}
-      {hubOpen && <HubConnectModal onClose={() => { setHubOpen(false); void refreshHub() }} />}
+      {serverOpen && <ServerConnectModal onClose={() => { setServerOpen(false); void refreshServer() }} />}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </aside>
   )

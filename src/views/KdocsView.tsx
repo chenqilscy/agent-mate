@@ -191,7 +191,7 @@ export function KdocsView() {
         {(conn === 'need_auth' || conn === 'connecting') && (
           <div className="mf-empty" style={{ flexDirection: 'column', gap: 12, textAlign: 'center', lineHeight: 1.7 }}>
             <div>尚未连接金山文档。连接后即可浏览你的云文档，凭据仅存本机、不进前端。</div>
-            <button className="hub-act" onClick={doConnect} disabled={conn === 'connecting'}>
+            <button className="cap-act" onClick={doConnect} disabled={conn === 'connecting'}>
               {conn === 'connecting' ? '连接中…' : '连接金山文档'}
             </button>
             {authUrl && conn === 'connecting' && (
@@ -225,10 +225,10 @@ export function KdocsView() {
                     onChange={(e) => setKw(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') submitSearch() }} />
                 </div>
-                <button className="hub-act" onClick={submitSearch} disabled={loading}>搜索</button>
-                {active && <button className="hub-act" onClick={clearSearch} disabled={loading}>返回最近</button>}
+                <button className="cap-act" onClick={submitSearch} disabled={loading}>搜索</button>
+                {active && <button className="cap-act" onClick={clearSearch} disabled={loading}>返回最近</button>}
                 <span style={{ flex: 1 }} />
-                <button className="hub-act" onClick={refresh} disabled={loading} title="刷新">刷新</button>
+                <button className="cap-act" onClick={refresh} disabled={loading} title="刷新">刷新</button>
               </div>
             )}
 
@@ -244,7 +244,7 @@ export function KdocsView() {
                   ))}
                 </div>
                 <span style={{ flex: 1 }} />
-                <button className="hub-act" onClick={refresh} disabled={loading} title="刷新">刷新</button>
+                <button className="cap-act" onClick={refresh} disabled={loading} title="刷新">刷新</button>
               </div>
             )}
 
@@ -306,7 +306,7 @@ export function KdocsView() {
               <span className="kd-vic">{viewing.is_folder ? '📁' : kindOf(viewing.ext)[0]}</span>
               <span className="kd-vname" title={viewing.name}>{viewing.name}</span>
               <span style={{ flex: 1 }} />
-              <a className="hub-act" href={viewing.link_url} target="_blank" rel="noopener noreferrer">
+              <a className="cap-act" href={viewing.link_url} target="_blank" rel="noopener noreferrer">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 5h5v5M19 5l-8 8M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" /></svg>新标签打开
               </a>
             </div>

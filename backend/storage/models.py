@@ -67,11 +67,11 @@ class Project:
     connectors: list[str]
     experts: list[str]
     skills: list[str]
-    # 本机执行面挂载的 WeKnora 知识库；不上传 Hub（知识库与凭据均属本地能力）。
+    # 本机执行面挂载的 WeKnora 知识库；不上传 Server（知识库与凭据均属本地能力）。
     knowledge_ids: list[str]
     created_at: float
     updated_at: float
-    # 'local' = 本机创建；'hub' = 从 Hub 下行拉取的只读镜像（WB-062 Phase 2）。
+    # 'local' = 本机创建；'server' = 从 Server 下行拉取的只读镜像（WB-062 Phase 2）。
     origin: str = "local"
 
     def to_dict(self) -> dict[str, Any]:
@@ -161,13 +161,13 @@ class WorkItem:
     # 引用列表，元素形如 {"name": str, "kind": "local"|"asset", "path": str|None}。
     # 只存引用，不复制文件（项目资产引用项目云盘现有文件）。
     attachments: list[dict[str, Any]] = field(default_factory=list)
-    # 专业 PM 字段（WB-108，与 Hub 对齐、随 hub-origin 项目双向同步）。
+    # 专业 PM 字段（WB-108，与 Server 对齐、随 server-origin 项目双向同步）。
     priority: str = ""              # '' | low | medium | high | urgent
     start_date: Optional[str] = None  # "YYYY-MM-DD" or None（甘特起点）
     labels: list[str] = field(default_factory=list)
     parent_id: str = ""             # 自引用 → 子任务
     milestone_id: str = ""          # → milestones.id
-    estimate_h: float = 0.0         # 工时预估/投入（WB-117，与 Hub 对齐）
+    estimate_h: float = 0.0         # 工时预估/投入（WB-117，与 Server 对齐）
     spent_h: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:

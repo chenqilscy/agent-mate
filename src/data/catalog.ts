@@ -301,10 +301,10 @@ export const INSP: [string, string, string][] = [
   ['#0F1420', '按需选择，随团队一起成长', '从 1 个人到 500 人团队的功能与定价对比页，一键生成'],
 ]
 
-// SkillHub 浏览目录只来自 Hub 镜像或真实 rankings；离线不可达时展示诚实空态（WB-183/184）。
+// SkillHub 浏览目录只来自 Server 镜像或真实 rankings；离线不可达时展示诚实空态（WB-183/184）。
 
-// 知识库模板（GLM RAG · WB-144/145）：策展的「一键建库」模板。Manager 目录管理下发覆盖本地，
-// 离线/未接 Manager 时用下面这几个真实可用的内置模板兜底（非假数据——用户可直接按模板建库）。
+// 知识库模板（GLM RAG · WB-144/145）：策展的「一键建库」模板。Console 目录管理下发覆盖本地，
+// 离线/未接 Server 时用下面这几个真实可用的内置模板兜底（非假数据——用户可直接按模板建库）。
 export interface KbTemplate {
   key: string
   name: string

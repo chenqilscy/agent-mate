@@ -14,7 +14,7 @@ import type { InstalledSkill, SkillCard } from '../lib/types'
 import { type ExpertTeam } from '../data/catalog'
 import { useCatalog, useCatalogStore } from '../stores/catalogStore'
 
-type Hub = 'experts' | 'skills' | 'connectors'
+type CapabilityKind = 'experts' | 'skills' | 'connectors'
 
 // 详情弹窗的两种主体：单个专家（来自 EXP_GRID）或专家团（EXP_TEAMS）。
 type Detail =
@@ -93,7 +93,7 @@ function ExpertsPane() {
   const empty = sub === '专家' ? experts.length === 0 : teams.length === 0
 
   return (
-    <div className="hub-pane show">
+    <div className="cap-pane show">
       <div className="sec-title" style={{ marginTop: 2 }}>精选场景</div>
       <div className="scene-grid">
         {EXP_SCENES.map(([t, list]) => (
@@ -153,7 +153,7 @@ function ExpertsPane() {
           ))}
         </div>
       )}
-      {empty && <div className="hub-blank">该分类下暂无{sub}</div>}
+      {empty && <div className="cap-blank">该分类下暂无{sub}</div>}
 
       {detail && <ExpertDetailModal detail={detail} onClose={() => setDetail(null)} />}
     </div>
@@ -257,15 +257,15 @@ function editSkill(name: string) {
   toast('已载入 skill-creator · 去编辑「' + name + '」')
 }
 
-// 展示名 → 图标/底色；只读真实推荐目录/Hub 镜像，不再回退静态 SkillHub 假统计卡。
+// 展示名 → 图标/底色；只读真实推荐目录/Server 镜像，不再回退静态 SkillHub 假统计卡。
 function skillTile(name: string): { icon: string; color: string } {
   const catalog = useCatalogStore.getState()
   const inst = catalog.INSTALLED.find((x) => x[2] === name)
   if (inst) return { icon: inst[0], color: inst[1] }
   const recommended = catalog.SK_GRID.find((x) => x.name === name || x.slug === name)
   if (recommended) return { icon: recommended.icon, color: '#6B7280' }
-  const hub = [...catalog.skillFeatured, ...catalog.skillMirror].find((x) => x.name === name || x.slug === name)
-  if (hub) return { icon: (hub.name.trim()[0] || '?').toUpperCase(), color: '#6B7280' }
+  const mirror = [...catalog.skillFeatured, ...catalog.skillMirror].find((x) => x.name === name || x.slug === name)
+  if (mirror) return { icon: (mirror.name.trim()[0] || '?').toUpperCase(), color: '#6B7280' }
   return { icon: (name.trim()[0] || '?').toUpperCase(), color: '#6B7280' }
 }
 
@@ -317,7 +317,7 @@ function InstallBtn({ name }: { name: string }) {
   )
 }
 
-// 精选技能大卡（顶部）。仅展示 Hub 真实精选；无下发时不伪造一组静态精选。
+// 精选技能大卡（顶部）。仅展示 Server 真实精选；无下发时不伪造一组静态精选。
 type FeaturedItem = { iconUrl?: string; icon: string; name: string; desc: string; badge?: string }
 function FeaturedCard({ item, onOpenDetail }: { item: FeaturedItem; onOpenDetail: (target: SkillTarget) => void }) {
   const { iconUrl, icon, name, desc, badge } = item
@@ -366,7 +366,7 @@ function fmtNum(n?: number): string {
   return v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)
 }
 
-// Hub 镜像/搜索的商店卡（对象形，区别于静态元组卡 SkillHubCard）。图标优先 iconUrl，缺省取首字母。
+// Server 镜像/搜索的商店卡（对象形，区别于静态元组卡 SkillHubCard）。图标优先 iconUrl，缺省取首字母。
 function MirrorSkillCard({ card, onOpenDetail }: { card: SkillCard; onOpenDetail: (target: SkillTarget) => void }) {
   const inst = useSkillStore((s) => matchSkill(s.installed, card.name))
   const target: SkillTarget = inst ? { key: inst.key } : { name: card.slug || card.name }
@@ -390,7 +390,7 @@ function MirrorSkillCard({ card, onOpenDetail }: { card: SkillCard; onOpenDetail
   )
 }
 
-// 技能搜索结果（WB-070）：调本地 /api/skills/search（后端优先 Hub 代理、回退本地 CLI），去抖 300ms。
+// 技能搜索结果（WB-070）：调本地 /api/skills/search（后端优先 Server 代理、回退本地 CLI），去抖 300ms。
 function SkillSearchResults({ q, onOpenDetail }: { q: string; onOpenDetail: (target: SkillTarget) => void }) {
   const [results, setResults] = useState<SkillCard[]>([])
   const [loading, setLoading] = useState(false)
@@ -411,9 +411,9 @@ function SkillSearchResults({ q, onOpenDetail }: { q: string; onOpenDetail: (tar
     <>
       <div className="sec-title" style={{ marginTop: 2 }}>搜索「{q.trim()}」</div>
       {loading && results.length === 0
-        ? <div className="hub-blank">搜索中…</div>
+        ? <div className="cap-blank">搜索中…</div>
         : results.length === 0
-          ? <div className="hub-blank">没有找到相关技能</div>
+          ? <div className="cap-blank">没有找到相关技能</div>
           : (
             <div className="card-grid g4">
               {results.map((c) => <MirrorSkillCard key={c.slug || c.name} card={c} onOpenDetail={onOpenDetail} />)}
@@ -424,8 +424,8 @@ function SkillSearchResults({ q, onOpenDetail }: { q: string; onOpenDetail: (tar
 }
 
 // SkillHub 目录：分类过滤 + skillhub.cn 链接 + 排序 + 网格。
-// WB-070：有 Hub 镜像（catalogStore.skillMirror，已连 Hub 并 pull）→ 用镜像的真实 369 技能，
-// 按 Hub taxonomy 分类过滤；无 Hub 镜像时由 catalogStore 尝试真实 rankings，失败则诚实空态。
+// WB-070：有 Server 镜像（catalogStore.skillMirror，已连 Server 并 pull）→ 用镜像的真实 369 技能，
+// 按 Server taxonomy 分类过滤；无 Server 镜像时由 catalogStore 尝试真实 rankings，失败则诚实空态。
 function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) => void }) {
   const mirror = useCatalogStore((s) => s.skillMirror)
   const skillCats = useCatalogStore((s) => s.skillCats)
@@ -440,7 +440,7 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
       <div className="sk-cathead-r">
         <a className="sk-link" href="https://skillhub.cn" target="_blank" rel="noopener noreferrer"><IcExt />skillhub.cn</a>
         {/* 「综合评分」排序控件已移除（WB-181）：它只 toast、不排任何序，是个谎。
-            真排序要等 WB-184 把这一段的三层数据源（Hub 镜像 / rankings / 静态兜底）收敛掉
+            真排序要等 WB-184 把这一段的三层数据源（Server 镜像 / rankings / 静态兜底）收敛掉
             —— 后端 /skills/rankings 的 featured|hot|newest|recommended|trending 早已就绪，
             但镜像那条路不经 rankings，现在接会得到「切了排序但只有部分数据源生效」的新谎。 */}
       </div>
@@ -456,7 +456,7 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
         <div className="card-grid g4">
           {list.map((c) => <MirrorSkillCard key={c.slug} card={c} onOpenDetail={onOpenDetail} />)}
         </div>
-        {list.length === 0 && <div className="hub-blank">该分类下暂无技能</div>}
+        {list.length === 0 && <div className="cap-blank">该分类下暂无技能</div>}
       </>
     )
   }
@@ -464,7 +464,7 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
   return (
     <>
       {cathead(['全部'])}
-      <div className="hub-blank">当前无法获取 SkillHub 目录，请连接 Hub 或稍后重试</div>
+      <div className="cap-blank">当前无法获取 SkillHub 目录，请连接 AgentMate Server 或稍后重试</div>
     </>
   )
 }
@@ -487,23 +487,23 @@ function RecoView() {
           </div>
         ))}
       </div>
-      {SK_GRID.filter((s) => cat === '全部' || s.category === cat).length === 0 && <div className="hub-blank">该分类下暂无技能</div>}
+      {SK_GRID.filter((s) => cat === '全部' || s.category === cat).length === 0 && <div className="cap-blank">该分类下暂无技能</div>}
     </>
   )
 }
 
 // 「套件」段已整体删除（WB-182）—— 详见 catalog.ts 里 SKILLHUB_KITS 原处的说明：
-// 前端 4 张静态卡（技能数手写）、后端零代码、DB 无表、Hub 无源、「安装套件」只 toast，
-// 是整次技能审查里唯一 100% 虚构的功能。真要做等 WB-183 目录入库后在 Hub 建 kit 表。
+// 前端 4 张静态卡（技能数手写）、后端零代码、DB 无表、Server 无源、「安装套件」只 toast，
+// 是整次技能审查里唯一 100% 虚构的功能。真要做等 WB-183 目录入库后在 Server 建 kit 表。
 
 function SkillsPane({ query, onOpenDetail }: { query: string; onOpenDetail: (target: SkillTarget) => void }) {
   const [seg, setSeg] = useState<'skillhub' | 'reco'>('skillhub')
   // 搜索态（顶栏搜索框有输入）→ 全屏搜索结果，替代精选/分段浏览（WB-070）。
   if (query.trim()) {
-    return <div className="hub-pane show"><SkillSearchResults q={query} onOpenDetail={onOpenDetail} /></div>
+    return <div className="cap-pane show"><SkillSearchResults q={query} onOpenDetail={onOpenDetail} /></div>
   }
   return (
-    <div className="hub-pane show">
+    <div className="cap-pane show">
       <FeaturedSkills onOpenDetail={onOpenDetail} />
       <div className="sk-seg">
         <div className={`sk-seg-item ${seg === 'reco' ? 'active' : ''}`.trim()} onClick={() => setSeg('reco')}>推荐</div>
@@ -520,7 +520,7 @@ function InstalledPane({ onBack, onOpenDetail }: { onBack: () => void; onOpenDet
   const installed = useSkillStore((s) => s.installed)
   const loading = useSkillStore((s) => s.loading)
   return (
-    <div className="hub-pane show">
+    <div className="cap-pane show">
       <div className="ph" style={{ alignItems: 'center', marginTop: 2 }}>
         <button className="btn-ghost" onClick={onBack}>‹ 技能市场</button>
         <div style={{ flex: 1 }} />
@@ -591,7 +591,7 @@ function ConnectorsPane() {
   useEffect(() => { refreshAuth() }, [])
 
   return (
-    <div className="hub-pane show">
+    <div className="cap-pane show">
       <div className="card-grid g2" style={{ marginTop: 6 }}>
         {CONNS.map(([ic, n, d]) => {
           const meta = CONN_META[n]
@@ -649,11 +649,11 @@ function MyExpertsPane({ onBack }: { onBack: () => void }) {
   useEffect(() => { void load() }, [load])
 
   return (
-    <div className="hub-pane show">
+    <div className="cap-pane show">
       <div className="ph" style={{ alignItems: 'center', marginTop: 2 }}>
         <button className="btn-ghost" onClick={onBack}>‹ 全部专家</button>
         <div style={{ flex: 1 }} />
-        {experts.length > 0 && <button className="hub-act" onClick={() => setCreateOpen(true)}>＋ 创建专家</button>}
+        {experts.length > 0 && <button className="cap-act" onClick={() => setCreateOpen(true)}>＋ 创建专家</button>}
       </div>
 
       {experts.length === 0 ? (
@@ -690,30 +690,30 @@ function MyExpertsPane({ onBack }: { onBack: () => void }) {
   )
 }
 
-const TABS: { id: Hub; label: string; icon: ReactNode }[] = [
+const TABS: { id: CapabilityKind; label: string; icon: ReactNode }[] = [
   { id: 'experts', label: '专家', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></svg> },
   { id: 'skills', label: '技能', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg> },
   { id: 'connectors', label: '连接器', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 15l6-6M8 8L6 10a4 4 0 006 6l2-2M16 16l2-2a4 4 0 00-6-6l-2 2" /></svg> },
 ]
 
-function HubView({ hub }: { hub: Hub }) {
+function CapabilityView({ kind }: { kind: CapabilityKind }) {
   // 「我的专家」子视图（WB-049）/「我安装的」子视图，仅在各自 tab 下有效；切 tab 退回目录。
   const [myExperts, setMyExperts] = useState(false)
   const [myInstalled, setMyInstalled] = useState(false)
-  // 技能详情页（WB-056/057）：非空则占满 hub-body。已装用 {key}，未装用 {name} 预览。
+  // 技能详情页（WB-056/057）：非空则占满 cap-body。已装用 {key}，未装用 {name} 预览。
   const [detailTarget, setDetailTarget] = useState<SkillTarget | null>(null)
   // 顶栏搜索框输入（WB-070）：目前用于技能 tab 的 SkillHub 搜索；切 tab 清空。
   const [query, setQuery] = useState('')
   const installedCount = useSkillStore((s) => s.installed.length)
   const loadSkills = useSkillStore((s) => s.load)
-  const placeholder = { experts: '搜索专家职称或描述', skills: '搜索技能', connectors: '搜索连接器' }[hub]
-  const actLabel = { experts: '我的专家', skills: '添加技能', connectors: '自定义连接器' }[hub]
+  const placeholder = { experts: '搜索专家职称或描述', skills: '搜索技能', connectors: '搜索连接器' }[kind]
+  const actLabel = { experts: '我的专家', skills: '添加技能', connectors: '自定义连接器' }[kind]
 
   // 进入应用即拉一次已安装技能（顶栏计数、卡片安装态、我安装的页都依赖它）。
   useEffect(() => { void loadSkills() }, [loadSkills])
 
-  const onAct = () => { if (hub === 'experts') setMyExperts(true); else toast(actLabel) }
-  const currentTab = TABS.find((tab) => tab.id === hub)!
+  const onAct = () => { if (kind === 'experts') setMyExperts(true); else toast(actLabel) }
+  const currentTab = TABS.find((tab) => tab.id === kind)!
   const createSkill = () => {
     setDetailTarget(null)
     setMyInstalled(false)
@@ -725,9 +725,9 @@ function HubView({ hub }: { hub: Hub }) {
   }
 
   return (
-    <section className="view active" data-view={hub}>
-      <div className="hub-top">
-        <div className="hub-tab active" aria-current="page">
+    <section className="view active" data-view={kind}>
+      <div className="cap-top">
+        <div className="cap-tab active" aria-current="page">
           {currentTab.icon}{currentTab.label}
         </div>
         <div className="sp" />
@@ -735,11 +735,11 @@ function HubView({ hub }: { hub: Hub }) {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
           <input placeholder={placeholder} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-        {hub === 'skills' ? (
+        {kind === 'skills' ? (
           <>
-            <button className={`hub-act ${myInstalled ? 'on' : ''}`.trim()} onClick={() => { setDetailTarget(null); setMyInstalled((v) => !v) }}>
+            <button className={`cap-act ${myInstalled ? 'on' : ''}`.trim()} onClick={() => { setDetailTarget(null); setMyInstalled((v) => !v) }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="4" /><path d="M8.5 12l2.5 2.5 4.5-5" /></svg>
-              我安装的<span className="hub-act-n">{installedCount}</span>
+              我安装的<span className="cap-act-n">{installedCount}</span>
             </button>
             <AddSkillControl
               onCreate={createSkill}
@@ -747,32 +747,32 @@ function HubView({ hub }: { hub: Hub }) {
             />
           </>
         ) : (
-          <button className="hub-act" onClick={onAct}>{actLabel}</button>
+          <button className="cap-act" onClick={onAct}>{actLabel}</button>
         )}
       </div>
-      <div className="hub-body">
-        {hub === 'experts' && (myExperts ? <MyExpertsPane onBack={() => setMyExperts(false)} /> : <ExpertsPane />)}
-        {hub === 'skills' && (
+      <div className="cap-body">
+        {kind === 'experts' && (myExperts ? <MyExpertsPane onBack={() => setMyExperts(false)} /> : <ExpertsPane />)}
+        {kind === 'skills' && (
           detailTarget
             ? <SkillDetail target={detailTarget} onBack={() => setDetailTarget(null)} />
             : myInstalled
               ? <InstalledPane onBack={() => setMyInstalled(false)} onOpenDetail={setDetailTarget} />
               : <SkillsPane query={query} onOpenDetail={setDetailTarget} />
         )}
-        {hub === 'connectors' && <ConnectorsPane />}
+        {kind === 'connectors' && <ConnectorsPane />}
       </div>
     </section>
   )
 }
 
 export function ExpertsView() {
-  return <HubView hub="experts" />
+  return <CapabilityView kind="experts" />
 }
 
 export function SkillsView() {
-  return <HubView hub="skills" />
+  return <CapabilityView kind="skills" />
 }
 
 export function ConnectorsView() {
-  return <HubView hub="connectors" />
+  return <CapabilityView kind="connectors" />
 }

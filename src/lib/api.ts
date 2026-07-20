@@ -118,28 +118,28 @@ export const api = {
   // 橱窗目录（WB-060）：原 data/catalog.ts 静态商品卡，现由后端供给。按 export 名分组的对象。
   getCatalog: () => get<Record<string, unknown>>('/catalog'),
 
-  // 触发本地 backend 从 Hub 下行 pull（项目/成员/目录镜像，WB-062/066/070）。
-  // 未接 Hub → 后端无害返回 {hub:false}；用于登录后刷新 Hub SkillHub 镜像目录等。
-  hubPull: () => send<{ hub: boolean; catalog?: number }>('POST', '/hub/pull'),
+  // 触发本地 backend 从 Server 下行 pull（项目/成员/目录镜像，WB-062/066/070）。
+  // 未接 Server → 后端无害返回 {server:false}；用于登录后刷新 Server SkillHub 镜像目录等。
+  serverPull: () => send<{ server: boolean; catalog?: number }>('POST', '/server/pull'),
 
-  // 前端接 Hub 协作（WB-067 Slice 2）：都经本地 backend 代理转发到 Hub；未接 Hub → {hub:false}/空。
-  hubStatus: () => get<{ enabled: boolean; linked: { account_id: string; name: string } | null }>('/hub/status'),
-  hubLogin: (name: string, password: string, register = false) =>
-    send<{ token: string; account: { id: string; name: string; is_platform_admin?: boolean } }>('POST', '/hub/login', { name, password, register }),
-  hubImport: () => send<{ hub: boolean; imported: number; skipped: number }>('POST', '/hub/import'),
-  hubComments: (pid: string) =>
-    get<{ hub: boolean; comments: { id: string; author_name: string; body: string; created_at: number }[] }>(`/hub/projects/${pid}/comments`),
-  hubPostComment: (pid: string, body: string) =>
-    send<{ id: string; mentioned?: number }>('POST', `/hub/projects/${pid}/comments`, { body }),
-  hubItemComments: (pid: string, wid: string) =>
-    get<{ hub: boolean; comments: { id: string; author_name: string; body: string; created_at: number }[] }>(`/hub/projects/${pid}/work-items/${wid}/comments`),
-  hubPostItemComment: (pid: string, wid: string, body: string) =>
-    send<{ id: string; mentioned?: number }>('POST', `/hub/projects/${pid}/work-items/${wid}/comments`, { body }),
-  hubPresence: (pid: string) =>
-    get<{ hub: boolean; presence: { account_id: string; name: string; role: string; online: boolean; last_seen: number }[] }>(`/hub/projects/${pid}/presence`),
-  hubNotifications: () =>
-    get<{ hub: boolean; notifications: { id: string; title: string; body: string; created_at: number; read: number }[]; unread: number }>('/hub/notifications'),
-  hubMarkNotifs: (ids?: string[]) => send<{ ok: boolean }>('POST', '/hub/notifications/read', ids ? { ids } : {}),
+  // 前端接 Server 协作（WB-067 Slice 2）：都经本地 backend 代理转发到 Server；未接 Server → {server:false}/空。
+  serverStatus: () => get<{ enabled: boolean; linked: { account_id: string; name: string } | null }>('/server/status'),
+  serverLogin: (name: string, password: string, register = false) =>
+    send<{ token: string; account: { id: string; name: string; is_platform_admin?: boolean } }>('POST', '/server/login', { name, password, register }),
+  serverImport: () => send<{ server: boolean; imported: number; skipped: number }>('POST', '/server/import'),
+  serverComments: (pid: string) =>
+    get<{ server: boolean; comments: { id: string; author_name: string; body: string; created_at: number }[] }>(`/server/projects/${pid}/comments`),
+  serverPostComment: (pid: string, body: string) =>
+    send<{ id: string; mentioned?: number }>('POST', `/server/projects/${pid}/comments`, { body }),
+  serverItemComments: (pid: string, wid: string) =>
+    get<{ server: boolean; comments: { id: string; author_name: string; body: string; created_at: number }[] }>(`/server/projects/${pid}/work-items/${wid}/comments`),
+  serverPostItemComment: (pid: string, wid: string, body: string) =>
+    send<{ id: string; mentioned?: number }>('POST', `/server/projects/${pid}/work-items/${wid}/comments`, { body }),
+  serverPresence: (pid: string) =>
+    get<{ server: boolean; presence: { account_id: string; name: string; role: string; online: boolean; last_seen: number }[] }>(`/server/projects/${pid}/presence`),
+  serverNotifications: () =>
+    get<{ server: boolean; notifications: { id: string; title: string; body: string; created_at: number; read: number }[]; unread: number }>('/server/notifications'),
+  serverMarkNotifs: (ids?: string[]) => send<{ ok: boolean }>('POST', '/server/notifications/read', ids ? { ids } : {}),
 
   // 助理外部渠道 · Telegram（WB-072）。状态 + 真实会话历史；say = 从 App 驱动同一助手
   // （与 Telegram 共用同一助理会话）。渠道是本机 local-first 特性，不携带项目/登录作用域。
@@ -221,10 +221,10 @@ export const api = {
   // SkillHub 技能 · 真实安装/发现/管理（WB-055）。清单来自 ~/.agentmate/skills 磁盘扫描，
   // 安装走真实 skillhub CLI 下载解压。key = 技能目录名。
   listSkills: () => get<{ skills: InstalledSkill[]; cli: boolean }>('/skills'),
-  // SkillHub 实时搜索（WB-070）：本地 backend 优先经 Hub 查询代理（富字段），未接/不可达 → 回退本地 CLI。
+  // SkillHub 实时搜索（WB-070）：本地 backend 优先经 Server 查询代理（富字段），未接/不可达 → 回退本地 CLI。
   searchSkills: (q: string, limit = 12) =>
     get<{ results: SkillCard[]; source?: string }>(`/skills/search?q=${encodeURIComponent(q)}&limit=${limit}`),
-  // SkillHub 实时排行（WB-064 端点）：无 Hub 镜像时技能浏览的真实兜底源（本地 CLI 跑 skill rankings）。
+  // SkillHub 实时排行（WB-064 端点）：无 Server 镜像时技能浏览的真实兜底源（本地 CLI 跑 skill rankings）。
   skillRankings: (type = 'featured') =>
     get<{ type: string; skills: SkillCard[] }>(`/skills/rankings?type=${encodeURIComponent(type)}`),
   skillDetail: (key: string) => get<{ skill: SkillDetail }>(`/skills/${encodeURIComponent(key)}`),
@@ -298,7 +298,7 @@ export const api = {
 
   deleteWorkItem: (id: string) => send<{ ok: boolean }>('DELETE', `/work-items/${id}`),
 
-  // 里程碑（WB-108）：hub-origin 项目走 Hub 权威 + 本地镜像，离线回退本地。
+  // 里程碑（WB-108）：server-origin 项目走 Server 权威 + 本地镜像，离线回退本地。
   listMilestones: (project: string) => get<{ milestones: Milestone[] }>(`/milestones?project=${project}`),
   createMilestone: (body: { project_id: string; name: string; description?: string; due_date?: string | null; status?: 'open' | 'closed' }) =>
     send<Milestone>('POST', '/milestones', body),

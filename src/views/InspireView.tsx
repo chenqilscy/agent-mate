@@ -24,7 +24,7 @@ export function InspireView() {
             <div className="sub">常见工作流沉淀成可复用的任务起点</div>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6 }}>
-            <button className="hub-act" onClick={() => toast('我的收藏')}>我的收藏</button>
+            <button className="cap-act" onClick={() => toast('我的收藏')}>我的收藏</button>
             <div className="search-box" style={{ margin: 0, width: 220 }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
               <input placeholder="搜索灵感" />

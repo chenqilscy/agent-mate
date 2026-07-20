@@ -40,8 +40,8 @@ MAX_SKILL_MD_BYTES = 512 * 1024
 
 # 技能 slug 白名单：仅字母数字与 . _ - ；杜绝路径分隔符与 `..`，因为 slug 会拼进
 # SKILLS_DIR/<slug> 与临时预览目录路径、并作为 `skillhub install <slug>` 的子进程
-# 参数（路径穿越 / CLI 参数注入面）。与 hub/skillhub_client.py 的校验保持同一口径
-# ——WB-160 只硬化了 Hub 侧，App 侧这个孪生站点漏网，见 WB-185。
+# 参数（路径穿越 / CLI 参数注入面）。与 server/skillhub_client.py 的校验保持同一口径
+# ——WB-160 只硬化了 Server 侧，App 侧这个孪生站点漏网，见 WB-185。
 _SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
@@ -464,7 +464,7 @@ def _installed_dir_for_slug(slug: str) -> Path | None:
 
 # 安装前预览缓存（slug → (ts, detail)），避免重复下载。
 # 必须有 TTL：否则技能在 SkillHub 发了新版，本进程会永远返回旧预览（WB-186）。
-# 300s 与 hub/skillhub_client.py 的 _PREVIEW_TTL 对齐，避免两侧行为不一致。
+# 300s 与 server/skillhub_client.py 的 _PREVIEW_TTL 对齐，避免两侧行为不一致。
 _PREVIEW_TTL = 300.0
 _preview_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
@@ -581,7 +581,7 @@ def resolve_slug(query: str) -> str | None:
 
 
 # ── skillhub.cn 实时目录来源（WB-064）──────────────────────────────────────
-# 真实排行接口，供「分层」方案里 skillhub.cn 实时那一层用；WB-060 的 Hub-DB
+# 真实排行接口，供「分层」方案里 skillhub.cn 实时那一层用；WB-060 的 Server-DB
 # 目录层可消费本函数/端点做整合+离线兜底。清单来自 skillhub 站点，非模拟。
 _VALID_RANK_TYPES = {"all", "hot", "featured", "newest", "recommended", "trending", "paid"}
 _RANKINGS_TTL = 300.0  # 秒；排行变化慢，短缓存降低对站点的压力
@@ -644,7 +644,7 @@ def decorate_cards(
 ) -> list[dict[str, Any]]:
     """给商品卡按本机状态加工：标记已安装 + 按分类过滤 + 截断。
 
-    「已安装」是**本机磁盘**的知识，Manager 给不出来，所以经 Hub 代理取回的榜单
+    「已安装」是**本机磁盘**的知识，Console 给不出来，所以经 Server 代理取回的榜单
     也要过这一步（WB-186）。
     """
     inst = scan()

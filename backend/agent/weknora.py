@@ -9,7 +9,7 @@ WeKnora 自己做解析/切片/嵌入/向量库/检索——本后端只建库/�
 （存量 .env 用户零破坏）。故所有公开函数都要 `owner_id`：地址/密钥是每个 owner 各自的。
 api_key 只在后端用，绝不回前端（铁律#4）。
 
-同步 httpx 客户端（照 `glm_kb.py`/`hub_client.py` 写法）——调用方必须在工作线程里跑
+同步 httpx 客户端（照 `glm_kb.py`/`server_client.py` 写法）——调用方必须在工作线程里跑
 （路由 `run_in_threadpool` / 工具 `asyncio.to_thread`），别占事件循环（WB-002）。
 
 ⚠️ 首版按 WeKnora `docs/api/*` 编写；接口 envelope / 字段以其运行实例（Swagger）为准，接通后按真响应校准。
