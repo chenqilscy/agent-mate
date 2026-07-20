@@ -20,7 +20,7 @@ from typing import Any, AsyncIterator
 
 from agent import events
 from agent import agent_settings, memory, security, telemetry, weknora
-from agent.experts import persona_for
+from agent.experts import expert_for
 from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
 from agent.mcp_client import call_mcp, mcp_schema, open_connectors
@@ -347,13 +347,27 @@ async def _run_chat_inner(
             )
 
     skill_tools = []
+    loaded_experts: list[str] = []
+    experts_skipped: list[str] = []
     if active_experts:
-        # 自定义专家（我的专家 · WB-049）：本 owner 的自造专家人格优先于内置 EXPERTS 字典，
-        # 让「召唤」自造专家时其人格真注入系统提示。查不到再回退 persona_for（内置/通用）。
+        # 自定义专家（我的专家 · WB-049）按名称优先；公共专家按稳定 slug/兼容名称解析。
+        # 未知项不编通用人格，收进 experts_skipped 并在 loadout 事件诚实报告（WB-196/231）。
         custom_personas = {e.name: e.persona for e in db.list_experts(user.id) if e.persona}
-        system_prompt += "\n\n# 专家人格（请综合以下专长作答）\n" + "\n".join(
-            f"- {custom_personas.get(n) or persona_for(n)}" for n in active_experts
-        )
+        lines: list[str] = []
+        for key in active_experts:
+            custom = custom_personas.get(key)
+            if custom:
+                lines.append(f"- {custom}")
+                loaded_experts.append(key)
+                continue
+            spec = expert_for(key)
+            if spec is None:
+                experts_skipped.append(key)
+                continue
+            lines.append(f"- {spec['persona']}")
+            loaded_experts.append(spec["name"])
+        if lines:
+            system_prompt += "\n\n# 专家人格（请综合以下专长作答）\n" + "\n".join(lines)
     # 技能解析（WB-179）：只注入**真解析得到**的（内置带工具包 / 已装磁盘 skill 的真实
     # SKILL.md）。解析不到的不注入、不伪造指令，收进 skills_skipped 如实告知用户
     # —— 同连接器 mcp_skipped 的范式，别做静默 no-op，更别假装技能生效了。
@@ -506,8 +520,8 @@ async def _run_chat_inner(
         loaded_skills = [skill_display_name(n) for n in active_skills if n not in skills_skipped]
         if active_experts or active_skills or connector_names or mcp_skipped or (active_knowledge and not ask):
             parts = []
-            if active_experts:
-                parts.append("专家 " + "、".join(active_experts))
+            if loaded_experts:
+                parts.append("专家 " + "、".join(loaded_experts))
             if loaded_skills:
                 parts.append("技能 " + "、".join(loaded_skills))
             if connector_names:
@@ -521,6 +535,10 @@ async def _run_chat_inner(
             if skills_skipped:
                 parts.append("技能未就绪 " + "、".join(
                     f"{skill_display_name(n)}（未安装或已停用）" for n in skills_skipped
+                ))
+            if experts_skipped:
+                parts.append("专家未就绪 " + "、".join(
+                    f"{n}（无人格定义）" for n in experts_skipped
                 ))
             yield record({"kind": "step", "tool": "loadout", "label": "已加载 · " + " · ".join(parts)})
 

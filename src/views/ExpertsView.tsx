@@ -149,7 +149,7 @@ function ExpertDetailModal({ detail, onClose }: { detail: Detail; onClose: () =>
   const members = detail.type === 'team' ? detail.team.members : null
   const prompts = detail.type === 'team' ? detail.team.prompts : []
   // 召唤班底：专家团 = 全部成员；单专家 = 其本人。
-  const names = detail.type === 'team' ? detail.team.members.map((m) => m.name) : [detail.name]
+  const names = detail.type === 'team' ? detail.team.members.map((m) => m.expert_slug) : [detail.name]
 
   const doSummon = (prompt?: string) => { summon(names, name, prompt); onClose() }
 
@@ -647,12 +647,12 @@ function CapabilityView({ kind }: { kind: CapabilityKind }) {
   const installedCount = useSkillStore((s) => s.installed.length)
   const loadSkills = useSkillStore((s) => s.load)
   const placeholder = { experts: '搜索专家职称或描述', skills: '搜索技能', connectors: '搜索连接器' }[kind]
-  const actLabel = { experts: '我的专家', skills: '添加技能', connectors: '自定义连接器' }[kind]
+  const actLabel = { experts: '我的专家', skills: '添加技能', connectors: '' }[kind]
 
   // 进入应用即拉一次已安装技能（顶栏计数、卡片安装态、我安装的页都依赖它）。
   useEffect(() => { void loadSkills() }, [loadSkills])
 
-  const onAct = () => { if (kind === 'experts') setMyExperts(true); else toast(actLabel) }
+  const onAct = () => { if (kind === 'experts') setMyExperts(true) }
   const currentTab = TABS.find((tab) => tab.id === kind)!
   const createSkill = () => {
     setDetailTarget(null)
@@ -686,9 +686,9 @@ function CapabilityView({ kind }: { kind: CapabilityKind }) {
               onImported={() => { setQuery(''); setDetailTarget(null); setMyInstalled(true) }}
             />
           </>
-        ) : (
+        ) : actLabel ? (
           <button className="cap-act" onClick={onAct}>{actLabel}</button>
-        )}
+        ) : null}
       </div>
       <div className="cap-body">
         {kind === 'experts' && (myExperts ? <MyExpertsPane onBack={() => setMyExperts(false)} /> : <ExpertsPane />)}

@@ -3,7 +3,7 @@ id: WB-064
 title: SkillHub 浏览列表改为实时（rankings/search），替掉硬编码的静态目录与假下载/星数
 severity: P2
 area: backend
-status: in-progress
+status: fixed
 origin: 🆕 近期改动
 files:
   - src/data/catalog.ts
@@ -66,3 +66,10 @@ P2：导购数据不真实（假计数）；功能可用但内容陈旧/虚构�
   作实时源、DB 作兜底），去掉 `catalog.ts` 的 `SKILLHUB_GRID`/`FEATURED` 静态假数据。
 - 分类映射：UI 中文分类 ↔ rankings 的英文 category（office-efficiency/ai-agent…）需一张映射表。
 - 这两步落在 WB-060 正在改的 `catalog.ts`/`ExpertsView.tsx`，由那个会话做以免冲突。
+
+## 处理记录（2026-07-21）
+
+- WB-060/WB-069/WB-070/WB-071/WB-184 已完成分层整合：App 技能浏览读真实 rankings/Server 镜像，
+  Server 不可达时走本机真实 rankings，静态 SkillHub 商品卡与虚构统计已移除。
+- 本轮重新核对 App 目录链路，并运行技能/连接器真功能门禁：Web Access、Excel 工具均真实调用，
+  共 15/15 通过；生产构建通过。原交接待办已全部落地，本条收口。

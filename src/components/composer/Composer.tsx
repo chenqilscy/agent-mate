@@ -96,9 +96,17 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
   const iconOf = (kind: 'exp' | 'skill' | 'conn', name: string): string => {
     const cat = useCatalogStore.getState()
     if (kind === 'conn') return cat.NP_CONNS.find((c) => c[1] === name)?.[0] ?? '🔗'
-    if (kind === 'exp') return cat.NP_EXPERTS.find((x) => x[1] === name)?.[0] ?? '🧑'
+    if (kind === 'exp') return cat.EXPERT_RECOMMENDATIONS.find((x) => x.slug === name || x.name === name)?.avatar
+      ?? cat.NP_EXPERTS.find((x) => x[1] === name)?.[0] ?? '🧑'
     const label = skillDisplayName(name)
     return cat.SK_GRID.find((s) => s.name === label || s.slug === name)?.icon ?? '🧩'
+  }
+
+  const expertLabel = (key: string): string => {
+    const cat = useCatalogStore.getState()
+    return cat.EXPERT_RECOMMENDATIONS.find((x) => x.slug === key || x.name === key)?.name
+      ?? cat.EXP_TEAMS.flatMap((team) => team.members).find((member) => member.expert_slug === key)?.name
+      ?? key
   }
 
   const grow = () => {
@@ -150,7 +158,7 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
       {hasLoadout && (
         <div className="cloadout">
           {experts.map((n) => (
-            <span className="np-chip" key={'e' + n} title={n}><span>{iconOf('exp', n)}</span><span className="np-lbl">{n}</span><span className="x" onClick={() => toggleLoad('exp', n)}>×</span></span>
+            <span className="np-chip" key={'e' + n} title={expertLabel(n)}><span>{iconOf('exp', n)}</span><span className="np-lbl">{expertLabel(n)}</span><span className="x" onClick={() => toggleLoad('exp', n)}>×</span></span>
           ))}
           {skills.map((n) => (
             <span className="np-chip" key={'s' + n} title={n}><span>{iconOf('skill', n)}</span><span className="np-lbl">{skillDisplayName(n)}</span><span className="x" onClick={() => toggleLoad('skill', n)}>×</span></span>

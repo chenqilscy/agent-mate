@@ -42,6 +42,24 @@ class ExpertCatalogContractTest(unittest.TestCase):
         card = next(e for e in db.expert_catalog_specs() if e["slug"] == "senior-software-engineer")
         self.assertEqual("Server 简介", card["intro"])
 
+    def test_unknown_expert_is_not_fabricated_and_slug_resolves(self) -> None:
+        from agent.experts import expert_for, persona_for
+
+        spec = expert_for("senior-software-engineer")
+        self.assertIsNotNone(spec)
+        self.assertEqual("高级开发工程师", spec["name"])
+        self.assertEqual(spec["persona"], persona_for("senior-software-engineer"))
+        self.assertIsNone(expert_for("missing-expert"))
+        self.assertIsNone(persona_for("missing-expert"))
+
+    def test_default_expert_team_members_all_resolve_by_stable_slug(self) -> None:
+        teams = db.showcase_all()["EXP_TEAMS"]
+        self.assertEqual(3, len(teams))
+        members = [member for team in teams for member in team["members"]]
+        self.assertEqual(17, len(members))
+        self.assertTrue(all(member.get("expert_slug") for member in members))
+        self.assertTrue(all(db.expert_spec_for(member["expert_slug"]) for member in members))
+
     def test_recommendations_resolve_schedule_and_configured_empty(self) -> None:
         db.replace_server_expert_catalog([
             {"slug": "architect", "name": "架构师", "avatar": "🏗️", "intro": "系统设计",

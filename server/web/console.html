@@ -1610,7 +1610,7 @@ function expTeamDetail(body, it){
       <div class="ec-d" style="font-size:13.5px;line-height:1.7;min-height:0">${esc(d.intro||"—")}</div>
       <div class="sec-title" style="margin:18px 0 8px">擅长领域</div>
       <div class="ec-tags">${strengths.length?strengths.map(s=>`<span class="ec-tag">${esc(s)}</span>`).join(""):'<span class="muted">—</span>'}</div>
-      ${members.length?`<div class="sec-title" style="margin:18px 0 8px">团队成员 · ${members.length}</div>${members.map(mb=>`<div class="pkc-row"><span class="pi">🧑</span><div style="flex:1;min-width:0"><div class="pn">${esc(mb.role||"")}${mb.lead?'<span class="ec-tag" style="margin-left:6px">⭐ 主理人</span>':""}</div><div class="pd">${esc(mb.name||"")}</div></div></div>`).join("")}`:""}
+      ${members.length?`<div class="sec-title" style="margin:18px 0 8px">团队成员 · ${members.length}</div>${members.map(mb=>`<div class="pkc-row"><span class="pi">🧑</span><div style="flex:1;min-width:0"><div class="pn">${esc(mb.role||"")}${mb.lead?'<span class="ec-tag" style="margin-left:6px">⭐ 主理人</span>':""}</div><div class="pd">${esc(mb.name||"")} · ${esc(mb.expert_slug||"未绑定")}</div></div></div>`).join("")}`:""}
       ${prompts.length?`<div class="sec-title" style="margin:18px 0 8px">试试这样问我</div>${prompts.map(p=>`<div class="pkc-row"><div style="flex:1;min-width:0;font-size:13px;color:var(--dim)">“${esc(p)}”</div></div>`).join("")}`:""}
     </div>
     <div class="np-foot">
@@ -1664,7 +1664,7 @@ function expExpertEdit(body, it){
 // 新增/编辑专家团（EXP_TEAMS 对象）
 function expTeamEdit(body, it){
   const d = it? (it.data||{}) : {};
-  const membersText = (d.members||[]).map(mb=>`${mb.role||""},${mb.name||""}`).join("\n");
+  const membersText = (d.members||[]).map(mb=>`${mb.role||""},${mb.name||""},${mb.expert_slug||""}`).join("\n");
   const ov = expModal(`
     <div class="np-h"><div style="font-size:16px;font-weight:800">${it?"编辑专家团":"新增专家团"}</div><button class="np-x" data-close>×</button></div>
     <div class="np-body">
@@ -1677,7 +1677,7 @@ function expTeamEdit(body, it){
       <div class="field"><label>徽标（如 特邀专家，可空）</label><input id="tme-badge" value="${esc(d.badge||"")}"></div>
       <div class="field"><label>简介</label><textarea id="tme-intro">${esc(d.intro||"")}</textarea></div>
       <div class="field"><label>擅长 strengths（逗号分隔，也用作 tags）</label><input id="tme-strengths" value="${esc((d.strengths||[]).join(", "))}"></div>
-      <div class="field"><label>成员（每行一位「角色,姓名」，第一行为 lead）</label><textarea id="tme-members" placeholder="创意总监,司远&#10;文案专家,笔澜">${esc(membersText)}</textarea></div>
+      <div class="field"><label>成员（每行一位「角色,显示名,专家 slug」，第一行为 lead）</label><textarea id="tme-members" placeholder="技术负责人,柯睿,senior-software-engineer&#10;前端工程师,像素匠,frontend-engineer">${esc(membersText)}</textarea><div class="muted" style="font-size:12px;margin-top:4px">专家 slug 必须引用已启用的专家真定义；Server 会拒绝不存在或重复的引用。</div></div>
       <div class="field"><label>示例提问（每行一条）</label><textarea id="tme-prompts">${esc((d.prompts||[]).join("\n"))}</textarea></div>
       <div class="row"><input id="tme-sort" type="number" value="${it?it.sort:0}" style="width:80px"><span class="muted" style="font-size:12px">排序</span></div>
       <div class="err" id="tme-err"></div>
@@ -1687,12 +1687,13 @@ function expTeamEdit(body, it){
   F("tme-save").onclick = async ()=>{
     F("tme-err").textContent="";
     const strengths=F("tme-strengths").value.split(",").map(s=>s.trim()).filter(Boolean);
-    const members=F("tme-members").value.split("\n").map(s=>s.trim()).filter(Boolean).map((line,i)=>{ const p=line.split(","); const mb={role:(p[0]||"").trim(),name:(p[1]||"").trim()}; if(i===0)mb.lead=true; return mb; });
+    const members=F("tme-members").value.split("\n").map(s=>s.trim()).filter(Boolean).map((line,i)=>{ const p=line.split(","); const mb={role:(p[0]||"").trim(),name:(p[1]||"").trim(),expert_slug:(p[2]||"").trim()}; if(i===0)mb.lead=true; return mb; });
     const prompts=F("tme-prompts").value.split("\n").map(s=>s.trim()).filter(Boolean);
     const badge=F("tme-badge").value.trim();
     const data={ icon:F("tme-icon").value.trim(), name:F("tme-name").value.trim(), source:F("tme-source").value.trim(), category:F("tme-cat").value.trim(), intro:F("tme-intro").value.trim(), strengths, members, prompts, tags:strengths };
     if(badge) data.badge=badge;
     if(!data.name){ F("tme-err").textContent="名称必填"; return; }
+    if(!members.length||members.some(m=>!m.role||!m.name||!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(m.expert_slug))){ F("tme-err").textContent="每位成员都必须填写角色、显示名和合法专家 slug"; return; }
     const sort=Number(F("tme-sort").value)||0;
     try{ if(it) await api("PATCH","/catalog/item/"+it.id,{data,sort}); else await api("POST","/catalog",{category:"EXP_TEAMS",data,sort}); expClose(ov); expertsCat(body); }
     catch(e){ F("tme-err").textContent=e.message; }

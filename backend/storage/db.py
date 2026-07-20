@@ -611,6 +611,7 @@ def init_db() -> None:
     _ensure_local_user()
     _seed_catalog()
     _seed_showcase()
+    _migrate_expert_team_identities()
     # WB-183/184：这些旧橱窗数据已由 catalog_skills / Server 实时镜像接管。清运行库孤儿，
     # 防止旧版本种过的静态三元组与虚假 SkillHub 统计在升级后复活。
     conn.execute(
@@ -758,13 +759,18 @@ def _seed_catalog() -> None:
             "SELECT 1 FROM catalog_experts WHERE scope='builtin' AND name=?", (name,)
         ).fetchone()
         if exists:
+            # WB-231：早期 builtin 以中文展示名充当 slug；升级为与 Server 一致的稳定身份。
+            conn.execute(
+                "UPDATE catalog_experts SET slug=? WHERE scope='builtin' AND name=? AND slug<>?",
+                (e["slug"], name, e["slug"]),
+            )
             continue
         conn.execute(
             """INSERT INTO catalog_experts
                (id,scope,owner_id,slug,name,subtitle,avatar,intro,persona,tags,category,badge,source,
                 functional,enabled,sort,created_at,updated_at)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (new_uuid(), "builtin", None, name, name, "", "🧑", "", e["persona"],
+            (new_uuid(), "builtin", None, e["slug"], name, "", "🧑", "", e["persona"],
              "[]", "", "", "内置", 1, 1, i, now, now),
         )
     for i, c in enumerate(BUILTIN_CONNECTORS):
@@ -1470,16 +1476,22 @@ def _row_to_catalog_expert(r: sqlite3.Row) -> CatalogExpert:
     )
 
 
-def builtin_persona(name: str) -> Optional[str]:
-    """某个专家名对应的内置/目录人格（真注入用）。命中 enabled 且 functional 的目录专家，
-    Server 同名定义优先；Server 不下发时回退 builtin（调用方再回退通用人格）。"""
+def expert_spec_for(key: str) -> Optional[dict[str, str]]:
+    """按稳定 slug 或兼容展示名解析真专家定义；Server 同身份覆盖 builtin。"""
     row = get_conn().execute(
-        "SELECT persona FROM catalog_experts "
-        "WHERE name=? AND functional=1 AND enabled=1 AND persona<>'' "
+        "SELECT slug,name,persona FROM catalog_experts "
+        "WHERE (slug=? OR name=?) AND functional=1 AND enabled=1 AND persona<>'' "
         "ORDER BY CASE scope WHEN 'server' THEN 0 ELSE 1 END, sort LIMIT 1",
-        (name,),
+        (key, key),
     ).fetchone()
-    return row["persona"] if row else None
+    return {"slug": row["slug"], "name": row["name"], "persona": row["persona"]} if row else None
+
+
+def builtin_persona(name: str) -> Optional[str]:
+    """兼容旧调用：某个专家 slug/名称对应的内置/目录人格。命中 enabled 且 functional，
+    Server 同名定义优先；Server 不下发时回退 builtin（调用方再回退通用人格）。"""
+    spec = expert_spec_for(name)
+    return spec["persona"] if spec else None
 
 
 def list_catalog_experts(scope: Optional[str] = None, functional: Optional[bool] = None) -> list[CatalogExpert]:
@@ -1806,6 +1818,52 @@ def migrate_skill_identities(resolve: Callable[[str], Optional[str]]) -> dict[st
                 changed += 1
     conn.commit()
     return {"changed": changed, "dropped": dropped}
+
+
+def _migrate_expert_team_identities() -> None:
+    """WB-231：为旧库已播种的默认专家团补稳定 expert_slug；不改运营自建团队/已有引用。"""
+    conn = get_conn()
+    try:
+        seed = json.loads(_SHOWCASE_JSON.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    seed_teams = {
+        team.get("name"): team for team in seed.get("EXP_TEAMS", []) if isinstance(team, dict)
+    }
+    changed = False
+    for row in conn.execute(
+        "SELECT id,data FROM catalog_showcase WHERE kind='EXP_TEAMS' AND enabled=1"
+    ).fetchall():
+        try:
+            team = json.loads(row["data"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        source = seed_teams.get(team.get("name")) if isinstance(team, dict) else None
+        if not source:
+            continue
+        slug_by_name = {
+            member.get("name"): member.get("expert_slug")
+            for member in source.get("members", []) if isinstance(member, dict)
+        }
+        members = team.get("members", [])
+        if not isinstance(members, list):
+            continue
+        updated = False
+        for member in members:
+            if not isinstance(member, dict) or member.get("expert_slug"):
+                continue
+            slug = slug_by_name.get(member.get("name"))
+            if slug:
+                member["expert_slug"] = slug
+                updated = True
+        if updated:
+            conn.execute(
+                "UPDATE catalog_showcase SET data=?, updated_at=? WHERE id=?",
+                (json.dumps(team, ensure_ascii=False), time.time(), row["id"]),
+            )
+            changed = True
+    if changed:
+        conn.commit()
 
 
 def list_catalog_connectors(scope: Optional[str] = None) -> list[CatalogConnector]:

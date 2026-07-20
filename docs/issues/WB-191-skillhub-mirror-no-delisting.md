@@ -3,7 +3,7 @@ id: WB-191
 title: SkillHub 段展示的是上游商店镜像，本地目录下架对它无效（想下架某条需 Manager 侧持久化过滤）
 severity: P3
 area: fullstack
-status: open
+status: deferred
 origin: 既有实现
 files:
   - src/views/ExpertsView.tsx:424
@@ -58,3 +58,9 @@ P3：不影响运行时；是「用户想在自己的 App 里不看到某个上�
 - 下架某个 slug → App 技能页 SkillHub 段不再出现该卡；
 - 触发一次 Hub→上游镜像刷新 + 本地 pull → 该卡**仍不出现**（跨同步存活，这是本 issue 的关键点）；
 - 未接 Hub / 离线时静态兜底路径不受影响。
+
+## 清点记录（2026-07-21）
+
+本条不属于技能执行链路缺口：当前 SkillHub 段忠实展示第三方商店真镜像，安装与运行链路正常。
+是否在 AgentMate 侧屏蔽某个仍由上游发布的商品属于目录治理策略，需要明确选择全局下架名单或本机过滤；
+在产品策略确定前标记为 deferred，不把它混入本轮 App/Server 能力打通验收。

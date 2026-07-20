@@ -3,7 +3,7 @@ id: WB-196
 title: 专家人格也有兜底话术伪装 —— persona_for 对未知专家编一句「以「X」的专业身份作答」
 severity: P2
 area: backend
-status: open
+status: fixed
 origin: 既有实现
 files:
   - backend/agent/experts.py:13
@@ -61,3 +61,11 @@ P2，违反铁律#1（同 WB-179 的技能侧）。规模待测：需查 `catalo
   SSE 报「专家未就绪 X（无人格定义）」；
 - 回归：召唤真专家（`catalog_experts` 有 persona 的）→ 人格照常注入，loadout 正常列出；
 - 自定义专家（WB-049 的 `custom_personas`）路径不受影响。
+
+## 处理记录（2026-07-21）
+
+- 删除未知专家的通用人格兜底；运行时只注入数据库中已启用且 persona 非空的真实专家定义，
+  自定义专家仍优先按用户人格解析。
+- 未知专家进入 `experts_skipped`，SSE 明确报告“专家未就绪 X（无人格定义）”；没有有效人格时不生成
+  `# 专家人格` 段。
+- 回归测试覆盖未知专家不伪造、slug/名称双解析；实时 SSE 验收确认有效专家正常加载、未知专家诚实跳过。

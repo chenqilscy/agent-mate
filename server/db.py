@@ -16,7 +16,7 @@ import uuid
 from typing import Any, Optional
 
 from config import settings
-from catalog_seed import DEFAULT_APP_SKILLS, DEFAULT_CONNECTORS, DEFAULT_EXPERTS
+from catalog_seed import DEFAULT_APP_SKILLS, DEFAULT_CONNECTORS, DEFAULT_EXPERTS, DEFAULT_EXPERT_TEAMS
 from models import Account, Invite, Org, Project, Role
 
 _local = threading.local()
@@ -451,6 +451,26 @@ def init_db() -> None:
                 )
         conn.execute(
             "INSERT INTO settings (k,v,updated_at) VALUES ('expert_recommendations_v1','1',?)",
+            (now,),
+        )
+    # WB-231：团队是独立目录，但成员必须引用 EXPERT_DEFS 的稳定 slug。
+    teams_migrated = conn.execute(
+        "SELECT v FROM settings WHERE k='expert_teams_v1'"
+    ).fetchone()
+    if not teams_migrated:
+        now = time.time()
+        team_count = conn.execute(
+            "SELECT COUNT(*) FROM catalog_items WHERE category='EXP_TEAMS' AND scope='builtin'"
+        ).fetchone()[0]
+        if not team_count:
+            for sort, team in enumerate(DEFAULT_EXPERT_TEAMS):
+                conn.execute(
+                    "INSERT INTO catalog_items (id,category,scope,org_id,kind,data,enabled,sort,version,created_at,updated_at) "
+                    "VALUES (?,'EXP_TEAMS','builtin',NULL,'',?,1,?,1,?,?)",
+                    (new_uuid(), json.dumps(team, ensure_ascii=False), sort, now, now),
+                )
+        conn.execute(
+            "INSERT INTO settings (k,v,updated_at) VALUES ('expert_teams_v1','1',?)",
             (now,),
         )
     conn.commit()

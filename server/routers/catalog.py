@@ -334,11 +334,59 @@ def _validate_expert_recommendation(data: Any, *, ignore_id: str = "") -> None:
             raise HTTPException(409, "expert recommendation already exists in this placement")
 
 
+def _validate_expert_team(data: Any, *, ignore_id: str = "") -> None:
+    if not isinstance(data, dict):
+        raise HTTPException(400, "EXP_TEAMS data must be an object")
+    name = str(data.get("name", "")).strip()
+    members = data.get("members", [])
+    if not name or len(name) > 120:
+        raise HTTPException(400, "expert team name is required")
+    if not isinstance(members, list) or not members or len(members) > 20:
+        raise HTTPException(400, "expert team requires 1-20 members")
+    definitions = {
+        str(row["data"].get("slug", ""))
+        for row in db.list_catalog_items("EXPERT_DEFS", scope="builtin")
+        if isinstance(row.get("data"), dict)
+    }
+    seen: set[str] = set()
+    for member in members:
+        if not isinstance(member, dict):
+            raise HTTPException(400, "expert team members must be objects")
+        slug = str(member.get("expert_slug", "")).strip()
+        role = str(member.get("role", "")).strip()
+        display_name = str(member.get("name", "")).strip()
+        if not _SKILL_SLUG_RE.fullmatch(slug) or not role or not display_name:
+            raise HTTPException(400, "each expert team member requires role, name and expert_slug")
+        if slug not in definitions:
+            raise HTTPException(400, f"referenced expert does not exist or is disabled: {slug}")
+        if slug in seen:
+            raise HTTPException(409, f"duplicate expert in team: {slug}")
+        seen.add(slug)
+    for row in db.list_catalog_items("EXP_TEAMS", scope="builtin", include_disabled=True):
+        current = row.get("data") if isinstance(row.get("data"), dict) else {}
+        if row["id"] != ignore_id and current.get("name") == name:
+            raise HTTPException(409, "expert team name already exists")
+
+
 def _expert_is_recommended(slug: str) -> bool:
     return any(
         isinstance(row.get("data"), dict) and row["data"].get("expert_slug") == slug
         for row in _expert_recommendations()
     )
+
+
+def _expert_is_in_team(slug: str) -> bool:
+    for row in db.list_catalog_items("EXP_TEAMS", scope="builtin", include_disabled=True):
+        data = row.get("data") if isinstance(row.get("data"), dict) else {}
+        members = data.get("members", [])
+        if not isinstance(members, list):
+            continue
+        if any(
+            isinstance(member, dict) and member.get("expert_slug") == slug
+            for member in members
+        ):
+            return True
+    return False
 
 
 @router.post("/catalog")
@@ -356,6 +404,8 @@ def create_item(body: CatalogItemBody, account: Account = CurrentAccount) -> dic
         _validate_connector_recommendation(body.data)
     elif body.category == "EXPERT_DEFS":
         _validate_expert_definition(body.data)
+    elif body.category == "EXP_TEAMS":
+        _validate_expert_team(body.data)
     elif body.category == "EXPERT_RECOMMENDATIONS":
         _validate_expert_recommendation(body.data)
     iid = db.create_catalog_item(
@@ -398,10 +448,16 @@ def update_item(item_id: str, body: UpdateItemBody, account: Account = CurrentAc
         _validate_expert_definition(body.data, ignore_id=item_id)
         old_slug = str(item.get("data", {}).get("slug", "")) if isinstance(item.get("data"), dict) else ""
         new_slug = str(body.data.get("slug", "")) if isinstance(body.data, dict) else ""
-        if old_slug and old_slug != new_slug and _expert_is_recommended(old_slug):
-            raise HTTPException(409, "expert is referenced by a recommendation")
+        if old_slug and old_slug != new_slug:
+            raise HTTPException(409, "expert slug is immutable after creation")
+    elif item["category"] == "EXP_TEAMS" and body.data is not None:
+        _validate_expert_team(body.data, ignore_id=item_id)
     elif item["category"] == "EXPERT_RECOMMENDATIONS" and body.data is not None:
         _validate_expert_recommendation(body.data, ignore_id=item_id)
+    if item["category"] == "EXPERT_DEFS" and body.enabled is False and isinstance(item.get("data"), dict):
+        slug = str(item["data"].get("slug", ""))
+        if slug and (_expert_is_recommended(slug) or _expert_is_in_team(slug)):
+            raise HTTPException(409, "expert is referenced by a recommendation or team")
     if not db.update_catalog_item(item_id, data=data, sort=body.sort, enabled=body.enabled):
         raise HTTPException(404, "catalog item not found")
     return {"ok": True}
@@ -427,8 +483,8 @@ def delete_item(item_id: str, account: Account = CurrentAccount) -> dict:
             raise HTTPException(409, "connector is referenced by a recommendation")
     if item["category"] == "EXPERT_DEFS" and isinstance(item.get("data"), dict):
         slug = str(item["data"].get("slug", ""))
-        if slug and _expert_is_recommended(slug):
-            raise HTTPException(409, "expert is referenced by a recommendation")
+        if slug and (_expert_is_recommended(slug) or _expert_is_in_team(slug)):
+            raise HTTPException(409, "expert is referenced by a recommendation or team")
     if not db.delete_catalog_item(item_id):
         raise HTTPException(404, "catalog item not found")
     return {"ok": True}

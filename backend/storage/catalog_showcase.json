@@ -300,27 +300,33 @@
     {
      "role": "技术负责人",
      "name": "柯睿",
+     "expert_slug": "senior-software-engineer",
      "lead": true
     },
     {
      "role": "产品经理",
-     "name": "需澄"
+     "name": "需澄",
+     "expert_slug": "feedback-analyst"
     },
     {
      "role": "架构师",
-     "name": "构文"
+     "name": "构文",
+     "expert_slug": "industry-scenario-researcher"
     },
     {
      "role": "后端工程师",
-     "name": "端野"
+     "name": "端野",
+     "expert_slug": "data-table-specialist"
     },
     {
      "role": "前端工程师",
-     "name": "像素匠"
+     "name": "像素匠",
+     "expert_slug": "frontend-engineer"
     },
     {
      "role": "QA 工程师",
-     "name": "质衡"
+     "name": "质衡",
+     "expert_slug": "ux-researcher"
     }
    ],
    "prompts": [
@@ -349,27 +355,33 @@
     {
      "role": "研究主编",
      "name": "博源",
+     "expert_slug": "long-form-editor",
      "lead": true
     },
     {
      "role": "资料检索员",
-     "name": "溯引"
+     "name": "溯引",
+     "expert_slug": "industry-scenario-researcher"
     },
     {
      "role": "数据分析师",
-     "name": "析数"
+     "name": "析数",
+     "expert_slug": "data-report-analyst"
     },
     {
      "role": "行业专家",
-     "name": "业衡"
+     "name": "业衡",
+     "expert_slug": "entrepreneur-partner"
     },
     {
      "role": "撰稿人",
-     "name": "文墨"
+     "name": "文墨",
+     "expert_slug": "content-creator"
     },
     {
      "role": "审稿人",
-     "name": "校真"
+     "name": "校真",
+     "expert_slug": "feedback-analyst"
     }
    ],
    "prompts": [
@@ -398,23 +410,28 @@
     {
      "role": "产品总监",
      "name": "策衡",
+     "expert_slug": "entrepreneur-partner",
      "lead": true
     },
     {
      "role": "需求分析师",
-     "name": "需澄"
+     "name": "需澄",
+     "expert_slug": "feedback-analyst"
     },
     {
      "role": "用户研究员",
-     "name": "研之"
+     "name": "研之",
+     "expert_slug": "ux-researcher"
     },
     {
      "role": "快速原型工程师",
-     "name": "原野"
+     "name": "原野",
+     "expert_slug": "rapid-prototype-engineer"
     },
     {
      "role": "数据分析师",
-     "name": "析数"
+     "name": "析数",
+     "expert_slug": "data-report-analyst"
     }
    ],
    "prompts": [

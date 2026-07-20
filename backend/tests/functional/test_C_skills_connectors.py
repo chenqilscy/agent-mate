@@ -1,7 +1,7 @@
 """Detailed functional tests — C. 技能 · 连接器 (loadout truly applies; built-in MCP
 connectors return REAL data; skill toolpacks add REAL new tools; not-ready & plan
 gating). Experts are intentionally out of scope (per user)."""
-import sys, time, os
+import atexit, sys, time, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from agentmate_testkit import (Checker, call, stream, health_llm, account, events_of, text_join,
                         has_step, loadout_label, stop_run, read_ws, plant_file, wipe_users)
@@ -15,6 +15,26 @@ pid = call("POST", "/projects", tok, {"name": "C技能连接器项目"})[1]["id"
 if not LLM:
     print("LLM not configured — cannot test loadout behaviour."); sys.exit(2)
 
+# WB-216 后目录技能必须先真实安装再运行。门禁只安装缺失项，并在退出时恢复原安装态（WB-232）。
+_installed_by_test = []
+_status, _payload = call("GET", "/skills", tok)
+if _status != 200:
+    print("Cannot read installed skills."); sys.exit(2)
+_installed = {s.get("slug") or s.get("key") for s in _payload.get("skills", [])}
+for _slug in ("web-access", "excel-csv"):
+    if _slug in _installed:
+        continue
+    _code, _ = call("POST", f"/skills/catalog/{_slug}/install", tok)
+    if _code != 200:
+        print(f"Cannot install required catalog skill: {_slug} ({_code})."); sys.exit(2)
+    _installed_by_test.append(_slug)
+
+def _restore_skill_state():
+    for _slug in reversed(_installed_by_test):
+        call("POST", f"/skills/{_slug}/uninstall", tok)
+
+atexit.register(_restore_skill_state)
+
 def is_loadout(e): return e["event"] == "step" and e["data"].get("tool") == "loadout"
 
 # C1 — loadout step lists the skill + connector that were selected (real open)
@@ -23,7 +43,7 @@ evs, sid = stream(tok, {"text": "只回复 OK。", "skills": ["excel-csv"], "con
                   stop_when=is_loadout, max_seconds=30)
 stop_run(tok, sid)
 lbl = loadout_label(evs) or ""
-c.check("C1 skill in loadout", "Excel 文件处理" in lbl, lbl)
+c.check("C1 skill in loadout", "Excel 文件处理" in lbl and "技能未就绪" not in lbl, lbl)
 c.check("C1 connector opened (时间助手) in loadout", "连接器" in lbl and "时间助手" in lbl, lbl)
 
 # C2 — clock connector returns the REAL host date

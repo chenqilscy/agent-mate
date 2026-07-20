@@ -3,7 +3,7 @@ id: WB-178
 title: 技能子系统重构 —— 以 slug 为主键焊死「橱窗/loadout/磁盘」三层（总纲/epic）
 severity: P1
 area: fullstack
-status: open
+status: fixed
 origin: 既有实现
 files:
   - src/views/ExpertsView.tsx
@@ -75,3 +75,12 @@ P1。这是技能功能的**结构性问题**，不是若干个 bug：装机流�
 - 子任务全 fixed 后关闭本条。
 - 端到端：装一个 SkillHub 技能 → ＋ 菜单能选到 → 发消息 → SSE trace 里出现该技能的**真实工具调用或真实 SKILL.md 注入**，而非兜底话术。
 - 反向：卸载后该技能从 ＋ 菜单消失；loadout 里残留的 slug 解析不到时**诚实报错/不注入**，不再编话术。
+
+## 处理记录（2026-07-21）
+
+- 子任务 WB-179～WB-186 已全部完成；技能三层统一使用 slug，未知/未安装技能诚实报告未就绪，
+  浏览、安装、选择、运行、卸载与 Server/Console 目录链路均已收敛。
+- 修正功能门禁 WB-232：测试只为缺失技能执行真实安装，退出时恢复原安装态，且不再把
+  “技能未就绪”误判为成功。
+- 实时 `test_C_skills_connectors.py` 15/15 通过：`web_fetch` 与 `analyze_csv` 均产生真实工具事件，
+  连接器就绪/未就绪和 plan 门禁也全部通过；epic 验收条件满足。

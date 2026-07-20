@@ -57,6 +57,12 @@ class ConsoleCatalogEditorContractTests(unittest.TestCase):
             self.assertIn('data-ed="${it.id}"', _function_block(view, next_name))
         self.assertIn('api("PATCH","/catalog/item/"+it.id', CONSOLE)
 
+    def test_expert_team_editor_requires_stable_expert_slug(self) -> None:
+        block = _function_block("expTeamEdit", "expertRecommendationsView")
+        self.assertIn("角色,显示名,专家 slug", block)
+        self.assertIn("expert_slug", block)
+        self.assertIn("必须引用已启用的专家真定义", block)
+
     def test_skill_files_use_tree_browser_and_editor_workspace(self) -> None:
         block = _function_block("skillEditor", "recDateValue")
         for marker in (

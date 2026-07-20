@@ -51,7 +51,7 @@ export const EXPERT_RECOMMENDATIONS: ExpertRecommendation[] = []
 
 // 专家团（marketplace teams）。召唤专家团 = 把 members 里全部成员挂进本会话 loadout。
 // members[].lead 标记主理人。这些是静态产品目录内容（同 EXP_GRID），非模拟 LLM 输出。
-export interface TeamMember { role: string; name: string; lead?: boolean }
+export interface TeamMember { role: string; name: string; expert_slug: string; lead?: boolean }
 export interface ExpertTeam {
   icon: string
   name: string
@@ -71,12 +71,12 @@ export const EXP_TEAMS: ExpertTeam[] = [
     intro: '高效软件研发团队，产品经理定需求、架构师设计+拆任务、工程师批量实现代码、QA 验证质量，小需求求快、大项目求稳。',
     strengths: ['软件公司', '组织管理', '产品交付'],
     members: [
-      { role: '技术负责人', name: '柯睿', lead: true },
-      { role: '产品经理', name: '需澄' },
-      { role: '架构师', name: '构文' },
-      { role: '后端工程师', name: '端野' },
-      { role: '前端工程师', name: '像素匠' },
-      { role: 'QA 工程师', name: '质衡' },
+      { role: '技术负责人', name: '柯睿', expert_slug: 'senior-software-engineer', lead: true },
+      { role: '产品经理', name: '需澄', expert_slug: 'feedback-analyst' },
+      { role: '架构师', name: '构文', expert_slug: 'industry-scenario-researcher' },
+      { role: '后端工程师', name: '端野', expert_slug: 'data-table-specialist' },
+      { role: '前端工程师', name: '像素匠', expert_slug: 'frontend-engineer' },
+      { role: 'QA 工程师', name: '质衡', expert_slug: 'ux-researcher' },
     ],
     prompts: ['帮我把这个需求拆成可执行的开发任务', '为这个功能设计一套后端接口和数据表', '评审这段代码并给出重构建议'],
     tags: ['软件公司', '组织管理', '产品交付'],
@@ -86,12 +86,12 @@ export const EXP_TEAMS: ExpertTeam[] = [
     intro: '深度研究报告输出，7 角色 5 阶段聚合多源信息，经审稿修订循环输出带引用的专业报告。',
     strengths: ['深度调研', '报告撰写', '多源研究'],
     members: [
-      { role: '研究主编', name: '博源', lead: true },
-      { role: '资料检索员', name: '溯引' },
-      { role: '数据分析师', name: '析数' },
-      { role: '行业专家', name: '业衡' },
-      { role: '撰稿人', name: '文墨' },
-      { role: '审稿人', name: '校真' },
+      { role: '研究主编', name: '博源', expert_slug: 'long-form-editor', lead: true },
+      { role: '资料检索员', name: '溯引', expert_slug: 'industry-scenario-researcher' },
+      { role: '数据分析师', name: '析数', expert_slug: 'data-report-analyst' },
+      { role: '行业专家', name: '业衡', expert_slug: 'entrepreneur-partner' },
+      { role: '撰稿人', name: '文墨', expert_slug: 'content-creator' },
+      { role: '审稿人', name: '校真', expert_slug: 'feedback-analyst' },
     ],
     prompts: ['给我一份某赛道的深度研究报告，带数据来源', '梳理这个行业近三年的关键变化', '把这些零散资料整理成一份结构化研究简报'],
     tags: ['深度调研', '报告撰写', '多源研究'],
@@ -101,11 +101,11 @@ export const EXP_TEAMS: ExpertTeam[] = [
     intro: '由产品总监领衔的 5 人产品专家团队：需求分析师（PRD/功能规格书）、用户研究员（调研综合分析）、原型工程师协作，从想法到规格全流程。',
     strengths: ['产品战略', '竞品分析', '路线图规划'],
     members: [
-      { role: '产品总监', name: '策衡', lead: true },
-      { role: '需求分析师', name: '需澄' },
-      { role: '用户研究员', name: '研之' },
-      { role: '快速原型工程师', name: '原野' },
-      { role: '数据分析师', name: '析数' },
+      { role: '产品总监', name: '策衡', expert_slug: 'entrepreneur-partner', lead: true },
+      { role: '需求分析师', name: '需澄', expert_slug: 'feedback-analyst' },
+      { role: '用户研究员', name: '研之', expert_slug: 'ux-researcher' },
+      { role: '快速原型工程师', name: '原野', expert_slug: 'rapid-prototype-engineer' },
+      { role: '数据分析师', name: '析数', expert_slug: 'data-report-analyst' },
     ],
     prompts: ['帮我把这个想法写成一份 PRD', '做一次竞品分析并给出差异化建议', '规划这个产品未来两个季度的路线图'],
     tags: ['产品战略', '竞品分析', '路线图规划'],

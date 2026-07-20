@@ -3,13 +3,17 @@ persona into the system prompt so the agent answers with that role's expertise.
 
 内置人格已从此处的硬编码字典迁到 DB（catalog_experts，WB-059）——`persona_for` 现在**读库**，
 种子源见 `storage/catalog_seed.py`。名字与前端选择器（NP_EXPERTS / EXP_GRID）逐字对齐；
-库里查不到（未知专家）则回退通用人格，保证每个目录专家仍有效果。
+库里查不到（未知专家）返回 None，由 runtime 诚实报告未就绪，不再伪装有效果（WB-196）。
 """
 from __future__ import annotations
 
 from storage import db
 
 
-def persona_for(name: str) -> str:
-    persona = db.builtin_persona(name)
-    return persona if persona else f"以「{name}」的专业身份与专长作答。"
+def expert_for(key: str) -> dict[str, str] | None:
+    return db.expert_spec_for(key)
+
+
+def persona_for(name: str) -> str | None:
+    spec = expert_for(name)
+    return spec["persona"] if spec else None

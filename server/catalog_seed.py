@@ -44,3 +44,49 @@ DEFAULT_EXPERTS: list[dict[str, Any]] = [
     {"slug": "data-report-analyst", "name": "数据分析报告师", "avatar": "📊", "subtitle": "舒明析", "intro": "将复杂数据转化为战略洞察，提供指标诊断、KPI 框架设计、数据质量评估与决策报告。", "persona": "以数据分析报告师身份作答：把复杂数据转成战略洞察，做指标诊断与 KPI 框架，结论先行、标注数据来源。", "tags": ["数据分析", "指标诊断", "KPI报告"], "category": "数据智能", "recommended": True},
     {"slug": "content-creator", "name": "内容创作专家", "avatar": "✍️", "subtitle": "文博凯", "intro": "擅长创作引人入胜的多平台内容，让品牌故事触达目标受众。", "persona": "以多平台内容创作专家身份作答：善于品牌叙事与有钩子的表达，输出结构清晰、引人入胜的内容。", "tags": ["内容策略", "多平台创作", "品牌叙事"], "category": "内容创作", "recommended": True},
 ]
+
+
+# 专家团成员只保存展示别名/角色 + 稳定专家 slug；运行人格始终引用 EXPERT_DEFS（WB-231）。
+DEFAULT_EXPERT_TEAMS: list[dict[str, Any]] = [
+    {
+        "icon": "💻", "name": "软件开发团队", "source": "CodeBuddy Teams", "category": "技术工程",
+        "intro": "高效软件研发团队，产品经理定需求、架构师设计+拆任务、工程师批量实现代码、QA 验证质量，小需求求快、大项目求稳。",
+        "strengths": ["软件公司", "组织管理", "产品交付"], "tags": ["软件公司", "组织管理", "产品交付"],
+        "members": [
+            {"role": "技术负责人", "name": "柯睿", "expert_slug": "senior-software-engineer", "lead": True},
+            {"role": "产品经理", "name": "需澄", "expert_slug": "feedback-analyst"},
+            {"role": "架构师", "name": "构文", "expert_slug": "industry-scenario-researcher"},
+            {"role": "后端工程师", "name": "端野", "expert_slug": "data-table-specialist"},
+            {"role": "前端工程师", "name": "像素匠", "expert_slug": "frontend-engineer"},
+            {"role": "QA 工程师", "name": "质衡", "expert_slug": "ux-researcher"},
+        ],
+        "prompts": ["帮我把这个需求拆成可执行的开发任务", "为这个功能设计一套后端接口和数据表", "评审这段代码并给出重构建议"],
+    },
+    {
+        "icon": "🔬", "name": "深度研究团队", "source": "Expert Marketplace", "category": "数据智能",
+        "intro": "深度研究报告输出，7 角色 5 阶段聚合多源信息，经审稿修订循环输出带引用的专业报告。",
+        "strengths": ["深度调研", "报告撰写", "多源研究"], "tags": ["深度调研", "报告撰写", "多源研究"],
+        "members": [
+            {"role": "研究主编", "name": "博源", "expert_slug": "long-form-editor", "lead": True},
+            {"role": "资料检索员", "name": "溯引", "expert_slug": "industry-scenario-researcher"},
+            {"role": "数据分析师", "name": "析数", "expert_slug": "data-report-analyst"},
+            {"role": "行业专家", "name": "业衡", "expert_slug": "entrepreneur-partner"},
+            {"role": "撰稿人", "name": "文墨", "expert_slug": "content-creator"},
+            {"role": "审稿人", "name": "校真", "expert_slug": "feedback-analyst"},
+        ],
+        "prompts": ["给我一份某赛道的深度研究报告，带数据来源", "梳理这个行业近三年的关键变化", "把这些零散资料整理成一份结构化研究简报"],
+    },
+    {
+        "icon": "🧭", "name": "产品战略团队", "source": "Expert Marketplace", "category": "产品设计",
+        "intro": "由产品总监领衔的 5 人产品专家团队：需求分析师（PRD/功能规格书）、用户研究员（调研综合分析）、原型工程师协作，从想法到规格全流程。",
+        "strengths": ["产品战略", "竞品分析", "路线图规划"], "tags": ["产品战略", "竞品分析", "路线图规划"],
+        "members": [
+            {"role": "产品总监", "name": "策衡", "expert_slug": "entrepreneur-partner", "lead": True},
+            {"role": "需求分析师", "name": "需澄", "expert_slug": "feedback-analyst"},
+            {"role": "用户研究员", "name": "研之", "expert_slug": "ux-researcher"},
+            {"role": "快速原型工程师", "name": "原野", "expert_slug": "rapid-prototype-engineer"},
+            {"role": "数据分析师", "name": "析数", "expert_slug": "data-report-analyst"},
+        ],
+        "prompts": ["帮我把这个想法写成一份 PRD", "做一次竞品分析并给出差异化建议", "规划这个产品未来两个季度的路线图"],
+    },
+]
