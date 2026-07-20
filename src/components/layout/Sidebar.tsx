@@ -202,7 +202,7 @@ export function Sidebar() {
         </svg>
         <div className="sb-title">
           <b>AgentMate</b>
-          <small>v5.2.3</small>
+          <small>v1.0.0</small>
         </div>
         <div className="sb-icos">
           <div className="sb-ico" aria-label="收起侧栏" onClick={() => setSidebarCollapsed(true)} {...activate(() => setSidebarCollapsed(true))}>

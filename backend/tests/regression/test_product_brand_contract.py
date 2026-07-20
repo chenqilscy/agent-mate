@@ -60,6 +60,15 @@ class ProductBrandContractTest(unittest.TestCase):
         self.assertIn("'/server/status'", app_api)
         self.assertNotIn("'/hub/status'", app_api)
 
+    def test_product_version_is_1_0_0_everywhere(self) -> None:
+        expected = "1.0.0"
+        self.assertEqual(expected, json.loads(read("package.json"))["version"])
+        self.assertEqual(expected, json.loads(read("src-tauri/tauri.conf.json"))["version"])
+        self.assertIn(f'version = "{expected}"', read("src-tauri/Cargo.toml"))
+        self.assertIn(f'<small>v{expected}</small>', read("src/components/layout/Sidebar.tsx"))
+        self.assertIn(f'version="{expected}"', read("backend/main.py"))
+        self.assertIn(f'version="{expected}"', read("server/main.py"))
+
 
 if __name__ == "__main__":
     unittest.main()

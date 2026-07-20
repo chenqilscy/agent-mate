@@ -94,7 +94,7 @@
 | [WB-075](WB-075-linked-hub-modal-unreachable.md) | ✅ | P2 | frontend | 已连接 Server 后无入口打开连接弹窗，导入/通知/断开成死代码 —— 加「管理」入口（WB-067 真机 E2E 发现） |
 | [WB-076](WB-076-global-hub-connect-entry.md) | ✅ | P2 | frontend | 连接 Server 入口只在项目讨论面板内，零项目新用户无法首次连接 —— 账号菜单加全局入口（WB-067 复盘） |
 | [WB-077](WB-077-assistant-settings-panel.md) | ✅ | P2 | frontend | 助理设置面板 —— 齿轮点开的真配置（名字/人格/模型/开关/绑定/token 存 DB，write-only 不回传前端） |
-| [WB-078](WB-078-buddywebmgr-epic.md) | ✅ | P1 | frontend | BuddyWebMgr —— Server 控制台升级为完整 Web 管理门户（总纲/epic；六子任务全落地，设计见 docs/buddywebmgr-管理门户设计.md） |
+| [WB-078](WB-078-buddywebmgr-epic.md) | ✅ | P1 | frontend | BuddyWebMgr —— Server 控制台升级为完整 Web 管理门户（总纲/epic；六子任务全落地，设计见 docs/agentmate-console-管理门户设计.md） |
 | [WB-079](WB-079-buddywebmgr-rename-nav.md) | ✅ | P2 | frontend | BuddyWebMgr 品牌更名 + 导航重构（门户骨架；仅 Web 品牌层，不动 server/·AGENTMATE_SERVER_URL 内部标识） |
 | [WB-080](WB-080-portal-project-config.md) | ✅ | P2 | frontend | 门户项目管理面 —— 配置编辑（指令 + 连接器/专家/技能 picker，读目录、写 PATCH /projects） |
 | [WB-081](WB-081-hub-work-items-sync.md) | ✅ | P2 | fullstack | 团队计划/任务 —— Server work_items 模型 + 路由 + 门户看板（本地⇄Server 同步拆二期 WB-091） |
@@ -226,6 +226,8 @@
 | [WB-208](WB-208-rename-product-agentmate.md) | ✅ | P1 | fullstack | 产品品牌、路径、环境变量与构建标识已全部统一为 AgentMate |
 | [WB-209](WB-209-sidecar-missing-numpy.md) | ✅ | P1 | backend | PyInstaller sidecar 缺少 numpy，打包后端无法启动 |
 | [WB-210](WB-210-rename-hub-manager-server-console.md) | ✅ | P1 | fullstack | Hub/Manager 全面更名为 Server/Console |
+| [WB-211](WB-211-unify-product-version-1-0-0.md) | ✅ | P2 | fullstack | 产品版本在侧栏显示 v5.2.3 且发布配置仍为 0.1.0 |
+| [WB-212](WB-212-issue-index-stale-renamed-doc-links.md) | ✅ | P2 | misc | Issue 索引来源段落仍引用更名前的架构文档路径 |
 
 ## 来源
 
@@ -235,11 +237,11 @@
 
 WB-058～063 来自 2026-07-07 的架构讨论：把「能力定义入库」与「多用户协作管理平台」
 两项诉求整合为 **AgentMate Server（local-first 执行 + 云端控制平面）** 重构。总设计见
-[`docs/agentmate-hub-架构设计.md`](../agentmate-hub-架构设计.md)，WB-058 为总纲、WB-059～063 为分阶段子任务。
+[`docs/agentmate-server-架构设计.md`](../agentmate-server-架构设计.md)，WB-058 为总纲、WB-059～063 为分阶段子任务。
 
 WB-078～084 来自 2026-07-08 用户检查 Server 站点后的诉求：把 Server 控制台升级为完整 Web 管理门户并更名
 **BuddyWebMgr**（项目管理面 + 目录运营中心 + SkillHub）。总设计见
-[`docs/buddywebmgr-管理门户设计.md`](../buddywebmgr-管理门户设计.md)，WB-078 为总纲、WB-079～084 为分阶段子任务。
+[`docs/agentmate-console-管理门户设计.md`](../agentmate-console-管理门户设计.md)，WB-078 为总纲、WB-079～084 为分阶段子任务。
 
 WB-178～186 来自 2026-07-16 用户要求对**技能功能的设计从头审查**（前端 / 后端 / Server 三路梳理 + 逐条源码核实）。
 结论：技能是「橱窗」与「真引擎」两套互不相认的系统贴在一起，根因是**技能没有稳定身份**（展示名 / slug / 磁盘目录名三层无映射），

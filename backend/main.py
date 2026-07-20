@@ -43,7 +43,7 @@ from config import FROZEN, settings
 from routers import asr, auth, automations, catalog, channels, chat, data, experts, files, server, kdocs, knowledge, me, memory, milestones, models, notifications, prefs, projects, security, sessions, skills, work_items
 from storage import db
 
-app = FastAPI(title="AgentMate API", version="0.1.0")
+app = FastAPI(title="AgentMate API", version="1.0.0")
 
 # Reject oversized JSON API bodies before they are buffered (WB-010). File uploads
 # stream and enforce their own 50MB cap, so they're exempt from this smaller limit.

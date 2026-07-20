@@ -1,6 +1,6 @@
 [package]
 name = "agentmate"
-version = "0.1.0"
+version = "1.0.0"
 description = "AgentMate — your intelligent work companion (desktop shell)"
 authors = ["AgentMate"]
 edition = "2021"
