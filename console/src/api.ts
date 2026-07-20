@@ -1,4 +1,8 @@
-import type { Account, AuthResponse, CatalogItem, SkillData, SkillTool } from "./types";
+import type {
+  Account, Activity, AuthResponse, CatalogData, CatalogItem, CommentRecord,
+  KnowledgeBase, KnowledgeDocument, Member, Milestone, NotificationRecord,
+  Organization, Project, SkillData, SkillTool, TimelineEvent, WorkItem,
+} from "./types";
 
 const TOKEN_KEY = "agentmate.console.token";
 
@@ -57,6 +61,23 @@ export async function apiRequest<T>(
   return data as T;
 }
 
+export async function apiUpload<T>(path: string, file: File): Promise<T> {
+  const token = getToken();
+  const separator = path.includes("?") ? "&" : "?";
+  const response = await fetch(`/api${path}${separator}filename=${encodeURIComponent(file.name)}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: file,
+  });
+  let data: unknown = null;
+  try { data = await response.json(); } catch { /* response detail is optional */ }
+  if (!response.ok) {
+    const detail = data && typeof data === "object" && "detail" in data ? (data as { detail: unknown }).detail : null;
+    throw new ApiError(typeof detail === "string" ? detail : `HTTP ${response.status}`, response.status);
+  }
+  return data as T;
+}
+
 export const consoleApi = {
   me: () => apiRequest<{ account: Account }>("GET", "/me"),
   login: (name: string, password: string) =>
@@ -73,4 +94,46 @@ export const consoleApi = {
     apiRequest<{ ok: boolean }>("PATCH", `/catalog/item/${encodeURIComponent(id)}`, patch),
   archiveSkill: (id: string) =>
     apiRequest<{ ok: boolean; archived?: boolean }>("DELETE", `/catalog/item/${encodeURIComponent(id)}`),
+  projects: () => apiRequest<{ projects: Project[] }>("GET", "/projects"),
+  project: (id: string) => apiRequest<Project>("GET", `/projects/${encodeURIComponent(id)}`),
+  createProject: (body: Partial<Project> & { name: string }) => apiRequest<Project>("POST", "/projects", body),
+  updateProject: (id: string, body: Partial<Project>) => apiRequest<Project>("PATCH", `/projects/${encodeURIComponent(id)}`, body),
+  projectMembers: (id: string) => apiRequest<{ members: Member[] }>("GET", `/projects/${encodeURIComponent(id)}/members`),
+  addProjectMember: (id: string, name: string, role: string) => apiRequest<{ ok: boolean }>("POST", `/projects/${encodeURIComponent(id)}/members`, { name, role }),
+  updateProjectMember: (id: string, accountId: string, role: string) => apiRequest<{ ok: boolean }>("PATCH", `/projects/${encodeURIComponent(id)}/members/${encodeURIComponent(accountId)}`, { role }),
+  removeProjectMember: (id: string, accountId: string) => apiRequest<{ ok: boolean }>("DELETE", `/projects/${encodeURIComponent(id)}/members/${encodeURIComponent(accountId)}`),
+  inviteProjectMember: (id: string, role: string) => apiRequest<{ code: string }>("POST", `/projects/${encodeURIComponent(id)}/invites`, { role }),
+  workItems: (id: string) => apiRequest<{ items: WorkItem[] }>("GET", `/projects/${encodeURIComponent(id)}/work-items`),
+  createWorkItem: (id: string, body: Partial<WorkItem> & { title: string }) => apiRequest<WorkItem>("POST", `/projects/${encodeURIComponent(id)}/work-items`, body),
+  updateWorkItem: (id: string, workId: string, body: Partial<WorkItem>) => apiRequest<WorkItem>("PATCH", `/projects/${encodeURIComponent(id)}/work-items/${encodeURIComponent(workId)}`, body),
+  deleteWorkItem: (id: string, workId: string) => apiRequest<{ ok: boolean }>("DELETE", `/projects/${encodeURIComponent(id)}/work-items/${encodeURIComponent(workId)}`),
+  milestones: (id: string) => apiRequest<{ milestones: Milestone[] }>("GET", `/projects/${encodeURIComponent(id)}/milestones`),
+  createMilestone: (id: string, body: { name: string; due_date?: string }) => apiRequest<Milestone>("POST", `/projects/${encodeURIComponent(id)}/milestones`, body),
+  activity: (id: string) => apiRequest<{ activity: Activity[] }>("GET", `/projects/${encodeURIComponent(id)}/activity`),
+  comments: (id: string) => apiRequest<{ comments: CommentRecord[] }>("GET", `/projects/${encodeURIComponent(id)}/comments`),
+  createComment: (id: string, body: string) => apiRequest<CommentRecord>("POST", `/projects/${encodeURIComponent(id)}/comments`, { body }),
+  timeline: (id: string) => apiRequest<{ events: TimelineEvent[] }>("GET", `/projects/${encodeURIComponent(id)}/timeline`),
+  presence: (id: string) => apiRequest<{ presence: Member[] }>("GET", `/projects/${encodeURIComponent(id)}/presence`),
+  organizations: () => apiRequest<{ orgs: Organization[] }>("GET", "/orgs"),
+  createOrganization: (name: string) => apiRequest<Organization>("POST", "/orgs", { name }),
+  organizationMembers: (id: string) => apiRequest<{ members: Member[] }>("GET", `/orgs/${encodeURIComponent(id)}/members`),
+  addOrganizationMember: (id: string, name: string, role: string) => apiRequest<{ ok: boolean }>("POST", `/orgs/${encodeURIComponent(id)}/members`, { name, role }),
+  accounts: () => apiRequest<{ accounts: Account[] }>("GET", "/accounts"),
+  createAccount: (body: { name: string; password: string; email?: string; plan?: string; is_platform_admin?: boolean }) => apiRequest<{ account: Account }>("POST", "/accounts", body),
+  updateAccount: (id: string, body: Partial<Account>) => apiRequest<{ account: Account }>("PATCH", `/accounts/${encodeURIComponent(id)}`, body),
+  resetPassword: (id: string, password: string) => apiRequest<{ ok: boolean }>("POST", `/accounts/${encodeURIComponent(id)}/password`, { password }),
+  deleteAccount: (id: string) => apiRequest<{ ok: boolean }>("DELETE", `/accounts/${encodeURIComponent(id)}`),
+  notifications: () => apiRequest<{ notifications: NotificationRecord[]; unread: number }>("GET", "/notifications"),
+  markNotificationsRead: (ids?: string[]) => apiRequest<{ ok: boolean }>("POST", "/notifications/read", ids ? { ids } : {}),
+  catalog: <T extends CatalogData = CatalogData>(category?: string, all = false) => apiRequest<{ items: CatalogItem<T>[] }>("GET", `/catalog${category ? `/${encodeURIComponent(category)}` : ""}${all ? "?all=true" : ""}`),
+  createCatalogItem: <T extends CatalogData>(category: string, data: T, sort = 0) => apiRequest<{ id: string }>("POST", "/catalog", { category, data, sort }),
+  updateCatalogItem: <T extends CatalogData>(id: string, patch: { data?: T; sort?: number; enabled?: boolean }) => apiRequest<{ ok: boolean }>("PATCH", `/catalog/item/${encodeURIComponent(id)}`, patch),
+  deleteCatalogItem: (id: string) => apiRequest<{ ok: boolean }>("DELETE", `/catalog/item/${encodeURIComponent(id)}`),
+  knowledgeBases: (id: string) => apiRequest<{ items: KnowledgeBase[] }>("GET", `/projects/${encodeURIComponent(id)}/knowledge-bases`),
+  createKnowledgeBase: (id: string, body: Partial<KnowledgeBase> & { name: string }) => apiRequest<KnowledgeBase>("POST", `/projects/${encodeURIComponent(id)}/knowledge-bases`, body),
+  updateKnowledgeBase: (id: string, kbId: string, body: Partial<KnowledgeBase>) => apiRequest<KnowledgeBase>("PATCH", `/projects/${encodeURIComponent(id)}/knowledge-bases/${encodeURIComponent(kbId)}`, body),
+  deleteKnowledgeBase: (id: string, kbId: string) => apiRequest<{ ok: boolean }>("DELETE", `/projects/${encodeURIComponent(id)}/knowledge-bases/${encodeURIComponent(kbId)}`),
+  knowledgeDocuments: (id: string, kbId: string) => apiRequest<{ items: KnowledgeDocument[] }>("GET", `/projects/${encodeURIComponent(id)}/knowledge-bases/${encodeURIComponent(kbId)}/documents`),
+  uploadKnowledgeDocument: (id: string, kbId: string, file: File) => apiUpload<KnowledgeDocument>(`/projects/${encodeURIComponent(id)}/knowledge-bases/${encodeURIComponent(kbId)}/documents`, file),
+  deleteKnowledgeDocument: (id: string, kbId: string, docId: string) => apiRequest<{ ok: boolean }>("DELETE", `/projects/${encodeURIComponent(id)}/knowledge-bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`),
 };

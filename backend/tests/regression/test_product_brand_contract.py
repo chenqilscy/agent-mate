@@ -22,7 +22,7 @@ class ProductBrandContractTest(unittest.TestCase):
             "src/components/chat/MessageList.tsx": '<div className="bot-nm">AgentMate</div>',
             "src/lib/exportChat.ts": "_由 AgentMate 导出_",
             "backend/agent/runtime.py": "你是 AgentMate",
-            "server/web/console.html": "<title>AgentMate Console · Web 管理控制台</title>",
+            "console/index.html": "<title>AgentMate Console · Web 管理控制台</title>",
             "src-tauri/src/lib.rs": 'tooltip("AgentMate")',
         }
         for relative, marker in expected.items():

@@ -252,7 +252,7 @@
 | [WB-233](WB-233-custom-connector-toast-only-entry.md) | ✅ | P2 | frontend | App 已移除只弹 toast 的“自定义连接器”伪入口 |
 | [WB-234](WB-234-console-ant-design-migration.md) | ✅ | P1 | frontend | AgentMate Console 技能管理的单文件手写 UI 难以形成专业一致的管理体验 |
 | [WB-235](WB-235-capability-release-docs-workbuddy-reference.md) | ✅ | P1 | misc | 能力目录发布升级设计与 WorkBuddy 产品参考缺少统一文档沉淀 |
-| [WB-236](WB-236-console-remaining-pages-ant-design.md) | ⬜ | P1 | frontend | AgentMate Console 其余 legacy 页面尚未迁移到统一组件体系 |
+| [WB-236](WB-236-console-remaining-pages-ant-design.md) | ✅ | P1 | frontend | AgentMate Console 其余 legacy 页面尚未迁移到统一组件体系 |
 | [WB-237](WB-237-app-production-build-type-errors.md) | ⬜ | P1 | frontend | AgentMate App 生产构建被现有 TypeScript 错误阻断 |
 | [WB-238](WB-238-stale-authoritative-docs-cleanup.md) | ✅ | P1 | misc | 权威文档残留过时架构、端口与能力边界，且以勘误掩盖正文冲突 |
 

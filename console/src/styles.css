@@ -66,6 +66,19 @@ body { background: var(--console-bg); }
 .ant-pro-layout .ant-pro-layout-content { min-width: 0; }
 .ant-pro-page-container-children-container { padding-block-end: 32px; }
 .catalog-tabs { margin: -8px 0 16px; }
+.page-loading { min-height: 55vh; display: grid; place-items: center; }
+.section-row, .section-card { margin-top: 16px; }
+.tab-stack { display: grid; gap: 16px; }
+.status-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.status-dot.online { background: #16b37a; box-shadow: 0 0 0 4px rgb(22 179 122 / 14%); }
+.project-hero { margin-bottom: 4px; }
+.project-hero .ant-typography { margin: 0; }
+.catalog-card { height: 100%; border-color: var(--console-border); }
+.catalog-card .ant-card-body { height: 100%; }
+.catalog-card .ant-typography { margin-block: 0 6px; }
+.drawer-form, .drawer-card { margin-top: 24px; }
+.inline-form { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--console-border); }
+.unread-item { margin-inline: -12px; padding-inline: 12px !important; background: rgb(46 125 246 / 7%); border-radius: 8px; }
 
 .skill-search { width: 300px; }
 .skill-filter { width: 150px; }

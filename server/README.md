@@ -27,8 +27,8 @@ pnpm build:console       # 仓库根执行，输出 server/web/console-dist/
 pnpm dev:console         # 可选：:8103 开发服务，/api 代理到 Server :8100
 ```
 
-当前 `/catalog/skills` 使用新构建，其余尚未迁移的页面仍由 `server/web/console.html` 提供；
-新页面的预览/推荐位标签会进入 `/legacy/*`，迁移期间两套页面共用同源 Bearer token 与真实 `/api/*`。
+全部 Console 页面均由 `server/web/console-dist/` 提供，所有非 `/api/*` 稳定路由都支持直达与刷新；
+页面共用同源 Bearer token，并直接调用真实 `/api/*`。
 
 ## API（`/api` 前缀）
 

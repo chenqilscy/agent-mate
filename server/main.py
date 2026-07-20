@@ -19,10 +19,8 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import HTMLResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-_CONSOLE = Path(__file__).resolve().parent / "web" / "console.html"
 _CONSOLE_DIST = Path(__file__).resolve().parent / "web" / "console-dist"
 _CONSOLE_NEXT = _CONSOLE_DIST / "index.html"
-_CONSOLE_ASSETS = _CONSOLE_DIST / "assets"
 
 import db  # noqa: E402
 from config import settings  # noqa: E402
@@ -36,30 +34,23 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=False,
     allow_methods=["*"], allow_headers=["*"],
 )
-if _CONSOLE_ASSETS.is_dir():
+if _CONSOLE_DIST.is_dir():
     # Vite index 使用 /console-assets/assets/*；挂载构建根而不是 assets 子目录。
     app.mount("/console-assets", StaticFiles(directory=_CONSOLE_DIST), name="console-assets")
 
 
-def _console_html() -> str:
-    try:
-        return _CONSOLE.read_text(encoding="utf-8")
-    except OSError:
-        return "<h1>AgentMate Console</h1><p>console.html missing</p>"
-
-
 def _console_next_html() -> str:
-    """React + Ant Design Console；构建缺失时回退旧入口，兼容纯源码部署。"""
+    """React + Ant Design Console；生产部署必须包含构建产物。"""
     try:
         return _CONSOLE_NEXT.read_text(encoding="utf-8")
     except OSError:
-        return _console_html()
+        return "<h1>AgentMate Console</h1><p>Console build missing. Run pnpm build:console.</p>"
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def console() -> str:
-    """AgentMate Console —— Server 自带的 Web 管理控制台：单文件、同源调用 /api。"""
-    return _console_html()
+    """AgentMate Console —— React + Ant Design，同源调用 /api。"""
+    return _console_next_html()
 
 
 @app.get("/api/health")
@@ -86,9 +77,7 @@ def console_page(console_path: str) -> str:
     """Console History API 深链回退；未知 API 不能被 HTML 入口伪装成成功。"""
     if console_path == "api" or console_path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not Found")
-    if console_path == "catalog/skills":
-        return _console_next_html()
-    return _console_html()
+    return _console_next_html()
 
 
 if __name__ == "__main__":
