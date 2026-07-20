@@ -52,6 +52,11 @@ function RecoBtn({ skillKey, displayName }: { skillKey: string; displayName: str
   return inst ? <InstalledCtl skill={inst} /> : <InstallBtn name={displayName} slug={skillKey} catalog />
 }
 
+function SkillHubRecoBtn({ skillKey, displayName }: { skillKey: string; displayName: string }) {
+  const inst = useSkillStore((s) => matchSkill(s.installed, skillKey || displayName))
+  return inst ? <InstalledCtl skill={inst} /> : <InstallBtn name={displayName} slug={skillKey} />
+}
+
 function ExpertsPane() {
   const [sub, setSub] = useState<'专家' | '专家团'>('专家')
   const [cat, setCat] = useState('全部')
@@ -401,25 +406,33 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
   )
 }
 
-// 推荐（保留原简版目录卡）。
+// 推荐位由 Server 配置；AgentMate 与 SkillHub 都复用真实的本地安装生命周期。
 function RecoView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) => void }) {
   const [cat, setCat] = useState('全部')
-  const { SK_CATS, SK_GRID } = useCatalog()
+  const { SK_CATS, SK_RECOMMENDATIONS } = useCatalog()
+  const visible = SK_RECOMMENDATIONS.filter((s) => cat === '全部' || s.category === cat)
   return (
     <>
       <div className="cats">
         {SK_CATS.map((c) => <div key={c} className={`cat ${cat === c ? 'active' : ''}`.trim()} onClick={() => setCat(c)}>{c}</div>)}
       </div>
       <div className="card-grid g4">
-        {SK_GRID.filter((s) => cat === '全部' || s.category === cat).map((s) => (
-          <div className="scard clickable" key={s.slug} onClick={() => onOpenDetail({ slug: s.slug, name: s.name, catalog: true })}>
-            <div className="sc-ic">{s.icon}</div>
-            <div className="sc-info"><div className="sc-n">{s.name}</div><div className="sc-d">{s.description}</div></div>
-            <RecoBtn skillKey={s.slug} displayName={s.name} />
-          </div>
-        ))}
+        {visible.map((s) => {
+          const target: SkillTarget = s.provider === 'agentmate'
+            ? { slug: s.slug, name: s.name, catalog: true }
+            : { card: { slug: s.slug, name: s.name, description: s.description, category: s.category, source: 'SkillHub' } }
+          return (
+            <div className="scard clickable" key={`${s.provider}:${s.slug}`} onClick={() => onOpenDetail(target)}>
+              <div className="sc-ic">{s.icon}</div>
+              <div className="sc-info"><div className="sc-n">{s.name}</div><div className="sc-d">{s.description}</div></div>
+              {s.provider === 'agentmate'
+                ? <RecoBtn skillKey={s.slug} displayName={s.name} />
+                : <SkillHubRecoBtn skillKey={s.slug} displayName={s.name} />}
+            </div>
+          )
+        })}
       </div>
-      {SK_GRID.filter((s) => cat === '全部' || s.category === cat).length === 0 && <div className="cap-blank">该分类下暂无技能</div>}
+      {visible.length === 0 && <div className="cap-blank">该分类下暂无技能</div>}
     </>
   )
 }

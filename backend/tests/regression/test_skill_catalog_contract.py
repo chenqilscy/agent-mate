@@ -73,6 +73,43 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertIn("办公效率", catalog["SK_CATS"])
         self.assertTrue(all(isinstance(x, dict) and x.get("slug") and x.get("category") for x in catalog["SK_GRID"]))
 
+    def test_server_recommendations_are_independent_ordered_and_scheduled(self) -> None:
+        now = time.time()
+        db.replace_all_downlink([
+            {"category": "SKILL_RECOMMENDATIONS", "sort": 30, "data": {
+                "provider": "agentmate", "skill_slug": "web-access",
+                "placement": "skills.recommended", "title": "网页精选", "_enabled": True,
+            }},
+            {"category": "SKILL_RECOMMENDATIONS", "sort": 10, "data": {
+                "provider": "skillhub", "skill_slug": "community-skill",
+                "placement": "skills.recommended", "title": "社区技能", "description": "第三方商店描述",
+                "icon": "✦", "category": "开发编程", "_enabled": True,
+            }},
+            {"category": "SKILL_RECOMMENDATIONS", "sort": 20, "data": {
+                "provider": "agentmate", "skill_slug": "excel-csv",
+                "placement": "skills.recommended", "ends_at": now - 1, "_enabled": True,
+            }},
+            {"category": "SKILL_RECOMMENDATIONS", "sort": 40, "data": {
+                "provider": "agentmate", "skill_slug": "word-doc",
+                "placement": "skills.recommended", "_enabled": False,
+            }},
+        ])
+
+        catalog = db.showcase_all()
+        self.assertEqual(["community-skill", "web-access"], [x["slug"] for x in catalog["SK_RECOMMENDATIONS"]])
+        self.assertEqual("skillhub", catalog["SK_RECOMMENDATIONS"][0]["provider"])
+        self.assertEqual("网页精选", catalog["SK_RECOMMENDATIONS"][1]["name"])
+        self.assertEqual(["全部", "开发编程"], catalog["SK_CATS"])
+
+    def test_empty_server_recommendation_configuration_does_not_fallback(self) -> None:
+        db.replace_all_downlink([{"category": "SKILL_RECOMMENDATIONS", "sort": 0, "data": {
+            "provider": "agentmate", "skill_slug": "web-access",
+            "placement": "skills.recommended", "_enabled": False,
+        }}])
+        catalog = db.showcase_all()
+        self.assertEqual([], catalog["SK_RECOMMENDATIONS"])
+        self.assertEqual(["全部"], catalog["SK_CATS"])
+
     def test_existing_creator_guide_seed_migrates_to_real_create_tool(self) -> None:
         old_instruction = "当用户想创建自定义技能时，说明技能 = 提示词 + 工具包 的结构，并给出可落地的模板。"
         conn = db.get_conn()

@@ -16,6 +16,7 @@ import uuid
 from typing import Any, Optional
 
 from config import settings
+from catalog_seed import DEFAULT_APP_SKILLS
 from models import Account, Invite, Org, Project, Role
 
 _local = threading.local()
@@ -324,6 +325,49 @@ def init_db() -> None:
         "OR category IN ('skill','skill-category','SKILLHUB_FEATURED'))"
     )
     conn.execute("DELETE FROM settings WHERE k='skillhub_api_key'")
+    # WB-217：Server 首次拥有自有技能目录，并把升级前“全部 APP_SKILLS 即推荐”
+    # 的展示结果迁成独立推荐位。写库后运行时只读 catalog_items。
+    # 标记后即使运营主动删空推荐位也不会在下次启动被重新填充。
+    migrated = conn.execute(
+        "SELECT v FROM settings WHERE k='skill_recommendations_v2'"
+    ).fetchone()
+    if not migrated:
+        now = time.time()
+        skill_count = conn.execute(
+            "SELECT COUNT(*) FROM catalog_items WHERE category='APP_SKILLS' AND scope='builtin'"
+        ).fetchone()[0]
+        if not skill_count:
+            for sort, skill in enumerate(DEFAULT_APP_SKILLS):
+                conn.execute(
+                    "INSERT INTO catalog_items (id,category,scope,org_id,kind,data,enabled,sort,version,created_at,updated_at) "
+                    "VALUES (?,'APP_SKILLS','builtin',NULL,'',?,1,?,1,?,?)",
+                    (new_uuid(), json.dumps(skill, ensure_ascii=False), sort, now, now),
+                )
+        recommendation_count = conn.execute(
+            "SELECT COUNT(*) FROM catalog_items WHERE category='SKILL_RECOMMENDATIONS' AND scope='builtin'"
+        ).fetchone()[0]
+        rows = [] if recommendation_count else conn.execute(
+            "SELECT data,sort FROM catalog_items "
+            "WHERE category='APP_SKILLS' AND scope='builtin' AND enabled=1 ORDER BY sort"
+        ).fetchall()
+        for row in rows:
+            try:
+                skill = json.loads(row["data"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            slug = str(skill.get("slug", "")).strip() if isinstance(skill, dict) else ""
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", slug):
+                continue
+            data = {"provider": "agentmate", "skill_slug": slug, "placement": "skills.recommended"}
+            conn.execute(
+                "INSERT INTO catalog_items (id,category,scope,org_id,kind,data,enabled,sort,version,created_at,updated_at) "
+                "VALUES (?,?,'builtin',NULL,'',?,1,?,1,?,?)",
+                (new_uuid(), "SKILL_RECOMMENDATIONS", json.dumps(data, ensure_ascii=False), row["sort"], now, now),
+            )
+        conn.execute(
+            "INSERT INTO settings (k,v,updated_at) VALUES ('skill_recommendations_v2','1',?)",
+            (now,),
+        )
     conn.commit()
     # 一次性：存量 work_items.assignee 自由文本 → account_id 强映射（WB-112c-B）。
     if get_setting("assignee_norm_v1") != "1":

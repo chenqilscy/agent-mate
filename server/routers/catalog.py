@@ -18,6 +18,7 @@ from models import Account
 
 router = APIRouter(prefix="/api", tags=["catalog"])
 _SKILL_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_PLACEMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def _require_admin(account: Account) -> None:
@@ -30,7 +31,16 @@ def list_all_catalog(all: bool = False, account: Account = CurrentAccount) -> di
     """所有 builtin 目录项（跨 category），供客户端一次性下行覆盖本地。
     `?all=true`（仅平台管理员）连停用项一并返回，供门户高级 JSON 视图。"""
     inc = all and account.is_platform_admin
-    return {"items": db.list_all_catalog_items(scope="builtin", include_disabled=inc)}
+    items = db.list_all_catalog_items(scope="builtin", include_disabled=inc)
+    if not inc:
+        # 推荐位需要把“已配置但全部停用”与“从未配置”区分开：前者应诚实显示空，
+        # 后者才允许 App local-first 回退。因此下行携带推荐位 enabled 状态。
+        items.extend(
+            row for row in _skill_recommendations()
+            if not any(current["id"] == row["id"] for current in items)
+        )
+        items.sort(key=lambda row: (row["category"], row["sort"]))
+    return {"items": items}
 
 
 @router.get("/catalog/{category}")
@@ -61,11 +71,66 @@ def _validate_app_skill(data: Any, *, ignore_id: str = "") -> None:
             raise HTTPException(409, "skill slug already exists")
 
 
+def _skill_recommendations() -> list[dict]:
+    return db.list_catalog_items(
+        "SKILL_RECOMMENDATIONS", scope="builtin", include_disabled=True,
+    )
+
+
+def _validate_skill_recommendation(data: Any, *, ignore_id: str = "") -> None:
+    """推荐位只保存引用和运营元数据；安装包、Key 与文件内容仍留在 App 本机。"""
+    if not isinstance(data, dict):
+        raise HTTPException(400, "SKILL_RECOMMENDATIONS data must be an object")
+    provider = str(data.get("provider", "")).strip().lower()
+    slug = str(data.get("skill_slug", "")).strip()
+    placement = str(data.get("placement", "skills.recommended")).strip()
+    if provider not in {"agentmate", "skillhub"}:
+        raise HTTPException(400, "provider must be agentmate or skillhub")
+    if not _SKILL_SLUG_RE.fullmatch(slug):
+        raise HTTPException(400, "invalid recommendation skill slug")
+    if not _PLACEMENT_RE.fullmatch(placement):
+        raise HTTPException(400, "invalid recommendation placement")
+    if provider == "agentmate":
+        exists = any(
+            isinstance(row.get("data"), dict) and row["data"].get("slug") == slug
+            for row in db.list_catalog_items("APP_SKILLS", scope="builtin", include_disabled=True)
+        )
+        if not exists:
+            raise HTTPException(400, "referenced AgentMate skill does not exist")
+    elif not str(data.get("title", "")).strip() or not str(data.get("description", "")).strip():
+        raise HTTPException(400, "SkillHub recommendation title and description are required")
+    try:
+        starts_at = float(data.get("starts_at") or 0)
+        ends_at = float(data.get("ends_at") or 0)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, "invalid recommendation schedule") from exc
+    if starts_at < 0 or ends_at < 0 or (starts_at and ends_at and ends_at <= starts_at):
+        raise HTTPException(400, "recommendation end time must be later than start time")
+    for row in _skill_recommendations():
+        current = row.get("data") if isinstance(row.get("data"), dict) else {}
+        if row["id"] != ignore_id and (
+            str(current.get("provider", "")).lower(), current.get("skill_slug"),
+            current.get("placement", "skills.recommended"),
+        ) == (provider, slug, placement):
+            raise HTTPException(409, "skill recommendation already exists in this placement")
+
+
+def _skill_is_recommended(slug: str) -> bool:
+    return any(
+        isinstance(row.get("data"), dict)
+        and str(row["data"].get("provider", "")).lower() == "agentmate"
+        and row["data"].get("skill_slug") == slug
+        for row in _skill_recommendations()
+    )
+
+
 @router.post("/catalog")
 def create_item(body: CatalogItemBody, account: Account = CurrentAccount) -> dict:
     _require_admin(account)
     if body.category == "APP_SKILLS":
         _validate_app_skill(body.data)
+    elif body.category == "SKILL_RECOMMENDATIONS":
+        _validate_skill_recommendation(body.data)
     iid = db.create_catalog_item(
         category=body.category, data=body.data, scope="builtin", kind=body.kind, sort=body.sort,
     )
@@ -86,6 +151,12 @@ def update_item(item_id: str, body: UpdateItemBody, account: Account = CurrentAc
         raise HTTPException(404, "catalog item not found")
     if item["category"] == "APP_SKILLS" and body.data is not None:
         _validate_app_skill(body.data, ignore_id=item_id)
+        old_slug = str(item.get("data", {}).get("slug", "")) if isinstance(item.get("data"), dict) else ""
+        new_slug = str(body.data.get("slug", "")) if isinstance(body.data, dict) else ""
+        if old_slug and old_slug != new_slug and _skill_is_recommended(old_slug):
+            raise HTTPException(409, "skill is referenced by a recommendation")
+    elif item["category"] == "SKILL_RECOMMENDATIONS" and body.data is not None:
+        _validate_skill_recommendation(body.data, ignore_id=item_id)
     if not db.update_catalog_item(item_id, data=body.data, sort=body.sort, enabled=body.enabled):
         raise HTTPException(404, "catalog item not found")
     return {"ok": True}
@@ -94,6 +165,13 @@ def update_item(item_id: str, body: UpdateItemBody, account: Account = CurrentAc
 @router.delete("/catalog/item/{item_id}")
 def delete_item(item_id: str, account: Account = CurrentAccount) -> dict:
     _require_admin(account)
+    item = db.get_catalog_item(item_id)
+    if not item:
+        raise HTTPException(404, "catalog item not found")
+    if item["category"] == "APP_SKILLS" and isinstance(item.get("data"), dict):
+        slug = str(item["data"].get("slug", ""))
+        if slug and _skill_is_recommended(slug):
+            raise HTTPException(409, "skill is referenced by a recommendation")
     if not db.delete_catalog_item(item_id):
         raise HTTPException(404, "catalog item not found")
     return {"ok": True}

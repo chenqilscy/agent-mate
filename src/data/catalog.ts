@@ -113,6 +113,11 @@ export interface RecommendedSkill {
 }
 export const SK_CATS: string[] = []
 export const SK_GRID: RecommendedSkill[] = []
+export interface SkillRecommendation extends RecommendedSkill {
+  provider: 'agentmate' | 'skillhub'
+  placement: string
+}
+export const SK_RECOMMENDATIONS: SkillRecommendation[] = []
 
 export const CONNS: [string, string, string][] = [
   ['📉', '通达信', '通过通达信 MCP 查询全球股票行情数据、条件选股、研究报告、公告资讯和宏观信息。'],

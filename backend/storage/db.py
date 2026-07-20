@@ -1669,7 +1669,49 @@ def showcase_all() -> dict[str, Any]:
          "description": s["description"], "category": s["category"], "source": s["source"]}
         for s in specs
     ]
-    out["SK_CATS"] = ["全部", *dict.fromkeys(s["category"] for s in specs if s["category"])]
+    spec_by_slug = {s["slug"]: s for s in specs}
+    downlink = downlink_by_category()
+    raw_recommendations = downlink.get("SKILL_RECOMMENDATIONS")
+    if raw_recommendations is None:
+        # 未连接 Server / Server 尚未配置推荐位：保持 local-first 离线兜底。
+        recommendations = [
+            {"provider": "agentmate", "placement": "skills.recommended", **card}
+            for card in out["SK_GRID"]
+        ]
+    else:
+        now = time.time()
+        recommendations = []
+        for raw in raw_recommendations:
+            if not isinstance(raw, dict) or raw.get("placement", "skills.recommended") != "skills.recommended":
+                continue
+            if raw.get("_enabled", True) is False:
+                continue
+            try:
+                starts_at = float(raw.get("starts_at") or 0)
+                ends_at = float(raw.get("ends_at") or 0)
+            except (TypeError, ValueError):
+                continue
+            if (starts_at and now < starts_at) or (ends_at and now >= ends_at):
+                continue
+            provider = str(raw.get("provider", "")).lower()
+            slug = str(raw.get("skill_slug", "")).strip()
+            base = spec_by_slug.get(slug) if provider == "agentmate" else None
+            if provider not in {"agentmate", "skillhub"} or (provider == "agentmate" and not base):
+                continue
+            recommendations.append({
+                "provider": provider,
+                "placement": "skills.recommended",
+                "slug": slug,
+                "name": str(raw.get("title") or (base or {}).get("name") or slug),
+                "icon": str(raw.get("icon") or (base or {}).get("icon") or "🧩"),
+                "description": str(raw.get("description") or (base or {}).get("description") or ""),
+                "category": str(raw.get("category") or (base or {}).get("category") or "其他"),
+                "source": "AgentMate" if provider == "agentmate" else "SkillHub",
+            })
+    out["SK_RECOMMENDATIONS"] = recommendations
+    out["SK_CATS"] = ["全部", *dict.fromkeys(
+        s["category"] for s in recommendations if s.get("category")
+    )]
     return out
 
 

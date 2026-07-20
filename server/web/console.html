@@ -1867,17 +1867,18 @@ async function knowledgeManage(body){
   }catch(e){ F("kb-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 
-// 技能：Server 只运营 AgentMate 自有 APP_SKILLS；第三方 SkillHub 留在本地 App（WB-215）。
+// 技能定义与推荐位分开运营；第三方 SkillHub 只保存推荐指针，不镜像商店或技能包（WB-217）。
 let SKILLSUB = "gallery";
 async function skillsCat(body){
   body.innerHTML = `
     <div class="tabs" style="margin-bottom:14px">
       <button data-ss="gallery" class="${SKILLSUB==='gallery'?'active':''}">目录预览</button>
       <button data-ss="manage" class="${SKILLSUB==='manage'?'active':''}">目录管理</button>
+      <button data-ss="recommendations" class="${SKILLSUB==='recommendations'?'active':''}">推荐位管理</button>
     </div>
     <div id="sk-sub"></div>`;
   body.querySelectorAll("[data-ss]").forEach(b=> b.onclick=()=>{ SKILLSUB=b.dataset.ss; skillsCat(body); });
-  ({gallery:skillsGallery, manage:skillsManage}[SKILLSUB]||skillsGallery)(document.getElementById("sk-sub"));
+  ({gallery:skillsGallery, manage:skillsManage, recommendations:skillsRecommendations}[SKILLSUB]||skillsGallery)(document.getElementById("sk-sub"));
 }
 
 // 目录管理：APP_SKILLS 对象是 App catalog_skills 的 Server 权威覆盖源；项目只保存 slug。
@@ -1903,15 +1904,47 @@ async function skillsManage(body){
   }catch(e){F("sk-list").innerHTML=`<div class="err">${esc(e.message)}</div>`;}
 }
 
-// AgentMate 自有推荐技能预览；这里只读 APP_SKILLS，不读取或代理第三方 SkillHub。
-async function skillsGallery(body){
-  body.innerHTML = `<div class="sg-sectitle" style="margin:6px 0 12px">AgentMate 推荐技能</div><div id="sg-reco" class="muted">加载中…</div>`;
+function recDateValue(v){ if(!v)return ""; const d=new Date(Number(v)*1000); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); }
+function recDateEpoch(v){ return v?Math.floor(new Date(v).getTime()/1000):0; }
+function recActive(d){ const now=Date.now()/1000,s=Number(d.starts_at||0),e=Number(d.ends_at||0); return (!s||now>=s)&&(!e||now<e); }
+
+async function skillsRecommendations(body){
+  body.innerHTML = `<div class="card"><h3 id="skr-h">新增推荐位</h3><input type="hidden" id="skr-id">
+      <div class="grid2"><div class="field"><label>来源</label><select id="skr-provider"><option value="agentmate">AgentMate</option><option value="skillhub">SkillHub</option></select></div><div class="field"><label>技能 slug</label><input id="skr-slug" list="skr-skills" placeholder="skill-slug"><datalist id="skr-skills"></datalist></div></div>
+      <div class="grid2"><div class="field"><label>推荐位置</label><input id="skr-placement" value="skills.recommended" readonly></div><div class="field"><label>标题（AgentMate 可留空继承定义）</label><input id="skr-title"></div></div>
+      <div class="grid2"><div class="field"><label>图标（可留空继承）</label><input id="skr-icon" placeholder="🧩"></div><div class="field"><label>分类（可留空继承）</label><input id="skr-category"></div></div>
+      <div class="field"><label>推荐简介（SkillHub 必填）</label><textarea id="skr-desc"></textarea></div>
+      <div class="grid2"><div class="field"><label>生效时间（可空）</label><input id="skr-start" type="datetime-local"></div><div class="field"><label>结束时间（可空）</label><input id="skr-end" type="datetime-local"></div></div>
+      <div class="row"><input id="skr-sort" type="number" value="0" style="width:80px"><span class="muted" style="font-size:12px">排序</span><div class="grow"></div><button class="ghost" id="skr-clear">清空</button><button id="skr-save">保存</button></div>
+      <div class="muted" style="margin-top:10px">SkillHub 推荐仅保存 slug 与展示文案；查询、Key、安装和文件内容仍在用户本机。</div><div class="err" id="skr-err"></div></div>
+    <div id="skr-list" class="muted">加载中…</div>`;
+  const F=id=>document.getElementById(id);
+  let skills=[];
+  function fill(it){ const d=it?it.data:{}; F("skr-id").value=it?it.id:""; F("skr-provider").value=d.provider||"agentmate"; F("skr-slug").value=d.skill_slug||""; F("skr-placement").value=d.placement||"skills.recommended"; F("skr-title").value=d.title||""; F("skr-icon").value=d.icon||""; F("skr-category").value=d.category||""; F("skr-desc").value=d.description||""; F("skr-start").value=recDateValue(d.starts_at); F("skr-end").value=recDateValue(d.ends_at); F("skr-sort").value=it?it.sort:0; F("skr-h").textContent=it?"编辑推荐位":"新增推荐位"; }
+  F("skr-clear").onclick=()=>fill(null);
+  F("skr-provider").onchange=()=>{ if(F("skr-provider").value==="agentmate") F("skr-slug").focus(); };
   try{
-    const {items}=await api("GET","/catalog/APP_SKILLS");
-    const list=(items||[]).map(it=>it.data).filter(d=>d&&d.slug);
+    const [skillRes,recRes]=await Promise.all([api("GET","/catalog/APP_SKILLS?all=true"),api("GET","/catalog/SKILL_RECOMMENDATIONS?all=true")]);
+    skills=skillRes.items||[]; const items=recRes.items||[]; const skillMap=Object.fromEntries(skills.map(it=>[it.data&&it.data.slug,it.data||{}]));
+    F("skr-skills").innerHTML=skills.map(it=>{const d=it.data||{};return `<option value="${esc(d.slug||"")}">${esc(d.name||d.slug||"")}</option>`}).join("");
+    F("skr-list").innerHTML=items.length?items.map(it=>{const d=it.data||{},base=d.provider==="agentmate"?skillMap[d.skill_slug]||{}:{}; const state=!it.enabled?"停用":recActive(d)?"生效中":"未生效"; return `<div class="list-item"><span style="font-size:20px">${esc(d.icon||base.icon||(d.provider==="skillhub"?"✦":"🧩"))}</span><div style="flex:1;min-width:0"><div class="t">${esc(d.title||base.name||d.skill_slug||"?")} <span class="pill">${esc(d.provider||"")}</span> <span class="pill">${esc(d.skill_slug||"")}</span> <span class="pill">${state}</span></div><div class="d" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.description||base.description||d.placement||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`;}).join(""):'<div class="muted">还没有推荐位；App 会继续使用本机 AgentMate 技能定义作为离线兜底</div>';
+    F("skr-list").querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>{fill(items.find(x=>x.id===b.dataset.ed));window.scrollTo(0,0);});
+    F("skr-list").querySelectorAll("[data-tog]").forEach(b=>b.onclick=async()=>{const[id,en]=b.dataset.tog.split(":");try{await api("PATCH","/catalog/item/"+id,{enabled:!!+en});skillsRecommendations(body);}catch(e){F("skr-err").textContent=e.message;}});
+    F("skr-list").querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{try{await api("DELETE","/catalog/item/"+b.dataset.del);skillsRecommendations(body);}catch(e){F("skr-err").textContent=e.message;}});
+  }catch(e){F("skr-list").innerHTML=`<div class="err">${esc(e.message)}</div>`;}
+  F("skr-save").onclick=async()=>{ F("skr-err").textContent=""; const data={provider:F("skr-provider").value,skill_slug:F("skr-slug").value.trim(),placement:"skills.recommended",title:F("skr-title").value.trim(),icon:F("skr-icon").value.trim(),category:F("skr-category").value.trim(),description:F("skr-desc").value.trim(),starts_at:recDateEpoch(F("skr-start").value),ends_at:recDateEpoch(F("skr-end").value)}; if(!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(data.skill_slug)){F("skr-err").textContent="slug 仅允许字母、数字与 . _ -";return;} if(data.provider==="skillhub"&&(!data.title||!data.description)){F("skr-err").textContent="SkillHub 推荐的标题和简介必填";return;} if(data.starts_at&&data.ends_at&&data.ends_at<=data.starts_at){F("skr-err").textContent="结束时间必须晚于生效时间";return;} const id=F("skr-id").value,sort=Number(F("skr-sort").value)||0; try{if(id)await api("PATCH","/catalog/item/"+id,{data,sort});else await api("POST","/catalog",{category:"SKILL_RECOMMENDATIONS",data,sort});skillsRecommendations(body);}catch(e){F("skr-err").textContent=e.message;} };
+}
+
+// 推荐位预览：引用 AgentMate 定义或 SkillHub 编辑元数据，不访问第三方商店。
+async function skillsGallery(body){
+  body.innerHTML = `<div class="sg-sectitle" style="margin:6px 0 12px">当前生效的推荐技能</div><div id="sg-reco" class="muted">加载中…</div>`;
+  try{
+    const [skillRes,recRes]=await Promise.all([api("GET","/catalog/APP_SKILLS"),api("GET","/catalog/SKILL_RECOMMENDATIONS")]);
+    const skillMap=Object.fromEntries((skillRes.items||[]).map(it=>[it.data&&it.data.slug,it.data]));
+    const list=(recRes.items||[]).map(it=>{const d=it.data||{},base=d.provider==="agentmate"?skillMap[d.skill_slug]||{}:{};return {slug:d.skill_slug,name:d.title||base.name||d.skill_slug,icon:d.icon||base.icon||"🧩",description:d.description||base.description||"",provider:d.provider,category:d.category||base.category||"其他",active:recActive(d)}}).filter(d=>d.slug&&d.active);
     const el=document.getElementById("sg-reco");
     el.className="";
-    el.innerHTML=list.length?`<div class="sg-grid sg-g4">${list.map(d=>`<div class="sg-scard"><span class="sg-sic">${esc(d.icon||"🧩")}</span><div style="flex:1;min-width:0"><div class="sg-sn">${esc(d.name||d.slug)}</div><div class="sg-sd">${esc(d.description||"")}</div></div></div>`).join("")}</div>`:'<div class="sg-blank">还没有推荐技能；App 会继续使用本机内置定义</div>';
+    el.innerHTML=list.length?`<div class="sg-grid sg-g4">${list.map(d=>`<div class="sg-scard"><span class="sg-sic">${esc(d.icon||"🧩")}</span><div style="flex:1;min-width:0"><div class="sg-sn">${esc(d.name||d.slug)} <span class="pill">${esc(d.provider||"")}</span></div><div class="sg-sd">${esc(d.description||"")}</div></div></div>`).join("")}</div>`:'<div class="sg-blank">当前没有生效的推荐位；App 会继续使用本机 AgentMate 技能定义作为离线兜底</div>';
   }catch(e){ document.getElementById("sg-reco").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 

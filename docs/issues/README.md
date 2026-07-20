@@ -232,6 +232,7 @@
 | [WB-214](WB-214-recommended-skill-skillhub-interaction-parity.md) | ✅ | P2 | fullstack | 推荐技能与 SkillHub 卡片交互不一致，内置技能缺少详情入口 |
 | [WB-215](WB-215-local-skillhub-and-installed-only-content.md) | ✅ | P1 | fullstack | SkillHub 错误由 Server 集中管理，未安装技能可读取文件内容 |
 | [WB-216](WB-216-recommended-skills-real-install.md) | ✅ | P1 | fullstack | 推荐技能错误按内置免安装处理，与 SkillHub 安装模型不一致 |
+| [WB-217](WB-217-server-managed-skill-recommendations.md) | ✅ | P1 | fullstack | 技能定义与推荐位配置耦合，推荐内容无法独立运营 |
 
 ## 来源
 

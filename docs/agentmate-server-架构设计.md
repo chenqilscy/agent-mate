@@ -73,8 +73,9 @@ M7「协作」是靠**「共享后端即 Server」**实现的——多个用户�
 |---|---|---|---|---|
 | 账号 / 组织·团队 | **Server** | 镜像缓存 | 下行 | Server 签发 token |
 | 项目元数据 + 成员/角色/邀请 | **Server** | 镜像缓存 | 下行 | 本地按缓存成员表做访问控制 |
-| AgentMate 自有目录：专家/推荐技能/连接器定义 | **Server** | 镜像缓存/下发 | 下行 | 本地可叠加本机 override（本地装的技能/自造专家） |
-| 第三方 SkillHub 商店元数据 | **本地 App 直连** | 短缓存 | 不同步 | Server 不镜像、不代理、不精选（WB-215） |
+| AgentMate 自有目录：专家/技能/连接器定义 | **Server** | 镜像缓存/下发 | 下行 | 本地可叠加本机 override（本地装的技能/自造专家） |
+| 技能推荐位（来源/slug/文案/排序/启停/排期） | **Server** | 镜像缓存/下发 | 下行 | 与技能定义解耦；可引用 AgentMate 或 SkillHub slug（WB-217） |
+| 第三方 SkillHub 商店、Key 与技能包 | **本地 App 直连** | 短缓存 | 不同步 | Server 只可保存推荐指针和运营文案，不镜像、不代理商店（WB-215/217） |
 | 会话 / 消息 / trace | **本地** | 权威 | 上行(append) | 回传 Server 供团队时间线（只读镜像，Server 不改） |
 | 待办 / 工作项 | 本地写 | 权威→同步 | 双向 | 先本地权威 + 上行；双向冲突用 `updated_at` LWW |
 | 运行记录 / 自动化 | **本地** | 权威 | 上行 | |
@@ -112,7 +113,8 @@ catalog_connectors       -- 连接器定义（并入 mcp_client.CONNECTORS 的�
   tools[](json), prompts[], requires[], category,
   scope, org_id, enabled, sort, version, ...
 
-catalog_skills           -- AgentMate 自有推荐技能定义；第三方 SkillHub 不入 Server
+catalog_skills           -- AgentMate 自有技能定义；第三方 SkillHub 不入 Server
+catalog_downlink         -- 含 SKILL_RECOMMENDATIONS 推荐位的本地只读镜像
   id, slug, name, label, color, description, category, instructions, tools,
   scope, org_id, enabled, sort, version, ...
 

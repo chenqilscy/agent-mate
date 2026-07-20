@@ -1,6 +1,6 @@
 # AgentMate Console —— Web 管理控制台设计
 
-> 状态：已落地；2026-07-20 经 **WB-215** 修订技能边界：Console 只管理 AgentMate 自有推荐技能，第三方 SkillHub 留在本地 App。
+> 状态：已落地；2026-07-20 经 **WB-215/217** 修订技能边界：Console 分开管理 AgentMate 技能定义与技能推荐位；第三方 SkillHub 商店、Key、安装和文件仍留在本地 App。
 > 前置：[`agentmate-server-架构设计.md`](agentmate-server-架构设计.md)（Server 控制平面总纲）。
 > 本文把原来那个「够用就好」的 Server 控制台升级为一个**完整的 Web 管理控制台**，
 > 最终产品名为 **AgentMate Console**，由 `server/web/console.html` 提供。
@@ -13,7 +13,7 @@ Server 的 Web 控制台负责项目、组织、协作及 AgentMate 自有目录
 用户诉求（2026-07-08）：
 1. 门户的**项目管理**要与 AgentMate App 的项目管理对齐（当前完全不一致）。
 2. **技能 / 连接器 / 专家·专家团**要在门户里有正经管理。
-3. 第三方 **SkillHub** 由每台 App 直接浏览与安装，不进入门户（WB-215 修订）。
+3. 第三方 **SkillHub** 由每台 App 直接浏览与安装；门户只允许用 slug + 编辑文案配置推荐位，不保存商店 Key、榜单、技能包或文件（WB-215/217）。
 4. 管理界面使用独立、职责清晰的产品名 **AgentMate Console**。
 
 **定位（关键）**：AgentMate Console 是 **AgentMate Server 的 Web 管理控制台**，不是「AgentMate App 的 Web 版」，也不是独立服务。见 §2 的硬约束。
@@ -50,7 +50,7 @@ Server 的 Web 控制台负责项目、组织、协作及 AgentMate 自有目录
 ```
 AgentMate Console
 ├─ 项目            项目管理面（配置 / 成员·角色·邀请 / 计划·任务 / 讨论·在线·时间线）
-├─ 目录运营中心     专家 · 专家团 · 连接器 · AgentMate 推荐技能（类型化 CRUD + 下发） 〔平台管理员〕
+├─ 目录运营中心     专家 · 专家团 · 连接器 · 技能定义 · 技能推荐位（类型化 CRUD + 下发） 〔平台管理员〕
 ├─ 组织            组织及成员（既有）
 ├─ 通知            @提及与协作事件（既有）
 └─ 账号            当前账号 / 平台管理员徽标 / 退出
@@ -70,7 +70,8 @@ AgentMate Console
 - **专家**（`EXP_GRID`）：icon / 名称 / 副标题 / 简介 / 标签 / 分类（`EXP_CATS`）/ **persona**（真定义，可选下发）。
 - **专家团**（`EXP_TEAMS`）：名称 / 图标 / 成员专家清单（引用专家名）。
 - **连接器**（`CONNS`+`CONN_META`）：icon / 名称 / 状态(rdy/tok) / launch spec 编辑器（内置 `builtin_server` 或第三方 `command/args`；`requires`/`requires_bin`；`secret_env` **仅变量名**）。
-- **技能**（`APP_SKILLS`）：slug / icon / 名称 / 简介 / 分类 / 指令 / 工具。
+- **技能定义**（`APP_SKILLS`）：slug / icon / 名称 / 简介 / 分类 / 指令 / 工具。
+- **技能推荐位**（`SKILL_RECOMMENDATIONS`）：provider / skill_slug / placement / 编辑标题与简介 / 分类 / 排序 / 启停 / 生效时间；AgentMate 引用技能定义，SkillHub 只保存目录指针和展示文案。
 - 通用能力：启用/停用（`enabled`）、排序（`sort`）、删除；保留「高级：裸 JSON」兜底特殊类别。
 
 ### 5.3 第三方 SkillHub 边界（WB-215）
