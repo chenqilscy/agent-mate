@@ -67,8 +67,8 @@ function RecoBtn({ skillKey, displayName }: { skillKey: string; displayName: str
     <button
       type="button"
       className="add-btn"
-      aria-label="挂载到本会话"
-      title={'挂载「' + displayName + '」到本会话'}
+      aria-label="使用技能"
+      title={'使用「' + displayName + '」'}
       onClick={(e) => {
         e.stopPropagation()
         useLoadoutStore.getState().summonSkills([builtin?.slug || inst?.slug || inst?.key || skillKey])
@@ -77,7 +77,7 @@ function RecoBtn({ skillKey, displayName }: { skillKey: string; displayName: str
         toast('已挂载「' + displayName + '」· 去试试')
       }}
     >
-      <IcPlusSm />
+      <IcUse />
     </button>
   )
 }
@@ -240,6 +240,7 @@ function ExpertDetailModal({ detail, onClose }: { detail: Detail; onClose: () =>
 const IcDl = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 11l5 5 5-5M5 21h14" /></svg>
 const IcStar = () => <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.3 6.9.6-5.2 4.5 1.6 6.8L12 17.3 5.8 20.8l1.6-6.8L2.2 8.9l6.9-.6z" /></svg>
 const IcPlusSm = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
+const IcUse = () => <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
 const IcPower = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 3v9" /><path d="M6.4 6.4a8 8 0 1 0 11.2 0" /></svg>
 const IcEdit = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
 const IcTrash = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" /></svg>
@@ -470,7 +471,7 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
 }
 
 // 推荐（保留原简版目录卡）。
-function RecoView() {
+function RecoView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) => void }) {
   const [cat, setCat] = useState('全部')
   const { SK_CATS, SK_GRID } = useCatalog()
   return (
@@ -480,7 +481,7 @@ function RecoView() {
       </div>
       <div className="card-grid g4">
         {SK_GRID.filter((s) => cat === '全部' || s.category === cat).map((s) => (
-          <div className="scard" key={s.slug}>
+          <div className="scard clickable" key={s.slug} onClick={() => onOpenDetail({ slug: s.slug, name: s.name, catalog: true })}>
             <div className="sc-ic">{s.icon}</div>
             <div className="sc-info"><div className="sc-n">{s.name}</div><div className="sc-d">{s.description}</div></div>
             <RecoBtn skillKey={s.slug} displayName={s.name} />
@@ -510,7 +511,7 @@ function SkillsPane({ query, onOpenDetail }: { query: string; onOpenDetail: (tar
         <div className={`sk-seg-item ${seg === 'skillhub' ? 'active' : ''}`.trim()} onClick={() => setSeg('skillhub')}>SkillHub</div>
       </div>
       {seg === 'skillhub' && <SkillHubView onOpenDetail={onOpenDetail} />}
-      {seg === 'reco' && <RecoView />}
+      {seg === 'reco' && <RecoView onOpenDetail={onOpenDetail} />}
     </div>
   )
 }

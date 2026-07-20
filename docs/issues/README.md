@@ -229,6 +229,7 @@
 | [WB-211](WB-211-unify-product-version-1-0-0.md) | ✅ | P2 | fullstack | 产品版本在侧栏显示 v5.2.3 且发布配置仍为 0.1.0 |
 | [WB-212](WB-212-issue-index-stale-renamed-doc-links.md) | ✅ | P2 | misc | Issue 索引来源段落仍引用更名前的架构文档路径 |
 | [WB-213](WB-213-reassign-local-stack-ports-8100-8102.md) | ✅ | P1 | fullstack | 本地三层服务端口统一调整为 8100、8101、8102 |
+| [WB-214](WB-214-recommended-skill-skillhub-interaction-parity.md) | ✅ | P2 | fullstack | 推荐技能与 SkillHub 卡片交互不一致，内置技能缺少详情入口 |
 
 ## 来源
 

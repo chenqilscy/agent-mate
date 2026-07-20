@@ -228,6 +228,7 @@ export const api = {
   skillRankings: (type = 'featured') =>
     get<{ type: string; skills: SkillCard[] }>(`/skills/rankings?type=${encodeURIComponent(type)}`),
   skillDetail: (key: string) => get<{ skill: SkillDetail }>(`/skills/${encodeURIComponent(key)}`),
+  skillCatalogDetail: (key: string) => get<{ skill: SkillDetail }>(`/skills/catalog/${encodeURIComponent(key)}`),
   // 安装前预览：未安装也能看 SKILL.md（后端临时下载，不落盘）。
   skillPreview: (q: { slug?: string; name?: string }) =>
     get<{ skill: SkillDetail }>(`/skills/preview?slug=${encodeURIComponent(q.slug ?? '')}&name=${encodeURIComponent(q.name ?? '')}`),

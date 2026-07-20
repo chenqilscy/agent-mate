@@ -319,6 +319,45 @@ def builtin_list() -> list[dict[str, Any]]:
     ]
 
 
+def catalog_detail(key: str) -> dict[str, Any] | None:
+    """Return a real catalog skill definition without pretending it is a disk SKILL.md.
+
+    Catalog skills (local builtin or a Server override) are usable without installation.
+    ``catalog=True`` lets the UI omit disk-only actions such as reveal and uninstall.
+    """
+    from storage import db  # delayed to avoid storage.db <-> agent.* import cycles
+
+    spec = db.skill_spec_for(key)
+    if not spec or not spec["instructions"]:
+        return None
+    resolved_tools = [tool.name for tool in _resolve_tools(spec["tools"])]
+    instructions = str(spec["instructions"])
+    source = str(spec.get("source") or ("Server" if spec.get("scope") == "server" else "内置"))
+    return {
+        "key": "",
+        "slug": str(spec["slug"]),
+        "name": str(spec["name"]),
+        "description": str(spec.get("description") or ""),
+        "version": "",
+        "source": source,
+        "disabled": False,
+        "markdown": instructions,
+        "body": instructions,
+        "frontmatter": {
+            "slug": str(spec["slug"]),
+            "category": str(spec.get("category") or ""),
+            "source": source,
+            "tools": resolved_tools,
+        },
+        "references": [],
+        "dir": "",
+        "installed": True,
+        "catalog": True,
+        "category": str(spec.get("category") or ""),
+        "tools": resolved_tools,
+    }
+
+
 def canonical_skill_key(key: str) -> str | None:
     """目录名/展示名/磁盘 key → 稳定 slug；无法唯一解析时返回 None。"""
     from storage import db

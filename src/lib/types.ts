@@ -479,4 +479,7 @@ export interface SkillDetail extends InstalledSkill {
   references: string[]
   dir: string
   installed?: boolean                    // true=本地已安装；false=安装前预览（WB-057）
+  catalog?: boolean                      // true=目录内置/Server 定义，无需磁盘安装（WB-214）
+  category?: string
+  tools?: string[]
 }

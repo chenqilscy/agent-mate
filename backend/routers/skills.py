@@ -96,6 +96,15 @@ def preview_skill(slug: str = "", name: str = "", authorization: str = Header(de
     return {"skill": d, "source": "local"}
 
 
+@router.get("/skills/catalog/{key}")
+def catalog_skill_detail(key: str) -> dict:
+    """AgentMate 推荐目录定义；与同 slug 的 SkillHub 商品显式隔离（WB-214）。"""
+    d = skills.catalog_detail(key)
+    if not d:
+        raise HTTPException(404, "catalog skill not found")
+    return {"skill": d, "source": "catalog"}
+
+
 @router.get("/skills/{key}")
 def get_detail(key: str) -> dict:
     d = skills_store.detail(key)

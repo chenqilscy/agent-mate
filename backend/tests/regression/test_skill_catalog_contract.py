@@ -90,6 +90,19 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertIn("真正创建并安装", resolved[0])
         self.assertEqual(["create_local_skill"], [tool.name for tool in resolved[1]])
 
+    def test_catalog_skill_detail_uses_real_definition_without_install(self) -> None:
+        from agent.skills import catalog_detail
+
+        detail = catalog_detail("web-access")
+        self.assertIsNotNone(detail)
+        self.assertTrue(detail["catalog"])
+        self.assertTrue(detail["installed"])
+        self.assertEqual("web-access", detail["slug"])
+        self.assertEqual("内置", detail["source"])
+        self.assertEqual(["web_fetch"], detail["tools"])
+        self.assertEqual(detail["body"], detail["markdown"])
+        self.assertIn("web_fetch", detail["body"])
+
 
 if __name__ == "__main__":
     unittest.main()

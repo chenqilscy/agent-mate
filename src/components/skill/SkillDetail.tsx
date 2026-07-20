@@ -13,7 +13,7 @@ import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
 
 // 详情入口：已安装用 key；未安装用 slug/name（后端预览解析）。
-export type SkillTarget = { key?: string; slug?: string; name?: string }
+export type SkillTarget = { key?: string; slug?: string; name?: string; catalog?: boolean }
 
 const IcFolder = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
 const IcTrash = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" /></svg>
@@ -36,14 +36,16 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
   useEffect(() => {
     let alive = true
     setLoading(true)
-    const p = target.key
-      ? api.skillDetail(target.key)
-      : api.skillPreview({ slug: target.slug, name: target.name })
+    const p = target.catalog && target.slug
+      ? api.skillCatalogDetail(target.slug)
+      : target.key
+        ? api.skillDetail(target.key)
+        : api.skillPreview({ slug: target.slug, name: target.name })
     p.then((r) => { if (alive) setData(r.skill) })
       .catch(() => { if (alive) { setData(null); toast('读取技能失败') } })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [target.key, target.slug, target.name, reloadN])
+  }, [target.key, target.slug, target.name, target.catalog, reloadN])
 
   useEffect(() => {
     if (!menu) return
@@ -53,6 +55,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
   }, [menu])
 
   const installed = storeSkill ? true : (data?.installed ?? !!target.key)
+  const catalogSkill = data?.catalog ?? false
   const disabled = storeSkill?.disabled ?? data?.disabled ?? false
   const name = data?.name ?? target.name ?? target.key ?? ''
   const localKey = data?.key || target.key || ''
@@ -92,6 +95,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
               <div className="skd-title">
                 {name}
                 {data.version && <span className="skd-ver">v{data.version}</span>}
+                {data.source && <span className="skd-ver">{data.source}</span>}
                 {!installed && <span className="skd-ver skd-preview">未安装 · 预览</span>}
               </div>
               {data.description && <div className="skd-desc">{data.description}</div>}
@@ -100,20 +104,24 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
               {installed ? (
                 <>
                   <button className="cap-act" onClick={tryIt}>去试试</button>
-                  <div
-                    className={`sw ${disabled ? '' : 'on'}`.trim()} role="switch" aria-checked={disabled ? 'false' : 'true'}
-                    title={disabled ? '已关闭 · 点击启用' : '已启用 · 点击关闭'}
-                    onClick={() => toggle(localKey, !disabled)}
-                  />
-                  <div className="more-wrap" onClick={(e) => e.stopPropagation()}>
-                    <button className="hc-more" aria-label="更多" onClick={() => setMenu((v) => !v)}>⋯</button>
-                    {menu && (
-                      <div className="card-menu open skd-menu">
-                        <div className="more-item" onClick={reveal}><IcFolder />打开文件夹</div>
-                        <div className="more-item div" onClick={doUninstall}><IcTrash />卸载</div>
+                  {!catalogSkill && (
+                    <>
+                      <div
+                        className={`sw ${disabled ? '' : 'on'}`.trim()} role="switch" aria-checked={disabled ? 'false' : 'true'}
+                        title={disabled ? '已关闭 · 点击启用' : '已启用 · 点击关闭'}
+                        onClick={() => toggle(localKey, !disabled)}
+                      />
+                      <div className="more-wrap" onClick={(e) => e.stopPropagation()}>
+                        <button className="hc-more" aria-label="更多" onClick={() => setMenu((v) => !v)}>⋯</button>
+                        {menu && (
+                          <div className="card-menu open skd-menu">
+                            <div className="more-item" onClick={reveal}><IcFolder />打开文件夹</div>
+                            <div className="more-item div" onClick={doUninstall}><IcTrash />卸载</div>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    </>
+                  )}
                 </>
               ) : (
                 <button className="btn-dark" disabled={installing} onClick={doInstall}>
@@ -126,7 +134,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
           <div className="skd-card">
             <div className="skd-viewtoggle">
               <button className={view === 'preview' ? 'on' : ''} aria-label="预览" title="预览" onClick={() => setView('preview')}><IcEye /></button>
-              <button className={view === 'source' ? 'on' : ''} aria-label="源码" title="源码" onClick={() => setView('source')}><IcCode /></button>
+              <button className={view === 'source' ? 'on' : ''} aria-label={catalogSkill ? '定义' : '源码'} title={catalogSkill ? '定义' : '源码'} onClick={() => setView('source')}><IcCode /></button>
             </div>
             {view === 'preview' ? (
               <div className="skd-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(data.body || data.markdown) }} />
@@ -139,6 +147,13 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
             <div className="skd-refs">
               <span className="skd-refs-l">references</span>
               {data.references.map((r) => <span className="ec-tag" key={r}>{r}</span>)}
+            </div>
+          )}
+          {(data.category || (data.tools?.length ?? 0) > 0) && (
+            <div className="skd-refs">
+              {data.category && <><span className="skd-refs-l">分类</span><span className="ec-tag">{data.category}</span></>}
+              {(data.tools?.length ?? 0) > 0 && <span className="skd-refs-l">工具</span>}
+              {data.tools?.map((tool) => <span className="ec-tag" key={tool}>{tool}</span>)}
             </div>
           )}
         </>
