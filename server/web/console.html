@@ -292,6 +292,52 @@ const API = ""; // same-origin
 const TK = "agentmate.console.token";
 let ME = null, VIEW = "overview", CUR = null; // CUR = open project
 
+// WB-218：与 App 一致，把顶层视图映射到稳定 URL。Console 仍保持零构建单文件，
+// 但页面可直达、可刷新，也能使用浏览器前进/后退。
+const PAGE_ROUTES = {
+  overview:"/", projects:"/projects", orgs:"/organizations", users:"/users", notifs:"/notifications",
+};
+const CATALOG_ROUTES = {
+  experts:"/catalog/experts", connectors:"/catalog/connectors", skills:"/catalog/skills",
+  knowledge:"/catalog/knowledge", raw:"/settings/catalog",
+};
+const PAGE_TITLES = {
+  overview:"概览", projects:"项目", orgs:"组织与成员", users:"用户", notifs:"通知",
+  experts:"专家", connectors:"连接器", skills:"技能", knowledge:"知识库", raw:"高级 JSON",
+};
+
+function cleanPath(path){ const p=(path||"/").replace(/\/+$/,""); return p||"/"; }
+function decodePart(value){ try{return decodeURIComponent(value);}catch(e){return null;} }
+function readPageRoute(pathname=window.location.pathname){
+  const path=cleanPath(pathname);
+  const page=Object.entries(PAGE_ROUTES).find(([,p])=>p===path);
+  if(page) return {view:page[0],valid:true};
+  const catalog=Object.entries(CATALOG_ROUTES).find(([,p])=>p===path);
+  if(catalog) return {view:"catalog",catview:catalog[0],valid:true};
+  const project=path.match(/^\/projects\/([^/]+)$/);
+  if(project){ const id=decodePart(project[1]); if(id)return {view:"projects",projectId:id,valid:true}; }
+  return {view:"overview",valid:false};
+}
+function pathForPage(view,catview,projectId){
+  if(view==="projects"&&projectId) return "/projects/"+encodeURIComponent(projectId);
+  if(view==="catalog") return CATALOG_ROUTES[catview]||CATALOG_ROUTES.experts;
+  return PAGE_ROUTES[view]||"/";
+}
+function applyPageRoute(replaceInvalid=true){
+  const route=readPageRoute();
+  VIEW=route.view; CUR=route.projectId?{id:route.projectId}:null; PD=null;
+  if(route.catview) CATVIEW=route.catview;
+  if(!route.valid&&replaceInvalid) history.replaceState(null,"","/");
+  return route;
+}
+function navigate(view,catview=null,projectId=null,replace=false){
+  VIEW=view; CUR=projectId?{id:projectId}:null; PD=null;
+  if(catview) CATVIEW=catview;
+  const path=pathForPage(view,catview||CATVIEW,projectId);
+  if(cleanPath(window.location.pathname)!==path) history[replace?"replaceState":"pushState"](null,"",path);
+  render();
+}
+
 function tok(){ return localStorage.getItem(TK) || ""; }
 function setTok(t){ t ? localStorage.setItem(TK,t) : localStorage.removeItem(TK); }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
@@ -322,20 +368,24 @@ async function apiUpload(path, file){
 
 // ---------- auth ----------
 async function boot(){
+  applyPageRoute();
   if(tok()){ try{ ME = (await api("GET","/me")).account; }catch(e){ setTok(""); ME=null; } }
   render();
 }
 async function doAuth(kind, name, password){
   const res = await api("POST", kind==="register"?"/auth/register":"/auth/login", {name, password});
-  setTok(res.token); ME = res.account; VIEW="overview"; render();
+  setTok(res.token); ME = res.account; applyPageRoute(); render();
 }
 function logout(){ setTok(""); ME=null; render(); }
 
 // ---------- render ----------
 function render(){
   const app = document.getElementById("app");
-  if(!ME){ app.innerHTML = authView(); wireAuth(); return; }
+  if(!ME){ document.title="登录 · AgentMate Console"; app.innerHTML = authView(); wireAuth(); return; }
   const admin = ME.is_platform_admin;
+  // 侧栏隐藏之外也守住直达 URL：普通成员输入管理员页面地址时安全回概览。
+  if(!admin&&(VIEW==="users"||VIEW==="catalog")){ navigate("overview",null,null,true); return; }
+  document.title=(PAGE_TITLES[VIEW==="catalog"?CATVIEW:VIEW]||"AgentMate Console")+" · AgentMate Console";
   app.innerHTML = `
     <div class="topbar">
       <div class="logo">C</div><b>AgentMate Console</b><span class="badge">Web 控制台</span>
@@ -359,8 +409,8 @@ function render(){
       <div class="main" id="main"></div>
     </div>`;
   document.getElementById("logout").onclick = logout;
-  document.getElementById("nav-bell").onclick = ()=>{ VIEW="notifs"; CUR=null; render(); };
-  document.querySelectorAll(".nav button").forEach(b=> b.onclick=()=>{ VIEW=b.dataset.v; if(b.dataset.c) CATVIEW=b.dataset.c; CUR=null; render(); });
+  document.getElementById("nav-bell").onclick = ()=>navigate("notifs");
+  document.querySelectorAll(".nav button").forEach(b=> b.onclick=()=>navigate(b.dataset.v,b.dataset.c||null));
   // 通知铃铛未读小红点（真取 /notifications，非模拟）
   (async()=>{ try{ const {notifications}=await api("GET","/notifications"); const u=(notifications||[]).filter(n=>!n.read).length; const d=document.getElementById("bell-dot"); if(d&&u>0) d.style.display="block"; }catch(e){} })();
   const m = document.getElementById("main");
@@ -429,7 +479,7 @@ async function overviewView(m){
         <button class="line" data-go="orgs">→ 组织与成员</button>
         ${admin?`<button class="line" data-go="catalog:skills">→ 技能目录</button><button class="line" data-go="catalog:experts">→ 专家目录</button>`:""}
       </div></div>`;
-  box.querySelectorAll("[data-go]").forEach(b=> b.onclick=()=>{ const [v,c]=b.dataset.go.split(":"); VIEW=v; if(c) CATVIEW=c; CUR=null; render(); });
+  box.querySelectorAll("[data-go]").forEach(b=> b.onclick=()=>{ const [v,c]=b.dataset.go.split(":"); navigate(v,c||null); });
 }
 
 // ---------- projects ----------
@@ -450,7 +500,7 @@ async function projectsView(m){
       <div class="list-item"><div style="flex:1"><div class="t">${esc(p.name)}</div>
         <div class="d">${esc(p.role)}${p.origin&&p.origin!=='local'?' · '+esc(p.origin):''}</div></div>
         <button class="line" data-open="${p.id}">打开</button></div>`).join("") : '<div class="muted">还没有项目</div>';
-    m.querySelectorAll("[data-open]").forEach(b=> b.onclick=()=>{ CUR={id:b.dataset.open}; render(); });
+    m.querySelectorAll("[data-open]").forEach(b=> b.onclick=()=>navigate("projects",null,b.dataset.open));
   }catch(e){ document.getElementById("p-list").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
 
@@ -463,7 +513,7 @@ async function projectDetail(m){
   KBM_OPEN = null;  // 进项目从知识库列表开始（WB-172）
   m.innerHTML = `<button class="line" id="back">← 返回项目</button>
     <div id="pd-shell"><div class="muted" style="padding:22px 0">加载中…</div></div>`;
-  document.getElementById("back").onclick=()=>{ CUR=null; PD=null; render(); };
+  document.getElementById("back").onclick=()=>navigate("projects");
   let p; try{ p = await api("GET","/projects/"+pid); }
   catch(e){ document.getElementById("pd-shell").innerHTML=`<div class="err" style="margin-top:14px">${esc(e.message)}</div>`; return; }
   PD = { pid, name:p.name||"项目", instruction:p.instruction||"", role:p.role, ro:p.role==="Viewer" };
@@ -1968,6 +2018,7 @@ async function rawCat(body){
   }catch(e){ document.getElementById("c-list").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
 }
 
+window.addEventListener("popstate",()=>{ applyPageRoute(false); render(); });
 boot();
 </script>
 </body>

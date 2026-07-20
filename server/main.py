@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import uvicorn  # noqa: E402
-from fastapi import FastAPI  # noqa: E402
+from fastapi import FastAPI, HTTPException  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import HTMLResponse  # noqa: E402
 
@@ -34,13 +34,17 @@ app.add_middleware(
 )
 
 
-@app.get("/", response_class=HTMLResponse)
-def console() -> str:
-    """AgentMate Console —— Server 自带的 Web 管理控制台：单文件、同源调用 /api。"""
+def _console_html() -> str:
     try:
         return _CONSOLE.read_text(encoding="utf-8")
     except OSError:
         return "<h1>AgentMate Console</h1><p>console.html missing</p>"
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def console() -> str:
+    """AgentMate Console —— Server 自带的 Web 管理控制台：单文件、同源调用 /api。"""
+    return _console_html()
 
 
 @app.get("/api/health")
@@ -60,6 +64,14 @@ app.include_router(notifications.router)
 app.include_router(work_items.router)
 app.include_router(milestones.router)
 app.include_router(knowledge.router)
+
+
+@app.get("/{console_path:path}", response_class=HTMLResponse, include_in_schema=False)
+def console_page(console_path: str) -> str:
+    """Console History API 深链回退；未知 API 不能被 HTML 入口伪装成成功。"""
+    if console_path == "api" or console_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return _console_html()
 
 
 if __name__ == "__main__":
