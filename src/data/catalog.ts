@@ -35,6 +35,20 @@ export const EXP_GRID: [string, string, string, string, string, string[], string
   ['🖥️', '前端开发工程师', '像素匠', '', '精通现代 Web 技术和主流框架，以像素级精度构建响应式高性能 Web 应用。', ['前端开发', '页面交互', '组件开发'], '技术工程'],
 ]
 
+export interface ExpertRecommendation {
+  slug: string
+  avatar: string
+  name: string
+  subtitle: string
+  badge: string
+  intro: string
+  tags: string[]
+  category: string
+  placement: string
+  scope: string
+}
+export const EXPERT_RECOMMENDATIONS: ExpertRecommendation[] = []
+
 // 专家团（marketplace teams）。召唤专家团 = 把 members 里全部成员挂进本会话 loadout。
 // members[].lead 标记主理人。这些是静态产品目录内容（同 EXP_GRID），非模拟 LLM 输出。
 export interface TeamMember { role: string; name: string; lead?: boolean }

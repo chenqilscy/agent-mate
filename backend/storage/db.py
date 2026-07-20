@@ -1469,11 +1469,11 @@ def _row_to_catalog_expert(r: sqlite3.Row) -> CatalogExpert:
 
 def builtin_persona(name: str) -> Optional[str]:
     """某个专家名对应的内置/目录人格（真注入用）。命中 enabled 且 functional 的目录专家，
-    优先 builtin scope；无则 None（调用方回退通用人格）。替代原 EXPERTS 静态字典查表。"""
+    Server 同名定义优先；Server 不下发时回退 builtin（调用方再回退通用人格）。"""
     row = get_conn().execute(
         "SELECT persona FROM catalog_experts "
         "WHERE name=? AND functional=1 AND enabled=1 AND persona<>'' "
-        "ORDER BY (scope<>'builtin'), sort LIMIT 1",
+        "ORDER BY CASE scope WHEN 'server' THEN 0 ELSE 1 END, sort LIMIT 1",
         (name,),
     ).fetchone()
     return row["persona"] if row else None
@@ -1489,6 +1489,73 @@ def list_catalog_experts(scope: Optional[str] = None, functional: Optional[bool]
     sql += " ORDER BY sort, name"
     rows = get_conn().execute(sql, vals).fetchall()
     return [_row_to_catalog_expert(r) for r in rows]
+
+
+def expert_catalog_specs() -> list[dict[str, Any]]:
+    """去重后的公开专家定义，Server 覆盖 builtin；用户自定义专家不进入此公共推荐目录。"""
+    rows = get_conn().execute(
+        "SELECT scope,slug,name,subtitle,avatar,intro,persona,tags,category,badge,source,functional "
+        "FROM catalog_experts WHERE enabled=1 "
+        "ORDER BY CASE scope WHEN 'server' THEN 0 WHEN 'builtin' THEN 1 ELSE 2 END, sort, name"
+    ).fetchall()
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        if row["slug"] in seen or row["scope"] not in {"server", "builtin"}:
+            continue
+        seen.add(row["slug"])
+        try:
+            tags = json.loads(row["tags"]) if row["tags"] else []
+        except (json.JSONDecodeError, TypeError):
+            tags = []
+        out.append({
+            "slug": row["slug"], "name": row["name"], "subtitle": row["subtitle"],
+            "avatar": row["avatar"], "intro": row["intro"], "persona": row["persona"],
+            "tags": tags if isinstance(tags, list) else [], "category": row["category"],
+            "badge": row["badge"], "source": row["source"], "functional": bool(row["functional"]),
+            "scope": row["scope"],
+        })
+    return out
+
+
+def replace_server_expert_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
+    """用 Server EXPERT_DEFS 全量替换本机 server scope；本机自定义 experts 表完全不动。"""
+    conn = get_conn()
+    now = time.time()
+    rows: list[tuple[Any, ...]] = []
+    seen: set[str] = set()
+    skipped = 0
+    for index, raw in enumerate(items):
+        if not isinstance(raw, dict):
+            skipped += 1
+            continue
+        slug = str(raw.get("slug", "")).strip()
+        name = str(raw.get("name", "")).strip()
+        persona = str(raw.get("persona", "")).strip()
+        tags = raw.get("tags", [])
+        if (
+            not _SKILL_SLUG_RE.fullmatch(slug) or slug in seen or not name or not persona
+            or not isinstance(tags, list)
+        ):
+            skipped += 1
+            continue
+        seen.add(slug)
+        rows.append((
+            new_uuid(), "server", None, slug, name, str(raw.get("subtitle", "")),
+            str(raw.get("avatar", "🧑")), str(raw.get("intro", "")), persona,
+            json.dumps([str(tag) for tag in tags if str(tag).strip()], ensure_ascii=False),
+            str(raw.get("category", "")), str(raw.get("badge", "")), str(raw.get("source", "Server")),
+            1 if raw.get("functional", True) else 0, 1, int(raw.get("sort", index)), now, now,
+        ))
+    with conn:
+        conn.execute("DELETE FROM catalog_experts WHERE scope='server'")
+        conn.executemany(
+            "INSERT INTO catalog_experts "
+            "(id,scope,owner_id,slug,name,subtitle,avatar,intro,persona,tags,category,badge,source,"
+            "functional,enabled,sort,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            rows,
+        )
+    return {"inserted": len(rows), "skipped": skipped}
 
 
 def _row_to_catalog_connector(r: sqlite3.Row) -> CatalogConnector:
@@ -1846,6 +1913,45 @@ def showcase_all() -> dict[str, Any]:
             if base:
                 connector_recommendations.append({"placement": "connectors.recommended", **base})
     out["CONNECTOR_RECOMMENDATIONS"] = connector_recommendations
+    # WB-221：专家推荐位解析 Server 真定义；无 Server 时沿用本地展示快照与 builtin persona。
+    expert_specs_public = expert_catalog_specs()
+    expert_by_slug = {expert["slug"]: expert for expert in expert_specs_public if expert.get("slug")}
+    raw_expert_recommendations = downlink.get("EXPERT_RECOMMENDATIONS")
+    if raw_expert_recommendations is None:
+        expert_recommendations = []
+        for raw in out.get("EXP_GRID", []):
+            if not isinstance(raw, list) or len(raw) < 7:
+                continue
+            expert_recommendations.append({
+                "slug": str(raw[1]), "avatar": str(raw[0]), "name": str(raw[1]),
+                "subtitle": str(raw[2]), "badge": str(raw[3]), "intro": str(raw[4]),
+                "tags": raw[5] if isinstance(raw[5], list) else [], "category": str(raw[6]),
+                "placement": "experts.recommended", "scope": "builtin",
+            })
+    else:
+        expert_recommendations = []
+        now = time.time()
+        for raw in raw_expert_recommendations:
+            if not isinstance(raw, dict) or raw.get("placement", "experts.recommended") != "experts.recommended":
+                continue
+            if raw.get("_enabled", True) is False:
+                continue
+            try:
+                starts_at = float(raw.get("starts_at") or 0)
+                ends_at = float(raw.get("ends_at") or 0)
+            except (TypeError, ValueError):
+                continue
+            if (starts_at and now < starts_at) or (ends_at and now >= ends_at):
+                continue
+            base = expert_by_slug.get(str(raw.get("expert_slug", "")).strip())
+            if base:
+                expert_recommendations.append({"placement": "experts.recommended", **base})
+    out["EXPERT_RECOMMENDATIONS"] = expert_recommendations
+    existing_expert_cats = out.get("EXP_CATS", []) if isinstance(out.get("EXP_CATS"), list) else []
+    out["EXP_CATS"] = ["全部", *dict.fromkeys([
+        *[str(cat) for cat in existing_expert_cats if cat and cat != "全部"],
+        *[str(expert.get("category")) for expert in expert_recommendations if expert.get("category")],
+    ])]
     return out
 
 

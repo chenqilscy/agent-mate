@@ -50,7 +50,7 @@ Server 的 Web 控制台负责项目、组织、协作及 AgentMate 自有目录
 ```
 AgentMate Console
 ├─ 项目            项目管理面（配置 / 成员·角色·邀请 / 计划·任务 / 讨论·在线·时间线）
-├─ 目录运营中心     专家 · 专家团 · 连接器定义/推荐位 · 技能定义/推荐位（类型化 CRUD + 下发） 〔平台管理员〕
+├─ 目录运营中心     专家定义/推荐位 · 专家团 · 连接器定义/推荐位 · 技能定义/推荐位（类型化 CRUD + 下发） 〔平台管理员〕
 ├─ 组织            组织及成员（既有）
 ├─ 通知            @提及与协作事件（既有）
 └─ 账号            当前账号 / 平台管理员徽标 / 退出
@@ -71,6 +71,8 @@ AgentMate Console
 - **专家团**（`EXP_TEAMS`）：名称 / 图标 / 成员专家清单（引用专家名）。
 - **连接器定义**（`CONN_DEFS`）：稳定 slug / icon / 名称 / 状态(rdy/tok) / launch spec 编辑器（内置 `builtin_server` 或第三方 `command/args`；`requires`/`requires_bin`；`secret_env` **仅变量名**）。
 - **连接器推荐位**（`CONNECTOR_RECOMMENDATIONS`）：connector_slug / placement / 排序 / 启停 / 生效时间；只引用定义，不保存 token 与 OAuth 状态。
+- **专家定义**（`EXPERT_DEFS`）：稳定 slug / 名称 / 展示资料 / persona / functional；persona 是 App 运行时的真定义。
+- **专家推荐位**（`EXPERT_RECOMMENDATIONS`）：expert_slug / placement / 排序 / 启停 / 生效时间；用户本机自定义专家不进入公共推荐目录。
 - **技能定义**（`APP_SKILLS`）：slug / icon / 名称 / 简介 / 分类 / 指令 / 工具。
 - **技能推荐位**（`SKILL_RECOMMENDATIONS`）：provider / skill_slug / placement / 编辑标题与简介 / 分类 / 排序 / 启停 / 生效时间；AgentMate 引用技能定义，SkillHub 只保存目录指针和展示文案。
 - 通用能力：启用/停用（`enabled`）、排序（`sort`）、删除；保留「高级：裸 JSON」兜底特殊类别。

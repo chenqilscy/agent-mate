@@ -470,7 +470,7 @@ async function overviewView(m){
   const [proj, orgs, exp, conn, skill] = await Promise.all([
     api("GET","/projects").catch(()=>({projects:[]})),
     api("GET","/orgs").catch(()=>({orgs:[]})),
-    admin?api("GET","/catalog/EXP_GRID?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
+    admin?api("GET","/catalog/EXPERT_DEFS?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
     admin?api("GET","/catalog/CONN_DEFS?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
     admin?api("GET","/catalog/APP_SKILLS?all=true").catch(()=>({items:[]})):Promise.resolve({items:[]}),
   ]);
@@ -764,7 +764,7 @@ function pdTabCollab(body, pid){
 }
 // 项目配置编辑（WB-080）：指令 + 连接器/专家/技能（读目录作建议、写 PATCH /projects）。
 // connectors/experts 沿用展示名；skills 必须保存稳定 slug，标签只用于显示。
-const CFG_CATS = { connectors:"NP_CONNS", experts:"EXP_GRID", skills:"APP_SKILLS" };
+const CFG_CATS = { connectors:"NP_CONNS", experts:"EXPERT_DEFS", skills:"APP_SKILLS" };
 const WI_COLS = [["todo","待办"],["doing","进行中"],["paused","暂停"],["done","完成"]];
 async function catalogOptions(category){
   try{ const {items} = await api("GET","/catalog/"+category);
@@ -1445,15 +1445,15 @@ async function catalogView(m){
 }
 
 // 专家 · 专家团 浏览橱窗（WB-100）：App 同款——精选场景 + 专家/专家团子标签 + 分类筛选 + 富卡片 + 详情弹窗。
-// 数据全来自 Server 目录（EXP_SCENES/EXP_CATS/EXP_GRID/EXP_TEAMS，?all=true 含停用项）。控制台无对话，「召唤」→ 纯预览；
+// 数据全来自 Server 目录（EXPERT_DEFS/EXPERT_RECOMMENDATIONS + EXP_SCENES/EXP_CATS/EXP_TEAMS）。
 // 管理动作（编辑/停用·启用/删除）收进详情弹窗底部，新增/编辑复用表单装进弹窗，全套 CRUD 不丢。
-let EXPSUB = "专家";   // 专家 | 专家团
+let EXPSUB = "专家";   // 专家 | 专家团 | 推荐位
 let EXPCAT = "全部";
 // 轻量弹窗骨架（复用 .np-* 样式）：返回 overlay，[data-close] / 遮罩点击 / Esc 皆可关。
-function expModal(inner){
+function expModal(inner, modalClass=""){
   const ov = document.createElement("div");
   ov.className = "np-overlay open";
-  ov.innerHTML = `<div class="np-modal" role="dialog" aria-modal="true">${inner}</div>`;
+  ov.innerHTML = `<div class="np-modal ${modalClass}" role="dialog" aria-modal="true">${inner}</div>`;
   document.body.appendChild(ov);
   ov.addEventListener("mousedown", e=>{ if(e.target===ov) expClose(ov); });
   ov._onKey = e=>{ if(e.key==="Escape") expClose(ov); };
@@ -1470,16 +1470,17 @@ async function expertsCat(body){
     const [sc, ct, ex, tm] = await Promise.all([
       api("GET","/catalog/EXP_SCENES").catch(()=>({items:[]})),
       api("GET","/catalog/EXP_CATS").catch(()=>({items:[]})),
-      api("GET","/catalog/EXP_GRID?all=true").catch(()=>({items:[]})),
+      api("GET","/catalog/EXPERT_DEFS?all=true").catch(()=>({items:[]})),
       api("GET","/catalog/EXP_TEAMS?all=true").catch(()=>({items:[]})),
     ]);
     scenes = sc.items||[];
     cats = (ct.items||[]).map(it=>it.data).filter(x=>typeof x==="string");
     experts = ex.items||[]; teams = tm.items||[];
   }catch(e){ body.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+  if(EXPSUB==="推荐位"){ expertRecommendationsView(body, experts); return; }
   const chips = ["全部", ...cats.filter(c=>c && c!=="全部")];
   if(!chips.includes(EXPCAT)) EXPCAT = "全部";
-  const fExperts = experts.filter(it=> EXPCAT==="全部" || (it.data&&it.data[6]===EXPCAT));
+  const fExperts = experts.filter(it=> EXPCAT==="全部" || (it.data&&it.data.category===EXPCAT));
   const fTeams = teams.filter(it=> EXPCAT==="全部" || (it.data&&it.data.category===EXPCAT));
   const list = EXPSUB==="专家" ? fExperts : fTeams;
 
@@ -1490,6 +1491,7 @@ async function expertsCat(body){
     <div class="subtabs">
       <div class="subtab ${EXPSUB==="专家"?"active":""}" data-sub="专家">专家</div>
       <div class="subtab ${EXPSUB==="专家团"?"active":""}" data-sub="专家团">专家团</div>
+      <div class="subtab" data-sub="推荐位">推荐位管理</div>
       <div class="grow"></div>
       <button id="ex-new">＋ 新增${EXPSUB}</button>
     </div>
@@ -1499,8 +1501,8 @@ async function expertsCat(body){
   const grid = document.getElementById("ex-grid");
   if(!list.length){ grid.innerHTML = `<div class="cap-blank">该分类下暂无${EXPSUB}</div>`; }
   else if(EXPSUB==="专家"){
-    grid.innerHTML = `<div class="card-grid g4">${list.map(it=>{ const d=it.data||[]; const tags=d[5]||[];
-      return `<div class="ecard ${it.enabled?"":"off"}" data-ex="${it.id}"><div class="ec-h"><div class="ec-av">${esc(d[0]||"🧑")}</div><div style="flex:1;min-width:0"><div class="ec-n">${esc(d[1]||"?")}${d[3]?`<span class="b">${esc(d[3])}</span>`:""}${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="ec-s">${esc(d[2]||"")}</div></div></div><div class="ec-d">${esc(d[4]||"")}</div><div class="ec-tags">${tags.map(t=>`<span class="ec-tag">${esc(t)}</span>`).join("")}</div></div>`; }).join("")}</div>`;
+    grid.innerHTML = `<div class="card-grid g4">${list.map(it=>{ const d=it.data||{}; const tags=d.tags||[];
+      return `<div class="ecard ${it.enabled?"":"off"}" data-ex="${it.id}"><div class="ec-h"><div class="ec-av">${esc(d.avatar||"🧑")}</div><div style="flex:1;min-width:0"><div class="ec-n">${esc(d.name||"?")}${d.badge?`<span class="b">${esc(d.badge)}</span>`:""}${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="ec-s">${esc(d.subtitle||"")}</div></div></div><div class="ec-d">${esc(d.intro||"")}</div><div class="ec-tags">${tags.map(t=>`<span class="ec-tag">${esc(t)}</span>`).join("")}</div></div>`; }).join("")}</div>`;
     grid.querySelectorAll("[data-ex]").forEach(c=> c.onclick=()=> expExpertDetail(body, experts.find(x=>x.id===c.dataset.ex)));
   } else {
     grid.innerHTML = `<div class="card-grid g4">${list.map(it=>{ const d=it.data||{}; const tags=d.tags||d.strengths||[];
@@ -1517,18 +1519,19 @@ async function expertsCat(body){
 // 专家详情（纯预览 + 底部管理动作）
 function expExpertDetail(body, it){
   if(!it) return;
-  const d = it.data||[]; const tags=d[5]||[];
+  const d = it.data||{}; const tags=d.tags||[];
   const ov = expModal(`
     <div class="np-h">
-      <div class="ec-av" style="width:50px;height:50px;font-size:26px">${esc(d[0]||"🧑")}</div>
-      <div style="flex:1;min-width:0"><div style="font-size:18px;font-weight:800">${esc(d[1]||"?")}</div>
-        <div class="ec-tags" style="margin-top:6px">${d[2]?`<span class="ec-tag">${esc(d[2])}</span>`:""}${d[6]?`<span class="ec-tag">${esc(d[6])}</span>`:""}${d[3]?`<span class="ec-tag">${esc(d[3])}</span>`:""}${it.enabled?"":'<span class="pill">停用</span>'}</div>
+      <div class="ec-av" style="width:50px;height:50px;font-size:26px">${esc(d.avatar||"🧑")}</div>
+      <div style="flex:1;min-width:0"><div style="font-size:18px;font-weight:800">${esc(d.name||"?")}</div>
+        <div class="ec-tags" style="margin-top:6px">${d.subtitle?`<span class="ec-tag">${esc(d.subtitle)}</span>`:""}${d.category?`<span class="ec-tag">${esc(d.category)}</span>`:""}${d.badge?`<span class="ec-tag">${esc(d.badge)}</span>`:""}${it.enabled?"":'<span class="pill">停用</span>'}</div>
       </div>
       <button class="np-x" data-close>×</button>
     </div>
     <div class="np-body">
       <div class="sec-title" style="margin:10px 0 8px">能力介绍</div>
-      <div class="ec-d" style="font-size:13.5px;line-height:1.7;min-height:0">${esc(d[4]||"—")}</div>
+      <div class="ec-d" style="font-size:13.5px;line-height:1.7;min-height:0">${esc(d.intro||"—")}</div>
+      <div class="sec-title" style="margin:18px 0 8px">运行人格</div><div class="ec-d" style="font-size:13px;line-height:1.7;min-height:0">${esc(d.persona||"—")}</div>
       <div class="sec-title" style="margin:18px 0 8px">擅长领域</div>
       <div class="ec-tags">${tags.length?tags.map(t=>`<span class="ec-tag">${esc(t)}</span>`).join(""):'<span class="muted">—</span>'}</div>
     </div>
@@ -1541,7 +1544,7 @@ function expExpertDetail(body, it){
     </div>`);
   ov.querySelector("[data-edit]").onclick = ()=>{ expClose(ov); expExpertEdit(body,it); };
   ov.querySelector("[data-tog]").onclick = async ()=>{ try{ await api("PATCH","/catalog/item/"+it.id,{enabled:!it.enabled}); expClose(ov); expertsCat(body);}catch(e){ ov.querySelector("[data-err]").textContent=e.message; } };
-  ov.querySelector("[data-del]").onclick = async ()=>{ if(!confirm(`删除专家「${d[1]||""}」？`))return; try{ await api("DELETE","/catalog/item/"+it.id); expClose(ov); expertsCat(body);}catch(e){ ov.querySelector("[data-err]").textContent=e.message; } };
+  ov.querySelector("[data-del]").onclick = async ()=>{ if(!confirm(`删除专家「${d.name||""}」？`))return; try{ await api("DELETE","/catalog/item/"+it.id); expClose(ov); expertsCat(body);}catch(e){ ov.querySelector("[data-err]").textContent=e.message; } };
 }
 
 // 专家团详情（含成员 + 示例问；纯预览 + 底部管理动作）
@@ -1576,22 +1579,24 @@ function expTeamDetail(body, it){
   ov.querySelector("[data-del]").onclick = async ()=>{ if(!confirm(`删除专家团「${d.name||""}」？`))return; try{ await api("DELETE","/catalog/item/"+it.id); expClose(ov); expertsCat(body);}catch(e){ ov.querySelector("[data-err]").textContent=e.message; } };
 }
 
-// 新增/编辑专家（EXP_GRID 元组）
+// 新增/编辑专家真定义（EXPERT_DEFS 对象；persona 会下行到 App 运行时）。
 function expExpertEdit(body, it){
-  const d = it? (it.data||[]) : [];
+  const d = it? (it.data||{}) : {};
   const ov = expModal(`
     <div class="np-h"><div style="font-size:16px;font-weight:800">${it?"编辑专家":"新增专家"}</div><button class="np-x" data-close>×</button></div>
     <div class="np-body">
       <div class="grid2">
-        <div class="field"><label>图标 emoji</label><input id="exe-icon" placeholder="🚀" value="${esc(d[0]||"")}"></div>
-        <div class="field"><label>名称</label><input id="exe-name" value="${esc(d[1]||"")}"></div>
-        <div class="field"><label>副标题 / 作者</label><input id="exe-sub" value="${esc(d[2]||"")}"></div>
-        <div class="field"><label>徽标（如 Beta，可空）</label><input id="exe-badge" value="${esc(d[3]||"")}"></div>
+        <div class="field"><label>稳定 slug</label><input id="exe-slug" placeholder="senior-engineer" value="${esc(d.slug||"")}"></div>
+        <div class="field"><label>图标 emoji</label><input id="exe-icon" placeholder="🚀" value="${esc(d.avatar||"")}"></div>
+        <div class="field"><label>名称</label><input id="exe-name" value="${esc(d.name||"")}"></div>
+        <div class="field"><label>副标题 / 作者</label><input id="exe-sub" value="${esc(d.subtitle||"")}"></div>
+        <div class="field"><label>徽标（如 Beta，可空）</label><input id="exe-badge" value="${esc(d.badge||"")}"></div>
       </div>
-      <div class="field"><label>简介</label><textarea id="exe-intro">${esc(d[4]||"")}</textarea></div>
+      <div class="field"><label>简介</label><textarea id="exe-intro">${esc(d.intro||"")}</textarea></div>
+      <div class="field"><label>运行人格 persona</label><textarea id="exe-persona">${esc(d.persona||"")}</textarea></div>
       <div class="grid2">
-        <div class="field"><label>标签（逗号分隔）</label><input id="exe-tags" value="${esc((d[5]||[]).join(", "))}"></div>
-        <div class="field"><label>分类</label><input id="exe-cat" list="exe-cats-dl" value="${esc(d[6]||"")}"><datalist id="exe-cats-dl"></datalist></div>
+        <div class="field"><label>标签（逗号分隔）</label><input id="exe-tags" value="${esc((d.tags||[]).join(", "))}"></div>
+        <div class="field"><label>分类</label><input id="exe-cat" list="exe-cats-dl" value="${esc(d.category||"")}"><datalist id="exe-cats-dl"></datalist></div>
       </div>
       <div class="row"><input id="exe-sort" type="number" value="${it?it.sort:0}" style="width:80px"><span class="muted" style="font-size:12px">排序</span></div>
       <div class="err" id="exe-err"></div>
@@ -1601,10 +1606,11 @@ function expExpertEdit(body, it){
   const F = id=> ov.querySelector("#"+id);
   F("exe-save").onclick = async ()=>{
     F("exe-err").textContent="";
-    const data=[F("exe-icon").value.trim(),F("exe-name").value.trim(),F("exe-sub").value.trim(),F("exe-badge").value.trim(),F("exe-intro").value.trim(),F("exe-tags").value.split(",").map(s=>s.trim()).filter(Boolean),F("exe-cat").value.trim()];
-    if(!data[1]){ F("exe-err").textContent="名称必填"; return; }
+    const data={slug:F("exe-slug").value.trim(),avatar:F("exe-icon").value.trim()||"🧑",name:F("exe-name").value.trim(),subtitle:F("exe-sub").value.trim(),badge:F("exe-badge").value.trim(),intro:F("exe-intro").value.trim(),persona:F("exe-persona").value.trim(),tags:F("exe-tags").value.split(",").map(s=>s.trim()).filter(Boolean),category:F("exe-cat").value.trim(),source:"Server",functional:true};
+    if(!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(data.slug)){ F("exe-err").textContent="slug 仅允许字母、数字与 . _ -"; return; }
+    if(!data.name||!data.persona){ F("exe-err").textContent="名称和运行人格必填"; return; }
     const sort=Number(F("exe-sort").value)||0;
-    try{ if(it) await api("PATCH","/catalog/item/"+it.id,{data,sort}); else await api("POST","/catalog",{category:"EXP_GRID",data,sort}); expClose(ov); expertsCat(body); }
+    try{ if(it) await api("PATCH","/catalog/item/"+it.id,{data,sort}); else await api("POST","/catalog",{category:"EXPERT_DEFS",data,sort}); expClose(ov); expertsCat(body); }
     catch(e){ F("exe-err").textContent=e.message; }
   };
 }
@@ -1645,6 +1651,34 @@ function expTeamEdit(body, it){
     try{ if(it) await api("PATCH","/catalog/item/"+it.id,{data,sort}); else await api("POST","/catalog",{category:"EXP_TEAMS",data,sort}); expClose(ov); expertsCat(body); }
     catch(e){ F("tme-err").textContent=e.message; }
   };
+}
+
+// WB-221：专家推荐位只引用 EXPERT_DEFS；定义的 persona 与用户自定义专家均不复制到推荐记录。
+async function expertRecommendationsView(body, experts){
+  body.innerHTML=`<div class="subtabs"><div class="subtab" data-sub="专家">专家</div><div class="subtab" data-sub="专家团">专家团</div><div class="subtab active" data-sub="推荐位">推荐位管理</div></div>
+    <div class="row" style="margin-bottom:14px"><div><h3 style="margin:0">专家推荐位</h3><div class="muted" style="font-size:12px">维护 App 专家页的推荐顺序与生效时间</div></div><div class="grow"></div><button id="exr-new">新增推荐</button></div>
+    <div id="exr-list" class="muted">加载中…</div>`;
+  body.querySelectorAll("[data-sub]").forEach(b=>b.onclick=()=>{EXPSUB=b.dataset.sub;expertsCat(body);});
+  const F=id=>body.querySelector("#"+id), bySlug=new Map(experts.map(it=>[(it.data||{}).slug,it.data||{}]));
+  try{
+    const {items}=await api("GET","/catalog/EXPERT_RECOMMENDATIONS?all=true");
+    F("exr-list").innerHTML=items.length?items.map(it=>{const d=it.data||{}, expert=bySlug.get(d.expert_slug)||{};return `<div class="list-item"><span style="font-size:20px">${esc(expert.avatar||"🧑")}</span><div class="grow"><div class="t">${esc(expert.name||d.expert_slug||"?")} ${it.enabled?"":'<span class="pill">停用</span>'}</div><div class="d">${esc(d.expert_slug||"")}</div></div><button class="line" data-ed="${it.id}">编辑</button><button class="line" data-tog="${it.id}:${it.enabled?0:1}">${it.enabled?"停用":"启用"}</button><button class="danger" data-del="${it.id}">删除</button></div>`;}).join(""):'<div class="muted">还没有专家推荐位</div>';
+    F("exr-new").onclick=()=>expertRecommendationEditor(body,experts,null);
+    F("exr-list").querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>expertRecommendationEditor(body,experts,items.find(x=>x.id===b.dataset.ed)));
+    F("exr-list").querySelectorAll("[data-tog]").forEach(b=>b.onclick=async()=>{const[id,en]=b.dataset.tog.split(":");try{await api("PATCH","/catalog/item/"+id,{enabled:!!+en});expertRecommendationsView(body,experts);}catch(e){F("exr-err").textContent=e.message;}});
+    F("exr-list").querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{try{await api("DELETE","/catalog/item/"+b.dataset.del);expertRecommendationsView(body,experts);}catch(e){F("exr-err").textContent=e.message;}});
+  }catch(e){F("exr-list").innerHTML=`<div class="err">${esc(e.message)}</div>`;}
+}
+
+function expertRecommendationEditor(body,experts,it){
+  const d=it?(it.data||{}):{};
+  const ov=expModal(`<div class="np-h">${it?"编辑":"新增"}专家推荐<button class="np-x" data-close>×</button></div>
+    <div class="np-body"><div class="field"><label>专家定义</label><select id="exre-slug">${experts.map(x=>{const v=x.data||{};return `<option value="${esc(v.slug||"")}">${esc(v.name||v.slug||"?")}</option>`;}).join("")}</select></div>
+      <div class="grid2"><div class="field"><label>生效时间（可空）</label><input id="exre-start" type="datetime-local"></div><div class="field"><label>结束时间（可空）</label><input id="exre-end" type="datetime-local"></div></div>
+      <div class="field"><label>排序</label><input id="exre-sort" type="number" style="width:90px"></div><div class="err" id="exre-err"></div></div>
+    <div class="np-foot"><div class="grow"></div><button class="line" data-close>取消</button><button id="exre-save">保存</button></div>`,`sk-edit-modal`);
+  const F=id=>ov.querySelector("#"+id); F("exre-slug").value=d.expert_slug||""; F("exre-start").value=recDateValue(d.starts_at); F("exre-end").value=recDateValue(d.ends_at); F("exre-sort").value=it?it.sort:0;
+  F("exre-save").onclick=async()=>{const data={expert_slug:F("exre-slug").value,placement:"experts.recommended",starts_at:recDateEpoch(F("exre-start").value),ends_at:recDateEpoch(F("exre-end").value)};if(!data.expert_slug){F("exre-err").textContent="请选择专家";return;}if(data.starts_at&&data.ends_at&&data.ends_at<=data.starts_at){F("exre-err").textContent="结束时间必须晚于生效时间";return;}try{if(it)await api("PATCH","/catalog/item/"+it.id,{data,sort:Number(F("exre-sort").value)||0});else await api("POST","/catalog",{category:"EXPERT_RECOMMENDATIONS",data,sort:Number(F("exre-sort").value)||0});expClose(ov);expertRecommendationsView(body,experts);}catch(e){F("exre-err").textContent=e.message;}};
 }
 
 // 连接器目录（WB-083/WB-220）：每条 = 权威定义对象 {slug,icon,name,desc,status,launch}，存 CONN_DEFS；

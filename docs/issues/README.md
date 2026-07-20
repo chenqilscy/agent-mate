@@ -236,6 +236,7 @@
 | [WB-218](WB-218-console-url-routing.md) | ✅ | P1 | frontend | AgentMate Console 内存态视图改为可直达多页面路由 |
 | [WB-219](WB-219-console-skill-editor-files.md) | ✅ | P1 | fullstack | Console 技能编辑缺少弹窗与真实文件管理 |
 | [WB-220](WB-220-server-managed-connector-recommendations.md) | ✅ | P1 | fullstack | 连接器定义与推荐位未由 Server 管理且 App 缺少本地运行态映射 |
+| [WB-221](WB-221-server-managed-expert-recommendations.md) | ✅ | P1 | fullstack | 专家定义与推荐位未由 Server 管理且 App 缺少本地人格映射 |
 
 ## 来源
 

@@ -16,7 +16,7 @@ import { useCatalog, useCatalogStore } from '../stores/catalogStore'
 
 type CapabilityKind = 'experts' | 'skills' | 'connectors'
 
-// 详情弹窗的两种主体：单个专家（来自 EXP_GRID）或专家团（EXP_TEAMS）。
+// 详情弹窗的两种主体：Server 推荐的单个专家或独立 EXP_TEAMS 专家团。
 type Detail =
   | { type: 'expert'; icon: string; name: string; subtitle: string; badge: string; category: string; intro: string; strengths: string[] }
   | { type: 'team'; team: ExpertTeam }
@@ -61,9 +61,9 @@ function ExpertsPane() {
   const [sub, setSub] = useState<'专家' | '专家团'>('专家')
   const [cat, setCat] = useState('全部')
   const [detail, setDetail] = useState<Detail | null>(null)
-  const { EXP_GRID, EXP_TEAMS, EXP_SCENES, EXP_CATS } = useCatalog()
+  const { EXPERT_RECOMMENDATIONS, EXP_TEAMS, EXP_SCENES, EXP_CATS } = useCatalog()
 
-  const experts = EXP_GRID.filter(([, , , , , , c]) => cat === '全部' || c === cat)
+  const experts = EXPERT_RECOMMENDATIONS.filter((expert) => cat === '全部' || expert.category === cat)
   const teams = EXP_TEAMS.filter((t) => cat === '全部' || t.category === cat)
   const empty = sub === '专家' ? experts.length === 0 : teams.length === 0
 
@@ -97,17 +97,17 @@ function ExpertsPane() {
 
       {sub === '专家' ? (
         <div className="card-grid g4">
-          {experts.map(([ic, n, s, b, d, tags, c]) => (
-            <div className="ecard" key={n + s} onClick={() => setDetail({ type: 'expert', icon: ic, name: n, subtitle: s, badge: b, category: c, intro: d, strengths: tags })}>
+          {experts.map((expert) => (
+            <div className="ecard" key={expert.slug} onClick={() => setDetail({ type: 'expert', icon: expert.avatar, name: expert.name, subtitle: expert.subtitle, badge: expert.badge, category: expert.category, intro: expert.intro, strengths: expert.tags })}>
               <div className="ec-h">
-                <div className="ec-av">{ic}</div>
+                <div className="ec-av">{expert.avatar}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="ec-n">{n}{b && <span className="b">{b}</span>}</div>
-                  <div className="ec-s">{s}</div>
+                  <div className="ec-n">{expert.name}{expert.badge && <span className="b">{expert.badge}</span>}</div>
+                  <div className="ec-s">{expert.subtitle}</div>
                 </div>
               </div>
-              <div className="ec-d">{d}</div>
-              <div className="ec-tags">{tags.map((t) => <span className="ec-tag" key={t}>{t}</span>)}</div>
+              <div className="ec-d">{expert.intro}</div>
+              <div className="ec-tags">{expert.tags.map((t) => <span className="ec-tag" key={t}>{t}</span>)}</div>
             </div>
           ))}
         </div>

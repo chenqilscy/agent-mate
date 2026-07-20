@@ -16,7 +16,7 @@ import uuid
 from typing import Any, Optional
 
 from config import settings
-from catalog_seed import DEFAULT_APP_SKILLS, DEFAULT_CONNECTORS
+from catalog_seed import DEFAULT_APP_SKILLS, DEFAULT_CONNECTORS, DEFAULT_EXPERTS
 from models import Account, Invite, Org, Project, Role
 
 _local = threading.local()
@@ -407,6 +407,50 @@ def init_db() -> None:
             )
         conn.execute(
             "INSERT INTO settings (k,v,updated_at) VALUES ('connector_recommendations_v1','1',?)",
+            (now,),
+        )
+    # WB-221：专家真定义与推荐位分离；自定义专家不进入此 Server builtin 目录。
+    expert_migrated = conn.execute(
+        "SELECT v FROM settings WHERE k='expert_recommendations_v1'"
+    ).fetchone()
+    if not expert_migrated:
+        now = time.time()
+        expert_count = conn.execute(
+            "SELECT COUNT(*) FROM catalog_items WHERE category='EXPERT_DEFS' AND scope='builtin'"
+        ).fetchone()[0]
+        if not expert_count:
+            for sort, expert in enumerate(DEFAULT_EXPERTS):
+                data = {k: v for k, v in expert.items() if k != "recommended"}
+                conn.execute(
+                    "INSERT INTO catalog_items (id,category,scope,org_id,kind,data,enabled,sort,version,created_at,updated_at) "
+                    "VALUES (?,'EXPERT_DEFS','builtin',NULL,'',?,1,?,1,?,?)",
+                    (new_uuid(), json.dumps(data, ensure_ascii=False), sort, now, now),
+                )
+        recommendation_count = conn.execute(
+            "SELECT COUNT(*) FROM catalog_items WHERE category='EXPERT_RECOMMENDATIONS' AND scope='builtin'"
+        ).fetchone()[0]
+        if not recommendation_count:
+            recommended_slugs = {str(e["slug"]) for e in DEFAULT_EXPERTS if e.get("recommended")}
+            rows = conn.execute(
+                "SELECT data,sort FROM catalog_items WHERE category='EXPERT_DEFS' "
+                "AND scope='builtin' AND enabled=1 ORDER BY sort"
+            ).fetchall()
+            for row in rows:
+                try:
+                    expert = json.loads(row["data"])
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                slug = str(expert.get("slug", "")).strip() if isinstance(expert, dict) else ""
+                if slug not in recommended_slugs:
+                    continue
+                data = {"expert_slug": slug, "placement": "experts.recommended"}
+                conn.execute(
+                    "INSERT INTO catalog_items (id,category,scope,org_id,kind,data,enabled,sort,version,created_at,updated_at) "
+                    "VALUES (?,'EXPERT_RECOMMENDATIONS','builtin',NULL,'',?,1,?,1,?,?)",
+                    (new_uuid(), json.dumps(data, ensure_ascii=False), row["sort"], now, now),
+                )
+        conn.execute(
+            "INSERT INTO settings (k,v,updated_at) VALUES ('expert_recommendations_v1','1',?)",
             (now,),
         )
     conn.commit()

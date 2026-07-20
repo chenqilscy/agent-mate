@@ -128,21 +128,28 @@ def pull_catalog(token: str) -> dict:
         for it in items
         if it.get("category") == "CONN_DEFS" and isinstance(it.get("data"), dict)
     ]
+    expert_rows = [
+        {**it["data"], "sort": it.get("sort", 0)}
+        for it in items
+        if it.get("category") == "EXPERT_DEFS" and isinstance(it.get("data"), dict)
+    ]
     # WB-215：第三方 SkillHub 是每台 App 的本地市场，不属于 Server 控制平面。
     # 过滤旧 Server 版本可能仍残留的镜像/分类/精选，避免再次写入本地 downlink。
     local_market_categories = {"skill", "skill-category", "SKILLHUB_FEATURED"}
     showcase_rows = []
     for it in items:
-        if it.get("category") in {"APP_SKILLS", "CONN_DEFS"} or it.get("category") in local_market_categories:
+        if it.get("category") in {"APP_SKILLS", "CONN_DEFS", "EXPERT_DEFS"} or it.get("category") in local_market_categories:
             continue
-        if it.get("category") in {"SKILL_RECOMMENDATIONS", "CONNECTOR_RECOMMENDATIONS"} and isinstance(it.get("data"), dict):
+        if it.get("category") in {"SKILL_RECOMMENDATIONS", "CONNECTOR_RECOMMENDATIONS", "EXPERT_RECOMMENDATIONS"} and isinstance(it.get("data"), dict):
             it = {**it, "data": {**it["data"], "_enabled": bool(it.get("enabled", True))}}
         showcase_rows.append(it)
     skill_result = db.replace_server_skill_catalog(skill_rows)
     connector_result = db.replace_server_connector_catalog(connector_rows)
+    expert_result = db.replace_server_expert_catalog(expert_rows)
     db.replace_all_downlink(showcase_rows)
     return {
         "downlinked": len(items), "reachable": True,
         "skills": skill_result["inserted"], "skills_skipped": skill_result["skipped"],
         "connectors": connector_result["inserted"], "connectors_skipped": connector_result["skipped"],
+        "experts": expert_result["inserted"], "experts_skipped": expert_result["skipped"],
     }

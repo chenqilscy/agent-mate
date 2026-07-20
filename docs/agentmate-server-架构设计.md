@@ -114,7 +114,7 @@ catalog_connectors       -- 连接器定义（并入 mcp_client.CONNECTORS 的�
   scope, org_id, enabled, sort, version, ...
 
 catalog_skills           -- AgentMate 自有技能定义；第三方 SkillHub 不入 Server
-catalog_downlink         -- 含 SKILL_RECOMMENDATIONS / CONNECTOR_RECOMMENDATIONS 推荐位的本地只读镜像
+catalog_downlink         -- 含技能 / 连接器 / 专家推荐位的本地只读镜像
   id, slug, name, label, color, description, category, instructions, tools,
   scope, org_id, enabled, sort, version, ...
 
@@ -132,6 +132,9 @@ catalog_downlink         -- 含 SKILL_RECOMMENDATIONS / CONNECTOR_RECOMMENDATION
 - **连接器推荐位**只在 Server 保存稳定 `connector_slug`、排序、启停与排期；App pull 后把 `CONN_DEFS`
   映射进本机 `catalog_connectors(scope='server')` 并优先用于 MCP 运行，卡片由
   `CONNECTOR_RECOMMENDATIONS` 解析。token、OAuth 状态和实际密钥值始终只在本机。
+- **专家推荐位**只保存 `expert_slug`、排序、启停与排期；`EXPERT_DEFS` 的 persona 下行到本机
+  `catalog_experts(scope='server')` 后由运行时优先注入。用户自定义专家仍保存在 App 本机 `experts` 表，
+  不会被公共目录覆盖或上传。
 
 ---
 
