@@ -5,21 +5,22 @@
 
 ## 这是什么
 
-AgentMate —— 从腾讯 WorkBuddy 的高保真参考原型 [`docs/tencent-workbuddy-reference.html`](docs/tencent-workbuddy-reference.html) 按方案
+AgentMate —— 从腾讯 WorkBuddy 的高保真参考原型 [`docs/WorkBuddy/tencent-workbuddy-reference.html`](docs/WorkBuddy/tencent-workbuddy-reference.html) 按方案
 [`docs/agentmate-实现方案.md`](docs/agentmate-实现方案.md) 落地的**可真实运行**的桌面 AI-agent 应用。
 前端 React 19 + Vite + TS + Zustand（`src/`），后端 Python FastAPI + SSE + 自研 agent 工具循环 + SQLite（`backend/`）。
 Local-first：后端跑在用户本机 localhost，浏览器（`:8102` 代理 `/api` 到 `:8101`）只是显示器。
 
-进度：M0–M5 + §11 项目工作台 A–D 已完成并验证；Tauri 2 桌面外壳（路线 A：外壳/sidecar/安装包/托盘·更新脚手架）已落地；
-能力补全（路线 B：自动化 + 内置/第三方 MCP 连接器 + 更多真实技能工具）已落地；
-**M7 协作 C1–C4**（真账户鉴权 / 项目成员·角色·邀请 / 队友执行只读可见+动态署名 / 消息中心真事件）已完成并验证（共享后端即 Server）。
+进度：对话/轨迹/项目工作台、自动化、专家/技能/连接器、多助理多渠道、知识库、模型管理与
+Tauri 2 桌面外壳均已有真实实现；M7 协作包含真账户鉴权、项目成员·角色·邀请、队友只读可见、
+评论/@提及/在线状态、通知和团队时间线。逐项状态以 `docs/issues/` 台账为准。
 **AgentMate Server 重构（local-first 执行 + 云端控制平面，epic WB-058，见 [`docs/agentmate-server-架构设计.md`](docs/agentmate-server-架构设计.md)）已完成并验证**：
 WB-059 目录真定义入库（内置人格/连接器注册表 → DB，运行时读库）、WB-060 橱窗目录入库（`catalog.ts` → DB + API + 前端 `catalogStore`）、
 WB-061 Server 服务骨架（独立同仓 [`server/`](server/)：账号/组织/项目/成员·角色/邀请权威源 + 鉴权签发，FastAPI + SQLite，可单独启动 :8100）、
 WB-062 本地⇄Server 同步三期（鉴权桥 / 下行 pull 项目·成员镜像 / 上行 outbox 回传团队时间线）、
 WB-063 迁移与 local-first 回退（存量导入 Server、LOCAL_USER↔Server 映射、离线/未登录纯本地全功能）——**全部落地**。
 本地 backend 作 Server 客户端：`AGENTMATE_SERVER_URL` 空 = 纯本地零变化，Server 不可达一律回退本地；LLM 凭据/沙箱文件绝不上云、时间线上报默认关。
-未做：更深协作（评论 / @提及 / 在线状态，需实时通道）；Server 目录运营的完整 Admin（已预埋 capability）与 SaaS 托管/代码签名（需用户基建/证书）。
+当前未完成：执行流实时围观、真实多 Agent 专家团、生产能力发布/兼容/灰度闭环、Console 其余页面
+React + Ant Design 迁移、正式 Tauri 签名更新服务及 SaaS 生产基建。
 
 ## 铁律（不可妥协）
 
@@ -42,7 +43,7 @@ WB-063 迁移与 local-first 回退（存量导入 Server、LOCAL_USER↔Server 
 - **沙箱**：`sandbox.py` 用 contextvar 按 project 切工作区根（`workspace/projects/<id>/` 或 `default/`）；路径穿越防护（`resolve()`+`parents` 判定）是可靠的，别绕过它。
 - **loadout**：会话级 experts/skills/connectors 由前端 `loadoutStore` 提供，后端 `run_chat` 与项目自身 loadout 合并；ask 模式无任何工具；refs（引用文件）只注入本轮 LLM 输入、不进持久化的 user 消息。
 - **ask_user**：agent 调 `ask_user` → runtime 在 `asyncio.Event` 上挂起 → `POST /api/chat/{id}/answer` 在同一条 SSE 流上唤醒，多轮。
-- **多用户**：UUID/owner_id/project_id/Role 已进数据模型；M7 起 auth 是**真 Bearer 鉴权**（`backend/auth/`），路由**已按 owner/成员过滤**（WB-013 fixed）——项目/文件/会话按访问权与角色（Owner/Admin/Member/Viewer，Viewer 只读）门禁；共享后端多用户下的隔离加固见 WB-153。纯单机默认注入 `LOCAL_USER`。
+- **多用户**：UUID/owner_id/project_id/Role 已进数据模型；M7 起 auth 是**真 Bearer 鉴权**（`backend/auth/`），路由**已按 owner/成员过滤**（WB-013 fixed）——项目/文件/会话按访问权与角色（Owner/Admin/Member/Viewer，Viewer 只读）门禁；本地 backend 多用户隔离加固见 WB-153。纯单机默认注入 `LOCAL_USER`。
 - **平台抽象**：UI 不直接 import Tauri，走 `src/platform/`（web 空实现 + 完整 `tauriPlatform` 已接：窗口控制/更新检查，见 `src/platform/index.ts`）。
 
 ## 目录
@@ -51,7 +52,7 @@ WB-063 迁移与 local-first 回退（存量导入 Server、LOCAL_USER↔Server 
 src/{views,components,stores,lib,platform,styles}     # 前端
 backend/{agent,routers,storage,auth,mcp_servers}     # 后端
 docs/                 # 方案 + 原型 + issues/ 台账
-.claude/skills/       # 项目内 skill（issue-tracker）
+.agents/skills/       # 项目内 skill（issue-tracker）
 ```
 
 ## 验证（改完必做）
@@ -62,7 +63,8 @@ npx vite build            # 需要时验证生产构建
 cd backend && ./.venv/Scripts/python.exe -m py_compile <改动的 .py>
 ```
 
-- **改后端运行时逻辑**：手动跑一次相关请求确认（后端 `main.py` 用 `reload=True`，但历史上出现过「serving stale code」，改动没生效时先**硬重启后端**）。
+- **改后端运行时逻辑**：手动跑一次相关请求确认。Windows 下 `backend/main.py` 明确使用
+  `reload=False`（保证 Proactor 可拉起 MCP 子进程），所以改动后必须**硬重启后端**。
 - **改 UI**：尽量用 Playwright 在浏览器实测，**明暗双主题**、必要时窄宽（≤900px 抽屉）都看。
 - **临时文件与截图**：放 scratchpad 或仓库根后**提交前删除**；`.gitignore` 已排除 `.env`/`workspace/`/`*.db*`/根 `*.png`/`.playwright-mcp` 等。
 
@@ -76,7 +78,7 @@ cd backend && ./.venv/Scripts/python.exe -m py_compile <改动的 .py>
 ## Issue 流程
 
 问题台账在 [`docs/issues/`](docs/issues/)（索引 `docs/issues/README.md`）。**所有发现的问题先登记成一条 issue（`WB-###`），再处理**。
-登记/处理的完整规范由 skill **`issue-tracker`** 定义（`.claude/skills/issue-tracker/SKILL.md`），会话中用 `/issue-tracker` 调起。
+登记/处理的完整规范由 skill **`issue-tracker`** 定义（`.agents/skills/issue-tracker/SKILL.md`），会话中用 `/issue-tracker` 调起。
 
 - 处理某条时：把该 issue 与台账状态改 `in-progress`/🟡 → 按其「建议修法」改 → 按「验证」核对 → 改 `fixed`/✅ 并在文件末尾追加「处理记录」。
 - 一条 commit 对应一个（或一组同源）issue，标题带 `WB-###`。
@@ -84,7 +86,7 @@ cd backend && ./.venv/Scripts/python.exe -m py_compile <改动的 .py>
 
 ## 已知易踩的坑
 
-- 后端 `reload=True` 有时不生效 → 改动没反应就硬重启 `:8101` 进程。
+- Windows 后端 `reload=False` → 改动后硬重启 `:8101` 进程再验收。
 - Windows 终端 GBK 会把中文 JSON 显示成乱码，但底层数据是对的 UTF-8；curl 传中文 body 要写成 UTF-8 文件再 `--data-binary @file`。
 - MCP 工具名必须 ASCII；spawn 的 MCP 服务器要强制 `PYTHONUTF8=1`/`PYTHONIOENCODING=utf-8`。
 - Playwright 触发不了原生 HTML5 拖拽（需派发带共享 DataTransfer 的 DragEvent）；也读不到仓库根以外的上传文件。

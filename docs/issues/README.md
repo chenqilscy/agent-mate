@@ -1,7 +1,7 @@
 # AgentMate Issues 登记册
 
 本目录是项目的问题登记与处理台账。**所有发现的问题先登记为一条 issue，再处理**。
-处理流程与规范由 skill `issue-tracker` 定义（`.claude/skills/issue-tracker/SKILL.md`），
+处理流程与规范由 skill `issue-tracker` 定义（`.agents/skills/issue-tracker/SKILL.md`），
 可在会话中用 `/issue-tracker` 调起。
 
 ## 约定
@@ -174,7 +174,7 @@
 | [WB-155](WB-155-assistant-shared-session-cross-user-reply.md) | ✅ | P1 | backend | 助理多渠道共享 session —— 并发 run 交错 + before 快照把他人回复当自己的返回（跨用户串信） |
 | [WB-156](WB-156-hub-invite-reuse-and-viewer-writes.md) | ✅ | P1 | backend | Server 访问控制 —— 邀请码可无限重用/永不失效 + Viewer 越权（timeline 上报 / org 建项目） |
 | [WB-157](WB-157-hub-pm-referential-integrity.md) | ✅ | P2 | backend | Server PM 引用完整性 —— parent_id/milestone_id 跨项目未校验 + 级联删除/清空无 project 过滤 |
-| [WB-158](WB-158-server-origin-offline-write-data-loss.md) | ✅ | P2 | backend | server-origin 项目离线新建 work_item/milestone 被下次镜像删除（数据丢失） |
+| [WB-158](WB-158-hub-origin-offline-write-data-loss.md) | ✅ | P2 | backend | server-origin 项目离线新建 work_item/milestone 被下次镜像删除（数据丢失） |
 | [WB-159](WB-159-frontend-store-robustness.md) | ✅ | P2 | frontend | 前端 store 健壮性 —— 看板乐观更新不回滚 / answer 失败挂起 agent / send finally 无流守卫 / connect 不 reload |
 | [WB-160](WB-160-backend-hardening-tail.md) | 🟡 | P2 | backend | 后端加固尾集 —— 通知空 ids 误清全部 / MCP 超时孤儿进程 / 邮件先标已读丢信 / 流出错丢回复 / SSRF / slug 校验（邮件项 deferred） |
 | [WB-161](WB-161-authoritative-docs-correction.md) | ✅ | P2 | misc | 权威现状文档纠偏 —— CLAUDE.md/README/实现方案 对 Server/auth/LLM key/CSS/Tauri 的错误陈述 |
@@ -254,6 +254,7 @@
 | [WB-235](WB-235-capability-release-docs-workbuddy-reference.md) | ✅ | P1 | misc | 能力目录发布升级设计与 WorkBuddy 产品参考缺少统一文档沉淀 |
 | [WB-236](WB-236-console-remaining-pages-ant-design.md) | ⬜ | P1 | frontend | AgentMate Console 其余 legacy 页面尚未迁移到统一组件体系 |
 | [WB-237](WB-237-app-production-build-type-errors.md) | ⬜ | P1 | frontend | AgentMate App 生产构建被现有 TypeScript 错误阻断 |
+| [WB-238](WB-238-stale-authoritative-docs-cleanup.md) | ✅ | P1 | misc | 权威文档残留过时架构、端口与能力边界，且以勘误掩盖正文冲突 |
 
 ## 来源
 

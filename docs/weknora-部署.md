@@ -6,17 +6,15 @@ Docker 服务，AgentMate 后端只当它的**客户端**（`X-API-Key` 打 `htt
 
 跟着这份跑一遍，最后把 **3 个值**填进 `backend/.env` 就接通了。跑不通把报错贴我。
 
-> ✅ **本机现状（2026-07-16 已接入并实测）**：WeKnora 实例跑在 **`http://localhost:37200`**（非本指南默认的 :8080，
-> 端口以你的部署为准）；已注册 GLM `embedding-3` 嵌入模型。`backend/.env` 现有值：
-> `WEKNORA_URL=http://localhost:37200`、`WEKNORA_API_KEY=sk-…`（租户 key，只在后端）、
-> `WEKNORA_EMBEDDING_MODEL_ID=668e2596-…`。下面 :8080 的示例把端口换成 **37200** 即与本机一致。
-> 改了 `backend/.env` 后**须硬重启 backend(:8101)**——`reload=True` 不会重读 .env，历史上还有「serving stale code」。
+> 本指南示例使用 WeKnora 默认 API 端口 `:8080`；自定义部署时统一替换为实际地址，不要把某台
+> 开发机的端口、模型 id 或租户 key 写回仓库。Windows 下 AgentMate backend 使用 `reload=False`，
+> 修改 `backend/.env` 后必须硬重启 `:8101`。
 
 ---
 
 ## 0. 前置
 
-- **启动 Docker Desktop**（本机已装 Docker 29 + Compose v5，但守护进程当前没开——先把 Docker Desktop 打开、等它变绿）。
+- **启动 Docker Desktop 或兼容的 Docker Engine**，确认 `docker compose version` 与守护进程可用。
 - 一个**智谱 API Key**（open.bigmodel.cn，用于 WeKnora 侧算嵌入向量）。
 - 约 8GB 空闲内存、几 GB 磁盘（postgres/redis/docreader 镜像）。
 

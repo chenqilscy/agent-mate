@@ -29,7 +29,7 @@ P1：#2 协作真正跑通的关键一环。依赖 WB-061（对端就绪）。
 
 ## 建议修法
 
-按 [架构设计 §6](../agentmate-hub-架构设计.md)：
+按 [架构设计](../agentmate-server-架构设计.md)：
 
 - **下行 pull**：本地 backend 作为 Hub 客户端，启动 + 定时 + 按需拉取 identity/projects/membership/catalog 的**增量**（每类带 `version`/`updated_at` 游标，只回变更集）。写本地**镜像表**（`origin='hub'`, read-only）；本机 override（本地技能/自造专家）叠加其上。
 - **上行 push（outbox 模式）**：本地执行先落本地库 + 写一条 `outbox` 记录（待同步）；后台 worker 批量推 Hub，确认后标记已同步；断线/离线自动重连补推。会话/消息/运行记录 **append-only**；待办双向用 `updated_at` LWW。

@@ -1,279 +1,211 @@
-# AgentMate Server —— 架构设计（local-first 执行 + 云端控制平面）
+# AgentMate Server 架构设计
 
-> 状态：设计稿 v1 · 2026-07-07 · 对应 epic [WB-058](issues/WB-058-hub-control-plane-epic.md)
-> 关联：[实现方案](agentmate-实现方案.md) · [CLAUDE.md](../CLAUDE.md)
+> 状态：已实现的控制平面基线 + 尚待实现的能力发布目标，更新于 2026-07-21。
+> 对应基础 epic [WB-058](issues/WB-058-hub-control-plane-epic.md)；数据权威与隐私边界以
+> [`agentmate-数据分层与同步规范.md`](agentmate-数据分层与同步规范.md) 为准。
 
-本文是「专家/技能/连接器定义入库」与「多用户协作管理平台」两项重构的总设计，
-供动手前对齐。**只定方向与数据/协议边界，不写实现代码**；具体落地拆到 WB-059～WB-063。
+## 1. 定位
 
----
+AgentMate 采用“本地执行平面 + 可选中心控制平面”：
 
-## 1. 背景与要解决的问题
+- **AgentMate App** 在用户本机运行 agent、LLM、工具、MCP 与沙箱工作区。
+- **AgentMate Server** 是独立同仓的 FastAPI 服务，管理账号、组织、server-origin 项目、成员/角色、
+  邀请、协作数据和 AgentMate 自有能力目录。
+- **AgentMate Console** 是 Server 同源托管的 Web 管理界面，不是第三套后端或 App Web 版。
 
-AgentMate 现在是纯 **local-first**：后端跑在用户本机 `localhost:8101`，浏览器只是显示器。
-M7「协作」是靠**「共享后端即 Server」**实现的——多个用户其实都指向**某一台机器**的后端
-（身份、项目、成员都躺在那台机器的 SQLite 里）。这带来两个结构性问题：
+Server 不能执行用户本地任务，不能读取工作区或会话正文，也不能保存 LLM key、连接器 token、
+第三方 SkillHub Key 或技能包。
 
-1. **协作撑不起团队**：靠一台个人机在线才能协作；身份/项目/成员是每台机器各一份 SQLite，
-   无中心权威源，谈不上真正的多人、多设备、跨机协作。（用户反馈 #2）
-2. **能力定义半硬编码**：专家/技能/连接器的「定义」散在代码里，无法集中管理、运营、下发。（用户反馈 #1）
-   - 内置专家人格 13 条：[backend/agent/experts.py:9](../backend/agent/experts.py#L9)（`EXPERTS` 字典，注入系统提示、真生效）
-   - 连接器启动注册表 6 个：[backend/agent/mcp_client.py:70](../backend/agent/mcp_client.py#L70)（`CONNECTORS`，真接入 MCP）
-   - 纯静态「橱窗目录」：[src/data/catalog.ts](../src/data/catalog.ts)（`EXP_GRID`/`EXP_TEAMS`/`SK_GRID`/`SKILLHUB_*`/`CONNS`/`CONN_META`/模板/灵感……绝大多数只是可浏览商品卡，未接真实能力）
+## 2. 当前拓扑
 
-> 已经动态的部分（**不在本次重构范围内的「已解决」**）：自定义专家（`experts` 表，owner 维度，WB-049）、
-> 已安装技能（磁盘 `~/.agentmate/skills/` + SkillHub CLI 真安装/搜索）、项目/会话/消息/待办/自动化/用户/成员/通知（SQLite）。
-
-**结论方向**：立一个独立的中心服务 **AgentMate Server**（控制平面），掌管账号/组织/项目/成员/目录；
-本地客户端只管**执行**并与 Server **同步**。#1 是 #2 的一部分——目录就住在 Server 库里，下发给客户端。
-
----
-
-## 2. 目标与非目标
-
-### 目标
-- **G1** 立 Server 中心服务，作为身份/组织/项目/成员/邀请/目录的**权威源（source of truth）**。
-- **G2** 本地客户端保留 local-first 执行内核（agent 循环、沙箱、LLM 调用、凭据留本地），与 Server 同步。
-- **G3** 专家/技能/连接器的**真定义 + 橱窗目录**统一入库、可管理、可由 Server 下发。
-- **G4** 平滑迁移：单机存量数据可导入 Server；未登录/离线仍能纯本地用（local-first 不丢）。
-
-### 非目标（本轮不做）
-- 不把 **LLM 凭据 / 沙箱工作区文件**上云（铁律 4；执行与私密数据留本地）。
-- 不做实时通道（在线状态/评论/@提及的实时推送）——同步先做**拉取 + 异步回传**，实时另立里程碑。
-- 不做计费/套餐、不做 SaaS 多区域部署——Server 先做成**可自托管的单体服务**，SaaS 后续。
-
----
-
-## 3. 总体架构：两个平面
-
-```
-┌─────────────────────────── 控制平面（AgentMate Server · 中心服务）──────────────────────────┐
-│  权威源：账号 / 组织·团队 / 项目·成员·角色·邀请 / 目录（专家·技能·连接器定义 + 橱窗）        │
-│  鉴权：签发 token   ·   团队时间线（执行产出的只读聚合）                                     │
-│  部署：独立服务（FastAPI + 库），可自托管                                                    │
-└───────────────▲───────────────────────────────────────────────▲────────────────────────┘
-     下行 pull  │ 身份/项目/成员/目录（增量、版本化）      上行 push │ 执行产出（会话/消息/待办/运行记录）
-                │                                                   │
-┌───────────────┴───────────────────────────────────────────────┴────────────────────────┐
-│  执行平面（本地客户端 = 现有 backend + 前端 + Tauri 外壳）                                   │
-│  agent 工具循环 · 沙箱工作区 · run_command · MCP 连接器 spawn · LLM 凭据(backend/.env)       │
-│  本地 SQLite：Server 数据的镜像缓存(read-only) + 执行产出(权威) + outbox(待回传)                │
-│  离线/未登录 → 降级为纯本地 owner（local-first fallback）                                    │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
+```text
+┌──────────────────────── AgentMate Server :8100 ────────────────────────┐
+│ FastAPI + SQLite                                                       │
+│ auth · accounts · orgs · projects · members/roles · invites            │
+│ work items · milestones · comments/@ · presence · notifications        │
+│ timeline metadata · AgentMate catalog definitions/recommendations       │
+│                                │                                       │
+│                                └── Console（同源 /api）                 │
+└───────────────────────────────▲────────────────────────────────────────┘
+                                │ guarded REST
+                                │ login / pull / proxy / outbox push
+┌───────────────────────────────┴────────────────────────────────────────┐
+│ AgentMate App backend :8101                                            │
+│ 本地 SQLite · agent runtime · MCP · credentials · workspace             │
+│                                ▲                                       │
+│                                │ REST + SSE                             │
+│ React/Vite :8102 或 Tauri 2 桌面壳                                     │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-- 本地 backend 对 **Server 是客户端**（带 token 调 Server API）；对**前端仍是服务端**（现有 `/api` 不变形态）。
-- 前端不直接连 Server——统一走本地 backend，由本地 backend 做同步与缓存。这样离线/内网也能跑，且不暴露 Server 细节给浏览器。
+`AGENTMATE_SERVER_URL` 为空时，App 不创建 Server 依赖，使用 `LOCAL_USER` 与本地项目。Server 不可达时，
+App 保留本地执行能力并使用已有镜像；网络失败不能清空最后可用目录，也不能阻断本地会话。
 
----
+## 3. 已实现边界
 
-## 4. 数据归属划分（哪些数据、权威在哪）
+### 3.1 身份与项目
 
-| 数据 | 权威源 | 本地存 | 同步方向 | 备注 |
-|---|---|---|---|---|
-| 账号 / 组织·团队 | **Server** | 镜像缓存 | 下行 | Server 签发 token |
-| 项目元数据 + 成员/角色/邀请 | **Server** | 镜像缓存 | 下行 | 本地按缓存成员表做访问控制 |
-| AgentMate 自有目录：专家/技能/连接器定义 | **Server** | 镜像缓存/下发 | 下行 | 本地可叠加本机 override（本地装的技能/自造专家） |
-| 技能推荐位（来源/slug/文案/排序/启停/排期） | **Server** | 镜像缓存/下发 | 下行 | 与技能定义解耦；可引用 AgentMate 或 SkillHub slug（WB-217） |
-| 第三方 SkillHub 商店、Key 与技能包 | **本地 App 直连** | 短缓存 | 不同步 | Server 只可保存推荐指针和运营文案，不镜像、不代理商店（WB-215/217） |
-| 会话 / 消息 / trace | **本地** | 权威 | 上行(append) | 回传 Server 供团队时间线（只读镜像，Server 不改） |
-| 待办 / 工作项 | 本地写 | 权威→同步 | 双向 | 先本地权威 + 上行；双向冲突用 `updated_at` LWW |
-| 运行记录 / 自动化 | **本地** | 权威 | 上行 | |
-| LLM 凭据（`LLM_API_KEY`…） | **本地 only** | 权威 | 不同步 | 铁律 4，绝不上云 |
-| 沙箱工作区文件 | **本地 only** | 权威 | 不同步 | 大文件/私密不上云；只上报「装了什么技能」等元数据 |
-| 已安装技能（磁盘） | 本地 | 权威 | 上行元数据 | 安装后才可读取 SKILL.md/源码/references；安装动作走本地 SkillHub CLI |
+- Server 签发 Bearer token，是连接模式下的账号权威。
+- App backend 代理登录/注册并缓存身份；前端仍只与 App backend 通信。
+- Server 管理组织、项目、成员、Owner/Admin/Member/Viewer 角色与邀请。
+- App 镜像 server-origin 项目与成员，并在本地路由执行同样的角色门禁；Viewer 只读。
 
-**原则**：控制平面数据 **Server 下行覆盖**本地镜像；执行产出**本地权威、上行 append**；
-凭据与工作区文件**永不上云**。
+### 3.2 协作数据
 
----
+Server 已提供工作项、里程碑、活动、评论、@提及、在线状态、通知和团队时间线 API。App 对
+server-origin 协作实体通过本地 backend 代理；Server 不可达时按各实体契约读取镜像或受控回退。
 
-## 5. 目录数据模型（#1：定义 + 橱窗统一入库）
+会话完成后，App 可把 `title/summary/ext_id/actor/project/time` 等最小元数据写入本地 outbox，后台以
+用户 Server token 补推。时间线上报默认关闭；消息正文、工具参数、文件内容和 secret 不进入 payload。
 
-核心决定：**一张表既是「可浏览橱窗目录」又是「真生效定义」**，用字段区分真接入 vs 纯展示卡，
-避免「真定义」和「橱窗」两套割裂。分四类目录表（草案，字段以设计意图为准，落地时再定精确列）：
+### 3.3 目录
 
-```
-catalog_experts          -- 专家人格（并入现有 experts 表：自造专家 = scope 'user'）
-  id, slug, name, subtitle, avatar, intro, persona, tags[],
-  category, badge, source,
-  functional  bool,       -- persona 是否真注入生效（真定义） vs 纯橱窗卡
-  scope       enum,       -- 'builtin' | 'org' | 'user'
-  org_id, owner_id,       -- 归属（builtin 为空）
-  enabled, sort, version, created_at, updated_at
+Server 管理以下 AgentMate 自有控制面对象：
 
-catalog_expert_teams     -- 专家团（EXP_TEAMS）
-  id, slug, name, source, badge, intro, strengths[], members[](json), prompts[],
-  category, tags[], scope, org_id, enabled, sort, version, ...
+- 专家定义与推荐位；
+- 专家团定义；
+- 连接器定义与推荐位；
+- Skill 定义、文件与推荐位；
+- 其它受控模板/目录分类。
 
-catalog_connectors       -- 连接器定义（并入 mcp_client.CONNECTORS 的启动 spec + CONN_META 橱窗）
-  id, slug, name, icon, description, full_desc, setup, oauth bool,
-  status     enum,        -- 'rdy'(内置即用) | 'tok'(需凭据) | 'catalog'(未接入橱窗卡)
-  launch     json,        -- 启动 spec：builtin_server / command+args / secret_env / requires（对应 CONNECTORS）
-  tools[](json), prompts[], requires[], category,
-  scope, org_id, enabled, sort, version, ...
+目录定义和推荐位是不同对象。第三方 SkillHub 推荐位只保存 `provider=skillhub`、稳定 slug、展示文案、
+排序、启停与生效时间；Server 不搜索、镜像、代理或安装 SkillHub 内容。
 
-catalog_skills           -- AgentMate 自有技能定义；第三方 SkillHub 不入 Server
-catalog_downlink         -- 含技能 / 连接器 / 专家推荐位的本地只读镜像
-  id, slug, name, label, color, description, category, instructions, tools,
-  scope, org_id, enabled, sort, version, ...
+App 目前通过显式 `POST /api/server/pull` 获取 Server 全量目录，并替换本机 `catalog_downlink` 的
+Server scope。App 自造专家、本地 Skill 安装和连接器凭据属于本机 override，不上传、不被镜像覆盖。
 
--- 附：catalog_automation_templates(AUTO) / catalog_inspirations(INSP) / catalog_project_templates(NP_TPLS)
-```
+## 4. 数据归属摘要
 
-要点：
-- **真定义 vs 橱窗**靠 `functional`（专家 persona 是否注入）/ `status`+`launch`（连接器是否真接入 MCP）区分，
-  同一张表内并存。橱窗卡 = `functional=false` / `status='catalog'`，不接真实能力（与现状一致）。
-- **`scope` + `version`** 为 Server 下发/多租户预埋：`builtin` 由 Server 运营下发、`org` 由团队管理员维护、`user` 是个人自造。
-  P0 阶段先都落**本地 backend 的库**（现有 SQLite），作为将来 Server 目录的雏形；P3 再把权威切到 Server 下发。
-- **兼容现状**：现有 `experts` 表（WB-049 自造专家）并入 `catalog_experts`（`scope='user'`, `functional=true`），
-  运行时人格解析（[runtime.py:236](../backend/agent/runtime.py#L236)）与连接器解析（[mcp_client.py](../backend/agent/mcp_client.py)）改**读库**，
-  内置 13 人格 / 6 连接器作为 `scope='builtin'` 种子数据入库（首次启动 seed）。
-- **连接器推荐位**只在 Server 保存稳定 `connector_slug`、排序、启停与排期；App pull 后把 `CONN_DEFS`
-  映射进本机 `catalog_connectors(scope='server')` 并优先用于 MCP 运行，卡片由
-  `CONNECTOR_RECOMMENDATIONS` 解析。token、OAuth 状态和实际密钥值始终只在本机。
-- **专家推荐位**只保存 `expert_slug`、排序、启停与排期；`EXPERT_DEFS` 的 persona 下行到本机
-  `catalog_experts(scope='server')` 后由运行时优先注入。用户自定义专家仍保存在 App 本机 `experts` 表，
-  不会被公共目录覆盖或上传。
+| 数据 | 权威源 | 当前流向 |
+|---|---|---|
+| 账号、组织、server-origin 项目、成员/角色、邀请 | Server | Server → App 镜像 |
+| 工作项、里程碑、评论、presence、通知 | Server | App backend 代理，必要时本地镜像 |
+| AgentMate 专家/团队/连接器/Skill 定义与推荐位 | Server | Server → App 全量目录 pull |
+| 第三方 SkillHub 市场、Key、技能包 | App 本地/第三方 | App 直连，不经过 Server |
+| 本机安装 Skill 与自造专家 | App 本地 | 不同步；可上报非敏感能力元数据的目标尚未落地 |
+| 会话、消息、trace、工具参数 | App 本地 | 不上云；只可上报最小时间线元数据 |
+| workspace 文件 | App 本地 | 永不上云 |
+| LLM/连接器 secret | App 本地 backend | 永不上云、永不进前端 |
 
----
+详细冲突规则、离线行为和红线见数据分层规范，本文不再复制一套容易漂移的表。
 
-## 6. 同步协议
+## 5. 当前同步契约
 
-### 下行 pull（身份/项目/成员/目录）
-- 触发：客户端启动 + 定时 + 按需（如打开某项目）。
-- 增量：每类资源带 `version`/`updated_at`，客户端传上次游标，Server 只回变更集。
-- 落地：写本地**镜像表**（`origin='hub'`, 视为 read-only）；本地 override 层（本机技能/自造专家）叠加在镜像之上。
+### 5.1 下行
 
-### 上行 push（执行产出）—— outbox 模式
-- 本地执行先落本地库并写一条 **outbox** 记录（待同步）。
-- 后台 worker 批量推 Server；确认后标记已同步；断线/离线自动重连补推（保证 local-first 可离线）。
-- 语义：会话/消息/运行记录 **append-only**（Server 侧只读镜像，供团队时间线）；待办双向用 `updated_at` LWW。
+- 登录后或用户显式刷新时，App backend 拉取项目/成员与目录。
+- 目录当前是全量替换，不是增量 revision 协议。
+- server-origin 协作实体通常采用“Server 读取 → 本地镜像 → 返回”；网络失败时读取最后镜像。
+- 从未成功连接 Server 的 App 才使用随版本打包的 builtin 作为首次兜底。
 
-### 冲突与一致性
-- 控制平面：**Server 权威**，下行覆盖本地镜像。
-- 执行产出：**本地权威**，上行 append，Server 不回改。
-- 双向（待办）：`updated_at` last-write-wins，先简单；将来需要再上 CRDT/版本向量。
+### 5.2 上行
 
----
+- 工作项等 Server 权威实体由 App backend 代理写入 Server，成功后刷新镜像。
+- 会话执行产出只上报可配置的时间线元数据；先写本地 outbox，再由调度器重试。
+- 写 Server 失败不能伪装为已经完成同步；是否允许离线本地写由具体实体契约决定。
 
-## 7. 鉴权演进
+### 5.3 尚未完成
 
-- **现状**：本地 backend 自存 `users`/`auth_tokens`，无 token → `LOCAL_USER_ID`
-  （[auth/deps.py:30](../backend/auth/deps.py#L30)、[auth/middleware.py](../backend/auth/middleware.py)）。
-- **目标**：账号权威在 Server。本地「登录」= 走 Server 拿 token，本地缓存身份；
-  本地 backend 用该 token 作为**客户端**调 Server。对前端仍沿用现有 Bearer 机制不变。
-- **回退**：无网/未登录 → 仍回退 `LOCAL_USER_ID`，纯本地可用（local-first 不破）。中间件只多一层「token 先问本地缓存、必要时校验 Server」。
+- 目录 revision、条件请求和增量合并；
+- 发布 tombstone 与撤回状态；
+- App capability report 与工具契约版本；
+- 唤醒/恢复/低频刷新和实时“目录已失效”信号；
+- 同步冲突可视化、稳定重放与企业级审计。
 
----
+## 6. 目录与运行时关系
 
-## 8. 迁移路径（存量单机 → Server + 本地）
+目录卡只有在能解析到真实运行定义时才可标记 functional：
 
-1. **目录先行**（不依赖 Server）：内置人格/连接器注册表 + `catalog.ts` 橱窗 → 迁到**本地 backend 库**（WB-059/060）。
-   此步纯本地即可交付、可独立验证，是 Server 目录的雏形。
-2. **首次登录 Server**：提供「导入本地数据到 Server」——项目/成员/自造专家/目录（org 级）上行；会话作为历史时间线可选上行或留本地。
-3. **`LOCAL_USER_ID` 映射**到 Server 账号；映射关系记本地。
-4. **目录权威切换**：把目录源从「本地库」切到「Server 下发 + 本地 override」（WB-063）。
-5. 全程保留**纯本地模式**（不登录也能用），Server 是可选增强，非强制。
+- 专家必须有可注入 persona 和稳定 slug。
+- 专家团成员必须引用稳定 expert slug；成员清单本身不构成多 Agent 调度。
+- 连接器必须有受支持 launch spec、工具清单和本机凭据门禁。
+- Skill 必须在 App 本地形成可校验的安装快照；未安装目录定义不能冒充已运行内容。
 
----
+Server 下发只改变控制面定义；App runtime 是本机最终执行裁决者。未知工具、版本不兼容、缺凭据、
+未安装或被撤回的能力必须拒绝运行并给出明确原因。
 
-## 9. 部署形态
+## 7. 能力发布目标
 
-- **代码组织（monorepo，本仓库内）**：Server 作为**独立服务但同仓**，放在本仓库新目录 **`server/`**，与本地 `backend/`
-  代码解耦、可单独部署与启动。共享一份 git 历史、便于同步演进协议改动；不另起仓库。
-  - 可抽出的公共部分（如 `Role` 枚举、目录/成员的数据契约）后续按需提取到共享模块，避免 `server/` 与 `backend/` 各写一份漂移。
-- **Server 运行形态**：技术栈沿用 FastAPI；库先 SQLite 亦可，规模上来换 Postgres。
-  先做成**可自托管的单体服务**；SaaS（托管注册即用）后续，多租户已由 `org_id`/`scope` 预埋。
-- **本地客户端**：现有 Tauri 外壳 + `backend/` + 前端形态不变，新增「连接 Server」配置（Server 地址 + 登录）。
+> 本节是目标设计，不代表当前目录 CRUD 已具备生产发布能力。
 
----
-
-## 10. 里程碑与 issue 映射
-
-| 阶段 | 内容 | Issue | 依赖 |
-|---|---|---|---|
-| **总纲** | 本设计 + 方向对齐 | [WB-058](issues/WB-058-hub-control-plane-epic.md) | — |
-| **P0-a** | 目录「真定义」入库（内置人格 + 连接器注册表 → 库，运行时改读库） | [WB-059](issues/WB-059-catalog-definitions-to-db.md) | — |
-| **P0-b** | 橱窗目录入库（`catalog.ts` 静态卡 → 库 + API，前端改从接口取） | [WB-060](issues/WB-060-catalog-showcase-to-db.md) | WB-059 |
-| **P1** | Server 服务骨架（账号/组织/项目/成员/邀请权威源 + 鉴权签发） | [WB-061](issues/WB-061-hub-service-skeleton.md) | — |
-| **P2** | 本地 ⇄ Server 同步协议（下行拉取 + 上行 outbox 回传 + 增量） | [WB-062](issues/WB-062-local-hub-sync-protocol.md) | WB-061 |
-| **P3** | 迁移与 local-first 回退（存量导入、目录权威切 Server、离线回退） | [WB-063](issues/WB-063-hub-migration-and-local-fallback.md) | WB-059/060/061/062 |
-
-> P0（WB-059/060）可**先独立交付**，不依赖 Server——先把定义/橱窗在本地库跑通，再谈中心化。
-
----
-
-## 11. 风险与铁律对齐
-
-- **铁律 1（不硬编码不模拟）**：目录入库后，内置人格/连接器作为**真种子数据**入库，运行时读库真生效；橱窗卡沿用现状（明确是展示、不接真实能力），不伪造授权。
-- **铁律 4（凭据只在后端）**：Server 同步**绝不上传** `LLM_API_KEY` 与连接器 secret；这些永远只在本地 `backend/.env` 或本机 DB。
-- **铁律 5（SSE 契约）**：同步/目录变化若要反映到 UI，走既有事件/刷新机制，一种事件 ⇄ 一种 UI 形态。
-- **数据隐私**：会话/工作区可能含敏感内容——上行团队时间线需**可配置**（项目/用户级开关），默认最小上报。
-- **回退优先**：任何 Server 不可用场景都必须降级为本地可用，绝不因「连不上平台」阻断本机使用。
-
-## 12. 能力发布与客户端兼容（目标设计）
-
-> 状态：2026-07-21 设计收敛，**尚未全部实现**。现有 `catalog_items.version`、App 全量 pull、
-> 本机 Skill 安装快照和 Tauri updater 只是基础构件，不能视为完整发布系统。
-
-### 12.1 控制面对象
-
-Server 为每次可发布能力维护稳定身份和不可变版本：
+### 7.1 不可变 release
 
 ```text
 CapabilityRelease
-  id / kind(skill|expert|connector|policy)
-  slug / version / content_hash / status(draft|testing|published|withdrawn)
-  min_app_version / min_tool_contract_version
-  permissions(read_files|write_files|network|external_write|...)
-  rollout(channel|percentage|orgs)
-  created_by / reviewed_by / published_at / release_notes
+  id
+  kind                 skill | expert | expert_team | connector | policy
+  slug
+  version
+  content_hash
+  status               draft | testing | published | withdrawn
+  min_app_version
+  min_tool_contract_version
+  permissions
+  rollout              channel | percentage | orgs
+  created_by
+  reviewed_by
+  published_at
+  release_notes
 ```
 
-Skill 版本必须同时覆盖 `instructions + tools + files + permissions + hash`。排序、推荐位和营销文案
-不是技能包版本；权限或工具变化不能脱离指令快照提前生效。
+Skill release 必须原子包含 `instructions + tools + files + permissions + hash`。推荐排序、营销文案或目录
+分类不是运行包版本，不能在旧指令上单独切换新工具。
 
-### 12.2 App capability report
+### 7.2 客户端 capability report
 
-App 连接 Server 时上报最小公开能力信息：`app_version`、`platform/arch`、`tool_contract_version`、
-受支持工具名/版本和更新通道。不得上报本机凭据、工作区内容或会话正文。
+App 只上报公开兼容信息：`app_version`、平台/架构、`tool_contract_version`、受支持工具名/版本和更新
+通道。禁止附带凭据、工作区、会话正文或工具调用内容。
 
-Server 用它完成：
+Server 据此完成发布前兼容检查和下行门禁。不兼容版本可浏览说明，但不得安装或运行，并应返回最低
+升级要求。
 
-- Console 发布前兼容性预检；
-- 只向兼容 App 下发可执行版本，不兼容时返回明确状态和最低升级要求；
-- 统计灰度覆盖与失败率；
-- 在安全修复时声明最低 App 版本，但不绕过签名更新流程。
-
-### 12.3 下行状态机
-
-目录同步需要区分四种状态：
+### 7.3 下行状态机
 
 | 状态 | App 行为 |
 |---|---|
-| Server 从未配置/从未同步成功 | 使用随 App 打包的 builtin 种子 |
-| Server 不可达 | 保留最后成功下行快照，不清空、不推进版本 |
-| Server 明确发布 | 原子写入新定义；按兼容/权限策略自动或待确认升级 |
-| Server 明确停用/撤回 | 下发 tombstone，压制同 slug builtin；已安装副本标撤回并禁止新加载 |
+| 从未配置或从未成功同步 | 使用随 App 打包的 builtin |
+| Server 暂时不可达 | 保留 last-known-good，不清空、不降回旧 builtin |
+| 发布兼容版本 | 校验 hash/权限后原子安装或等待用户确认 |
+| 明确停用/撤回 | 接收 tombstone，压制同 slug builtin，禁止新加载 |
 
-当前“Server 空就清镜像并回退 builtin”的语义只适合首次兜底，不足以表达运营停用。实现时要保存
-`catalog_revision`、最后成功时间和 tombstone，并保证重复 pull 幂等。
+网络失败和中心撤回是两种不同状态，不能都实现成“目录为空 → 回退 builtin”。
 
-### 12.4 刷新、灰度与回滚
+### 7.4 灰度、回滚与客户端更新
 
-- App 启动、登录、恢复唤醒和用户手动刷新时检查 revision；在线期间做低频条件请求。
-- Server 可通过 SSE/WebSocket 只发送“目录已失效”通知，App 再走认证 pull，不在推送体里夹带定义。
-- 灰度按发布通道、组织和稳定哈希分桶；同一设备不能在重复刷新时来回跳版本。
-- App 和 Skill 都保留最后可用版本；下载/校验/安装失败自动回滚，并上报不含敏感数据的失败码。
-- Server API 在桌面客户端升级窗口内保持向后兼容；强制升级只用于明确的安全/协议断裂场景。
+- 灰度按通道、组织和稳定设备分桶；重复刷新不能在版本间抖动。
+- App 与 Skill 都保留 last-known-good；校验或安装失败自动回滚并上报非敏感失败码。
+- Server API 在桌面升级窗口内保持向后兼容；强制升级只用于明确的安全/协议断裂。
+- App 二进制升级走 Tauri 签名 updater，不能由目录 payload 自行替换可执行文件。
 
-## 13. WorkBuddy 对标边界
+## 8. Console 管理职责
 
-腾讯 WorkBuddy 的任务工作台、Skill/专家/专家团/连接器分层、多 Agent、自动化、远程助理与企业
-控制面可作为产品结构参考，资料见 [`docs/WorkBuddy/`](WorkBuddy/README.md)。AgentMate 的取舍是：
+Console 管账号、组织、项目协作和 AgentMate 自有目录。技能定义与推荐位已分离；技能管理已迁移到
+React + Ant Design，legacy 页面继续按 WB-236 迁移。
 
-- 学习其“任务 → 可观察执行 → 可验收交付 → 能力复用”闭环；
-- 保留 local-first，文件、会话正文和 secret 不因中心运营而上传；
-- Console 管发布定义与策略，App 执行并最终裁决本机真实能力；
-- 不把专家团目录卡等同于多 Agent，不把纯提示词 Skill 等同于真实办公产物工具。
+完整发布中心仍需提供草稿、Test Run、审核、灰度、撤回、回滚、兼容覆盖和审计视图。在这些对象及
+门禁落地前，“保存目录项”只能称为配置变更，不能称为生产发布。
+
+## 9. 部署与安全
+
+- Server 位于 `server/`，可单独启动在 `127.0.0.1:8100`；当前存储为 SQLite。
+- Console 静态资源由 Server 同源托管并调用 `/api/*`。
+- App backend 位于 `backend/`，默认 `127.0.0.1:8101`；开发前端为 `:8102`。
+- 生产部署必须补 TLS、反向代理、安全响应头、备份、审计、密钥管理和数据库容量方案。
+- SaaS 多区域、计费/套餐、正式 SSO 与企业合规部署不属于当前实现基线。
+
+## 10. 里程碑依据
+
+| 范围 | 状态 | 依据 |
+|---|---|---|
+| 目录定义与橱窗入库 | 已完成 | WB-059、WB-060 |
+| 独立 Server 骨架 | 已完成 | WB-061 |
+| 登录桥、镜像与时间线 outbox | 已完成基础链路 | WB-062 |
+| 存量迁移与 local-first 回退 | 已完成基础链路 | WB-063 |
+| 第三方 SkillHub 回归 App 本地 | 已完成 | WB-215 |
+| Skill/连接器/专家推荐位分离 | 已完成 | WB-217、WB-220、WB-221 |
+| 生产能力发布与客户端兼容闭环 | 未完成 | WB-235 设计；需后续实现 issue |
+| Console 全站 React/Ant Design | 进行中 | WB-234、WB-236 |
+| 正式桌面签名更新服务 | 未完成 | [`desktop-build.md`](desktop-build.md) |
+
+腾讯 WorkBuddy 的任务工作台、能力分层、自动化与企业控制面可作为产品结构参考；AgentMate 保持
+local-first、私有数据不上云与真实能力可验收的独立边界。参考资料见 [`WorkBuddy/`](WorkBuddy/README.md)。

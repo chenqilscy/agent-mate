@@ -1,160 +1,155 @@
-# AgentMate Console —— Web 管理控制台设计
+# AgentMate Console 管理门户设计
 
-> 状态：目录 CRUD 已落地；2026-07-21 经 **WB-235** 补充能力发布目标。Console 已分开管理
-> AgentMate 技能定义与推荐位，但草稿/Test Run/审核/灰度/撤回/回滚及客户端兼容视图仍是目标设计，
-> 不能把“保存目录项”描述为生产发布闭环。第三方 SkillHub 商店、Key、安装和文件仍留在本地 App。
-> 前置：[`agentmate-server-架构设计.md`](agentmate-server-架构设计.md)（Server 控制平面总纲）。
-> 本文把原来那个「够用就好」的 Server 控制台升级为一个**完整的 Web 管理控制台**，
-> 最终产品名为 **AgentMate Console**，由 `server/web/console.html` 提供。
+> 状态：Server 管理功能已落地；Console 正从 legacy 单文件页面分阶段迁移到 React + Ant Design。
+> 技能管理迁移由 [WB-234](issues/WB-234-console-ant-design-migration.md) 完成，其余页面见
+> [WB-236](issues/WB-236-console-remaining-pages-ant-design.md)。能力发布中心仍是目标设计。
 
-## 1. 背景与定位
+## 1. 定位
 
-AgentMate = **local-first 执行内核**（本机 App 跑 agent、LLM、沙箱文件） **+ 云端控制平面**（Server：账号/组织/项目/成员/目录的权威源）。
-Server 的 Web 控制台负责项目、组织、协作及 AgentMate 自有目录的控制平面管理。
-
-用户诉求（2026-07-08）：
-1. 门户的**项目管理**要与 AgentMate App 的项目管理对齐（当前完全不一致）。
-2. **技能 / 连接器 / 专家·专家团**要在门户里有正经管理。
-3. 第三方 **SkillHub** 由每台 App 直接浏览与安装；门户只允许用 slug + 编辑文案配置推荐位，不保存商店 Key、榜单、技能包或文件（WB-215/217）。
-4. 管理界面使用独立、职责清晰的产品名 **AgentMate Console**。
-
-**定位（关键）**：AgentMate Console 是 **AgentMate Server 的 Web 管理控制台**，不是「AgentMate App 的 Web 版」，也不是独立服务。见 §2 的硬约束。
-
-## 2. 硬约束（决定「能对齐到哪」）
-
-- **执行与文件是 local-first**：agent 工具循环、LLM 调用跑在**本机 backend**；沙箱文件（项目「资产」）
-  **绝不上云**（铁律 4）。所以 App 项目工作台里的 **动态（执行记录）/ 资产（文件）/ 执行 composer** 这三块
-  **本质上进不了 Web 门户** —— 门户能管的是**控制平面数据**（配置/成员/协作/目录）。
-- **凭据绝不进 Server**：LLM key、连接器 token 只在本机 `backend/.env`。连接器 launch spec 里只存**环境变量名**
-  （如 `secret_env: {GITHUB_PERSONAL_ACCESS_TOKEN: "GITHUB_TOKEN"}`，映射的是变量名不是值），故 launch spec 可安全入 Server。
-- **离线优先不破坏**：门户是 Server 的皮；Server 不可达时本机 App 全功能照常（既有设计，不动）。
-
-因此「项目管理与 AgentMate 完全一致」的准确落地 = **对齐可管理的部分**：项目配置 + 成员/角色/邀请 + 团队计划·任务 + 讨论/在线/时间线；执行/资产留在 App（门户里对执行仅以**时间线**只读体现）。
-
-## 3. 现状盘点
-
-**Server 后端（已有，多数够用）**
-- `models.py`：`Account`(含 `is_platform_admin`) / `Org` / `Project`(**已含 `instruction`/`connectors`/`experts`/`skills`**) / `Invite`。
-- 路由：`auth` `orgs` `projects`(成员/角色/邀请) `comments`(评论+@) `notifications` `timeline` `catalog`。
-- `catalog_items`：`category`/`kind`/`data`(JSON)/`sort`/`enabled`/`scope='builtin'`；类别沿用 App 橱窗
-  （`EXP_GRID` `EXP_TEAMS` `EXP_CATS` `EXP_SCENES` / `CONNS` `CONN_META` / `APP_SKILLS` / `NP_*` `PROJ_TPL` …）。
-- SkillHub：不属于 Server；搜索、排行、安装和安装后文件读取均由本地 App 负责。
-- **缺**：`work_items`（计划/任务）在 Server 无模型、无同步（App 本地独有）。
-
-**AgentMate Console（`server/web/console.html`）**：auth / 项目(成员·邀请·讨论·在线·时间线) / 组织 / 通知 / 目录 Admin(裸 JSON)。
-
-**改动集中在门户 UI + 少量 Server 后端（work_items + 目录写端点细化）；项目配置字段后端已支持 `PATCH /projects`。**
-
-## 4. 目标形态
-
-管理界面统一命名为 **AgentMate Console**，导航重构为：
-
-```
-AgentMate Console
-├─ 项目            项目管理面（配置 / 成员·角色·邀请 / 计划·任务 / 讨论·在线·时间线）
-├─ 目录运营中心     专家定义/推荐位 · 专家团 · 连接器定义/推荐位 · 技能定义/推荐位（类型化 CRUD + 下发） 〔平台管理员〕
-├─ 组织            组织及成员（既有）
-├─ 通知            @提及与协作事件（既有）
-└─ 账号            当前账号 / 平台管理员徽标 / 退出
-```
-
-## 5. 模块设计
-
-### 5.1 项目管理面（WB-080；计划/任务见 WB-081）
-项目详情从「成员/邀请/讨论/在线/时间线」扩为与 App 对齐的**配置 + 协作**面：
-- **配置**：指令（编辑，`PATCH /projects`）；连接器 / 专家 / 技能（从**目录**选择的多选 picker，写回 `project.connectors/experts/skills`）。字段后端已存在。
-- **成员/角色/邀请**：既有，保留。
-- **计划 / 任务**：见 §5.4（需新后端）。
-- **讨论 / 在线 / 时间线**：既有，保留；执行只经**时间线**只读体现（不做 composer/资产）。
-
-### 5.2 目录运营中心（WB-082/083/084）
-用**类型化表单**替掉裸 JSON Admin；每类一张卡片列表 + 结构化编辑器，写 `catalog_items`，客户端 pull 后覆盖本地（WB-066 下发已就绪）。
-- **专家**（`EXP_GRID`）：icon / 名称 / 副标题 / 简介 / 标签 / 分类（`EXP_CATS`）/ **persona**（真定义，可选下发）。
-- **专家团**（`EXP_TEAMS`）：名称 / 图标 / 成员专家清单（引用专家名）。
-- **连接器定义**（`CONN_DEFS`）：稳定 slug / icon / 名称 / 状态(rdy/tok) / launch spec 编辑器（内置 `builtin_server` 或第三方 `command/args`；`requires`/`requires_bin`；`secret_env` **仅变量名**）。
-- **连接器推荐位**（`CONNECTOR_RECOMMENDATIONS`）：connector_slug / placement / 排序 / 启停 / 生效时间；只引用定义，不保存 token 与 OAuth 状态。
-- **专家定义**（`EXPERT_DEFS`）：稳定 slug / 名称 / 展示资料 / persona / functional；persona 是 App 运行时的真定义。
-- **专家推荐位**（`EXPERT_RECOMMENDATIONS`）：expert_slug / placement / 排序 / 启停 / 生效时间；用户本机自定义专家不进入公共推荐目录。
-- **技能定义**（`APP_SKILLS`）：不可变 slug / icon / 名称 / 简介 / 分类 / 指令 / 工具 / 附加文本文件 / 自动递增目录版本。
-- **技能推荐位**（`SKILL_RECOMMENDATIONS`）：provider / skill_slug / placement / 编辑标题与简介 / 分类 / 排序 / 启停 / 生效时间；AgentMate 引用技能定义，SkillHub 只保存目录指针和展示文案。
-- 通用能力：启用/停用（`enabled`）、排序（`sort`）、删除；保留「高级：裸 JSON」兜底特殊类别。
-
-### 5.3 第三方 SkillHub 边界（WB-215）
-- Server 不同步、不代理、不存储第三方商店目录，也不持有第三方市场凭据。
-- App 后端直接读取搜索与排行元数据，并在本机执行安装。
-- 未安装时只展示商店描述；安装后才从本地技能目录读取 SKILL.md、源码与 references。
-
-### 5.4 团队计划 / 任务（WB-081，最重）
-App 的 work_items 目前**本地独有**。要在门户管理团队计划/任务，需要 Server 侧新增并双向同步：
-- **Server 新模型** `work_items`(project_id / title / status[todo·doing·paused·done] / source / assignee / order / created_at)。
-- **路由**：`GET/POST/PATCH/DELETE /projects/{id}/work-items`（access-gated，Viewer 只读）。
-- **同步**：扩展 WB-062 —— 下行 pull 把 Server work_items 镜像进本地；上行把本地新增/改状态回传（沿用 outbox 或直连）。冲突以 Server 为准（团队共享）。
-- **门户 UI**：看板（4 列拖拽）+ 列表，与 App 的「计划/任务」tab 对齐。
-> 体量最大、且触碰本地⇄Server 同步。建议放 epic 末尾；若想先要轻量收益可后置或拆二期。
-
-### 5.5 能力发布中心（WB-235，目标设计）
-
-目录管理回答“定义是什么”，发布中心回答“哪个版本何时对哪些 App 生效”。两者不得继续混成一次
-`PATCH`：
+AgentMate Console 是 AgentMate Server 的同源 Web 管理界面，服务于组织管理员、项目管理员和
+能力运营者。它不是 AgentMate App 的 Web 版，也不承担本地 agent、LLM、MCP 或文件执行。
 
 ```text
-草稿 → Test Run → 审核 → 发布 → 灰度 → 全量
-                         └────────→ 撤回 / 回滚
+AgentMate App      私密执行、工作区、会话、凭据、本机安装
+AgentMate Server   账号、组织、项目协作、AgentMate 能力目录权威
+AgentMate Console  通过 Server /api 管理控制面
 ```
 
-Skill 发布页至少展示：
+数据边界以 [`agentmate-数据分层与同步规范.md`](agentmate-数据分层与同步规范.md) 为准。
 
-- 当前草稿与线上版本、release notes、内容 hash；
-- 指令/工具/文件/权限 diff，新增写入/网络/外部服务权限醒目标注；
-- `min_app_version`、工具契约版本和兼容/不兼容客户端分布；
-- stable/beta、组织范围、灰度比例、计划发布时间；
-- 发布人、审核人、操作审计、安装/升级/失败率；
-- 撤回影响：未安装、已安装、项目引用、离线设备和 builtin fallback 的处理结果。
+## 2. 当前实现
 
-Test Run 必须在真实 App 执行面进行：Console 只创建测试发布并选择测试客户端/账号，运行时、凭据、
-工作区和工具事件仍留在 App；Server 只接收允许上报的状态与脱敏摘要。
+### 2.1 托管形态
 
-Console 可以管理工具**公开契约与绑定策略**，但工具实现必须随签名 App 发布。不得把任意脚本内容
-当作普通目录 JSON 下发执行；需要可执行 Skill 包时另行设计签名、来源审查和权限沙箱。
+Server `:8100` 同源提供 API 与 Console：
 
-## 6. 数据模型改动
+- `server/web/console.html`：现有 legacy 页面，保留项目、组织、通知和尚未迁移的目录页面。
+- `console/`：React + Ant Design 源码。
+- `server/web/console-dist/`：Console 构建产物。
+- `/catalog/skills`：优先进入新的 React 技能管理页；构建产物缺失时受控回退 legacy 页面。
+- 其它路由仍由 legacy History API 页面承载，迁移完成前保持功能连续。
 
-| 模型 | 动作 |
+这是一段明确的迁移期架构，不能再把 Console 描述为“最终由单个 `console.html` 提供”。
+
+### 2.2 已有模块
+
+- 账号登录、平台管理员身份与用户管理；
+- 组织及成员；
+- 项目、成员/角色、邀请、配置；
+- 工作项、里程碑、看板/列表/甘特、活动与评论；
+- 项目讨论、@提及、在线状态、通知与团队时间线；
+- 专家、专家团、连接器、Skill 定义及各自推荐位；
+- 知识库控制面；
+- 稳定 URL 与深链回退。
+
+## 3. 数据与权限边界
+
+Console 只能管理 Server 权威数据：
+
+| 可管理 | 不可管理 |
 |---|---|
-| `Project` | 无需改（`instruction/connectors/experts/skills` 已在） |
-| `catalog_items` | 复用；写端点已具备，门户做类型化表单即可 |
-| **`work_items`（新）** | Server 新表 + DAO + 路由 + 本地⇄Server 同步（WB-081） |
-| **`capability_releases`（目标）** | 不可变发布版本、状态、hash、兼容要求、权限、灰度与审计 |
-| **`client_capabilities`（目标）** | App 版本/平台/公开工具契约与最后在线时间；不含 secret 和工作区数据 |
+| 账号、组织、项目、成员角色、邀请 | App 本机会话正文与工具轨迹 |
+| Server 协作实体与最小时间线元数据 | workspace 文件和产物本体 |
+| AgentMate 自有专家/团队/连接器/Skill 定义 | LLM key、连接器 token、OAuth token |
+| 能力推荐位、排序、启停、生效时间 | 第三方 SkillHub Key、榜单镜像、技能包与安装目录 |
 
-## 7. 产品与技术命名
+平台管理员才能运营公共目录；项目写操作按 Owner/Admin/Member/Viewer 门禁。Viewer 只读。所有管理
+API 仍需由 Server 校验，不能只靠前端隐藏按钮。
 
-**中心 API 服务**：统一使用 **AgentMate Server**；代码目录 `server/`，环境变量使用 `AGENTMATE_SERVER_*`，本地客户端模块使用 `server_client` / `server_sync`。
+## 4. 信息架构
 
-**Web 管理界面**：统一使用 **AgentMate Console**；由 `server/main.py` 的 `GET /` 托管 `server/web/console.html`，同源调用 `/api/*`。
+目标导航如下：
 
-> Server 是权威数据与 API 服务；Console 是它的 Web 管理界面。两者不是两个后端服务。
+```text
+AgentMate Console
+├─ 概览
+├─ 项目
+│  └─ 概览 / 任务 / 协作 / 配置
+├─ 目录运营
+│  ├─ 专家与专家团
+│  ├─ 连接器
+│  └─ 技能
+├─ 知识库
+├─ 组织
+├─ 用户
+├─ 通知
+└─ 账号 / 退出
+```
 
-## 8. Issue 拆分（epic WB-078）
+React 迁移应保持现有稳定 URL 与 API 契约，逐页替换视图，不以一次性重写阻断管理功能。
 
-| Issue | 领域 | 内容 | 体量 |
-|---|---|---|---|
-| **WB-078** | epic | 本设计 + 总纲 | — |
-| **WB-079** | frontend | Console 品牌与导航重构（骨架） | 小 |
-| **WB-080** | frontend | 项目管理面 —— 配置编辑（指令 + 连接器/专家/技能 picker，读目录、写 `PATCH /projects`） | 中 |
-| **WB-082** | frontend | 目录运营中心框架 + **专家 / 专家团** 类型化 CRUD（替裸 JSON） | 中 |
-| **WB-083** | frontend | 目录运营中心 —— **连接器** 类型化 CRUD（launch spec 编辑器） | 中 |
-| **WB-084** | fullstack | 历史实现：技能目录运营；其中第三方 SkillHub 集中管理部分已由 WB-215 移除 | 中 |
-| **WB-081** | backend | **团队计划/任务** —— Server `work_items` 模型 + 路由 + 本地⇄Server 同步 + 门户看板 | 大 |
-| **WB-235** | misc | 能力发布/升级设计收敛 + WorkBuddy 官方参考资料归档；运行时实现另拆 issue | 中 |
+## 5. 目录运营
 
-**建议顺序**：WB-079（改名骨架）→ WB-080（项目配置）→ WB-082/083/084（目录运营中心）→ WB-081（计划/任务，最重殿后）。
-每条独立可交付、独立提交（共享工作树按 hunk 暂存）。
+### 5.1 定义与推荐位分离
 
-## 9. 非目标（明确不做）
+定义描述“能力是什么、如何运行”，推荐位描述“在哪里、何时、以什么文案展示”。两者生命周期不同：
 
-- 执行 / 沙箱文件（资产）/ composer 进 Web —— 违反 local-first + 铁律 4。
-- org 级目录运营（团队私有目录）、实时通道（WebSocket 在线/评论，v1 仍 REST+轮询）。
-- 在 Console 保存 updater 私钥或代码签名证书——签名密钥留在受保护的 CI/发布基础设施；Console
-  只管理发布元数据、通道和灰度策略。
-- 把 Console 拆成第二个后端服务——它保持由 Server 同源托管。
+- 专家定义含稳定 slug、persona、标签和能力元数据；推荐位只引用 expert slug。
+- 专家团定义引用稳定成员 expert slug；团队卡不等于多 Agent runtime。
+- 连接器定义含 launch spec、工具与凭据变量名；真实 secret 只在 App 本机。
+- AgentMate Skill 定义含指令、工具绑定和文件；推荐位可引用 AgentMate 或 SkillHub slug。
+
+推荐位的排序、启停、排期和营销文案不能修改已安装能力的运行快照。
+
+### 5.2 第三方 SkillHub
+
+第三方 SkillHub 由每台 App 直接访问并在本机安装。Console 对 SkillHub 只能维护推荐指针：
+
+```text
+provider = skillhub
+skill_slug
+title / description / icon / category
+placement / sort / enabled / starts_at / ends_at
+```
+
+Console 不搜索或代理商店，不保存 Key、榜单、安装包、`SKILL.md` 或 references。App 点击推荐后仍走本地
+真实安装生命周期。
+
+### 5.3 技能编辑
+
+React 技能页当前支持列表、搜索/筛选/排序、类型化编辑、工具选择、文件树/编辑、启停与删除保护。
+Server 必须继续校验：
+
+- slug 与引用完整性；
+- 工具名必须来自公开工具契约，未知工具拒绝保存；
+- 保留文件名与路径穿越；
+- dirty close、删除确认和 Viewer/非管理员门禁；
+- 已安装副本的版本差异不能静默覆盖。
+
+## 6. 能力发布中心（目标设计）
+
+当前保存目录项只会更新控制面定义，并不等于生产发布。完整发布中心需要：
+
+1. **草稿**：编辑不可变 release 的候选内容。
+2. **Test Run**：选择兼容测试客户端执行真实工具链，展示 trace、产物、权限请求和失败原因。
+3. **审核**：作者与审核者分离，记录 hash、版本、权限 diff 与审核意见。
+4. **发布**：配置通道、组织、比例、最低 App/工具契约版本和生效时间。
+5. **监控**：查看兼容覆盖、安装/运行成功率、回滚率与非敏感错误码。
+6. **撤回/回滚**：下发 tombstone 或上一 last-known-good 版本，不把网络失败当撤回。
+
+Server 对象、客户端 capability report 与状态机见
+[`agentmate-server-架构设计.md`](agentmate-server-架构设计.md)。
+
+## 7. React + Ant Design 迁移规则
+
+- 迁移单位是稳定路由，不是散落组件；每迁一页保留原 API 与深链。
+- 复用统一的 Layout、Menu、Form、Table、Modal/Drawer、Result、notification 和权限守卫。
+- 迁移前后都要覆盖登录失效、403、404、空态、加载、保存失败和窄屏。
+- legacy CSS 与 React 样式隔离，避免全局选择器污染；暗色主题必须真实检查。
+- 构建产物由 `pnpm build:console` 生成；Server 启动不应在运行时依赖 Node。
+- 迁移完成后再删除 `console.html` 与回退逻辑，删除前必须确认所有稳定 URL 都已接管。
+
+## 8. 非目标
+
+- 不在 Console 远程执行 App agent 或访问用户本地文件。
+- 不集中保存个人凭据或第三方 SkillHub 内容。
+- 不把目录卡、专家团成员表或 Test Run mock 当成真实能力。
+- 不在没有签名、兼容门禁和回滚的情况下从网页替换 App 二进制。
+
+## 9. 验收
+
+- Server API 的权限门禁与 Console UI 状态一致，直接请求也不能越权。
+- 项目与目录的稳定 URL 可刷新、前进/后退；未知 `/api/*` 保持 404，不被 HTML 回退伪装成 200。
+- React 与 legacy 页面迁移期可连续工作，构建产物缺失时只回退声明的路由。
+- SkillHub 数据边界检查不允许 Server 恢复镜像、Key 或技能包。
+- 全站迁移完成后，才能登记并验证删除 legacy `console.html` 的独立 issue。

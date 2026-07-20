@@ -24,7 +24,7 @@ created: 2026-07-16
 - grep `kit|bundle|套件` 覆盖 `backend/**/*.py` → **零命中**。
 - Hub 侧同样无 kit 概念；`skillhub_sync.py` 只镜像 `skill` / `skill-category` 两类。
 - `db.py:34` 的 `_SHOWCASE_SKIP` 把 `SKILLHUB_KITS` **明确排除出 seed** → 那 4 条永不入 App DB。
-- [架构设计文档:116](../agentmate-hub-架构设计.md) 设计过 `catalog_skills.kit_id` 字段，**从未实现**。
+- 早期 Server 架构设计曾包含 `catalog_skills.kit_id` 字段，但**从未实现**。
 - 「安装套件」按钮是 toast 桩（见 WB-181 第 2 条）。
 
 即：这是一个**纯展示的虚构商品**，点击无效，数字杜撰。

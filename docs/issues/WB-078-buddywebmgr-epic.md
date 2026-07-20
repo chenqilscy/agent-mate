@@ -26,7 +26,7 @@ P1：门户是团队用 AgentMate 的管理入口，当前能力缺口大。
 
 ## 建议修法
 
-见设计文档 [`docs/buddywebmgr-管理门户设计.md`](../buddywebmgr-管理门户设计.md)。定位=**管理控制台**（非 App Web 版）；
+见设计文档 [`docs/agentmate-console-管理门户设计.md`](../agentmate-console-管理门户设计.md)。定位=**管理控制台**（非 App Web 版）；
 硬约束：执行/资产 local-first 进不了 Web、凭据绝不上云。拆分：
 
 - **WB-079** 品牌更名 + 导航重构（骨架）
