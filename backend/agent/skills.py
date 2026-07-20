@@ -247,6 +247,41 @@ html_to_markdown = Tool(
 )
 
 
+# ── 技能创建指南：把确认后的结构化字段真写入本机技能目录（WB-206）。
+def _create_local_skill_run(args: dict) -> ToolOutcome:
+    from agent import skills_store
+
+    try:
+        result = skills_store.create_skill(
+            slug=str(args.get("slug") or ""),
+            name=str(args.get("name") or ""),
+            description=str(args.get("description") or ""),
+            instructions=str(args.get("instructions") or ""),
+        )
+    except skills_store.SkillImportError as exc:
+        return ToolOutcome(text=f"创建技能失败：{exc}")
+    skill = result["skill"]
+    return ToolOutcome(text=f"已创建并安装技能「{skill['name']}」（slug={skill['slug']}）。可在技能页的“我安装的”中查看和启用。")
+
+
+create_local_skill = Tool(
+    name="create_local_skill",
+    description="创建并安装一个本机提示词技能。先与用户确认名称、用途和完整指令，再调用本工具。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "slug": {"type": "string", "description": "稳定英文标识，如 meeting-notes；仅字母数字与 . _ -"},
+            "name": {"type": "string", "description": "技能显示名称"},
+            "description": {"type": "string", "description": "一句话说明技能用途和触发场景"},
+            "instructions": {"type": "string", "description": "给智能体执行该技能的完整 Markdown 指令"},
+        },
+        "required": ["slug", "name", "description", "instructions"],
+    },
+    pre=lambda a: {"kind": "step", "tool": "create_local_skill", "label": f"创建技能 {a.get('name', '')[:60]}"},
+    run=_create_local_skill_run,
+)
+
+
 # 工具名 → 真 Tool 对象（WB-183）。技能**定义**（提示词 + 该用哪些工具）已迁进 DB 的
 # catalog_skills（种子见 storage/catalog_seed.py::BUILTIN_SKILLS），改一条内置技能的提示词
 # 只要改数据、不必改代码重启 —— 补齐 WB-059 漏掉的第三块（专家人格/连接器 spec 早已入库）。
@@ -256,6 +291,7 @@ _TOOL_REGISTRY: dict[str, Tool] = {
     "web_fetch": web_fetch,
     "html_to_markdown": html_to_markdown,
     "analyze_csv": analyze_csv,
+    "create_local_skill": create_local_skill,
 }
 
 

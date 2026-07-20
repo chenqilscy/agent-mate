@@ -11,6 +11,9 @@ references/），和出货版 WorkBuddy 及 skillhub CLI 的落盘约定一致�
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import io
 import json
 import os
 import re
@@ -19,7 +22,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import zipfile
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 from config import settings
@@ -29,6 +34,9 @@ SKILLHUB_META = "_skillhub_meta.json"
 PUB_META = "_meta.json"
 DISABLED_MARKER = ".disabled"
 _MAX_INJECT = 6000  # 注入系统提示时单技能正文上限，控 token
+MAX_IMPORT_BYTES = 20 * 1024 * 1024
+MAX_IMPORT_FILES = 256
+MAX_SKILL_MD_BYTES = 512 * 1024
 
 # 技能 slug 白名单：仅字母数字与 . _ - ；杜绝路径分隔符与 `..`，因为 slug 会拼进
 # SKILLS_DIR/<slug> 与临时预览目录路径、并作为 `skillhub install <slug>` 的子进程
@@ -76,7 +84,13 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 def _scalar(s: str) -> str:
     s = s.strip()
-    if len(s) >= 2 and ((s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'")):
+    if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+        try:
+            value = json.loads(s)
+            return value if isinstance(value, str) else str(value)
+        except ValueError:
+            return s[1:-1]
+    if len(s) >= 2 and s[0] == "'" and s[-1] == "'":
         return s[1:-1]
     return s
 
@@ -114,11 +128,11 @@ def parse_frontmatter(md: str) -> tuple[dict[str, Any], str]:
     """拆 SKILL.md：返回 (front-matter dict, 正文)。无 front-matter 则 ({}, 全文)。"""
     if md.startswith("﻿"):
         md = md[1:]
-    m = re.match(r"^---[ \t]*\n(.*?)\n---[ \t]*\n?(.*)$", md, re.S)
+    m = re.match(r"^---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n?(.*)$", md, re.S)
     if not m:
         return {}, md
     fm: dict[str, Any] = {}
-    lines = m.group(1).split("\n")
+    lines = m.group(1).splitlines()
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -188,6 +202,192 @@ def scan() -> list[dict[str, Any]]:
         if info:
             out.append(info)
     return out
+
+
+class SkillImportError(ValueError):
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _safe_import_path(raw: str) -> PurePosixPath:
+    """Normalize an uploaded archive/folder path without ever touching disk."""
+    value = (raw or "").replace("\\", "/").strip()
+    path = PurePosixPath(value)
+    if (
+        not value
+        or path.is_absolute()
+        or any(part in {"", ".", ".."} or ":" in part or "\x00" in part for part in path.parts)
+    ):
+        raise SkillImportError(f"技能包包含非法路径：{raw[:120]}")
+    return path
+
+
+def _import_slug(frontmatter: dict[str, Any], root_hint: str, source_name: str, skill_md: bytes) -> str:
+    candidates = [
+        str(frontmatter.get("slug") or "").strip(),
+        root_hint.strip(),
+        Path(source_name).stem.strip(),
+    ]
+    name = str(frontmatter.get("name") or "").strip().lower()
+    candidates.append(re.sub(r"[^a-z0-9._-]+", "-", name).strip("-"))
+    for candidate in candidates:
+        if valid_slug(candidate):
+            return candidate
+    return "local-" + hashlib.sha256(skill_md).hexdigest()[:12]
+
+
+def _install_import_files(files: list[tuple[str, bytes]], source_name: str) -> dict[str, Any]:
+    if not files:
+        raise SkillImportError("未选择任何技能文件")
+    if len(files) > MAX_IMPORT_FILES:
+        raise SkillImportError(f"技能包文件过多（最多 {MAX_IMPORT_FILES} 个）", 413)
+
+    normalized: dict[PurePosixPath, bytes] = {}
+    total = 0
+    seen_casefold: set[str] = set()
+    for raw_path, data in files:
+        path = _safe_import_path(raw_path)
+        folded = path.as_posix().casefold()
+        if folded in seen_casefold:
+            raise SkillImportError(f"技能包包含重复路径：{path.as_posix()}")
+        seen_casefold.add(folded)
+        total += len(data)
+        if total > MAX_IMPORT_BYTES:
+            raise SkillImportError(f"技能包过大（最多 {MAX_IMPORT_BYTES // (1024 * 1024)}MB）", 413)
+        normalized[path] = data
+
+    manifests = [path for path in normalized if path.name.casefold() == SKILL_MD.casefold()]
+    if len(manifests) != 1:
+        raise SkillImportError("技能包必须包含且只能包含一个 SKILL.md")
+    manifest = manifests[0]
+    skill_md = normalized[manifest]
+    if len(skill_md) > MAX_SKILL_MD_BYTES:
+        raise SkillImportError("SKILL.md 过大（最多 512KB）", 413)
+    try:
+        markdown = skill_md.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise SkillImportError("SKILL.md 必须使用 UTF-8 编码") from exc
+    frontmatter, _ = parse_frontmatter(markdown)
+    name = str(frontmatter.get("name") or "").strip()
+    description = str(
+        frontmatter.get("description")
+        or frontmatter.get("description_zh")
+        or frontmatter.get("description_en")
+        or ""
+    ).strip()
+    if not name or not description:
+        raise SkillImportError("SKILL.md 的 YAML frontmatter 必须包含 name 和 description")
+
+    package_root = manifest.parent
+    root_hint = "" if package_root == PurePosixPath(".") else package_root.name
+    slug = _import_slug(frontmatter, root_hint, source_name, skill_md)
+    root = skills_dir()
+    target = root / slug
+    if target.exists():
+        raise SkillImportError(f"技能「{slug}」已存在，请先卸载或更换 slug", 409)
+
+    staging_root = Path(tempfile.mkdtemp(prefix=".skill-import-", dir=root))
+    staging = staging_root / "package"
+    staging.mkdir()
+    try:
+        for path, data in normalized.items():
+            try:
+                relative = path.relative_to(package_root)
+            except ValueError:
+                continue
+            if relative.name in {SKILLHUB_META, DISABLED_MARKER}:
+                continue
+            destination = staging.joinpath(*relative.parts)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(data)
+
+        meta = {
+            "slug": slug,
+            "name": name,
+            "version": str(frontmatter.get("version") or "").strip(),
+            "installedAt": int(time.time() * 1000),
+            "source": "local",
+        }
+        (staging / SKILLHUB_META).write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        os.replace(staging, target)
+    except OSError as exc:
+        raise SkillImportError(f"写入技能目录失败：{exc}", 500) from exc
+    finally:
+        shutil.rmtree(staging_root, ignore_errors=True)
+
+    _invalidate_cache()
+    skill = _info_from_dir(target)
+    if not skill:
+        shutil.rmtree(target, ignore_errors=True)
+        raise SkillImportError("导入后的技能无法读取", 500)
+    return {"ok": True, "skill": skill}
+
+
+def import_skill_file(filename: str, data: bytes) -> dict[str, Any]:
+    """Import a standalone SKILL.md or a zip containing one skill tree."""
+    suffix = Path(filename or "").suffix.lower()
+    if suffix == ".md":
+        return _install_import_files([(SKILL_MD, data)], filename)
+    if suffix != ".zip":
+        raise SkillImportError("仅支持 .md 或 .zip 技能文件")
+    if len(data) > MAX_IMPORT_BYTES:
+        raise SkillImportError(f"技能包过大（最多 {MAX_IMPORT_BYTES // (1024 * 1024)}MB）", 413)
+
+    files: list[tuple[str, bytes]] = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            infos = [info for info in archive.infolist() if not info.is_dir()]
+            if len(infos) > MAX_IMPORT_FILES:
+                raise SkillImportError(f"技能包文件过多（最多 {MAX_IMPORT_FILES} 个）", 413)
+            if sum(info.file_size for info in infos) > MAX_IMPORT_BYTES:
+                raise SkillImportError(f"技能包解压后过大（最多 {MAX_IMPORT_BYTES // (1024 * 1024)}MB）", 413)
+            for info in infos:
+                mode = (info.external_attr >> 16) & 0o170000
+                if mode == 0o120000:
+                    raise SkillImportError("技能包不能包含符号链接")
+                if info.flag_bits & 0x1:
+                    raise SkillImportError("不支持加密的技能包")
+                files.append((info.filename, archive.read(info)))
+    except zipfile.BadZipFile as exc:
+        raise SkillImportError("无效的 zip 技能包") from exc
+    return _install_import_files(files, filename)
+
+
+def import_skill_directory(files: list[dict[str, str]]) -> dict[str, Any]:
+    """Import browser directory-selection payload (relative path + base64 bytes)."""
+    decoded: list[tuple[str, bytes]] = []
+    for item in files:
+        try:
+            decoded.append((str(item.get("path") or ""), base64.b64decode(item.get("content") or "", validate=True)))
+        except (ValueError, TypeError) as exc:
+            raise SkillImportError("技能文件内容编码无效") from exc
+    return _install_import_files(decoded, "uploaded-folder")
+
+
+def create_skill(slug: str, name: str, description: str, instructions: str) -> dict[str, Any]:
+    """Create and install one instruction skill from agent-confirmed fields."""
+    slug = (slug or "").strip()
+    name = (name or "").strip()
+    description = (description or "").strip()
+    instructions = (instructions or "").strip()
+    if not valid_slug(slug):
+        raise SkillImportError("slug 仅允许字母、数字与 . _ -，且不能以 - 开头")
+    if not name or not description or not instructions:
+        raise SkillImportError("创建技能需要 name、description 和 instructions")
+    if len(name) > 120 or len(description) > 500 or len(instructions) > 50_000:
+        raise SkillImportError("技能名称、描述或指令过长")
+    markdown = (
+        "---\n"
+        f"name: {json.dumps(name, ensure_ascii=False)}\n"
+        f"slug: {slug}\n"
+        f"description: {json.dumps(description, ensure_ascii=False)}\n"
+        "---\n\n"
+        f"{instructions}\n"
+    )
+    return _install_import_files([(SKILL_MD, markdown.encode("utf-8"))], f"{slug}.md")
 
 
 def canonical_slug(key: str) -> str | None:

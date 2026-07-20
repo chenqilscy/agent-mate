@@ -5,7 +5,7 @@ skillhub CLI 下载解压（agent/skills_store.py）。清单/详情来自真实
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
 
 import hub_client
@@ -25,6 +25,15 @@ class InstallBody(BaseModel):
 
 class ToggleBody(BaseModel):
     disabled: bool
+
+
+class ImportDirectoryFile(BaseModel):
+    path: str
+    content: str
+
+
+class ImportDirectoryBody(BaseModel):
+    files: list[ImportDirectoryFile]
 
 
 @router.get("/skills")
@@ -111,6 +120,30 @@ def install_skill(body: InstallBody) -> dict:
     if not res.get("ok"):
         raise HTTPException(502, res.get("error") or "安装失败")
     return res
+
+
+@router.post("/skills/import")
+async def import_skill(request: Request, filename: str = "") -> dict:
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > skills_store.MAX_IMPORT_BYTES:
+        raise HTTPException(413, "技能包过大（最多 20MB）")
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > skills_store.MAX_IMPORT_BYTES:
+            raise HTTPException(413, "技能包过大（最多 20MB）")
+    try:
+        return skills_store.import_skill_file(filename, bytes(data))
+    except skills_store.SkillImportError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+
+
+@router.post("/skills/import-directory")
+def import_skill_directory(body: ImportDirectoryBody) -> dict:
+    try:
+        return skills_store.import_skill_directory([item.model_dump() for item in body.files])
+    except skills_store.SkillImportError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
 
 
 @router.post("/skills/{key}/uninstall")

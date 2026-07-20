@@ -221,6 +221,8 @@
 | [WB-203](WB-203-remove-top-text-menus.md) | ✅ | P3 | ui | 顶部自绘菜单栏整行已移除；侧栏恢复改为不占布局高度的边缘入口 |
 | [WB-204](WB-204-skill-regression-gate.md) | ✅ | P2 | test | 新增离线身份/Hub覆盖/category 契约门禁与 npm 入口；真 LLM 技能/连接器测试同步改为 slug 并 15/15 通过 |
 | [WB-205](WB-205-skills-grid-horizontal-overflow.md) | ✅ | P2 | ui | Skills 页卡片网格改用 minmax(0,1fr)，长技能描述不再撑宽内容区；明暗主题与 1280/960/900/860px 实测无横向滚动 |
+| [WB-206](WB-206-add-skill-import-create-flow.md) | ✅ | P1 | fullstack | 添加技能补齐上传导入与对话创建，查找复用顶栏搜索框 |
+| [WB-207](WB-207-edit-installed-skill-fake-flow.md) | ⬜ | P2 | fullstack | 已安装技能的编辑入口挂载不存在的旧技能且不能保存修改 |
 
 ## 来源
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useState, type MouseEvent, type ReactNode } from 'react'
 import { toast } from '../stores/toastStore'
 import { useChatStore } from '../stores/chatStore'
 import { useLoadoutStore } from '../stores/loadoutStore'
@@ -8,6 +8,7 @@ import { useSkillStore, matchSkill } from '../stores/skillStore'
 import { CreateExpertModal } from '../components/expert/CreateExpertModal'
 import { ConnectorDetailModal } from '../components/connector/ConnectorDetailModal'
 import { SkillDetail, type SkillTarget } from '../components/skill/SkillDetail'
+import { AddSkillControl } from '../components/skill/AddSkillControl'
 import { api } from '../lib/api'
 import type { InstalledSkill, SkillCard } from '../lib/types'
 import { type ExpertTeam } from '../data/catalog'
@@ -703,7 +704,6 @@ function HubView({ hub }: { hub: Hub }) {
   const [detailTarget, setDetailTarget] = useState<SkillTarget | null>(null)
   // 顶栏搜索框输入（WB-070）：目前用于技能 tab 的 SkillHub 搜索；切 tab 清空。
   const [query, setQuery] = useState('')
-  const searchRef = useRef<HTMLInputElement>(null)
   const installedCount = useSkillStore((s) => s.installed.length)
   const loadSkills = useSkillStore((s) => s.load)
   const placeholder = { experts: '搜索专家职称或描述', skills: '搜索技能', connectors: '搜索连接器' }[hub]
@@ -714,6 +714,15 @@ function HubView({ hub }: { hub: Hub }) {
 
   const onAct = () => { if (hub === 'experts') setMyExperts(true); else toast(actLabel) }
   const currentTab = TABS.find((tab) => tab.id === hub)!
+  const createSkill = () => {
+    setDetailTarget(null)
+    setMyInstalled(false)
+    useLoadoutStore.getState().summonSkills(['skill-creator-guide'])
+    useLoadoutStore.getState().setDraft('请帮我创建一个可以实现「……」的 skill')
+    useChatStore.getState().startDraft('创建技能')
+    useUIStore.getState().setView('home')
+    toast('已载入技能创建指南 · 请描述你要创建的技能')
+  }
 
   return (
     <section className="view active" data-view={hub}>
@@ -724,7 +733,7 @@ function HubView({ hub }: { hub: Hub }) {
         <div className="sp" />
         <div className="search-box" style={{ margin: 0, width: 260 }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-          <input ref={searchRef} placeholder={placeholder} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input placeholder={placeholder} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         {hub === 'skills' ? (
           <>
@@ -732,14 +741,10 @@ function HubView({ hub }: { hub: Hub }) {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="4" /><path d="M8.5 12l2.5 2.5 4.5-5" /></svg>
               我安装的<span className="hub-act-n">{installedCount}</span>
             </button>
-            {/* 「添加技能」= 去 SkillHub 搜一个装上（WB-181）。此前只 toast 标签名。
-                回到浏览态 + 聚焦搜索框——输入即触发 SkillSearchResults 的真实搜索/安装。 */}
-            <button
-              className="hub-act"
-              onClick={() => { setDetailTarget(null); setMyInstalled(false); searchRef.current?.focus() }}
-            >
-              ＋ 添加技能
-            </button>
+            <AddSkillControl
+              onCreate={createSkill}
+              onImported={() => { setQuery(''); setDetailTarget(null); setMyInstalled(true) }}
+            />
           </>
         ) : (
           <button className="hub-act" onClick={onAct}>{actLabel}</button>

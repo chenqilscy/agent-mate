@@ -97,6 +97,8 @@ body.dark .csend:disabled { background: #3A414B; }
 body.dark .sb-fmenu { background: #22272D; }
 body.dark .ringc { border-color: #3A414B; }
 body.dark .scrolldn { background: #22272D; }
+body.dark .skill-add-menu { background: #22272D; }
+body.dark .skill-import-error { background: #3A2326; color: #F98A8E; }
 body.dark .reward { background: #22272D; }
 body.dark .ov-art:hover { box-shadow: none; }
 body.dark .ovpanel { background: #1B1F24; }

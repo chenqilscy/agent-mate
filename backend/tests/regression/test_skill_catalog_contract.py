@@ -70,6 +70,26 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertIn("办公效率", catalog["SK_CATS"])
         self.assertTrue(all(isinstance(x, dict) and x.get("slug") and x.get("category") for x in catalog["SK_GRID"]))
 
+    def test_existing_creator_guide_seed_migrates_to_real_create_tool(self) -> None:
+        old_instruction = "当用户想创建自定义技能时，说明技能 = 提示词 + 工具包 的结构，并给出可落地的模板。"
+        conn = db.get_conn()
+        conn.execute(
+            "UPDATE catalog_skills SET instructions=?, tools='[]' "
+            "WHERE scope='builtin' AND slug='skill-creator-guide'",
+            (old_instruction,),
+        )
+        conn.commit()
+        db._migrate_columns()
+
+        spec = db.skill_spec_for("skill-creator-guide")
+        self.assertIsNotNone(spec)
+        self.assertEqual(["create_local_skill"], spec["tools"])
+        from agent.skills import skill_def
+        resolved = skill_def("skill-creator-guide")
+        self.assertIsNotNone(resolved)
+        self.assertIn("真正创建并安装", resolved[0])
+        self.assertEqual(["create_local_skill"], [tool.name for tool in resolved[1]])
+
 
 if __name__ == "__main__":
     unittest.main()

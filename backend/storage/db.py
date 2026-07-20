@@ -635,6 +635,22 @@ def _migrate_columns() -> None:
     if "knowledge_ids" not in have_p:
         conn.execute("ALTER TABLE projects ADD COLUMN knowledge_ids TEXT NOT NULL DEFAULT '[]'")
 
+    # WB-206：旧库已种过 skill-creator-guide，_seed_catalog 按 slug 查重不会覆盖；只迁移仍为
+    # 原始种子值的行，保留 Manager/用户已运营过的自定义定义。
+    old_creator_instruction = "当用户想创建自定义技能时，说明技能 = 提示词 + 工具包 的结构，并给出可落地的模板。"
+    new_creator_instruction = (
+        "帮助用户创建自定义技能：先澄清用途、触发场景、输入输出与约束，整理出稳定英文 slug、"
+        "名称、描述和完整 Markdown 指令；信息足够后必须调用 create_local_skill 真正创建并安装，"
+        "不要只给模板或假装已创建。"
+    )
+    conn.execute(
+        "UPDATE catalog_skills SET description=?, instructions=?, tools=?, updated_at=? "
+        "WHERE scope='builtin' AND slug='skill-creator-guide' AND instructions=?",
+        ("通过对话梳理技能用途、触发场景与执行指令，并安装为本机技能。",
+         new_creator_instruction, json.dumps(["create_local_skill"], ensure_ascii=False),
+         time.time(), old_creator_instruction),
+    )
+
     # WB-134: model_meta 增缓存命中输入价 + 币种（定价分档 / ¥·$ 区分）。
     have_mm = {r["name"] for r in conn.execute("PRAGMA table_info(model_meta)").fetchall()}
     for col, ddl in (("input_cost_cached", "input_cost_cached REAL"), ("currency", "currency TEXT")):

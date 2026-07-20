@@ -233,6 +233,28 @@ export const api = {
     get<{ skill: SkillDetail }>(`/skills/preview?slug=${encodeURIComponent(q.slug ?? '')}&name=${encodeURIComponent(q.name ?? '')}`),
   installSkill: (body: { slug?: string; name?: string }) =>
     send<{ ok: boolean; skill: InstalledSkill }>('POST', '/skills/install', body),
+  importSkillFile: async (file: File) => {
+    const r = await fetch(`${API_BASE}/skills/import?filename=${encodeURIComponent(file.name)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/octet-stream', ...authHeaders() }, body: file,
+    })
+    if (!r.ok) {
+      let message = `导入失败（${r.status}）`
+      try { const body = await r.json(); if (body?.detail) message = String(body.detail) } catch { /* ignore */ }
+      throw new Error(message)
+    }
+    return r.json() as Promise<{ ok: boolean; skill: InstalledSkill }>
+  },
+  importSkillDirectory: async (files: { path: string; content: string }[]) => {
+    const r = await fetch(`${API_BASE}/skills/import-directory`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ files }),
+    })
+    if (!r.ok) {
+      let message = `导入失败（${r.status}）`
+      try { const body = await r.json(); if (body?.detail) message = String(body.detail) } catch { /* ignore */ }
+      throw new Error(message)
+    }
+    return r.json() as Promise<{ ok: boolean; skill: InstalledSkill }>
+  },
   uninstallSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/uninstall`),
   toggleSkill: (key: string, disabled: boolean) =>
     send<{ ok: boolean; disabled: boolean }>('POST', `/skills/${encodeURIComponent(key)}/toggle`, { disabled }),
