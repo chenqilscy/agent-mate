@@ -245,6 +245,7 @@
 | [WB-227](WB-227-skill-tool-binding-free-text-silent-drop.md) | ✅ | P2 | fullstack | 技能工具绑定为自由文本，未知工具会静默失效 |
 | [WB-228](WB-228-skill-editor-missing-destructive-and-dirty-guards.md) | ✅ | P2 | ui | 技能编辑与整项删除缺少防误操作保护 |
 | [WB-229](WB-229-skill-list-lacks-search-filter-and-ordering.md) | ✅ | P3 | ui | 技能目录列表缺少搜索筛选与可见排序能力 |
+| [WB-230](WB-230-langfuse-agent-observability.md) | ✅ | P2 | backend | Agent 运行缺少 Langfuse 可观测链路 |
 
 ## 来源
 

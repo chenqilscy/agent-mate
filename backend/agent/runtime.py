@@ -13,12 +13,13 @@ signal, token accounting — so it upgrades (not rewrites) to PydanticAI later
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import json
 import time
 from typing import Any, AsyncIterator
 
 from agent import events
-from agent import agent_settings, memory, security, weknora
+from agent import agent_settings, memory, security, telemetry, weknora
 from agent.experts import persona_for
 from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
@@ -234,6 +235,47 @@ async def run_chat(
     refs: list[dict] | None = None,
     system_extra: str | None = None,
     workspace: str | None = None,
+) -> AsyncIterator[str]:
+    """Trace one user turn, delegating the unchanged SSE loop to the inner runner."""
+    mode = "ask" if ask else ("plan" if plan else "exec")
+    with telemetry.chat_observation(
+        session_id=session.id,
+        user_id=user.id,
+        user_text=user_text,
+        project_id=session.project_id,
+        mode=mode,
+        selected_model=model,
+        refs_count=len(refs or []),
+        skills_count=len(skills or []),
+        connectors_count=len(connectors or []),
+    ) as chat_trace:
+        async for chunk in _run_chat_inner(
+            session, user, user_text,
+            model=model, plan=plan, ask=ask,
+            experts=experts, skills=skills, connectors=connectors,
+            knowledge_ids=knowledge_ids, refs=refs,
+            system_extra=system_extra, workspace=workspace,
+            chat_trace=chat_trace,
+        ):
+            yield chunk
+
+
+async def _run_chat_inner(
+    session: Session,
+    user: User,
+    user_text: str,
+    *,
+    model: str | None = None,
+    plan: bool = False,
+    ask: bool = False,
+    experts: list[str] | None = None,
+    skills: list[str] | None = None,
+    connectors: list[str] | None = None,
+    knowledge_ids: list[str] | None = None,
+    refs: list[dict] | None = None,
+    system_extra: str | None = None,
+    workspace: str | None = None,
+    chat_trace: telemetry.Observation,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
 
@@ -494,37 +536,61 @@ async def run_chat(
             reasoning_buf = ""
             tool_acc: dict[int, dict[str, Any]] = {}
             think_pending = True  # emit a "深度思考" marker before acting if no reasoning shown
+            round_prompt = 0
+            round_completion = 0
+            first_token_at = None
 
-            async for delta in stream_chat(
-                llm_messages, model=model_id, tools=schemas,
-                api_base=model_base, api_key=model_key, chat_path=model_path,
+            with telemetry.generation_observation(
+                name=f"llm.chat.round-{_round + 1}",
+                model=model_id,
+                messages=llm_messages,
                 temperature=_temperature,
-            ):
-                if stop.is_set():
-                    stopped = True
-                    break
-                if delta.reasoning:
-                    think_pending = False
-                    reasoning_buf += delta.reasoning
-                    while "\n" in reasoning_buf:
-                        line, reasoning_buf = reasoning_buf.split("\n", 1)
-                        line = line.strip()
-                        if line:
-                            yield record({"kind": "think", "text": line})
-                if delta.content:
-                    content_buf += delta.content
-                    assistant_text += delta.content
-                    yield events.text(delta.content)
-                for tc in delta.tool_calls:
-                    acc = tool_acc.setdefault(tc.index, {"id": None, "name": "", "args": ""})
-                    if tc.id:
-                        acc["id"] = tc.id
-                    if tc.name:
-                        acc["name"] = tc.name
-                    acc["args"] += tc.arguments
-                if delta.usage:
-                    last_prompt = int(delta.usage.get("prompt_tokens") or last_prompt)
-                    total_completion += int(delta.usage.get("completion_tokens") or 0)
+                round_number=_round + 1,
+            ) as generation_trace:
+                async for delta in stream_chat(
+                    llm_messages, model=model_id, tools=schemas,
+                    api_base=model_base, api_key=model_key, chat_path=model_path,
+                    temperature=_temperature,
+                ):
+                    if stop.is_set():
+                        stopped = True
+                        break
+                    if first_token_at is None and (delta.content or delta.reasoning or delta.tool_calls):
+                        first_token_at = datetime.now(timezone.utc)
+                    if delta.reasoning:
+                        think_pending = False
+                        reasoning_buf += delta.reasoning
+                        while "\n" in reasoning_buf:
+                            line, reasoning_buf = reasoning_buf.split("\n", 1)
+                            line = line.strip()
+                            if line:
+                                yield record({"kind": "think", "text": line})
+                    if delta.content:
+                        content_buf += delta.content
+                        assistant_text += delta.content
+                        yield events.text(delta.content)
+                    for tc in delta.tool_calls:
+                        acc = tool_acc.setdefault(tc.index, {"id": None, "name": "", "args": ""})
+                        if tc.id:
+                            acc["id"] = tc.id
+                        if tc.name:
+                            acc["name"] = tc.name
+                        acc["args"] += tc.arguments
+                    if delta.usage:
+                        round_prompt = int(delta.usage.get("prompt_tokens") or round_prompt)
+                        round_completion += int(delta.usage.get("completion_tokens") or 0)
+                        last_prompt = round_prompt or last_prompt
+                        total_completion += int(delta.usage.get("completion_tokens") or 0)
+
+                generation_trace.update(
+                    output={
+                        "content": content_buf,
+                        "tool_calls": [item.get("name", "") for item in tool_acc.values()],
+                        "stopped": stopped,
+                    },
+                    completion_start_time=first_token_at,
+                    usage_details={"input": round_prompt, "output": round_completion},
+                )
 
             if stopped:
                 break
@@ -560,42 +626,57 @@ async def run_chat(
                     args = {}
 
                 if name == "ask_user":
-                    # Suspend the agent until the user answers (spec 5.3). The
-                    # /answer endpoint sets our event and wakes us on the SAME
-                    # open SSE stream. stop also wakes us (via request_stop).
-                    questions = args.get("questions") or []
-                    # Be robust to a model that returns malformed questions (bare
-                    # strings instead of {q, options}) — coerce so a bad shape
-                    # doesn't AttributeError the whole turn (WB-023).
-                    questions = [
-                        q if isinstance(q, dict) else {"q": str(q), "options": []}
-                        for q in (questions if isinstance(questions, list) else [])
-                    ]
-                    ev = asyncio.Event()
-                    _answers[run_id] = {"ev": ev, "answers": None}
-                    yield events.ask_user(questions)
-                    db.touch_session(session_id, status="waiting")
-                    await ev.wait()
-                    pending = _answers.pop(run_id, None)
-                    answers = (pending or {}).get("answers")
-                    db.touch_session(session_id, status="running")
-                    if stop.is_set() or answers is None:
-                        stopped = True
-                        llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": "用户已跳过或取消本次提问。"})
-                        break
-                    qa = [
-                        {"q": q.get("q", ""), "a": answers[i] if i < len(answers) else ""}
-                        for i, q in enumerate(questions)
-                    ]
-                    yield record({"kind": "qa", "qa": qa})
-                    result = "用户的选择：\n" + "\n".join(f"- {x['q']} → {x['a']}" for x in qa)
-                    llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+                    with telemetry.tool_observation(
+                        name="ask_user",
+                        arguments={
+                            "question_count": len(args.get("questions") or [])
+                            if isinstance(args.get("questions"), list) else 0,
+                        },
+                        source="runtime",
+                    ) as tool_trace:
+                        # Suspend the agent until the user answers (spec 5.3). The
+                        # /answer endpoint sets our event and wakes us on the SAME
+                        # open SSE stream. stop also wakes us (via request_stop).
+                        questions = args.get("questions") or []
+                        # Be robust to a model that returns malformed questions (bare
+                        # strings instead of {q, options}) — coerce so a bad shape
+                        # doesn't AttributeError the whole turn (WB-023).
+                        questions = [
+                            q if isinstance(q, dict) else {"q": str(q), "options": []}
+                            for q in (questions if isinstance(questions, list) else [])
+                        ]
+                        ev = asyncio.Event()
+                        _answers[run_id] = {"ev": ev, "answers": None}
+                        yield events.ask_user(questions)
+                        db.touch_session(session_id, status="waiting")
+                        await ev.wait()
+                        pending = _answers.pop(run_id, None)
+                        answers = (pending or {}).get("answers")
+                        db.touch_session(session_id, status="running")
+                        if stop.is_set() or answers is None:
+                            stopped = True
+                            tool_trace.update(output={"status": "cancelled"})
+                            llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": "用户已跳过或取消本次提问。"})
+                            break
+                        qa = [
+                            {"q": q.get("q", ""), "a": answers[i] if i < len(answers) else ""}
+                            for i, q in enumerate(questions)
+                        ]
+                        yield record({"kind": "qa", "qa": qa})
+                        result = "用户的选择：\n" + "\n".join(f"- {x['q']} → {x['a']}" for x in qa)
+                        tool_trace.update(output={"status": "answered", "answer_count": len(answers)})
+                        llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
                     continue
 
                 if name in mcp_by_name:
                     mt = mcp_by_name[name]
                     yield record({"kind": "step", "tool": mt.orig, "label": f"[{mt.connector}] {mt.orig}"})
-                    result = await call_mcp(mt, args)
+                    with telemetry.tool_observation(
+                        name=mt.orig, arguments=args, source="mcp",
+                        metadata={"connector": mt.connector, "qualified_name": name},
+                    ) as tool_trace:
+                        result = await call_mcp(mt, args)
+                        tool_trace.update(output=result)
                     llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": result[:6000]})
                     continue
 
@@ -611,7 +692,11 @@ async def run_chat(
                 # subprocess / web_fetch / file IO can't freeze every other SSE
                 # stream or block /stop for its whole timeout (WB-002). to_thread
                 # copies the contextvars, so the sandbox root stays correct.
-                outcome = await asyncio.to_thread(run_tool, tool, args)
+                with telemetry.tool_observation(
+                    name=name, arguments=args, source="builtin",
+                ) as tool_trace:
+                    outcome = await asyncio.to_thread(run_tool, tool, args)
+                    tool_trace.update(output=outcome.text)
                 for it in outcome.trace:
                     yield record(it)
                 # Transient live events (WB-031: kanban sync) — emitted, not recorded,
@@ -626,6 +711,10 @@ async def run_chat(
             # loop again so the model can use the results
         finished_ok = True  # loop completed normally (incl. user-stop)
     except LLMError as e:
+        chat_trace.update(
+            output={"status": "llm_error", "partial_chars": len(assistant_text)},
+            level="ERROR", status_message=str(e),
+        )
         yield events.error(str(e))
         mid = _persist_partial()  # 保留已流式的半截回复（WB-160）
         db.touch_session(session_id, status="idle")
@@ -633,6 +722,10 @@ async def run_chat(
         yield events.done(mid)
         return
     except Exception as e:  # noqa: BLE001 — surface any hiccup to the UI
+        chat_trace.update(
+            output={"status": "error", "partial_chars": len(assistant_text)},
+            level="ERROR", status_message=str(e),
+        )
         yield events.error(f"执行出错：{e}")
         mid = _persist_partial()  # 保留已流式的半截回复（WB-160）
         db.touch_session(session_id, status="idle")
@@ -669,6 +762,16 @@ async def run_chat(
             usage={"prompt": last_prompt, "completion": total_completion},
         )
         message_id = msg.id
+
+    chat_trace.update(
+        output={"content": assistant_text, "stopped": stopped},
+        metadata={
+            "message_id": message_id or "",
+            "prompt_tokens": last_prompt,
+            "completion_tokens": total_completion,
+            "tool_trace_items": len(trace_items),
+        },
+    )
 
     db.touch_session(session_id, status="done")
 

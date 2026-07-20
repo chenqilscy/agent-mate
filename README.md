@@ -121,6 +121,9 @@ LLM_MODEL=deepseek-chat
 
 Any OpenAI-compatible endpoint works (GLM / Kimi / MiniMax / OpenAI / …).
 
+可选的 Langfuse LLM trace、token、TTFT 与工具链路观测见
+[`docs/langfuse-observability.md`](docs/langfuse-observability.md)。该能力默认关闭且默认不上传正文。
+
 ## Layout
 
 ```

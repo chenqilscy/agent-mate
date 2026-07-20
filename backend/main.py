@@ -36,7 +36,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from agent import scheduler, skills as agent_skills
+from agent import scheduler, skills as agent_skills, telemetry
 from auth.middleware import AuthMiddleware
 from channels import manager as channel_manager
 from config import FROZEN, settings
@@ -134,9 +134,19 @@ async def _stop_channels() -> None:
     await channel_manager.stop()
 
 
+@app.on_event("shutdown")
+def _stop_telemetry() -> None:
+    # Langfuse batches exports in background threads. Default-off/no client is a no-op.
+    telemetry.shutdown()
+
+
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True, "llm_configured": settings.llm_configured}
+    return {
+        "ok": True,
+        "llm_configured": settings.llm_configured,
+        "langfuse_configured": settings.langfuse_configured,
+    }
 
 
 app.include_router(auth.router)

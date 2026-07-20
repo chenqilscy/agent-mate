@@ -10,6 +10,12 @@ hidden += collect_submodules('uvicorn')
 # stdio client + FastMCP server only).
 hidden += collect_submodules('mcp', filter=lambda n: not n.startswith('mcp.cli'))
 hidden += collect_submodules('anyio')
+# Langfuse v4 loads its generated API/OTel modules dynamically. It is runtime
+# optional but shipped in the sidecar so enabling it never requires local Python.
+hidden += collect_submodules(
+    'langfuse',
+    filter=lambda n: not n.startswith(('langfuse.langchain', 'langfuse.openai')),
+)
 hidden += ['mcp_servers', 'mcp_servers.notes', 'mcp_servers.clock', 'mcp_servers.search']
 hidden += ['httptools', 'websockets', 'h11', 'sniffio', 'click', 'dotenv']
 

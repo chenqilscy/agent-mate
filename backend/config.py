@@ -64,6 +64,17 @@ class Settings:
     LLM_API_BASE: str = os.getenv("LLM_API_BASE", "https://api.deepseek.com/v1").strip().rstrip("/")
     LLM_MODEL: str = os.getenv("LLM_MODEL", "deepseek-chat").strip()
 
+    # 可选 Langfuse LLM 可观测性（WB-230）。默认关闭；即使启用，提示词/回复/工具正文也要
+    # LANGFUSE_CAPTURE_CONTENT=1 才上传。密钥只在本地 backend 读取，且下方 SECRET_ENV_KEYS
+    # 会把 LANGFUSE_SECRET_KEY 从 run_command 子进程环境剔除。
+    LANGFUSE_ENABLED: bool = os.getenv("LANGFUSE_ENABLED", "0").strip().lower() in ("1", "true", "yes")
+    LANGFUSE_PUBLIC_KEY: str = os.getenv("LANGFUSE_PUBLIC_KEY", "").strip()
+    LANGFUSE_SECRET_KEY: str = os.getenv("LANGFUSE_SECRET_KEY", "").strip()
+    LANGFUSE_BASE_URL: str = os.getenv("LANGFUSE_BASE_URL", "").strip().rstrip("/")
+    LANGFUSE_TRACING_ENVIRONMENT: str = os.getenv("LANGFUSE_TRACING_ENVIRONMENT", "development").strip()
+    LANGFUSE_SAMPLE_RATE: str = os.getenv("LANGFUSE_SAMPLE_RATE", "1.0").strip()
+    LANGFUSE_CAPTURE_CONTENT: bool = os.getenv("LANGFUSE_CAPTURE_CONTENT", "0").strip().lower() in ("1", "true", "yes")
+
     HOST: str = os.getenv("HOST", "127.0.0.1")
     PORT: int = int(os.getenv("PORT", "8101"))
 
@@ -141,6 +152,15 @@ class Settings:
     @property
     def server_enabled(self) -> bool:
         return bool(self.AGENTMATE_SERVER_URL)
+
+    @property
+    def langfuse_configured(self) -> bool:
+        return bool(
+            self.LANGFUSE_ENABLED
+            and self.LANGFUSE_PUBLIC_KEY
+            and self.LANGFUSE_SECRET_KEY
+            and self.LANGFUSE_BASE_URL
+        )
 
     @property
     def telegram_assistant_enabled(self) -> bool:
