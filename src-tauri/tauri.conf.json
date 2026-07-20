@@ -5,7 +5,7 @@
   "identifier": "com.agentmate.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:8102",
     "beforeDevCommand": "",
     "beforeBuildCommand": "pnpm build"
   },

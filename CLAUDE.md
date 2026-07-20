@@ -8,7 +8,7 @@
 AgentMate —— 从腾讯 WorkBuddy 的高保真参考原型 [`docs/tencent-workbuddy-reference.html`](docs/tencent-workbuddy-reference.html) 按方案
 [`docs/agentmate-实现方案.md`](docs/agentmate-实现方案.md) 落地的**可真实运行**的桌面 AI-agent 应用。
 前端 React 19 + Vite + TS + Zustand（`src/`），后端 Python FastAPI + SSE + 自研 agent 工具循环 + SQLite（`backend/`）。
-Local-first：后端跑在用户本机 localhost，浏览器（`:5173` 代理 `/api` 到 `:8000`）只是显示器。
+Local-first：后端跑在用户本机 localhost，浏览器（`:8102` 代理 `/api` 到 `:8101`）只是显示器。
 
 进度：M0–M5 + §11 项目工作台 A–D 已完成并验证；Tauri 2 桌面外壳（路线 A：外壳/sidecar/安装包/托盘·更新脚手架）已落地；
 能力补全（路线 B：自动化 + 内置/第三方 MCP 连接器 + 更多真实技能工具）已落地；
@@ -33,7 +33,7 @@ WB-063 迁移与 local-first 回退（存量导入 Server、LOCAL_USER↔Server 
 ## 架构速览
 
 ```
-浏览器 :5173 ──/api 代理──▶ FastAPI :8000 ──▶ OpenAI 兼容 LLM
+浏览器 :8102 ──/api 代理──▶ FastAPI :8101 ──▶ OpenAI 兼容 LLM
  React/Zustand              自研 agent 工具循环
  marked/DOMPurify/hljs      SQLite 持久化 · 每项目沙箱工作区
 ```
@@ -84,7 +84,7 @@ cd backend && ./.venv/Scripts/python.exe -m py_compile <改动的 .py>
 
 ## 已知易踩的坑
 
-- 后端 `reload=True` 有时不生效 → 改动没反应就硬重启 `:8000` 进程。
+- 后端 `reload=True` 有时不生效 → 改动没反应就硬重启 `:8101` 进程。
 - Windows 终端 GBK 会把中文 JSON 显示成乱码，但底层数据是对的 UTF-8；curl 传中文 body 要写成 UTF-8 文件再 `--data-binary @file`。
 - MCP 工具名必须 ASCII；spawn 的 MCP 服务器要强制 `PYTHONUTF8=1`/`PYTHONIOENCODING=utf-8`。
 - Playwright 触发不了原生 HTML5 拖拽（需派发带共享 DataTransfer 的 DragEvent）；也读不到仓库根以外的上传文件。

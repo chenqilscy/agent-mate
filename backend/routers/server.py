@@ -67,7 +67,7 @@ def server_status(authorization: str = Header(default="")) -> dict:
     return {"enabled": enabled, "linked": linked}
 
 
-# ---- 前端接 Server 的代理路由（WB-067）：前端只连本地 :8000，这里转发到 Server。全部 guarded。----
+# ---- 前端接 Server 的代理路由（WB-067）：前端只连本地 :8101，这里转发到 Server。全部 guarded。----
 
 class ServerLoginBody(BaseModel):
     name: str

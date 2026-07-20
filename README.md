@@ -56,7 +56,7 @@ M5+（MCP 连接器 / Tauri 外壳 / 协作 / Server / Console / 知识库 / 多
 ## Architecture (Local-first)
 
 ```
-Browser (Vite :5173)  ──/api proxy──▶  FastAPI backend (:8000)  ──▶  OpenAI-compatible LLM
+Browser (Vite :8102)  ──/api proxy──▶  FastAPI backend (:8101)  ──▶  OpenAI-compatible LLM
   React 19 + TS + Zustand                Agent runtime (thin loop)      (LLM_API_BASE)
   marked/DOMPurify/hljs                  SQLite persistence
                                          sandbox workspace/
@@ -79,14 +79,14 @@ python -m venv .venv
 # .venv/bin/pip install -r requirements.txt        # macOS/Linux
 
 # 2. Start the backend
-.venv/Scripts/python main.py                       # → http://localhost:8000
+.venv/Scripts/python main.py                       # → http://localhost:8101
 
 # 3. Frontend (new terminal, from repo root)
 pnpm install
-pnpm dev                                            # → http://localhost:5173
+pnpm dev                                            # → http://localhost:8102
 ```
 
-Open http://localhost:5173. Without a key, chat streams a friendly "LLM not
+Open http://localhost:8102. Without a key, chat streams a friendly "LLM not
 configured" error (the full SSE pipeline still runs); with a key you get real
 token-by-token streaming.
 
@@ -98,11 +98,11 @@ projects / members and the shared catalog (including the periodic SkillHub mirro
 WB-069) — start all three tiers:
 
 ```
-Browser (:5173) ──/api──▶ backend (:8000) ──AGENTMATE_SERVER_URL──▶ Server (:8100)
+Browser (:8102) ──/api──▶ backend (:8101) ──AGENTMATE_SERVER_URL──▶ Server (:8100)
 ```
 
 ```powershell
-./run-stack.ps1     # Server :8100 + backend :8000 (Server-connected) + frontend :5173
+./run-stack.ps1     # Server :8100 + backend :8101 (Server-connected) + frontend :8102
 ```
 
 `run-stack.ps1` launches each tier in its own window and skips any port already

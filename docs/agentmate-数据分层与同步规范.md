@@ -5,7 +5,7 @@
 
 ## 0. 定位
 
-- **AgentMate App**（本地 backend `:8000` + React `:5173`）：**local-first 执行端**。用户实际干活的地方，离线可用。是前端的**唯一入口**（前端只连本地 backend）。
+- **AgentMate App**（本地 backend `:8101` + React `:8102`）：**local-first 执行端**。用户实际干活的地方，离线可用。是前端的**唯一入口**（前端只连本地 backend）。
 - **AgentMate Server**（`:8100`，目录 `server/`）：**中心 API / 控制平面**。账号·组织·项目·成员·协作的**权威源**，多端统一管理。它**不执行**任务、**不持有**凭据。
 - **AgentMate Console**：由 Server 同源托管的 **Web 管理控制台**，通过 Server API 管理上述数据；它不是独立数据源或独立服务。
 

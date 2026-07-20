@@ -65,7 +65,7 @@ class Settings:
     LLM_MODEL: str = os.getenv("LLM_MODEL", "deepseek-chat").strip()
 
     HOST: str = os.getenv("HOST", "127.0.0.1")
-    PORT: int = int(os.getenv("PORT", "8000"))
+    PORT: int = int(os.getenv("PORT", "8101"))
 
     # 知识库改用自托管 WeKnora（WB-173）：后端当 WeKnora 客户端，X-API-Key 打其 REST /api/v1。
     # 这三个只是**兜底**（WB-188）：连接配置现在按 owner 存 DB（UI 表单填，见 agent/weknora.py

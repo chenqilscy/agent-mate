@@ -8,7 +8,7 @@ import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automatio
 // backend directly (CORS on the backend allows the tauri origin).
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 export const API_BASE =
-  import.meta.env.VITE_API_BASE ?? (isTauri ? 'http://127.0.0.1:8000/api' : '/api')
+  import.meta.env.VITE_API_BASE ?? (isTauri ? 'http://127.0.0.1:8101/api' : '/api')
 
 // Bearer token for real accounts (M7 C1). Stored in localStorage so it survives
 // reloads and is readable by both api.ts and the SSE reader. No token → the

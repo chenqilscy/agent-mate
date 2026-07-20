@@ -277,15 +277,15 @@ python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt     # Windows（macOS/Linux 用 .venv/bin/pip）
 
 # 2. 启动后端
-.venv/Scripts/python main.py                      # → http://localhost:8000
+.venv/Scripts/python main.py                      # → http://localhost:8101
 
 # 3. 启动前端（新终端，仓库根）
-pnpm install && pnpm dev                          # → http://localhost:5173
+pnpm install && pnpm dev                          # → http://localhost:8102
 
-# 4. 打开浏览器 → http://localhost:5173（桌面壳：build_sidecar.py 后 pnpm tauri:dev）
+# 4. 打开浏览器 → http://localhost:8102（桌面壳：build_sidecar.py 后 pnpm tauri:dev）
 ```
 
-> Windows 后端默认 `reload=False`（Proactor 事件循环 + MCP 子进程约束）——改后端代码需**硬重启** `:8000`。缺 Key 时对话流式回一条友好的「LLM 未配置」错误，整条 SSE 管线照常跑。
+> Windows 后端默认 `reload=False`（Proactor 事件循环 + MCP 子进程约束）——改后端代码需**硬重启** `:8101`。缺 Key 时对话流式回一条友好的「LLM 未配置」错误，整条 SSE 管线照常跑。
 
 ## 十、下一步
 
@@ -368,7 +368,7 @@ pnpm install && pnpm dev                          # → http://localhost:5173
 
 "执行即交付"的核心场景全部落在左列——**Agent 操作的是用户自己的机器**。所以云后端 + 纯 Web 的路线直接排除。
 
-但注意：这些能力来自"后端进程跑在本机"，与有没有壳无关。**浏览器访问 `localhost:5173`、后端跑在 `localhost:8000`，这个组合在能力上已经是一个桌面应用**——只是外观上多开了个浏览器标签。这就是 Local-first 架构的取舍：M0–M4 用浏览器承载 UI 快速迭代（热更新、DevTools、零打包成本），桌面能力一天不缺；壳只解决"看起来/用起来像原生应用"的最后一层。
+但注意：这些能力来自"后端进程跑在本机"，与有没有壳无关。**浏览器访问 `localhost:8102`、后端跑在 `localhost:8101`，这个组合在能力上已经是一个桌面应用**——只是外观上多开了个浏览器标签。这就是 Local-first 架构的取舍：M0–M4 用浏览器承载 UI 快速迭代（热更新、DevTools、零打包成本），桌面能力一天不缺；壳只解决"看起来/用起来像原生应用"的最后一层。
 
 壳的排期为什么必须提前到 M4：**壳的选型决定后端打包方式**（Tauri sidecar 拉起 PyInstaller 单文件，或 Electron 主进程管理子进程），影响进程生命周期管理、日志路径、更新机制。拖到 M6 后评估，意味着 M5 做的 MCP 进程管理可能按错误假设实现，返工面大。
 

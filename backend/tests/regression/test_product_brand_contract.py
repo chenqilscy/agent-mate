@@ -69,6 +69,19 @@ class ProductBrandContractTest(unittest.TestCase):
         self.assertIn(f'version="{expected}"', read("backend/main.py"))
         self.assertIn(f'version="{expected}"', read("server/main.py"))
 
+    def test_local_stack_ports_are_consistent(self) -> None:
+        self.assertIn('os.getenv("AGENTMATE_SERVER_PORT", "8100")', read("server/config.py"))
+        self.assertIn('os.getenv("PORT", "8101")', read("backend/config.py"))
+        vite = read("vite.config.ts")
+        self.assertIn("port: 8102", vite)
+        self.assertIn("strictPort: true", vite)
+        self.assertIn("target: 'http://localhost:8101'", vite)
+        self.assertIn("http://127.0.0.1:8101/api", read("src/lib/api.ts"))
+        self.assertEqual(
+            "http://localhost:8102",
+            json.loads(read("src-tauri/tauri.conf.json"))["build"]["devUrl"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

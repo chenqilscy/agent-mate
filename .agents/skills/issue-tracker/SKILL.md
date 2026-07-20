@@ -98,6 +98,6 @@ npx vite build
 # 后端编译检查
 cd backend && ./.venv/Scripts/python.exe -m py_compile <files>
 # 启动（详见 README）
-cd backend && ./.venv/Scripts/python.exe main.py     # :8000
-pnpm dev                                              # :5173
+cd backend && ./.venv/Scripts/python.exe main.py     # :8101
+pnpm dev                                              # :8102
 ```

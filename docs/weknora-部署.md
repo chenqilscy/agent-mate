@@ -10,7 +10,7 @@ Docker 服务，AgentMate 后端只当它的**客户端**（`X-API-Key` 打 `htt
 > 端口以你的部署为准）；已注册 GLM `embedding-3` 嵌入模型。`backend/.env` 现有值：
 > `WEKNORA_URL=http://localhost:37200`、`WEKNORA_API_KEY=sk-…`（租户 key，只在后端）、
 > `WEKNORA_EMBEDDING_MODEL_ID=668e2596-…`。下面 :8080 的示例把端口换成 **37200** 即与本机一致。
-> 改了 `backend/.env` 后**须硬重启 backend(:8000)**——`reload=True` 不会重读 .env，历史上还有「serving stale code」。
+> 改了 `backend/.env` 后**须硬重启 backend(:8101)**——`reload=True` 不会重读 .env，历史上还有「serving stale code」。
 
 ---
 

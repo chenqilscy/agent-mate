@@ -17,7 +17,7 @@ LLM，断言依然确定、不 flaky。一个指令性 prompt 诱发某个动作
 
 ## 前置
 
-- 后端跑在 `:8000`，且 `backend/.env` 配了真实 LLM（`LLM_API_KEY` 等）。
+- 后端跑在 `:8101`，且 `backend/.env` 配了真实 LLM（`LLM_API_KEY` 等）。
 - 用项目 venv 跑：`backend/.venv/Scripts/python.exe`。
 - 每个套件用一个一次性账号（`atest_*`/`btest_*`/`ctest_*`/`dtest_*`）跑完即**全量清理**其数据。
 
@@ -34,7 +34,7 @@ backend/.venv/Scripts/python.exe backend/tests/functional/test_B_projects.py
 
 ## 环境变量（可选覆盖）
 
-- `AGENTMATE_TEST_BASE`（默认 `http://127.0.0.1:8000/api`）
+- `AGENTMATE_TEST_BASE`（默认 `http://127.0.0.1:8101/api`）
 - `AGENTMATE_DB`（默认 `backend/agentmate.db`）——须与后端所用 DB 一致才能核对副作用
 - `AGENTMATE_WORKSPACE`（默认 `backend/workspace`）
 

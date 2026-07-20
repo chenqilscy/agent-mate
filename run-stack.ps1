@@ -1,10 +1,10 @@
-# AgentMate 三层本地栈一键启动：Server(:8100) + backend(:8000, 接 Server) + frontend(:5173)
+# AgentMate 三层本地栈一键启动：Server(:8100) + backend(:8101, 接 Server) + frontend(:8102)
 #
 # 用法（在仓库根，PowerShell）：  ./run-stack.ps1
 # 每层在独立窗口启动；已在运行的端口会跳过。关掉对应窗口即停该层。
 # 前置：依赖已装（backend/.venv + pnpm install，见 README）；SkillHub CLI 在 ~/.skillhub。
 #
-# 拓扑：浏览器(:5173) --/api 代理--> backend(:8000) --AGENTMATE_SERVER_URL--> Server(:8100)
+# 拓扑：浏览器(:8102) --/api 代理--> backend(:8101) --AGENTMATE_SERVER_URL--> Server(:8100)
 #   Server      账号/组织/项目/成员 + 目录（含 SkillHub 定时镜像 369 技能）的权威源
 #   backend  local-first 执行 + 作 Server 客户端（下行 pull 镜像 / 上行 outbox）
 #   frontend 显示器，只连本地 backend
@@ -31,21 +31,21 @@ else {
   Start-Process -FilePath $py -ArgumentList 'main.py' -WorkingDirectory (Join-Path $root 'server')
 }
 
-# 2) backend :8000（接 Server）
-if (Test-Listening 8000) { Write-Host 'backend  :8000  已在运行，跳过' -ForegroundColor Yellow }
+# 2) backend :8101（接 Server）
+if (Test-Listening 8101) { Write-Host 'backend  :8101  已在运行，跳过' -ForegroundColor Yellow }
 else {
-  Write-Host '启动 backend  :8000（接 Server）...' -ForegroundColor Cyan
+  Write-Host '启动 backend  :8101（接 Server）...' -ForegroundColor Cyan
   Start-Process -FilePath $py -ArgumentList 'main.py' -WorkingDirectory (Join-Path $root 'backend')
 }
 
-# 3) frontend :5173
-if (Test-Listening 5173) { Write-Host 'frontend :5173  已在运行，跳过' -ForegroundColor Yellow }
+# 3) frontend :8102
+if (Test-Listening 8102) { Write-Host 'frontend :8102  已在运行，跳过' -ForegroundColor Yellow }
 else {
-  Write-Host '启动 frontend :5173 ...' -ForegroundColor Cyan
+  Write-Host '启动 frontend :8102 ...' -ForegroundColor Cyan
   Start-Process -FilePath 'cmd.exe' -ArgumentList '/k pnpm dev' -WorkingDirectory $root
 }
 
 Write-Host ''
-Write-Host '三层：Server :8100  /  backend :8000（接 Server）  /  frontend :5173' -ForegroundColor Green
-Write-Host '浏览器打开  http://localhost:5173   → 技能页即显示 Server 镜像的真实技能目录'
-Write-Host '停止：关掉各自窗口，或  Get-NetTCPConnection -LocalPort 8100,8000,5173 | %{ Stop-Process -Id $_.OwningProcess -Force }'
+Write-Host '三层：Server :8100  /  backend :8101（接 Server）  /  frontend :8102' -ForegroundColor Green
+Write-Host '浏览器打开  http://localhost:8102   → 技能页即显示 Server 镜像的真实技能目录'
+Write-Host '停止：关掉各自窗口，或  Get-NetTCPConnection -LocalPort 8100,8101,8102 | %{ Stop-Process -Id $_.OwningProcess -Force }'

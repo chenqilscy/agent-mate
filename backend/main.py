@@ -84,13 +84,13 @@ app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_JSON_BODY)
 # Resolve the Bearer token → current user (M7 C1). Pure ASGI, so SSE stays intact.
 app.add_middleware(AuthMiddleware)
 
-# During M0–M4 the UI is served by Vite on :5173 and proxies /api. CORS stays
+# During M0–M4 the UI is served by Vite on :8102 and proxies /api. CORS stays
 # permissive for localhost so direct-origin dev (no proxy) also works.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
+        "http://localhost:8102",
+        "http://127.0.0.1:8102",
         # Tauri desktop shell webview origins (A2): Windows serves the app from
         # http(s)://tauri.localhost, other platforms from tauri://localhost.
         "http://tauri.localhost",

@@ -4,7 +4,7 @@ backend and print an aggregate verdict. Exit code = number of failing suites.
 Usage (from anywhere):
     backend/.venv/Scripts/python.exe backend/tests/functional/run_all.py
 
-Requires: backend running on :8000 with a real LLM configured in backend/.env.
+Requires: backend running on :8101 with a real LLM configured in backend/.env.
 Each suite creates a throwaway account and deletes all of its data at the end.
 """
 import subprocess, sys, os

@@ -89,7 +89,7 @@ c.section("B8 探测:非成员能否把 /chat 指向他人项目(隔离)")
 import urllib.request as _u, urllib.error as _e, json as _j
 stranger, sid_g = account("btest_stranger")
 def _chat_status(token, body):
-    req = _u.Request("http://127.0.0.1:8000/api/chat", data=_j.dumps(body).encode(), method="POST")
+    req = _u.Request("http://127.0.0.1:8101/api/chat", data=_j.dumps(body).encode(), method="POST")
     req.add_header("Content-Type", "application/json"); req.add_header("Authorization", "Bearer " + token)
     try:
         r = _u.urlopen(req, timeout=15); code = r.status; r.close(); return code

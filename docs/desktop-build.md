@@ -16,15 +16,15 @@ AgentMate 用 Tauri 2 打成桌面应用：前端在系统 WebView2 里显示，
 
 **浏览器开发**（全功能、开发库 `backend/agentmate.db`）：
 ```bash
-cd backend && ./.venv/Scripts/python.exe main.py     # 后端 :8000
-pnpm dev                                              # Vite :5173
-# 浏览器打开 http://localhost:5173
+cd backend && ./.venv/Scripts/python.exe main.py     # 后端 :8101
+pnpm dev                                              # Vite :8102
+# 浏览器打开 http://localhost:8102
 ```
 
 **桌面壳里跑**（验证打包行为）：
 ```bash
 backend/.venv/Scripts/python.exe backend/build_sidecar.py   # 构建 sidecar（改了后端才需重跑）
-pnpm dev                                                     # Vite :5173
+pnpm dev                                                     # Vite :8102
 pnpm tauri:dev                                               # 原生窗口，壳自动拉起 sidecar 后端
 ```
 > 桌面壳用的是**打包版后端**：数据目录在 `%LOCALAPPDATA%/AgentMate`，与开发库隔离。
@@ -51,7 +51,7 @@ pnpm tauri build
   目标三元组命名拷进 `src-tauri/binaries/`。Windows 上 Tauri 按 `x86_64-pc-windows-msvc`
   匹配（即便 host 是 gnu），脚本已同时放 msvc/gnu 两个名字。
 - **进程接管**：`src-tauri/src/lib.rs` 启动时 `spawn` sidecar、drain 其输出、退出时 kill。
-- **前端 API 基址**：壳内自动走绝对 `http://127.0.0.1:8000/api`（无 Vite 代理），后端 CORS
+- **前端 API 基址**：壳内自动走绝对 `http://127.0.0.1:8101/api`（无 Vite 代理），后端 CORS
   已放行 tauri 源。
 - **冻结感知**：`config.py` 打包后在 `%LOCALAPPDATA%/AgentMate` 存放 DB/工作区，`.env` 在
   exe 旁/数据目录查找。

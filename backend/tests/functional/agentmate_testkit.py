@@ -1,7 +1,7 @@
 """Shared kit for AgentMate detailed functional tests against a LIVE backend.
 
 These are INTEGRATION / end-to-end tests: they need the backend running on
-:8000 (real LLM configured in backend/.env) and hit the real SQLite DB. Run them
+:8101 (real LLM configured in backend/.env) and hit the real SQLite DB. Run them
 from a scratch state or accept that each suite creates a throwaway account and
 deletes ALL of its data at the end.
 
@@ -19,7 +19,7 @@ from pathlib import Path
 _BACKEND = Path(__file__).resolve().parents[2]   # backend/tests/functional/ -> backend/
 sys.path.insert(0, str(_BACKEND))
 from config import settings as _settings
-BASE = os.environ.get("AGENTMATE_TEST_BASE", "http://127.0.0.1:8000/api")
+BASE = os.environ.get("AGENTMATE_TEST_BASE", "http://127.0.0.1:8101/api")
 DB = os.environ.get("AGENTMATE_DB", str(_BACKEND / "agentmate.db"))
 WS = Path(os.environ.get("AGENTMATE_WORKSPACE", str(_BACKEND / "workspace")))
 PW = "pw1234"
