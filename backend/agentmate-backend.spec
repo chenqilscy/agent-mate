@@ -2,9 +2,10 @@
 # PyInstaller spec for the AgentMate backend sidecar.
 # uvicorn and mcp import their impl modules dynamically, so collect them; the
 # mcp_servers subpackage is bundled so the `--mcp-server=<name>` re-exec works.
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 hidden = []
+datas = []
 hidden += collect_submodules('uvicorn')
 # Skip mcp.cli — it imports optional `typer`, which we don't ship (we use the
 # stdio client + FastMCP server only).
@@ -18,12 +19,18 @@ hidden += collect_submodules(
 )
 hidden += ['mcp_servers', 'mcp_servers.notes', 'mcp_servers.clock', 'mcp_servers.search']
 hidden += ['httptools', 'websockets', 'h11', 'sniffio', 'click', 'dotenv']
+# Dedicated office artifacts (WB-243). docx/pptx/reportlab load templates,
+# schemas and fonts from package data at runtime, so ship both code and data.
+for package in ('docx', 'openpyxl', 'pptx', 'reportlab', 'pypdf'):
+    hidden += collect_submodules(package)
+for package in ('docx', 'pptx', 'reportlab'):
+    datas += collect_data_files(package)
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=hidden,
     hookspath=[],
     hooksconfig={},

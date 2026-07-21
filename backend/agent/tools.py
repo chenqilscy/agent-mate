@@ -16,12 +16,13 @@ commands behind ask_user authorization.
 from __future__ import annotations
 
 import contextvars
+import json
 import mimetypes
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from agent import security
+from agent import office, security
 from agent.sandbox import SandboxError, current_root, relpath, resolve_in_sandbox
 from config import scrubbed_env
 from storage import db
@@ -44,7 +45,7 @@ class ToolOutcome:
     live: list[dict[str, Any]] = field(default_factory=list)
     # Files truthfully produced by this tool. Runtime turns these descriptors into
     # hashed Artifact manifests tied to the active Run (WB-242).
-    artifacts: list[dict[str, str]] = field(default_factory=list)
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -171,6 +172,141 @@ write_file = Tool(
     },
     pre=lambda a: None,
     run=_write_file_run,
+)
+
+
+# ---- dedicated office deliverables (WB-243) -----------------------------
+
+def _office_create(args: dict[str, Any], builder: Callable[[dict[str, Any]], tuple[str, dict[str, Any]]]) -> ToolOutcome:
+    path, validation = builder(args)
+    return ToolOutcome(
+        text=f"已生成并校验 {path}\n{json.dumps(validation, ensure_ascii=False)}",
+        trace=[{"kind": "step", "tool": "office_validate", "label": f"已校验 {path}"}],
+        artifacts=[{"path": path, "kind": "office", "validation": validation}],
+    )
+
+
+_SECTION_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "heading": {"type": "string"},
+            "level": {"type": "integer", "minimum": 1, "maximum": 3},
+            "paragraphs": {"type": "array", "items": {"type": "string"}},
+        },
+    },
+}
+_TABLES_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "rows": {"type": "array", "items": {"type": "array", "items": {}}},
+        },
+        "required": ["rows"],
+    },
+}
+
+create_docx = Tool(
+    name="create_docx",
+    description="在工作区原子生成并重新打开校验一个 DOCX 报告；不要用 write_file 或 run_command 伪造 Word 文件。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "相对工作区路径，必须以 .docx 结尾"},
+            "title": {"type": "string"}, "sections": _SECTION_SCHEMA,
+            "tables": _TABLES_SCHEMA, "font": {"type": "string"}, "font_size": {"type": "number"},
+        },
+        "required": ["path", "title", "sections"],
+    },
+    pre=lambda a: {"kind": "step", "tool": "create_docx", "label": f"生成 Word {a.get('path', '')}"},
+    run=lambda a: _office_create(a, office.create_docx),
+)
+
+create_xlsx = Tool(
+    name="create_xlsx",
+    description="在工作区原子生成并重新打开校验一个 XLSX；支持多 sheet、公式和一张结构化图表。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "相对工作区路径，必须以 .xlsx 结尾"},
+            "sheets": {
+                "type": "array", "items": {
+                    "type": "object", "properties": {
+                        "name": {"type": "string"},
+                        "rows": {"type": "array", "items": {"type": "array", "items": {}}},
+                        "formulas": {"type": "array", "items": {"type": "object", "properties": {
+                            "cell": {"type": "string"}, "formula": {"type": "string"}}, "required": ["cell", "formula"]}},
+                        "chart": {"type": "object", "properties": {
+                            "type": {"type": "string", "enum": ["bar", "line", "pie"]},
+                            "title": {"type": "string"}, "data_min_col": {"type": "integer"},
+                            "data_max_col": {"type": "integer"}, "categories_col": {"type": "integer"},
+                            "min_row": {"type": "integer"}, "max_row": {"type": "integer"},
+                            "anchor": {"type": "string"},
+                        }},
+                    }, "required": ["name", "rows"],
+                },
+            },
+        },
+        "required": ["path", "sheets"],
+    },
+    pre=lambda a: {"kind": "step", "tool": "create_xlsx", "label": f"生成 Excel {a.get('path', '')}"},
+    run=lambda a: _office_create(a, office.create_xlsx),
+)
+
+create_pptx = Tool(
+    name="create_pptx",
+    description="在工作区原子生成并校验一个 PPTX 演示文稿；自动检查所有 shape 是否越出页面边界。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "相对工作区路径，必须以 .pptx 结尾"},
+            "title": {"type": "string"},
+            "slides": {"type": "array", "items": {"type": "object", "properties": {
+                "title": {"type": "string"}, "bullets": {"type": "array", "items": {"type": "string"}},
+            }, "required": ["title"]}},
+        },
+        "required": ["path", "slides"],
+    },
+    pre=lambda a: {"kind": "step", "tool": "create_pptx", "label": f"生成 PPT {a.get('path', '')}"},
+    run=lambda a: _office_create(a, office.create_pptx),
+)
+
+create_pdf = Tool(
+    name="create_pdf",
+    description="在工作区原子生成并重新解析校验一个 PDF；支持 Unicode 正文与表格。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "相对工作区路径，必须以 .pdf 结尾"},
+            "title": {"type": "string"},
+            "paragraphs": {"type": "array", "items": {"type": "string"}},
+            "tables": _TABLES_SCHEMA,
+        },
+        "required": ["path", "paragraphs"],
+    },
+    pre=lambda a: {"kind": "step", "tool": "create_pdf", "label": f"生成 PDF {a.get('path', '')}"},
+    run=lambda a: _office_create(a, office.create_pdf),
+)
+
+
+def _inspect_office(args: dict[str, Any]) -> ToolOutcome:
+    path = str(args["path"])
+    validation = office.inspect_office_file(path)
+    return ToolOutcome(
+        text=json.dumps(validation, ensure_ascii=False),
+        trace=[{"kind": "file_read", "path": path, "range": "结构校验"}],
+    )
+
+
+inspect_office_file = Tool(
+    name="inspect_office_file",
+    description="只读检查工作区里的 DOCX/XLSX/PPTX/PDF 结构、页/表/公式/图表与页面边界；不会修改文件。",
+    parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+    pre=lambda a: {"kind": "step", "tool": "inspect_office_file", "label": f"检查办公文件 {a.get('path', '')}"},
+    run=_inspect_office,
+    plan_safe=True,
 )
 
 
@@ -530,7 +666,11 @@ knowledge_add = Tool(
 )
 
 
-TOOLS: list[Tool] = [list_dir, read_file, write_file, run_command, update_plan]
+TOOLS: list[Tool] = [
+    list_dir, read_file, write_file,
+    create_docx, create_xlsx, create_pptx, create_pdf, inspect_office_file,
+    run_command, update_plan,
+]
 _BY_NAME = {t.name: t for t in TOOLS}
 
 # ask_user is not a pure function — the runtime suspends on it and resumes when
@@ -572,7 +712,7 @@ ASK_USER_SCHEMA: dict[str, Any] = {
 # Plan mode = read-only tools + ask_user (no write_file / run_command).
 # 这份名单现在只是 `Tool.plan_safe` 的**一致性断言**（WB-186）：过滤真正依据 plan_safe，
 # 好让技能工具（不在 TOOLS 里）也能表达「我 plan 安全吗」。两处若漂移，下面的断言会炸。
-_PLAN_TOOLS = {"list_dir", "read_file", "update_plan"}
+_PLAN_TOOLS = {"list_dir", "read_file", "inspect_office_file", "update_plan"}
 for _t in TOOLS:  # 建表期自检：名单与 plan_safe 必须一致，防止日后改一处忘另一处
     assert (_t.name in _PLAN_TOOLS) == _t.plan_safe, (
         f"tools.py: {_t.name} 的 plan_safe={_t.plan_safe} 与 _PLAN_TOOLS 名单不一致"

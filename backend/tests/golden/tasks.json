@@ -1,0 +1,12 @@
+[
+  {"id":"G01","stage":"R1","name":"资料生成 DOCX 报告","validator":"docx_report","required":["create_docx","inspect_office_file"]},
+  {"id":"G02","stage":"R1","name":"XLSX 清洗、公式与图表","validator":"xlsx_analysis","required":["create_xlsx","inspect_office_file"]},
+  {"id":"G03","stage":"R1","name":"PPTX 生成与页面边界检查","validator":"pptx_deck","required":["create_pptx","inspect_office_file"]},
+  {"id":"G04","stage":"R1","name":"PDF 生成、页数与文本核对","validator":"pdf_package","required":["create_pdf","inspect_office_file"]},
+  {"id":"G05","stage":"R1","name":"登录态网页填写并在提交前确认","validator":"browser_confirmation","required":["browser_navigate","browser_interact","ask_user"]},
+  {"id":"G06","stage":"R1","name":"跨文件修改、补丁与总结","validator":"workspace_patch","required":["read_file","write_file"]},
+  {"id":"G07","stage":"R3","name":"WorkItem 发起 Run 并附 Artifact","validator":"work_item_delivery","required":["runs","artifacts","work_items"]},
+  {"id":"G08","stage":"R2","name":"Run 固化自动化并幂等投递","validator":"automation_idempotency","required":["automation","idempotency","delivery"]},
+  {"id":"G09","stage":"R4","name":"Skill 权限扩大 diff 与确认","validator":"capability_permission_diff","required":["capability_versions","permission_diff","approval"]},
+  {"id":"G10","stage":"R4","name":"Server 撤回能力并同步 tombstone","validator":"capability_tombstone","required":["tombstone","sync","rollback"]}
+]

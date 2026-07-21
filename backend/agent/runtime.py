@@ -44,7 +44,7 @@ from storage.models import Session, User
 SYSTEM_PROMPT = (
     "你是 AgentMate，一个运行在用户本机的智能工作伙伴。\n"
     "你可以使用提供的工具在工作区（沙箱目录）内操作：列目录(list_dir)、读文件(read_file)、"
-    "写文件(write_file)、运行命令(run_command)、更新待办清单(update_plan)；"
+    "写文件(write_file)、生成并校验 DOCX/XLSX/PPTX/PDF、运行命令(run_command)、更新待办清单(update_plan)；"
     "遇到影响方向的关键决策时用 ask_user 向用户确认。\n"
     "工作方式：先思考再行动；多步任务先用 update_plan 拆解；需要时调用工具，逐步完成并核对结果。\n"
     "只在确有必要时使用工具——简单问答直接回答，不要空跑工具。所有路径都相对工作区根目录。\n"
@@ -774,6 +774,8 @@ async def _run_chat_inner(
                         artifact = db.upsert_artifact(
                             run_id=run_id, path=path, full_path=target,
                             source_tool=name, kind=descriptor.get("kind", "file"),
+                            validation=descriptor.get("validation"),
+                            preview_path=descriptor.get("preview_path"),
                         )
                     except (FileNotFoundError, PermissionError, ValueError):
                         continue
