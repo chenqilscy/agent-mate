@@ -8,13 +8,63 @@ from __future__ import annotations
 from typing import Any
 
 
+# 仅用于首次建库/版本升级时 `INSERT OR IGNORE` 的实现清单。工具的运营字段一旦入库，
+# Server API、发布校验与 Console 均只读写 tool_catalog，不再把本文件当管理面（WB-266）。
+DEFAULT_TOOL_CATALOG: list[dict[str, Any]] = [
+    {"name": "list_dir", "label": "列出目录", "description": "列出项目工作区中的文件和子目录。", "category": "工作区", "risk_level": "low", "exposure": "skill", "bindable": True, "permissions": ["workspace.read"]},
+    {"name": "read_file", "label": "读取文件", "description": "读取项目工作区内的文本文件。", "category": "工作区", "risk_level": "low", "exposure": "skill", "bindable": True, "permissions": ["workspace.read"]},
+    {"name": "write_file", "label": "写入文件", "description": "在项目工作区创建或覆盖文本文件。", "category": "工作区", "risk_level": "medium", "exposure": "skill", "bindable": True, "permissions": ["workspace.write"]},
+    {"name": "create_docx", "label": "生成 Word", "description": "原生生成并校验 DOCX 文档。", "category": "Office", "risk_level": "medium", "exposure": "skill", "bindable": True, "permissions": ["workspace.write"]},
+    {"name": "create_xlsx", "label": "生成 Excel", "description": "原生生成并校验 XLSX 工作簿。", "category": "Office", "risk_level": "medium", "exposure": "skill", "bindable": True, "permissions": ["workspace.write"]},
+    {"name": "create_pptx", "label": "生成 PPT", "description": "原生生成并校验 PPTX 演示文稿。", "category": "Office", "risk_level": "medium", "exposure": "skill", "bindable": True, "permissions": ["workspace.write"]},
+    {"name": "create_pdf", "label": "生成 PDF", "description": "原生生成并重新解析校验 PDF。", "category": "Office", "risk_level": "medium", "exposure": "skill", "bindable": True, "permissions": ["workspace.write"]},
+    {"name": "inspect_office_file", "label": "检查 Office 文件", "description": "只读检查 DOCX、XLSX、PPTX 与 PDF 的结构和边界。", "category": "Office", "risk_level": "low", "exposure": "skill", "bindable": True, "permissions": ["workspace.read"]},
+    {"name": "browser_navigate", "label": "浏览器导航", "description": "使用隔离且可复用登录态的浏览器打开公共网页。", "category": "浏览器", "risk_level": "medium", "exposure": "skill", "bindable": True, "permissions": ["network.read", "browser.state"]},
+    {"name": "browser_read", "label": "读取浏览器", "description": "读取当前网页的可见文本、链接和表单控件。", "category": "浏览器", "risk_level": "low", "exposure": "skill", "bindable": True, "permissions": ["network.read", "browser.state"]},
+    {"name": "browser_interact", "label": "操作浏览器", "description": "在提交前确认门禁下操作网页、上传、下载和截图。", "category": "浏览器", "risk_level": "high", "exposure": "skill", "bindable": True, "permissions": ["network.read", "browser.state", "workspace.write"]},
+    {"name": "run_command", "label": "运行命令", "description": "在工作区执行有超时的本机 shell 命令；具备主机与网络高权限。", "category": "系统", "risk_level": "critical", "exposure": "skill", "bindable": True, "permissions": ["workspace.read", "workspace.write", "process.execute", "host.unrestricted", "network.unrestricted"]},
+    {"name": "update_plan", "label": "更新计划", "description": "更新当前任务的结构化待办与进度。", "category": "任务", "risk_level": "low", "exposure": "skill", "bindable": True, "permissions": ["run.plan.write"]},
+    {"name": "web_fetch", "label": "网页抓取", "description": "按 URL 抓取公共网页正文，用于联网取材。", "category": "网络", "risk_level": "low", "exposure": "skill", "bindable": True, "permissions": ["network.read"]},
+    {"name": "html_to_markdown", "label": "网页转 Markdown", "description": "抓取网页并转换为结构化 Markdown。", "category": "网络", "risk_level": "low", "exposure": "skill", "bindable": True, "permissions": ["network.read"]},
+    {"name": "analyze_csv", "label": "CSV 分析", "description": "读取工作区 CSV 并返回真实行列与数值统计。", "category": "数据", "risk_level": "low", "exposure": "skill", "bindable": True, "permissions": ["workspace.read"]},
+    {"name": "create_local_skill", "label": "创建本地技能", "description": "经用户确认后创建并安装一个真实的本地技能。", "category": "技能系统", "risk_level": "high", "exposure": "internal", "bindable": False, "permissions": ["skill.manage"]},
+    {"name": "list_work_items", "label": "列出项目工作项", "description": "在项目 Run 中列出计划项及状态。", "category": "项目上下文", "risk_level": "low", "exposure": "contextual", "bindable": False, "permissions": ["project.read"]},
+    {"name": "set_work_item_status", "label": "更新工作项状态", "description": "在项目 Run 中更新当前项目工作项状态。", "category": "项目上下文", "risk_level": "medium", "exposure": "contextual", "bindable": False, "permissions": ["project.write"]},
+    {"name": "knowledge_retrieve", "label": "检索知识库", "description": "检索本会话挂载的知识库并返回来源片段。", "category": "知识库", "risk_level": "low", "exposure": "contextual", "bindable": False, "permissions": ["knowledge.read", "network.read"]},
+    {"name": "knowledge_add", "label": "加入知识库", "description": "把工作区文件上传到指定知识库并触发解析。", "category": "知识库", "risk_level": "high", "exposure": "contextual", "bindable": False, "permissions": ["workspace.read", "knowledge.write", "network.write"]},
+    {"name": "skill_list_resources", "label": "列出技能资源", "description": "列出当前 Run 已挂载 Skill 声明的资源。", "category": "技能资源", "risk_level": "low", "exposure": "automatic", "bindable": False, "permissions": ["skill.resource.read"]},
+    {"name": "skill_read_resource", "label": "读取技能资源", "description": "按需读取当前 Skill release 的 UTF-8 文本资源。", "category": "技能资源", "risk_level": "low", "exposure": "automatic", "bindable": False, "permissions": ["skill.resource.read"]},
+    {"name": "skill_copy_template", "label": "复制技能模板", "description": "把 Skill release 的模板原子复制到项目工作区。", "category": "技能资源", "risk_level": "medium", "exposure": "automatic", "bindable": False, "permissions": ["skill.resource.read", "workspace.write"]},
+    {"name": "ask_user", "label": "询问用户", "description": "挂起当前 Run，等待用户回答关键选择后继续。", "category": "交互", "risk_level": "low", "exposure": "automatic", "bindable": False, "permissions": []},
+]
+
+for _index, _tool in enumerate(DEFAULT_TOOL_CATALOG):
+    _tool.setdefault("enabled", True)
+    _tool.setdefault("contract_version", "1")
+    _tool.setdefault("min_app_version", "1.0.0")
+    _tool.setdefault("sort", _index * 10)
+
+
+DEFAULT_SKILL_CATEGORIES: list[dict[str, Any]] = [
+    {"slug": "development", "name": "开发编程", "icon": "💻", "description": "开发、自动化与工程工具类技能。"},
+    {"slug": "content", "name": "内容创作", "icon": "📝", "description": "写作、编辑与内容整理类技能。"},
+    {"slug": "office", "name": "办公效率", "icon": "💼", "description": "文档、表格与日常办公提效技能。"},
+    {"slug": "data", "name": "数据分析", "icon": "📊", "description": "数据处理、分析与洞察类技能。"},
+    {"slug": "business", "name": "商业运营", "icon": "📈", "description": "商业研究、运营与决策支持技能。"},
+    {"slug": "other", "name": "其他", "icon": "🧩", "description": "暂未归入其他目录的技能。"},
+]
+
+for _index, _category in enumerate(DEFAULT_SKILL_CATEGORIES):
+    _category.setdefault("sort", _index * 10)
+
+
 DEFAULT_APP_SKILLS: list[dict[str, Any]] = [
-    {"slug": "web-access", "name": "Web Access（浏览器自动化）", "icon": "🌐", "category": "开发编程", "description": "联网取材：按 URL 抓取网页正文再作答，并注明来源链接。", "instructions": "需要联网信息时，用 web_fetch 抓取网页内容再作答；引用来源 URL。", "tools": ["web_fetch"], "source": "Server"},
-    {"slug": "markitdown", "name": "MarkItDown", "icon": "📝", "category": "内容创作", "description": "把网页 / 文档整理成干净、结构化的 Markdown。", "instructions": "把网页 / 文档整理成干净、结构化的 Markdown：用 html_to_markdown 抓取并转换网页，再按需精修标题层级、列表与表格。", "tools": ["html_to_markdown"], "source": "Server"},
-    {"slug": "skill-creator-guide", "name": "技能创建指南", "icon": "🧩", "category": "开发编程", "description": "通过对话梳理技能用途、触发场景与执行指令，并安装为本机技能。", "instructions": "帮助用户创建自定义技能：先澄清用途、触发场景、输入输出与约束，整理出稳定英文 slug、名称、描述和完整 Markdown 指令；信息足够后必须调用 create_local_skill 真正创建并安装，不要只给模板或假装已创建。", "tools": ["create_local_skill"], "source": "Server"},
-    {"slug": "word-doc", "name": "Word 文档生成", "icon": "📄", "category": "办公效率", "description": "以规范的长文档结构组织输出：标题层级、要点、表格与结论。", "instructions": "以规范的长文档结构组织输出：清晰的标题层级、要点、必要的表格与结论。", "tools": [], "source": "Server"},
-    {"slug": "excel-csv", "name": "Excel 文件处理", "icon": "📊", "category": "数据分析", "description": "对工作区里的 CSV 做行列/数值列统计，基于真实数据作答。", "instructions": "处理表格数据时：对工作区里的 CSV 用 analyze_csv 获取行列/数值列统计，再基于真实数据作答；输出用清晰的表格结构。", "tools": ["analyze_csv"], "source": "Server"},
-    {"slug": "stock-analyzer", "name": "股票综合分析器", "icon": "📈", "category": "商业运营", "description": "分基本面 / 消息面 / 资金面三维展开，结论先行并提示风险。", "instructions": "做股票分析时分三维展开：基本面、消息面、资金面，结论先行并提示风险。", "tools": [], "source": "Server"},
+    {"slug": "web-access", "name": "Web Access（浏览器自动化）", "icon": "🌐", "category_slug": "development", "category": "开发编程", "description": "联网取材：按 URL 抓取网页正文再作答，并注明来源链接。", "instructions": "需要联网信息时，用 web_fetch 抓取网页内容再作答；引用来源 URL。", "tools": ["web_fetch"], "source": "Server"},
+    {"slug": "markitdown", "name": "MarkItDown", "icon": "📝", "category_slug": "content", "category": "内容创作", "description": "把网页 / 文档整理成干净、结构化的 Markdown。", "instructions": "把网页 / 文档整理成干净、结构化的 Markdown：用 html_to_markdown 抓取并转换网页，再按需精修标题层级、列表与表格。", "tools": ["html_to_markdown"], "source": "Server"},
+    {"slug": "skill-creator-guide", "name": "技能创建指南", "icon": "🧩", "category_slug": "development", "category": "开发编程", "description": "通过对话梳理技能用途、触发场景与执行指令，并安装为本机技能。", "instructions": "帮助用户创建自定义技能：先澄清用途、触发场景、输入输出与约束，整理出稳定英文 slug、名称、描述和完整 Markdown 指令；信息足够后必须调用 create_local_skill 真正创建并安装，不要只给模板或假装已创建。", "tools": ["create_local_skill"], "source": "Server"},
+    {"slug": "word-doc", "name": "Word 文档生成", "icon": "📄", "category_slug": "office", "category": "办公效率", "description": "以规范的长文档结构组织输出：标题层级、要点、表格与结论。", "instructions": "以规范的长文档结构组织输出：清晰的标题层级、要点、必要的表格与结论。", "tools": [], "source": "Server"},
+    {"slug": "excel-csv", "name": "Excel 文件处理", "icon": "📊", "category_slug": "data", "category": "数据分析", "description": "对工作区里的 CSV 做行列/数值列统计，基于真实数据作答。", "instructions": "处理表格数据时：对工作区里的 CSV 用 analyze_csv 获取行列/数值列统计，再基于真实数据作答；输出用清晰的表格结构。", "tools": ["analyze_csv"], "source": "Server"},
+    {"slug": "stock-analyzer", "name": "股票综合分析器", "icon": "📈", "category_slug": "business", "category": "商业运营", "description": "分基本面 / 消息面 / 资金面三维展开，结论先行并提示风险。", "instructions": "做股票分析时分三维展开：基本面、消息面、资金面，结论先行并提示风险。", "tools": [], "source": "Server"},
 ]
 
 

@@ -113,9 +113,15 @@ Markdown 输出按 `marked → highlight.js → DOMPurify` 处理。任何新增
   → 持久化消息、轨迹、状态与用量
 ```
 
-基础工具包括目录/文件读写、命令执行、计划更新和向用户提问；Skill 可以绑定受支持的真实工具。
-工具注册表同时声明读写/网络/进程等结构化权限、超时和隔离级别；MCP 连接器由
-`backend/agent/mcp_client.py` 统一拉起和隔离环境。
+基础工具包括目录/文件读写、Office 产物、浏览器、命令、计划和向用户提问。App 的 Python 注册表只
+声明随签名构建交付的真实实现、权限、超时与隔离；Server 的 `tool_catalog` 数据库表权威管理显示名、
+分类、风险、启停、是否允许 Skill 绑定、最低 App 版本和排序。Console「技能 → 内置工具」直接维护
+数据库，不再以 JSON 文件管理目录；Skill 编辑器只展示 `enabled && bindable` 的投影。
+
+当前内置能力按注入方式分四层：`skill` 可显式绑定，`contextual` 随项目/知识库上下文注入，
+`automatic` 由 runtime 自动提供，`internal` 仅系统 Skill 可保留。数据库不能创建不存在的 Python
+实现，App capability report 也直接来自真实注册表，因此 Server 目录与本机执行采用交集裁决。
+MCP 连接器工具属于动态外部能力，不混入内置工具目录，由 `backend/agent/mcp_client.py` 统一拉起。
 
 安全边界：
 
@@ -167,7 +173,7 @@ AgentMate 能力目录。AgentMate Console 同源调用 `/api/*`，不直接执�
 当前同步基线：
 
 - 登录桥与项目/成员镜像已实现。
-- 目录使用显式 `POST /api/server/pull` 全量替换本机 `scope=server` 镜像。
+- 目录使用显式 `POST /api/server/pull` 携带 revision 条件拉取；变更时以完整快照原子替换本机 `scope=server` 镜像。
 - 项目会话完成后可把不含正文的时间线元数据写入 outbox；后台失败重试，且上报默认关闭。
 - server-origin 工作项、里程碑等协作实体采用 Server 代理与本地镜像回退。
 - 目录 revision、条件请求、tombstone、客户端 capability report 和兼容门禁已形成闭环；实时推送
@@ -175,8 +181,10 @@ AgentMate 能力目录。AgentMate Console 同源调用 `/api/*`，不直接执�
 
 ## 8. 桌面构建与升级
 
-Tauri 2 外壳、PyInstaller sidecar、托盘和 MSI/NSIS 打包链已经存在。updater 插件也已接入下载、安装和
-重启代码，但配置仍使用占位 endpoint，UI 没有正式更新入口，发布签名和托管服务尚未上线。
+Tauri 2 外壳、PyInstaller sidecar、托盘和 MSI/NSIS 打包链已经存在。WB-257 已实现 Server 不可变桌面
+release、stable/beta、稳定设备灰度、暂停/回滚、受控 HTTPS endpoint，以及设置中心的检查、下载、
+安装和状态入口。尚未完成的是部署方外部条件：真实 HTTPS 签名产物、Tauri 私钥、可信 Windows 代码
+签名证书和前后两个可安装版本；这些齐备后还必须做旧版→新版、签名失败拒绝和回滚真机演练。
 
 构建与发布要求见 [`desktop-build.md`](desktop-build.md)。Server 发布目录内容不会自动升级 App 二进制；
 两者必须通过能力兼容门禁和签名更新服务协同。

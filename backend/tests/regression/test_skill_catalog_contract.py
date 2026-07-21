@@ -80,15 +80,28 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertIn("办公效率", catalog["SK_CATS"])
         self.assertTrue(all(isinstance(x, dict) and x.get("slug") and x.get("category") for x in catalog["SK_GRID"]))
 
-    def test_shared_tool_contract_matches_runtime_registry(self) -> None:
-        from agent.skills import _TOOL_REGISTRY
+    def test_runtime_tool_registry_and_capability_report_come_from_real_implementations(self) -> None:
+        from agent.skills import SKILL_BINDABLE_TOOL_NAMES, _TOOL_REGISTRY
+        from agent.tools import TOOLS
+        from server_sync import _capability_report
+        from server.catalog_seed import DEFAULT_TOOL_CATALOG
 
-        contract = json.loads((BACKEND.parent / "shared" / "skill-tools.json").read_text(encoding="utf-8"))
-        self.assertEqual(set(_TOOL_REGISTRY), {item["name"] for item in contract})
-        for item in contract:
-            self.assertEqual(
-                sorted(_TOOL_REGISTRY[item["name"]].permissions), sorted(item["permissions"]),
-            )
+        base_names = {tool.name for tool in TOOLS}
+        self.assertEqual(base_names | {"web_fetch", "html_to_markdown", "analyze_csv"}, set(SKILL_BINDABLE_TOOL_NAMES))
+        self.assertTrue(SKILL_BINDABLE_TOOL_NAMES < set(_TOOL_REGISTRY))
+        self.assertIn("create_local_skill", _TOOL_REGISTRY)
+        self.assertIn("knowledge_retrieve", _TOOL_REGISTRY)
+        self.assertIn("skill_copy_template", _TOOL_REGISTRY)
+        report = _capability_report("revision")
+        self.assertEqual(set(_TOOL_REGISTRY) | {"ask_user"}, set(report["supported_tools"]))
+        seeded = {str(item["name"]): item for item in DEFAULT_TOOL_CATALOG}
+        self.assertEqual(set(report["supported_tools"]), set(seeded))
+        self.assertEqual(
+            set(SKILL_BINDABLE_TOOL_NAMES),
+            {name for name, item in seeded.items() if item.get("bindable")},
+        )
+        for name, tool in _TOOL_REGISTRY.items():
+            self.assertEqual(sorted(tool.permissions), sorted(seeded[name]["permissions"]), name)
 
     def test_incomplete_server_skill_is_rejected_before_downlink_insert(self) -> None:
         result = db.replace_server_skill_catalog([

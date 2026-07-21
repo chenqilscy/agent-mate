@@ -10,7 +10,6 @@ import hashlib
 import json
 import re
 import time
-from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -29,17 +28,6 @@ _BUILTIN_CONNECTOR_SERVERS = {"notes", "clock", "search", "telegram", "kdocs"}
 _RECOMMENDATION_CATEGORIES = {
     "SKILL_RECOMMENDATIONS", "CONNECTOR_RECOMMENDATIONS", "EXPERT_RECOMMENDATIONS",
 }
-_SKILL_TOOL_CATALOG_PATH = Path(__file__).resolve().parents[2] / "shared" / "skill-tools.json"
-_SKILL_TOOL_CATALOG = json.loads(_SKILL_TOOL_CATALOG_PATH.read_text(encoding="utf-8"))
-_SKILL_TOOL_NAMES = {
-    str(item.get("name", "")) for item in _SKILL_TOOL_CATALOG if isinstance(item, dict)
-}
-_SKILL_TOOL_PERMISSIONS = {
-    str(item.get("name", "")): tuple(str(value) for value in item.get("permissions", []) if str(value))
-    for item in _SKILL_TOOL_CATALOG if isinstance(item, dict)
-}
-
-
 def _require_admin(account: Account) -> None:
     if not account.is_platform_admin:
         raise HTTPException(403, "platform admin only")
@@ -70,14 +58,14 @@ def _version_tuple(value: str) -> tuple[int, ...]:
 
 def _catalog_revision(items: list[dict[str, Any]]) -> str:
     raw = json.dumps(
-        {"items": items, "skill_tools": _SKILL_TOOL_CATALOG},
+        {"items": items, "tools": db.list_tool_catalog(include_disabled=True)},
         ensure_ascii=False, sort_keys=True, separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 
 
 def _skill_compatibility(data: dict[str, Any], report: "CatalogPullBody") -> dict[str, Any]:
-    tool_specs = {str(item.get("name") or ""): item for item in _SKILL_TOOL_CATALOG if isinstance(item, dict)}
+    tool_specs = {item["name"]: item for item in db.list_tool_catalog(include_disabled=True)}
     tools = [str(item) for item in data.get("tools", []) if str(item)]
     required_app = str(data.get("min_app_version") or "0.0.0")
     unsupported: list[str] = []
@@ -88,7 +76,7 @@ def _skill_compatibility(data: dict[str, Any], report: "CatalogPullBody") -> dic
             required_app = minimum
         required_contract = str(spec.get("contract_version") or "1")
         supported_contract = str(report.supported_tools.get(name) or "0")
-        if _version_tuple(supported_contract) < _version_tuple(required_contract):
+        if not spec.get("enabled", False) or _version_tuple(supported_contract) < _version_tuple(required_contract):
             unsupported.append(name)
     reasons: list[str] = []
     if _version_tuple(report.app_version) < _version_tuple(required_app):
@@ -165,8 +153,49 @@ def list_all_catalog(all: bool = False, account: Account = CurrentAccount) -> di
 
 @router.get("/catalog/skill-tools")
 def list_skill_tools(account: Account = CurrentAccount) -> dict:
-    """Console 技能编辑器的真实工具选择契约；不包含凭据或本机状态。"""
-    return {"tools": _SKILL_TOOL_CATALOG}
+    """兼容端点：只返回数据库中已启用且允许普通 Skill 绑定的工具。"""
+    return {"tools": db.list_tool_catalog(bindable_only=True)}
+
+
+@router.get("/catalog/tools")
+def list_tools(all: bool = False, account: Account = CurrentAccount) -> dict:
+    """内置工具管理目录；停用项仅平台管理员可见。实现代码和凭据不在目录中。"""
+    include_disabled = bool(all and account.is_platform_admin)
+    return {"tools": db.list_tool_catalog(include_disabled=include_disabled)}
+
+
+class UpdateToolBody(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    category: str | None = Field(default=None, max_length=80)
+    risk_level: str | None = Field(default=None, pattern=r"^(low|medium|high|critical)$")
+    enabled: bool | None = None
+    bindable: bool | None = None
+    min_app_version: str | None = Field(
+        default=None, pattern=r"^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$",
+    )
+    sort: int | None = Field(default=None, ge=0)
+
+
+@router.patch("/catalog/tools/{name}")
+def update_tool(name: str, body: UpdateToolBody, account: Account = CurrentAccount) -> dict:
+    _require_admin(account)
+    current = db.get_tool_catalog(name)
+    if current is None:
+        raise HTTPException(404, "tool not found; implementations cannot be created from Console")
+    patch = body.model_dump(exclude_none=True)
+    if patch.get("bindable") is True and current.get("exposure") != "skill":
+        raise HTTPException(409, "only skill exposure tools can be made bindable")
+    updated = db.update_tool_catalog(name, actor_id=account.id, patch=patch)
+    return {"tool": updated}
+
+
+@router.get("/catalog/tools/{name}/audit")
+def tool_audit(name: str, account: Account = CurrentAccount) -> dict:
+    _require_admin(account)
+    if db.get_tool_catalog(name) is None:
+        raise HTTPException(404, "tool not found")
+    return {"audit": db.list_tool_catalog_audit(name)}
 
 
 class SkillReleaseBody(BaseModel):
@@ -397,8 +426,12 @@ def list_catalog(category: str, all: bool = False, account: Account = CurrentAcc
     """某 category 目录项。`?all=true`（仅平台管理员）含停用项 + `enabled` 标志，供门户 CRUD 列表。"""
     inc = all and account.is_platform_admin
     items = db.list_catalog_items(category, scope="builtin", include_disabled=inc)
-    if category == "APP_SKILLS" and not inc:
-        items = _project_skill_releases(items, account)
+    if category == "APP_SKILLS":
+        if not inc:
+            items = _project_skill_releases(items, account)
+        items = [{**row, "data": _normalize_app_skill(row.get("data"))} for row in items]
+    elif category == "SKILL_RECOMMENDATIONS":
+        items = [{**row, "data": _normalize_skill_recommendation(row.get("data"))} for row in items]
     return {"category": category, "items": items}
 
 
@@ -437,6 +470,8 @@ def pull_catalog(body: CatalogPullBody, account: Account = CurrentAccount) -> di
                 "unsupported_tools": [],
             }
             row.update({"withdrawn": withdrawn, **compatibility})
+        elif row.get("category") == "SKILL_RECOMMENDATIONS" and isinstance(row.get("data"), dict):
+            row["data"] = _normalize_skill_recommendation(row["data"])
         rendered.append(row)
     return {"revision": revision, "unchanged": False, "items": rendered}
 
@@ -448,19 +483,63 @@ _RESERVED_SKILL_FILES = {
 }
 
 
-def _normalize_app_skill(data: Any) -> Any:
+def _skill_category_rows(*, include_disabled: bool = True) -> list[dict[str, Any]]:
+    return db.list_catalog_items(
+        "SKILL_CATEGORIES", scope="builtin", include_disabled=include_disabled,
+    )
+
+
+def _skill_category_maps() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    by_slug: dict[str, dict[str, Any]] = {}
+    by_name: dict[str, dict[str, Any]] = {}
+    for row in _skill_category_rows():
+        data = row.get("data") if isinstance(row.get("data"), dict) else {}
+        slug = str(data.get("slug") or "").strip()
+        name = str(data.get("name") or "").strip()
+        if slug:
+            by_slug[slug] = row
+        if name:
+            by_name[name.casefold()] = row
+    return by_slug, by_name
+
+
+def _normalize_skill_category(data: Any) -> Any:
     if not isinstance(data, dict):
         return data
     normalized = dict(data)
+    by_slug, by_name = _skill_category_maps()
+    category_slug = str(normalized.get("category_slug") or "").strip()
+    category_name = str(normalized.get("category") or "").strip()
+    row = by_slug.get(category_slug) if category_slug else by_name.get(category_name.casefold())
+    if row is None and not category_slug and not category_name:
+        row = by_slug.get("other")
+    if row:
+        category = row["data"]
+        normalized["category_slug"] = str(category.get("slug") or "")
+        normalized["category"] = str(category.get("name") or "")
+    else:
+        normalized["category_slug"] = category_slug
+        normalized["category"] = category_name
+    return normalized
+
+
+def _normalize_app_skill(data: Any) -> Any:
+    if not isinstance(data, dict):
+        return data
+    normalized = _normalize_skill_category(data)
     for key in ("slug", "name", "icon", "category", "description", "instructions"):
         normalized[key] = str(normalized.get(key, "")).strip()
     tools = normalized.get("tools", [])
     normalized["tools"] = list(dict.fromkeys(str(tool).strip() for tool in tools)) if isinstance(tools, list) else tools
     if isinstance(normalized["tools"], list):
+        permissions = {
+            item["name"]: tuple(item.get("permissions") or ())
+            for item in db.list_tool_catalog(include_disabled=True)
+        }
         normalized["permissions"] = sorted({
             permission
             for tool in normalized["tools"]
-            for permission in _SKILL_TOOL_PERMISSIONS.get(tool, ())
+            for permission in permissions.get(tool, ())
         })
         normalized["tool_contract_version"] = "1"
     normalized["source"] = "Server"
@@ -474,18 +553,45 @@ def _validate_app_skill(data: Any, *, ignore_id: str = "") -> None:
     name = str(data.get("name", "")).strip()
     description = str(data.get("description", "")).strip()
     instructions = str(data.get("instructions", "")).strip()
+    categorized = _normalize_skill_category(data)
+    category_slug = str(categorized.get("category_slug") or "")
+    category_row = next((row for row in _skill_category_rows() if row["data"].get("slug") == category_slug), None)
     if not _SKILL_SLUG_RE.fullmatch(slug):
         raise HTTPException(400, "invalid skill slug")
     if not name or not description or not instructions:
         raise HTTPException(400, "skill name, description and instructions are required")
     if len(name) > 120 or len(description) > 500 or len(instructions) > 50_000:
         raise HTTPException(400, "skill name, description or instructions is too long")
+    if not category_row:
+        raise HTTPException(400, "skill category must reference a managed category")
+    if not category_row.get("enabled", False):
+        current = db.get_catalog_item(ignore_id) if ignore_id else None
+        current_data = _normalize_skill_category(current.get("data")) if current else {}
+        current_slug = str(current_data.get("category_slug") or "") if isinstance(current_data, dict) else ""
+        if current_slug != category_slug:
+            raise HTTPException(409, "skill category is disabled")
     tools = data.get("tools", [])
     if not isinstance(tools, list) or not all(isinstance(tool, str) and tool.strip() for tool in tools):
         raise HTTPException(400, "skill tools must be a string list")
-    unknown_tools = sorted(set(tools) - _SKILL_TOOL_NAMES)
+    tool_specs = {item["name"]: item for item in db.list_tool_catalog(include_disabled=True)}
+    unknown_tools = sorted(set(tools) - set(tool_specs))
     if unknown_tools:
         raise HTTPException(400, f"unknown skill tools: {', '.join(unknown_tools)}")
+    existing_internal: set[str] = set()
+    if ignore_id:
+        current = db.get_catalog_item(ignore_id)
+        current_tools = current.get("data", {}).get("tools", []) if current and isinstance(current.get("data"), dict) else []
+        existing_internal = {
+            name for name in current_tools
+            if tool_specs.get(name, {}).get("exposure") == "internal"
+        }
+    unavailable = sorted(
+        name for name in set(tools)
+        if not tool_specs[name].get("enabled", False)
+        or (not tool_specs[name].get("bindable", False) and name not in existing_internal)
+    )
+    if unavailable:
+        raise HTTPException(409, f"skill tools are disabled or not bindable: {', '.join(unavailable)}")
     files = data.get("files", [])
     if not isinstance(files, list):
         raise HTTPException(400, "skill files must be a list")
@@ -523,13 +629,80 @@ def _skill_recommendations() -> list[dict]:
     )
 
 
+def _validate_skill_category(data: Any, *, ignore_id: str = "") -> dict[str, Any]:
+    if not isinstance(data, dict):
+        raise HTTPException(400, "SKILL_CATEGORIES data must be an object")
+    normalized = {
+        "slug": str(data.get("slug") or "").strip(),
+        "name": str(data.get("name") or "").strip(),
+        "icon": str(data.get("icon") or "🧩").strip() or "🧩",
+        "description": str(data.get("description") or "").strip(),
+    }
+    if not _SKILL_SLUG_RE.fullmatch(normalized["slug"]):
+        raise HTTPException(400, "invalid skill category slug")
+    if not normalized["name"]:
+        raise HTTPException(400, "skill category name is required")
+    if len(normalized["name"]) > 80 or len(normalized["icon"]) > 16 or len(normalized["description"]) > 500:
+        raise HTTPException(400, "skill category name, icon or description is too long")
+    for row in _skill_category_rows():
+        current = row.get("data") if isinstance(row.get("data"), dict) else {}
+        if row["id"] == ignore_id:
+            continue
+        if current.get("slug") == normalized["slug"]:
+            raise HTTPException(409, "skill category slug already exists")
+        if str(current.get("name") or "").strip().casefold() == normalized["name"].casefold():
+            raise HTTPException(409, "skill category name already exists")
+    return normalized
+
+
+def _skill_category_is_used(slug: str) -> bool:
+    for row in db.list_catalog_items("APP_SKILLS", scope="builtin", include_disabled=True):
+        data = _normalize_skill_category(row.get("data"))
+        if isinstance(data, dict) and data.get("category_slug") == slug:
+            return True
+    for release in db.list_skill_releases():
+        data = _normalize_skill_category(release.get("data"))
+        if isinstance(data, dict) and data.get("category_slug") == slug:
+            return True
+    for row in _skill_recommendations():
+        raw = row.get("data") if isinstance(row.get("data"), dict) else {}
+        if str(raw.get("provider") or "").lower() == "agentmate":
+            continue  # AgentMate 推荐位继承 Skill，本体引用已在上方覆盖。
+        data = _normalize_skill_category(raw)
+        if isinstance(data, dict) and data.get("category_slug") == slug:
+            return True
+    return False
+
+
+def _normalize_skill_recommendation(data: Any) -> Any:
+    if not isinstance(data, dict):
+        return data
+    normalized = dict(data)
+    provider = str(normalized.get("provider") or "").strip().lower()
+    normalized["provider"] = provider
+    if provider == "agentmate":
+        skill_slug = str(normalized.get("skill_slug") or "").strip()
+        skill = next((
+            _normalize_app_skill(row.get("data"))
+            for row in db.list_catalog_items("APP_SKILLS", scope="builtin", include_disabled=True)
+            if isinstance(row.get("data"), dict) and row["data"].get("slug") == skill_slug
+        ), None)
+        if isinstance(skill, dict):
+            normalized["category_slug"] = skill.get("category_slug", "")
+            normalized["category"] = skill.get("category", "")
+    else:
+        normalized = _normalize_skill_category(normalized)
+    return normalized
+
+
 def _validate_skill_recommendation(data: Any, *, ignore_id: str = "") -> None:
     """推荐位只保存引用和运营元数据；安装包、Key 与文件内容仍留在 App 本机。"""
     if not isinstance(data, dict):
         raise HTTPException(400, "SKILL_RECOMMENDATIONS data must be an object")
-    provider = str(data.get("provider", "")).strip().lower()
-    slug = str(data.get("skill_slug", "")).strip()
-    placement = str(data.get("placement", "skills.recommended")).strip()
+    normalized = _normalize_skill_recommendation(data)
+    provider = str(normalized.get("provider", "")).strip().lower()
+    slug = str(normalized.get("skill_slug", "")).strip()
+    placement = str(normalized.get("placement", "skills.recommended")).strip()
     if provider not in {"agentmate", "skillhub"}:
         raise HTTPException(400, "provider must be agentmate or skillhub")
     if not _SKILL_SLUG_RE.fullmatch(slug):
@@ -543,11 +716,20 @@ def _validate_skill_recommendation(data: Any, *, ignore_id: str = "") -> None:
         )
         if not exists:
             raise HTTPException(400, "referenced AgentMate skill does not exist")
-    elif not str(data.get("title", "")).strip() or not str(data.get("description", "")).strip():
+    elif not str(normalized.get("title", "")).strip() or not str(normalized.get("description", "")).strip():
         raise HTTPException(400, "SkillHub recommendation title and description are required")
+    category_slug = str(normalized.get("category_slug") or "")
+    category_row = next((row for row in _skill_category_rows() if row["data"].get("slug") == category_slug), None)
+    if not category_row:
+        raise HTTPException(400, "recommendation category must reference a managed category")
+    if not category_row.get("enabled", False):
+        current = db.get_catalog_item(ignore_id) if ignore_id else None
+        current_data = _normalize_skill_recommendation(current.get("data")) if current else {}
+        if str(current_data.get("category_slug") or "") != category_slug:
+            raise HTTPException(409, "recommendation category is disabled")
     try:
-        starts_at = float(data.get("starts_at") or 0)
-        ends_at = float(data.get("ends_at") or 0)
+        starts_at = float(normalized.get("starts_at") or 0)
+        ends_at = float(normalized.get("ends_at") or 0)
     except (TypeError, ValueError) as exc:
         raise HTTPException(400, "invalid recommendation schedule") from exc
     if starts_at < 0 or ends_at < 0 or (starts_at and ends_at and ends_at <= starts_at):
@@ -768,8 +950,11 @@ def create_item(body: CatalogItemBody, account: Account = CurrentAccount) -> dic
     data = body.data
     if body.category == "APP_SKILLS":
         raise HTTPException(409, "APP_SKILLS must be created through the skill release workflow")
+    elif body.category == "SKILL_CATEGORIES":
+        data = _validate_skill_category(body.data)
     elif body.category == "SKILL_RECOMMENDATIONS":
-        _validate_skill_recommendation(body.data)
+        data = _normalize_skill_recommendation(body.data)
+        _validate_skill_recommendation(data)
     elif body.category == "CONN_DEFS":
         _validate_connector_definition(body.data)
     elif body.category == "CONNECTOR_RECOMMENDATIONS":
@@ -801,8 +986,14 @@ def update_item(item_id: str, body: UpdateItemBody, account: Account = CurrentAc
     data = body.data
     if item["category"] == "APP_SKILLS" and (body.data is not None or body.enabled is not None):
         raise HTTPException(409, "APP_SKILLS definition and state must use the skill release workflow")
+    elif item["category"] == "SKILL_CATEGORIES" and body.data is not None:
+        data = _validate_skill_category(body.data, ignore_id=item_id)
+        old_slug = str(item.get("data", {}).get("slug", "")) if isinstance(item.get("data"), dict) else ""
+        if old_slug and old_slug != data["slug"]:
+            raise HTTPException(409, "skill category slug is immutable after creation")
     elif item["category"] == "SKILL_RECOMMENDATIONS" and body.data is not None:
-        _validate_skill_recommendation(body.data, ignore_id=item_id)
+        data = _normalize_skill_recommendation(body.data)
+        _validate_skill_recommendation(data, ignore_id=item_id)
     elif item["category"] == "CONN_DEFS" and body.data is not None:
         _validate_connector_definition(body.data, ignore_id=item_id)
         old_slug = str(item.get("data", {}).get("slug", "")) if isinstance(item.get("data"), dict) else ""
@@ -854,6 +1045,10 @@ def delete_item(item_id: str, account: Account = CurrentAccount) -> dict:
         slug = str(item["data"].get("slug", ""))
         if slug and (_expert_is_recommended(slug) or _expert_is_in_team(slug)):
             raise HTTPException(409, "expert is referenced by a recommendation or team")
+    if item["category"] == "SKILL_CATEGORIES" and isinstance(item.get("data"), dict):
+        slug = str(item["data"].get("slug", ""))
+        if slug and _skill_category_is_used(slug):
+            raise HTTPException(409, "skill category is still referenced")
     if not db.delete_catalog_item(item_id):
         raise HTTPException(404, "catalog item not found")
     return {"ok": True}

@@ -25,7 +25,11 @@ from urllib.parse import urlparse
 import httpx
 
 from agent.sandbox import SandboxError, resolve_in_sandbox
-from agent.tools import Tool, ToolOutcome
+from agent.skill_resources import RESOURCE_TOOLS
+from agent.tools import (
+    TOOLS, Tool, ToolOutcome, knowledge_add, knowledge_retrieve,
+    list_work_items, set_work_item_status,
+)
 
 _MAX = 6000
 _log = logging.getLogger("agentmate.skills")
@@ -289,22 +293,40 @@ create_local_skill = Tool(
 )
 
 
-# 工具名 → 真 Tool 对象（WB-183）。技能**定义**（提示词 + 该用哪些工具）已迁进 DB 的
+# 工具名 → 真 Tool 对象（WB-183/WB-266）。这里是 App 构建实际支持的实现能力，不承载
+# 显示名、分类、启停或最低版本等运营字段；那些字段只由 Server tool_catalog + Console 管理。
+# 技能**定义**（提示词 + 该用哪些工具）已迁进 DB 的
 # catalog_skills（种子见 storage/catalog_seed.py::BUILTIN_SKILLS），改一条内置技能的提示词
 # 只要改数据、不必改代码重启 —— 补齐 WB-059 漏掉的第三块（专家人格/连接器 spec 早已入库）。
 # 代码里只保留这张注册表：Tool 是 Python 对象、进不了 DB，库里存工具**名**，这里按名解析。
 # 同连接器「launch spec 存库、实现在代码」的分工。
 _TOOL_REGISTRY: dict[str, Tool] = {
+    **{tool.name: tool for tool in TOOLS},
     "web_fetch": web_fetch,
     "html_to_markdown": html_to_markdown,
     "analyze_csv": analyze_csv,
     "create_local_skill": create_local_skill,
+    "list_work_items": list_work_items,
+    "set_work_item_status": set_work_item_status,
+    "knowledge_retrieve": knowledge_retrieve,
+    "knowledge_add": knowledge_add,
+    **{tool.name: tool for tool in RESOURCE_TOOLS},
 }
+
+# 普通 Skill 允许显式声明的工具。contextual/automatic 由 runtime 根据项目、知识库和资源状态
+# 注入；create_local_skill 仅保留给产品随附的系统 Skill，不能由普通目录草稿新增绑定。
+SKILL_BINDABLE_TOOL_NAMES = frozenset({
+    *(tool.name for tool in TOOLS), "web_fetch", "html_to_markdown", "analyze_csv",
+})
+_SKILL_RESOLVABLE_TOOL_NAMES = SKILL_BINDABLE_TOOL_NAMES | {"create_local_skill"}
 
 
 def _resolve_tools(names: list[str]) -> list[Tool]:
-    """工具名 → Tool；库里写了但代码里没有的名字**跳过**（目录可运营，注册表是代码事实）。"""
-    return [_TOOL_REGISTRY[n] for n in names if n in _TOOL_REGISTRY]
+    """Skill 声明 → Tool；上下文/自动工具不能通过目录数据绕过 runtime 注入策略。"""
+    return [
+        _TOOL_REGISTRY[name] for name in names
+        if name in _TOOL_REGISTRY and name in _SKILL_RESOLVABLE_TOOL_NAMES
+    ]
 
 
 def tool_permissions(names: list[str]) -> list[str]:

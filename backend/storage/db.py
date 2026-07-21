@@ -2576,9 +2576,20 @@ def showcase_all() -> dict[str, Any]:
                 "source": "AgentMate" if provider == "agentmate" else "SkillHub",
             })
     out["SK_RECOMMENDATIONS"] = recommendations
-    out["SK_CATS"] = ["全部", *dict.fromkeys(
-        s["category"] for s in recommendations if s.get("category")
-    )]
+    recommendation_categories = list(dict.fromkeys(
+        str(skill["category"]) for skill in recommendations if skill.get("category")
+    ))
+    managed_skill_categories = downlink.get("SKILL_CATEGORIES")
+    if managed_skill_categories is not None:
+        managed_names = [
+            str(category.get("name") or "") for category in managed_skill_categories
+            if isinstance(category, dict) and category.get("name")
+        ]
+        ordered_categories = [name for name in managed_names if name in recommendation_categories]
+        ordered_categories.extend(name for name in recommendation_categories if name not in ordered_categories)
+    else:
+        ordered_categories = recommendation_categories
+    out["SK_CATS"] = ["全部", *ordered_categories]
     # WB-220：连接器定义进入本机真运行目录，推荐位只解析公开卡片；凭据/授权态仍由本机接口判定。
     connector_specs_public = connector_catalog_specs()
     connector_by_slug = {c["slug"]: c for c in connector_specs_public if c.get("slug")}

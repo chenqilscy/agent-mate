@@ -282,6 +282,9 @@
 | [WB-263](WB-263-console-project-workspace-parity.md) | ✅ | P1 | frontend | Console React 迁移后项目工作台缩水并与 App 项目模型失配 |
 | [WB-264](WB-264-project-settings-assistants-automations.md) | ✅ | P1 | frontend | 项目配置缺少助手与自动化的真实绑定管理 |
 | [WB-265](WB-265-configurable-icon-picker.md) | ✅ | P1 | ui | 多个配置表单仍要求手工输入 Emoji，缺少统一图标选择器 |
+| [WB-266](WB-266-unified-managed-built-in-tool-catalog.md) | ✅ | P1 | fullstack | 内置工具目录分裂且仅有四项，缺少数据库权威源与 Console 管理 |
+| [WB-267](WB-267-managed-skill-categories.md) | ✅ | P1 | fullstack | Skill 分类是自由文本，缺少独立分类目录与引用治理 |
+| [WB-268](WB-268-full-regression-contract-drift.md) | ⬜ | P1 | frontend | 全量回归门禁与已落地 Ant 及项目工作台实现漂移，持续集成仍有三项失败 |
 
 ## 来源
 

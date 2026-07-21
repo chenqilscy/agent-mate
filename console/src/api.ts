@@ -1,7 +1,7 @@
 import type {
   Account, Activity, AuthResponse, CatalogData, CatalogItem, CommentRecord,
   KnowledgeBase, KnowledgeDocument, Member, Milestone, NotificationRecord,
-  Organization, Project, SkillData, SkillRelease, SkillTool, TimelineEvent, WorkItem,
+  Organization, Project, SkillData, SkillRelease, SkillTool, TimelineEvent, ToolCatalogAudit, WorkItem,
 } from "./types";
 
 const TOKEN_KEY = "agentmate.console.token";
@@ -88,6 +88,11 @@ export const consoleApi = {
   skills: () =>
     apiRequest<{ items: CatalogItem<SkillData>[] }>("GET", "/catalog/APP_SKILLS?all=true"),
   skillTools: () => apiRequest<{ tools: SkillTool[] }>("GET", "/catalog/skill-tools"),
+  tools: (all = false) => apiRequest<{ tools: SkillTool[] }>("GET", `/catalog/tools${all ? "?all=true" : ""}`),
+  updateTool: (name: string, patch: Partial<Pick<SkillTool, "label" | "description" | "category" | "risk_level" | "enabled" | "bindable" | "min_app_version" | "sort">>) =>
+    apiRequest<{ tool: SkillTool }>("PATCH", `/catalog/tools/${encodeURIComponent(name)}`, patch),
+  toolAudit: (name: string) =>
+    apiRequest<{ audit: ToolCatalogAudit[] }>("GET", `/catalog/tools/${encodeURIComponent(name)}/audit`),
   updateSkill: (id: string, patch: { data?: SkillData; sort?: number; enabled?: boolean }) =>
     apiRequest<{ ok: boolean }>("PATCH", `/catalog/item/${encodeURIComponent(id)}`, patch),
   skillReleases: (catalogItemId = "") =>

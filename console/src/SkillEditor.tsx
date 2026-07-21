@@ -11,6 +11,7 @@ import {
   InputNumber,
   Row,
   Segmented,
+  Select,
   Space,
   Tag,
   Typography,
@@ -26,13 +27,13 @@ import {
 } from "@ant-design/icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { consoleApi } from "./api";
-import type { CatalogItem, SkillData, SkillFile, SkillTool } from "./types";
+import type { CatalogItem, SkillCategoryData, SkillData, SkillFile, SkillTool } from "./types";
 
 interface SkillFormValues {
   slug: string;
   name: string;
   icon: string;
-  category: string;
+  category_slug: string;
   description: string;
   instructions: string;
   tools: string[];
@@ -44,6 +45,7 @@ interface SkillEditorProps {
   open: boolean;
   item: CatalogItem<SkillData> | null;
   tools: SkillTool[];
+  categories: CatalogItem<SkillCategoryData>[];
   initialTab: "info" | "files";
   onClose: () => void;
   onSaved: () => void;
@@ -66,7 +68,7 @@ function validateFilePath(path: string, files: SkillFile[], currentIndex: number
   return null;
 }
 
-export default function SkillEditor({ open, item, tools, initialTab, onClose, onSaved }: SkillEditorProps) {
+export default function SkillEditor({ open, item, tools, categories, initialTab, onClose, onSaved }: SkillEditorProps) {
   const { message, modal } = App.useApp();
   const [form] = Form.useForm<SkillFormValues>();
   const [tab, setTab] = useState<"info" | "files">(initialTab);
@@ -88,7 +90,7 @@ export default function SkillEditor({ open, item, tools, initialTab, onClose, on
       slug: data?.slug || "",
       name: data?.name || "",
       icon: data?.icon || "🧩",
-      category: data?.category || "",
+      category_slug: data?.category_slug || categories.find((category) => category.data.name === data?.category)?.data.slug || "",
       description: data?.description || "",
       instructions: data?.instructions || "",
       tools: Array.isArray(data?.tools) ? data.tools : [],
@@ -105,7 +107,7 @@ export default function SkillEditor({ open, item, tools, initialTab, onClose, on
     setFileQuery("");
     setTab(initialTab);
     initialFilesSnapshot.current = JSON.stringify(nextFiles);
-  }, [form, initialTab, item, open]);
+  }, [categories, form, initialTab, item, open]);
 
   const generatedSkillMarkdown = useMemo(() => {
     const values = form.getFieldsValue();
@@ -239,7 +241,8 @@ export default function SkillEditor({ open, item, tools, initialTab, onClose, on
       slug: values.slug.trim(),
       name: values.name.trim(),
       icon: values.icon.trim() || "🧩",
-      category: values.category.trim(),
+      category_slug: values.category_slug.trim(),
+      category: categories.find((category) => category.data.slug === values.category_slug)?.data.name || "",
       description: values.description.trim(),
       instructions: values.instructions.trim(),
       tools: values.tools || [],
@@ -305,7 +308,20 @@ export default function SkillEditor({ open, item, tools, initialTab, onClose, on
         </Row>
         <Row gutter={16}>
           <Col xs={24} md={8}><Form.Item name="icon" label="图标"><IconPicker ariaLabel="选择技能图标" /></Form.Item></Col>
-          <Col xs={24} md={10}><Form.Item name="category" label="分类"><Input maxLength={80} placeholder="办公效率" /></Form.Item></Col>
+          <Col xs={24} md={10}>
+            <Form.Item name="category_slug" label="分类" rules={[{ required: true, message: "请选择分类" }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="选择已管理的分类"
+                options={categories.map((category) => ({
+                  value: category.data.slug,
+                  label: `${category.data.icon || "🧩"} ${category.data.name}`,
+                  disabled: !category.enabled,
+                }))}
+              />
+            </Form.Item>
+          </Col>
           <Col xs={24} md={6}><Form.Item name="sort" label="排序"><InputNumber min={0} precision={0} className="full-width" /></Form.Item></Col>
         </Row>
         <Form.Item name="description" label="简介" rules={[{ required: true, whitespace: true, message: "请输入技能简介" }]}>

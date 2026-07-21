@@ -16,7 +16,10 @@ import uuid
 from typing import Any, Optional
 
 from config import settings
-from catalog_seed import DEFAULT_APP_SKILLS, DEFAULT_CONNECTORS, DEFAULT_EXPERTS, DEFAULT_EXPERT_TEAMS
+from catalog_seed import (
+    DEFAULT_APP_SKILLS, DEFAULT_CONNECTORS, DEFAULT_EXPERTS, DEFAULT_EXPERT_TEAMS,
+    DEFAULT_SKILL_CATEGORIES, DEFAULT_TOOL_CATALOG,
+)
 from models import Account, Invite, Org, Project, Role
 
 _local = threading.local()
@@ -157,6 +160,39 @@ def init_db() -> None:
             updated_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_catalog_items_cat ON catalog_items(category, scope, sort);
+
+        -- 内置工具目录（WB-266）：数据库是运营策略权威源；name 对应 App 签名代码中的真实实现。
+        -- Console 只能管理现有实现的展示/风险/启停/绑定/兼容字段，不能伪造或删除工具实现。
+        CREATE TABLE IF NOT EXISTS tool_catalog (
+            name TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT '',
+            risk_level TEXT NOT NULL DEFAULT 'low',
+            exposure TEXT NOT NULL DEFAULT 'skill',
+            permissions TEXT NOT NULL DEFAULT '[]',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            bindable INTEGER NOT NULL DEFAULT 0,
+            contract_version TEXT NOT NULL DEFAULT '1',
+            min_app_version TEXT NOT NULL DEFAULT '1.0.0',
+            sort INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_tool_catalog_policy
+            ON tool_catalog(enabled, bindable, exposure, sort);
+
+        CREATE TABLE IF NOT EXISTS tool_catalog_audit (
+            id TEXT PRIMARY KEY,
+            tool_name TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            before_data TEXT NOT NULL DEFAULT '{}',
+            after_data TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_tool_catalog_audit_name
+            ON tool_catalog_audit(tool_name, created_at DESC);
 
         -- Skill 发布控制面（WB-250）：定义正文是不可变 release 快照；状态、测试、审核与
         -- 灰度参数独立演进。catalog_items 仅保存当前公开投影，draft/testing 不会进入下行。
@@ -368,6 +404,25 @@ def init_db() -> None:
         conn.execute("ALTER TABLE comments ADD COLUMN work_item_id TEXT NOT NULL DEFAULT ''")
     if _table_exists(conn, "catalog_skills"):
         conn.execute("UPDATE catalog_skills SET source='Server' WHERE source='Hub'")
+    # 新 App 版本可补充真实实现，但绝不覆盖 Console 已管理的运营字段。
+    # 因而本清单只是 bootstrap/migration 输入，不是运行时管理源。
+    now = time.time()
+    for tool in DEFAULT_TOOL_CATALOG:
+        conn.execute(
+            "INSERT OR IGNORE INTO tool_catalog "
+            "(name,label,description,category,risk_level,exposure,permissions,enabled,bindable,"
+            "contract_version,min_app_version,sort,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                tool["name"], tool["label"], tool["description"], tool["category"],
+                tool["risk_level"], tool["exposure"],
+                json.dumps(tool.get("permissions", []), ensure_ascii=False),
+                1 if tool.get("enabled", True) else 0,
+                1 if tool.get("bindable", False) else 0,
+                tool.get("contract_version", "1"), tool.get("min_app_version", "1.0.0"),
+                int(tool.get("sort", 0)), now, now,
+            ),
+        )
     # WB-215：第三方 SkillHub 改为每台 App 直接访问。清掉旧 Server 镜像、精选与凭据，
     # 防止升级后的 Server 继续向客户端下发历史数据。
     conn.execute(
@@ -417,6 +472,65 @@ def init_db() -> None:
             )
         conn.execute(
             "INSERT INTO settings (k,v,updated_at) VALUES ('skill_recommendations_v2','1',?)",
+            (now,),
+        )
+    # WB-267：Skill 分类从自由文本升级为独立权威目录。只迁移一次，避免运营主动删除
+    # 未使用分类后重启又被 bootstrap 恢复；存量未知名称使用稳定哈希 slug 保留。
+    category_migrated = conn.execute(
+        "SELECT v FROM settings WHERE k='skill_categories_v1'"
+    ).fetchone()
+    if not category_migrated:
+        now = time.time()
+        categories = [dict(item) for item in DEFAULT_SKILL_CATEGORIES]
+        known_names = {str(item["name"]): str(item["slug"]) for item in categories}
+        legacy_rows = conn.execute(
+            "SELECT rowid,category,data FROM catalog_items WHERE scope='builtin' "
+            "AND category IN ('APP_SKILLS','SKILL_RECOMMENDATIONS')"
+        ).fetchall()
+        for row in legacy_rows:
+            try:
+                data = json.loads(row["data"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            name = str(data.get("category") or "").strip() if isinstance(data, dict) else ""
+            if name and name not in known_names:
+                slug = f"legacy-{hashlib.sha256(name.encode('utf-8')).hexdigest()[:12]}"
+                known_names[name] = slug
+                categories.append({
+                    "slug": slug, "name": name, "icon": "🧩",
+                    "description": "从存量 Skill 分类自动迁移。", "sort": len(categories) * 10,
+                })
+        for position, category in enumerate(categories):
+            data = {key: value for key, value in category.items() if key != "sort"}
+            conn.execute(
+                "INSERT INTO catalog_items "
+                "(id,category,scope,org_id,kind,data,enabled,sort,version,created_at,updated_at) "
+                "VALUES (?,'SKILL_CATEGORIES','builtin',NULL,'',?,1,?,1,?,?)",
+                (new_uuid(), json.dumps(data, ensure_ascii=False),
+                 int(category.get("sort", position * 10)), now, now),
+            )
+        for row in legacy_rows:
+            if row["category"] != "APP_SKILLS":
+                continue
+            try:
+                data = json.loads(row["data"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            before = json.dumps(data, ensure_ascii=False, sort_keys=True)
+            name = str(data.get("category") or "").strip()
+            data["category_slug"] = str(data.get("category_slug") or known_names.get(name) or "other")
+            resolved = next((item for item in categories if item["slug"] == data["category_slug"]), None)
+            if resolved:
+                data["category"] = resolved["name"]
+            if json.dumps(data, ensure_ascii=False, sort_keys=True) != before:
+                conn.execute(
+                    "UPDATE catalog_items SET data=?,version=version+1,updated_at=? WHERE rowid=?",
+                    (json.dumps(data, ensure_ascii=False), now, row["rowid"]),
+                )
+        conn.execute(
+            "INSERT INTO settings (k,v,updated_at) VALUES ('skill_categories_v1','1',?)",
             (now,),
         )
     # WB-220：连接器定义与推荐位独立。一次性迁移标记保证运营主动清空推荐后不会被重建。
@@ -1042,6 +1156,92 @@ def list_all_catalog_items(scope: str = "builtin", include_disabled: bool = Fals
         out.append({"id": r["id"], "category": r["category"], "kind": r["kind"], "data": data,
                     "sort": r["sort"], "version": r["version"], "enabled": bool(r["enabled"])})
     return out
+
+
+# ---- 内置工具目录（WB-266）----------------------------------------------
+
+def _decode_tool_catalog(row: sqlite3.Row | None) -> Optional[dict[str, Any]]:
+    if row is None:
+        return None
+    item = dict(row)
+    try:
+        item["permissions"] = json.loads(item.get("permissions") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        item["permissions"] = []
+    item["permissions"] = [str(value) for value in item["permissions"] if str(value)]
+    item["enabled"] = bool(item.get("enabled"))
+    item["bindable"] = bool(item.get("bindable"))
+    return item
+
+
+def list_tool_catalog(*, include_disabled: bool = False, bindable_only: bool = False) -> list[dict[str, Any]]:
+    where: list[str] = []
+    if not include_disabled:
+        where.append("enabled=1")
+    if bindable_only:
+        where.append("bindable=1")
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    rows = get_conn().execute(
+        f"SELECT * FROM tool_catalog {clause} ORDER BY sort,name"
+    ).fetchall()
+    return [item for row in rows if (item := _decode_tool_catalog(row)) is not None]
+
+
+def get_tool_catalog(name: str) -> Optional[dict[str, Any]]:
+    return _decode_tool_catalog(
+        get_conn().execute("SELECT * FROM tool_catalog WHERE name=?", (name,)).fetchone()
+    )
+
+
+def update_tool_catalog(name: str, *, actor_id: str, patch: dict[str, Any]) -> Optional[dict[str, Any]]:
+    before = get_tool_catalog(name)
+    if before is None or not patch:
+        return before
+    allowed = {
+        "label", "description", "category", "risk_level", "enabled", "bindable",
+        "min_app_version", "sort",
+    }
+    values = {key: value for key, value in patch.items() if key in allowed}
+    if not values:
+        return before
+    sets: list[str] = []
+    params: list[Any] = []
+    for key, value in values.items():
+        sets.append(f"{key}=?")
+        params.append(1 if key in {"enabled", "bindable"} and value else 0 if key in {"enabled", "bindable"} else value)
+    now = time.time()
+    sets.append("updated_at=?")
+    params.extend((now, name))
+    get_conn().execute(f"UPDATE tool_catalog SET {', '.join(sets)} WHERE name=?", params)
+    after = get_tool_catalog(name)
+    get_conn().execute(
+        "INSERT INTO tool_catalog_audit "
+        "(id,tool_name,actor_id,action,before_data,after_data,created_at) VALUES (?,?,?,?,?,?,?)",
+        (
+            new_uuid(), name, actor_id, "updated",
+            json.dumps(before, ensure_ascii=False, sort_keys=True),
+            json.dumps(after or {}, ensure_ascii=False, sort_keys=True), now,
+        ),
+    )
+    get_conn().commit()
+    return after
+
+
+def list_tool_catalog_audit(name: str, limit: int = 50) -> list[dict[str, Any]]:
+    rows = get_conn().execute(
+        "SELECT * FROM tool_catalog_audit WHERE tool_name=? ORDER BY created_at DESC LIMIT ?",
+        (name, max(1, min(int(limit), 200))),
+    ).fetchall()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        for key in ("before_data", "after_data"):
+            try:
+                item[key] = json.loads(item.get(key) or "{}")
+            except (json.JSONDecodeError, TypeError):
+                item[key] = {}
+        result.append(item)
+    return result
 
 
 # ---- Skill release governance（WB-250）----------------------------------

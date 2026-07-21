@@ -66,13 +66,15 @@ Server 管理以下 AgentMate 自有控制面对象：
 - 专家团定义；
 - 连接器定义与推荐位；
 - Skill 定义、文件与推荐位；
+- 内置工具的运营目录与 Skill 绑定策略；
 - 其它受控模板/目录分类。
 
 目录定义和推荐位是不同对象。第三方 SkillHub 推荐位只保存 `provider=skillhub`、稳定 slug、展示文案、
 排序、启停与生效时间；Server 不搜索、镜像、代理或安装 SkillHub 内容。
 
-App 目前通过显式 `POST /api/server/pull` 获取 Server 全量目录，并替换本机 `catalog_downlink` 的
-Server scope。App 自造专家、本地 Skill 安装和连接器凭据属于本机 override，不上传、不被镜像覆盖。
+App 通过 `POST /api/server/pull` 携带 revision 与 capability report 条件拉取；revision 变化时获取完整
+Server snapshot 并原子替换本机 `catalog_downlink` 的 Server scope，未变化时不重写。App 自造专家、
+本地 Skill 安装和连接器凭据属于本机 override，不上传、不被镜像覆盖。
 
 ## 4. 数据归属摘要
 
@@ -80,7 +82,8 @@ Server scope。App 自造专家、本地 Skill 安装和连接器凭据属于本
 |---|---|---|
 | 账号、组织、server-origin 项目、成员/角色、邀请 | Server | Server → App 镜像 |
 | 工作项、里程碑、评论、presence、通知 | Server | App backend 代理，必要时本地镜像 |
-| AgentMate 专家/团队/连接器/Skill 定义与推荐位 | Server | Server → App 全量目录 pull |
+| AgentMate 专家/团队/连接器/Skill 定义与推荐位 | Server | Server → App 条件全量快照 pull |
+| 内置工具运营目录 | Server `tool_catalog`；App 实现注册表作执行裁决 | Console 管策略；App 上报真实 capability |
 | 第三方 SkillHub 市场、Key、技能包 | App 本地/第三方 | App 直连，不经过 Server |
 | 本机安装 Skill 与自造专家 | App 本地 | 不同步；可上报非敏感能力元数据的目标尚未落地 |
 | 会话、消息、trace、工具参数 | App 本地 | 不上云；只可上报最小时间线元数据 |
@@ -94,7 +97,7 @@ Server scope。App 自造专家、本地 Skill 安装和连接器凭据属于本
 ### 5.1 下行
 
 - 登录后或用户显式刷新时，App backend 拉取项目/成员与目录。
-- 目录当前是全量替换，不是增量 revision 协议。
+- 目录使用 revision 条件请求；发生变化时下发完整快照并原子替换，不传增量 patch。
 - server-origin 协作实体通常采用“Server 读取 → 本地镜像 → 返回”；网络失败时读取最后镜像。
 - 从未成功连接 Server 的 App 才使用随版本打包的 builtin 作为首次兜底。
 
@@ -106,9 +109,10 @@ Server scope。App 自造专家、本地 Skill 安装和连接器凭据属于本
 
 ### 5.3 已完成与剩余边界
 
-- 已完成目录 revision、条件请求、last-known-good、显式 tombstone、App capability report 与工具契约门禁；
-- 唤醒/恢复/低频刷新和实时“目录已失效”信号；
-- 同步冲突可视化、稳定重放与企业级审计。
+已完成：目录 revision、条件请求、last-known-good、显式 tombstone、App capability report、工具契约
+门禁，以及启动/窗口恢复/低频刷新。
+
+剩余：Server 主动推送“目录已失效”信号；跨实体同步冲突可视化、稳定重放与企业级审计。
 
 ## 6. 目录与运行时关系
 
@@ -121,6 +125,20 @@ Server scope。App 自造专家、本地 Skill 安装和连接器凭据属于本
 
 Server 下发只改变控制面定义；App runtime 是本机最终执行裁决者。未知工具、版本不兼容、缺凭据、
 未安装或被撤回的能力必须拒绝运行并给出明确原因。
+
+### 6.1 内置工具目录
+
+`tool_catalog` 是工具运营策略的唯一权威源。首次建库会从随版本交付的实现清单执行
+`INSERT OR IGNORE`，之后 Server 查询、Skill 保存/发布校验、revision 计算和 Console 编辑全部读数据库；
+升级只补充新实现，不能覆盖运营已经修改的字段。旧 `shared/skill-tools.json` 已删除。
+
+当前目录登记 25 项内置能力，其中 16 项默认允许普通 Skill 绑定。其余按 `contextual`、`automatic`、
+`internal` 分层，由 runtime 决定何时注入。Console 允许管理显示名、说明、分类、风险、启停、绑定、
+最低 App 版本和排序，并记录 `tool_catalog_audit`；实现名、权限、契约和注入方式不可在网页伪造或删除。
+
+发布校验只接受数据库中已启用且可绑定的工具。既有系统 Skill 可继续保留原有 internal 工具，但普通
+Skill 不能新增绑定。客户端 capability report 直接枚举 App 真实实现；Server 只有在“目录允许且客户端
+实现契约满足”时才判兼容。
 
 ## 7. Skill 能力发布（已实现基线）
 
@@ -182,7 +200,8 @@ Server 据此完成发布前兼容检查和下行门禁。不兼容版本可浏�
 Console 管账号、组织、项目协作和 AgentMate 自有目录。Skill 定义与推荐位已分离；Skill 编辑统一
 创建不可变 draft。发布治理页展示客户端 Test Run 证据、作者/审核者分离、定义/工具/权限 diff、
 灰度比例、暂停、撤回、回滚、审计及按 release 聚合的安装/运行指标。普通目录 CRUD 已禁止直接修改
-已纳管 Skill 的定义和启停状态。
+已纳管 Skill 的定义和启停状态。技能页另有「内置工具」管理视图，直接维护 Server 数据库策略；不提供
+任意工具创建/删除，以免把数据行误当成本机可执行实现。
 
 ## 9. 部署与安全
 
@@ -203,8 +222,9 @@ Console 管账号、组织、项目协作和 AgentMate 自有目录。Skill 定�
 | 第三方 SkillHub 回归 App 本地 | 已完成 | WB-215 |
 | Skill/连接器/专家推荐位分离 | 已完成 | WB-217、WB-220、WB-221 |
 | Skill 生产发布与客户端兼容闭环 | 已完成 | WB-245～WB-250 |
-| Console 全站 React/Ant Design | 进行中 | WB-234、WB-236 |
-| 正式桌面签名更新服务 | 未完成 | [`desktop-build.md`](desktop-build.md) |
+| 内置工具目录入库、扩充与 Console 管理 | 已完成 | WB-266 |
+| Console 全站 React/Ant Design | 已完成 | WB-234、WB-236 |
+| 桌面更新代码链 | 已完成；待生产签名产物真机演练 | WB-257、[`desktop-build.md`](desktop-build.md) |
 
 腾讯 WorkBuddy 的任务工作台、能力分层、自动化与企业控制面可作为产品结构参考；AgentMate 保持
 local-first、私有数据不上云与真实能力可验收的独立边界。参考资料见 [`WorkBuddy/`](WorkBuddy/README.md)。

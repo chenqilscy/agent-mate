@@ -10,9 +10,7 @@ Server 项目落本地 `projects`(origin='server')，成员落 `project_members`
 from __future__ import annotations
 
 import hashlib
-import json
 import platform
-from pathlib import Path
 
 import server_client
 from agent.skills import _TOOL_REGISTRY, canonical_skill_keys
@@ -25,15 +23,10 @@ _CATALOG_REVISION_KEY = "server.catalog_revision"
 
 
 def _capability_report(revision: str) -> dict:
-    contracts: dict[str, str] = {}
-    try:
-        raw = json.loads((Path(__file__).resolve().parent.parent / "shared" / "skill-tools.json").read_text(encoding="utf-8"))
-        contracts = {
-            str(item.get("name")): str(item.get("contract_version") or settings.TOOL_CONTRACT_VERSION)
-            for item in raw if isinstance(item, dict) and item.get("name") in _TOOL_REGISTRY
-        }
-    except (OSError, ValueError, TypeError):
-        contracts = {name: settings.TOOL_CONTRACT_VERSION for name in _TOOL_REGISTRY}
+    # 直接报告本 App 构建中可执行的真实注册表；目录展示/启停属于 Server DB，不能反向
+    # 声明出本机不存在的实现。ask_user 是 runtime 特判 schema，没有 Tool 对象。
+    contracts = {name: settings.TOOL_CONTRACT_VERSION for name in _TOOL_REGISTRY}
+    contracts["ask_user"] = settings.TOOL_CONTRACT_VERSION
     return {
         "revision": revision,
         "app_version": settings.APP_VERSION,

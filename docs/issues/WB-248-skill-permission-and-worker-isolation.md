@@ -42,7 +42,7 @@ P1：权限审核不精确，取消语义不可靠；继续扩充工具后会成
 
 ## 处理记录
 
-- 2026-07-21：`Tool` 新增结构化 `permissions`、`timeout_seconds`、`isolation` 契约；所有内置工具完成分类，Skill 工具契约由共享注册表下发，Server 根据选中工具权威计算权限，目录 revision 同时覆盖工具契约变化。
+- 2026-07-21：`Tool` 新增结构化 `permissions`、`timeout_seconds`、`isolation` 契约；所有内置工具完成分类。WB-266 后 Skill 工具运营契约由 Server 数据库下发，Server 根据选中工具权威计算权限，目录 revision 同时覆盖工具目录变化；App 的执行能力报告直接来自真实实现注册表。
 - 2026-07-21：Run 的 `permission_snapshot` 新增实际权限并集与逐工具执行策略；Skill release manifest 至少包含绑定工具所需权限，runtime 拒绝权限声明不足的 release。
 - 2026-07-21：Skill 升级新增权限时后端返回 `permission_confirmation_required`，App 详情页展示权限差异并把用户明确同意的权限随升级请求提交，避免静默扩权。
 - 2026-07-21：新增统一执行边界：普通同步工具有截止时间和取消分类，MCP 调用有 60 秒截止时间；`run_command` 使用独立进程组，停止/超时时终止完整进程树，trace 明确记录 `cancelled`/`timeout`。第三方 `scripts/` 仍不进入工具注册表。

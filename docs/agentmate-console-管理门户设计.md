@@ -66,7 +66,7 @@ AgentMate Console
 ├─ 目录运营
 │  ├─ 专家与专家团
 │  ├─ 连接器
-│  └─ 技能
+│  └─ 技能 / 内置工具 / 发布治理
 ├─ 知识库
 ├─ 组织
 ├─ 用户
@@ -115,6 +115,15 @@ Server 必须继续校验：
 - dirty close、删除确认和 Viewer/非管理员门禁；
 - 已安装副本的版本差异不能静默覆盖。
 
+### 5.4 内置工具管理
+
+Console「技能 → 内置工具」读取 Server `tool_catalog`，可搜索并管理显示名、说明、分类、风险级别、
+启停、是否允许普通 Skill 绑定、最低 App 版本和排序。每次更新写入审计；Server 重启和版本升级只补充
+新实现，不覆盖运营值。Skill 编辑器复用同一数据库投影，不再维护另一份工具文件。
+
+工具名、结构化权限、契约版本与注入方式对应已签名 App 中的真实实现，Console 不提供创建、重命名或
+删除。`contextual`/`automatic`/`internal` 工具不能被改成普通 Skill 绑定；动态 MCP 工具也不属于这里。
+
 ## 6. Skill 能力发布中心（已实现）
 
 当前实现：
@@ -131,12 +140,12 @@ Server 对象、客户端 capability report 与状态机见
 
 ## 7. React + Ant Design 维护规则
 
-- 迁移单位是稳定路由，不是散落组件；每迁一页保留原 API 与深链。
+- 全站 React 迁移已完成；稳定路由、API 与深链必须继续保持兼容。
 - 复用统一的 Layout、Menu、Form、Table、Modal/Drawer、Result、notification 和权限守卫。
 - 迁移前后都要覆盖登录失效、403、404、空态、加载、保存失败和窄屏。
-- legacy CSS 与 React 样式隔离，避免全局选择器污染；暗色主题必须真实检查。
+- 样式使用 React Console 现有 token/class，避免全局选择器污染；暗色主题必须真实检查。
 - 构建产物由 `pnpm build:console` 生成；Server 启动不应在运行时依赖 Node。
-- 迁移完成后再删除 `console.html` 与回退逻辑，删除前必须确认所有稳定 URL 都已接管。
+- `console.html` 与 legacy 回退已经删除；禁止重新引入双 UI 或把未知路由伪装成旧页面。
 
 ## 8. 非目标
 

@@ -23,6 +23,7 @@ export interface SkillData {
   slug: string;
   name: string;
   icon: string;
+  category_slug: string;
   category: string;
   description: string;
   instructions: string;
@@ -31,6 +32,14 @@ export interface SkillData {
   files: SkillFile[];
   source: string;
   min_app_version?: string;
+}
+
+export interface SkillCategoryData {
+  [key: string]: unknown;
+  slug: string;
+  name: string;
+  icon: string;
+  description: string;
 }
 
 export interface CatalogItem<T> {
@@ -52,6 +61,24 @@ export interface SkillTool {
   permissions?: string[];
   min_app_version?: string;
   contract_version?: string;
+  category?: string;
+  risk_level?: "low" | "medium" | "high" | "critical";
+  exposure?: "skill" | "contextual" | "automatic" | "internal";
+  enabled?: boolean;
+  bindable?: boolean;
+  sort?: number;
+  created_at?: number;
+  updated_at?: number;
+}
+
+export interface ToolCatalogAudit {
+  id: string;
+  tool_name: string;
+  actor_id: string;
+  action: string;
+  before_data: SkillTool;
+  after_data: SkillTool;
+  created_at: number;
 }
 
 export type SkillReleaseState = "draft" | "testing" | "approved" | "rolling_out" | "published" | "withdrawn" | "superseded";

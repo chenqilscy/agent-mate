@@ -40,16 +40,18 @@ import { PageContainer, ProTable } from "@ant-design/pro-components";
 import type { ActionType, ProColumns } from "@ant-design/pro-components";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { consoleApi } from "./api";
+import SkillCategories from "./SkillCategories";
 import SkillEditor from "./SkillEditor";
-import type { CatalogItem, SkillData, SkillRelease, SkillReleaseState, SkillTool } from "./types";
+import type { CatalogItem, SkillCategoryData, SkillData, SkillRelease, SkillReleaseState, SkillTool, ToolCatalogAudit } from "./types";
 
 type StatusFilter = "all" | "enabled" | "disabled";
-type SkillTab = "gallery" | "manage" | "releases" | "recommendations";
+type SkillTab = "gallery" | "manage" | "categories" | "tools" | "releases" | "recommendations";
 
 export default function SkillsPage() {
   const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const [items, setItems] = useState<CatalogItem<SkillData>[]>([]);
+  const [skillCategories, setSkillCategories] = useState<CatalogItem<SkillCategoryData>[]>([]);
   const [tools, setTools] = useState<SkillTool[]>([]);
   const [releases, setReleases] = useState<SkillRelease[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,14 +60,18 @@ export default function SkillsPage() {
   const [category, setCategory] = useState<string | undefined>();
   const [status, setStatus] = useState<StatusFilter>("all");
   const requestedTab = new URLSearchParams(window.location.search).get("tab");
-  const [tab, setTab] = useState<SkillTab>(requestedTab === "manage" || requestedTab === "releases" || requestedTab === "recommendations" ? requestedTab : "gallery");
+  const [tab, setTab] = useState<SkillTab>(requestedTab === "manage" || requestedTab === "categories" || requestedTab === "tools" || requestedTab === "releases" || requestedTab === "recommendations" ? requestedTab : "gallery");
   const [editor, setEditor] = useState<{ item: CatalogItem<SkillData> | null; tab: "info" | "files" } | null>(null);
 
   async function load() {
     setLoading(true);
     try {
-      const [skills, toolCatalog, releaseList] = await Promise.all([consoleApi.skills(), consoleApi.skillTools(), consoleApi.skillReleases()]);
+      const [skills, categories, toolCatalog, releaseList] = await Promise.all([
+        consoleApi.skills(), consoleApi.catalog<SkillCategoryData>("SKILL_CATEGORIES", true),
+        consoleApi.tools(true), consoleApi.skillReleases(),
+      ]);
       setItems(skills.items.sort((left, right) => left.sort - right.sort));
+      setSkillCategories((categories.items || []).sort((left, right) => left.sort - right.sort));
       setTools(toolCatalog.tools || []);
       setReleases(releaseList.releases || []);
     } catch (reason) {
@@ -77,14 +83,13 @@ export default function SkillsPage() {
 
   useEffect(() => { void load(); }, []);
 
-  const categories = useMemo(() => [...new Set(items.map((item) => item.data.category).filter(Boolean))].sort(), [items]);
   const visibleItems = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return items.filter((item) => {
       const skill = item.data;
       const haystack = `${skill.name} ${skill.slug} ${skill.description}`.toLowerCase();
       return (!normalized || haystack.includes(normalized))
-        && (!category || skill.category === category)
+        && (!category || skill.category_slug === category)
         && (status === "all" || item.enabled === (status === "enabled"));
     });
   }, [category, items, query, status]);
@@ -182,6 +187,8 @@ export default function SkillsPage() {
         items={[
           { key: "gallery", label: "目录预览" },
           { key: "manage", label: "目录管理" },
+          { key: "categories", label: "分类管理" },
+          { key: "tools", label: "内置工具" },
           { key: "releases", label: "发布治理" },
           { key: "recommendations", label: "推荐位管理" },
         ]}
@@ -191,7 +198,11 @@ export default function SkillsPage() {
         <Card loading={loading} title="客户端生效预览" extra={<Input.Search allowClear placeholder="搜索技能" value={query} onChange={(event) => setQuery(event.target.value)} />}>
           {visibleItems.filter((item) => item.enabled).length ? <Row gutter={[16, 16]}>{visibleItems.filter((item) => item.enabled).map((item) => <Col xs={24} md={12} xl={8} key={item.id}><Card size="small" className="catalog-card"><Space align="start"><Avatar shape="square" size={44}>{item.data.icon || <SafetyCertificateOutlined />}</Avatar><div><Typography.Title level={5}>{item.data.name}</Typography.Title><Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }}>{item.data.description}</Typography.Paragraph><Space wrap><Tag>{item.data.slug}</Tag>{item.data.category && <Tag color="blue">{item.data.category}</Tag>}</Space></div></Space></Card></Col>)}</Row> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无生效技能" />}
         </Card>
-      ) : tab === "recommendations" ? <SkillRecommendations skills={items} /> : tab === "releases" ? (
+      ) : tab === "recommendations" ? <SkillRecommendations skills={items} categories={skillCategories} /> : tab === "categories" ? (
+        <SkillCategories categories={skillCategories} skills={items} loading={loading} reload={load} />
+      ) : tab === "tools" ? (
+        <ToolCatalogManager tools={tools} loading={loading} reload={load} />
+      ) : tab === "releases" ? (
         <SkillReleaseConsole releases={releases} tools={tools} loading={loading} reload={load} />
       ) : <ProTable<CatalogItem<SkillData>>
         actionRef={actionRef}
@@ -207,14 +218,15 @@ export default function SkillsPage() {
         locale={{ emptyText: query || category || status !== "all" ? "没有匹配的技能" : "还没有技能定义" }}
         toolBarRender={() => [
           <Input.Search key="search" allowClear className="skill-search" placeholder="搜索名称、slug 或简介" value={query} onChange={(event) => setQuery(event.target.value)} />,
-          <Select key="category" allowClear className="skill-filter" placeholder="全部分类" value={category} options={categories.map((value) => ({ value, label: value }))} onChange={setCategory} />,
+          <Select key="category" allowClear className="skill-filter" placeholder="全部分类" value={category} options={skillCategories.map((item) => ({ value: item.data.slug, label: `${item.data.icon || "🧩"} ${item.data.name}` }))} onChange={setCategory} />,
           <Select<StatusFilter> key="status" className="skill-filter" value={status} options={[{ value: "all", label: "全部状态" }, { value: "enabled", label: "已启用" }, { value: "disabled", label: "已停用" }]} onChange={setStatus} />,
         ]}
       />}
       <SkillEditor
         open={Boolean(editor)}
         item={editor?.item || null}
-        tools={tools}
+        tools={tools.filter((tool) => tool.enabled !== false && tool.bindable === true)}
+        categories={skillCategories}
         initialTab={editor?.tab || "info"}
         onClose={() => setEditor(null)}
         onSaved={() => void load()}
@@ -339,22 +351,238 @@ function SkillReleaseConsole({
   </>;
 }
 
-function SkillRecommendations({ skills }: { skills: CatalogItem<SkillData>[] }) {
+const TOOL_RISK: Record<NonNullable<SkillTool["risk_level"]>, { label: string; color: string }> = {
+  low: { label: "低", color: "green" },
+  medium: { label: "中", color: "blue" },
+  high: { label: "高", color: "orange" },
+  critical: { label: "关键", color: "red" },
+};
+
+const TOOL_EXPOSURE: Record<NonNullable<SkillTool["exposure"]>, string> = {
+  skill: "Skill 可声明",
+  contextual: "按上下文注入",
+  automatic: "运行时自动注入",
+  internal: "系统内部",
+};
+
+type ToolFormValues = Pick<SkillTool, "label" | "description" | "category" | "risk_level" | "enabled" | "bindable" | "min_app_version" | "sort">;
+
+function ToolCatalogManager({
+  tools, loading, reload,
+}: { tools: SkillTool[]; loading: boolean; reload: () => Promise<void> }) {
+  const { message } = App.useApp();
+  const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState<SkillTool | null>(null);
+  const [audit, setAudit] = useState<ToolCatalogAudit[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [form] = Form.useForm<ToolFormValues>();
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return tools;
+    return tools.filter((tool) => `${tool.name} ${tool.label || ""} ${tool.description || ""} ${tool.category || ""}`.toLowerCase().includes(needle));
+  }, [query, tools]);
+
+  async function open(tool: SkillTool) {
+    setEditing(tool);
+    form.setFieldsValue({
+      label: tool.label || tool.name,
+      description: tool.description || "",
+      category: tool.category || "",
+      risk_level: tool.risk_level || "low",
+      enabled: tool.enabled !== false,
+      bindable: tool.bindable === true,
+      min_app_version: tool.min_app_version || "1.0.0",
+      sort: tool.sort || 0,
+    });
+    try {
+      setAudit((await consoleApi.toolAudit(tool.name)).audit || []);
+    } catch {
+      setAudit([]);
+    }
+  }
+
+  const columns: ProColumns<SkillTool>[] = [
+    { title: "工具", dataIndex: "name", width: 250, fixed: "left", render: (_value, tool) => <div><Typography.Text strong>{tool.label || tool.name}</Typography.Text><div><Typography.Text code copyable>{tool.name}</Typography.Text></div></div> },
+    { title: "分类", dataIndex: "category", width: 110, render: (value) => <Tag>{String(value || "未分类")}</Tag> },
+    { title: "注入方式", dataIndex: "exposure", width: 140, render: (value) => TOOL_EXPOSURE[value as NonNullable<SkillTool["exposure"]>] || String(value || "—") },
+    { title: "风险", dataIndex: "risk_level", width: 80, render: (value) => { const risk = TOOL_RISK[value as NonNullable<SkillTool["risk_level"]>] || TOOL_RISK.low; return <Tag color={risk.color}>{risk.label}</Tag>; } },
+    { title: "权限", dataIndex: "permissions", width: 270, render: (_value, tool) => <Space size={[4, 4]} wrap>{(tool.permissions || []).length ? tool.permissions!.map((permission) => <Tag key={permission}>{permission}</Tag>) : <Typography.Text type="secondary">无</Typography.Text>}</Space> },
+    { title: "契约 / 最低 App", width: 150, render: (_value, tool) => <Typography.Text type="secondary">v{tool.contract_version || "1"} / {tool.min_app_version || "1.0.0"}</Typography.Text> },
+    { title: "Skill 绑定", dataIndex: "bindable", width: 95, render: (value) => value ? <Tag color="blue">可绑定</Tag> : <Tag>自动/内部</Tag> },
+    { title: "状态", dataIndex: "enabled", width: 80, render: (value) => value ? <Tag color="green">启用</Tag> : <Tag color="red">停用</Tag> },
+    { title: "操作", valueType: "option", width: 80, fixed: "right", render: (_value, tool) => <Button type="link" size="small" onClick={() => void open(tool)}>管理</Button> },
+  ];
+
+  return <>
+    <Alert
+      type="info"
+      showIcon
+      message={`数据库已登记 ${tools.length} 项真实内置工具，其中 ${tools.filter((tool) => tool.enabled !== false && tool.bindable).length} 项可由普通 Skill 选择。`}
+      description="这里管理展示、风险、启停、Skill 绑定和兼容策略；工具名、权限、契约与注入方式来自已签名 App 实现，不能在 Console 伪造或删除。"
+    />
+    <ProTable<SkillTool>
+      rowKey="name" columns={columns} dataSource={visible} loading={loading} search={false}
+      pagination={false} scroll={{ x: 1250 }} options={{ reload: () => void reload(), density: true, setting: true }}
+      toolBarRender={() => [<Input.Search key="search" allowClear className="skill-search" placeholder="搜索工具、分类或说明" value={query} onChange={(event) => setQuery(event.target.value)} />]}
+    />
+    <Drawer
+      width={660} open={Boolean(editing)} title={editing ? `管理内置工具 · ${editing.name}` : "管理内置工具"}
+      onClose={() => setEditing(null)} destroyOnHidden
+      extra={<Button type="primary" loading={saving} onClick={() => form.submit()}>保存</Button>}
+    >
+      {editing && <Space direction="vertical" size="large" className="full-width">
+        <Descriptions bordered size="small" column={2} items={[
+          { key: "name", label: "实现名", children: <Typography.Text code copyable>{editing.name}</Typography.Text> },
+          { key: "exposure", label: "注入方式", children: TOOL_EXPOSURE[editing.exposure || "skill"] },
+          { key: "contract", label: "工具契约", children: editing.contract_version || "1" },
+          { key: "permissions", label: "实现权限", span: 2, children: <Space wrap>{(editing.permissions || []).map((permission) => <Tag key={permission}>{permission}</Tag>)}</Space> },
+        ]} />
+        <Form<ToolFormValues> form={form} layout="vertical" onFinish={async (values) => {
+          setSaving(true);
+          try {
+            await consoleApi.updateTool(editing.name, values);
+            message.success("工具目录已更新");
+            setEditing(null);
+            await reload();
+          } catch (reason) {
+            message.error(reason instanceof Error ? reason.message : "工具目录更新失败");
+          } finally {
+            setSaving(false);
+          }
+        }}>
+          <Row gutter={12}><Col span={14}><Form.Item name="label" label="显示名称" rules={[{ required: true, whitespace: true }]}><Input maxLength={120} /></Form.Item></Col><Col span={10}><Form.Item name="category" label="分类"><Input maxLength={80} /></Form.Item></Col></Row>
+          <Form.Item name="description" label="说明"><Input.TextArea rows={3} maxLength={500} showCount /></Form.Item>
+          <Row gutter={12}>
+            <Col span={8}><Form.Item name="risk_level" label="风险级别"><Select options={Object.entries(TOOL_RISK).map(([value, meta]) => ({ value, label: meta.label }))} /></Form.Item></Col>
+            <Col span={10}><Form.Item name="min_app_version" label="最低 App 版本" rules={[{ required: true, pattern: /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/ }]}><Input /></Form.Item></Col>
+            <Col span={6}><Form.Item name="sort" label="排序"><InputNumber min={0} precision={0} className="full-width" /></Form.Item></Col>
+          </Row>
+          <Row gutter={12}>
+            <Col span={12}><Form.Item name="enabled" label="目录状态" valuePropName="checked"><Switch checkedChildren="启用" unCheckedChildren="停用" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="bindable" label="允许普通 Skill 绑定" valuePropName="checked" extra={editing.exposure === "skill" ? undefined : "仅 Skill 可声明类型允许绑定。"}><Switch disabled={editing.exposure !== "skill"} /></Form.Item></Col>
+          </Row>
+        </Form>
+        <Card size="small" title="变更审计">
+          <List size="small" dataSource={audit} locale={{ emptyText: "暂无变更" }} renderItem={(entry) => <List.Item><Space><Tag>{entry.action}</Tag><Typography.Text>{entry.actor_id}</Typography.Text><Typography.Text type="secondary">{new Date(entry.created_at * 1000).toLocaleString()}</Typography.Text></Space></List.Item>} />
+        </Card>
+      </Space>}
+    </Drawer>
+  </>;
+}
+
+function SkillRecommendations({
+  skills,
+  categories,
+}: {
+  skills: CatalogItem<SkillData>[];
+  categories: CatalogItem<SkillCategoryData>[];
+}) {
   const { message } = App.useApp();
   const [items, setItems] = useState<CatalogItem<Record<string, unknown>>[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<CatalogItem<Record<string, unknown>> | null | undefined>(undefined);
-  const [form] = Form.useForm<{ provider: string; skill_slug: string; title: string; icon: string; category: string; description: string; sort: number }>();
-  async function load() { setLoading(true); try { const result = await consoleApi.catalog<Record<string, unknown>>("SKILL_RECOMMENDATIONS", true); setItems(result.items || []); } catch (reason) { message.error(reason instanceof Error ? reason.message : "推荐位加载失败"); } finally { setLoading(false); } }
+  const [form] = Form.useForm<{
+    provider: string; skill_slug: string; title: string; icon: string;
+    category_slug: string; description: string; sort: number;
+  }>();
+  const provider = Form.useWatch("provider", form);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const result = await consoleApi.catalog<Record<string, unknown>>("SKILL_RECOMMENDATIONS", true);
+      setItems(result.items || []);
+    } catch (reason) {
+      message.error(reason instanceof Error ? reason.message : "推荐位加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => { void load(); }, []);
-  function open(item: CatalogItem<Record<string, unknown>> | null) { setEditing(item); const data = item?.data || {}; form.setFieldsValue({ provider: String(data.provider || "agentmate"), skill_slug: String(data.skill_slug || ""), title: String(data.title || ""), icon: String(data.icon || ""), category: String(data.category || ""), description: String(data.description || ""), sort: item?.sort || 0 }); }
+
+  function syncAgentMateCategory(slug: string) {
+    const skill = skills.find((item) => item.data.slug === slug);
+    if (skill) form.setFieldValue("category_slug", skill.data.category_slug);
+  }
+
+  function open(item: CatalogItem<Record<string, unknown>> | null) {
+    setEditing(item);
+    const data = item?.data || {};
+    const skillSlug = String(data.skill_slug || "");
+    const inherited = skills.find((skill) => skill.data.slug === skillSlug)?.data.category_slug;
+    const legacy = categories.find((category) => category.data.name === String(data.category || ""))?.data.slug;
+    form.setFieldsValue({
+      provider: String(data.provider || "agentmate"),
+      skill_slug: skillSlug,
+      title: String(data.title || ""),
+      icon: String(data.icon || ""),
+      category_slug: String(data.category_slug || inherited || legacy || ""),
+      description: String(data.description || ""),
+      sort: item?.sort || 0,
+    });
+  }
+
   const columns: ProColumns<CatalogItem<Record<string, unknown>>>[] = [
     { title: "技能", render: (_value, item) => <Space><Avatar shape="square">{String(item.data.icon || "✨")}</Avatar><div><Typography.Text strong>{String(item.data.title || item.data.skill_slug)}</Typography.Text><div><Typography.Text type="secondary">{String(item.data.description || "")}</Typography.Text></div></div></Space> },
     { title: "slug", width: 180, render: (_value, item) => <Typography.Text code>{String(item.data.skill_slug || "")}</Typography.Text> },
+    { title: "分类", width: 120, render: (_value, item) => <Tag>{String(item.data.category || "未分类")}</Tag> },
     { title: "来源", width: 110, render: (_value, item) => <Tag>{String(item.data.provider || "agentmate")}</Tag> },
     { title: "排序", dataIndex: "sort", width: 80 },
     { title: "状态", width: 90, render: (_value, item) => <Switch size="small" checked={item.enabled} onChange={async (enabled) => { await consoleApi.updateCatalogItem(item.id, { enabled }); await load(); }} /> },
     { title: "操作", valueType: "option", width: 140, render: (_value, item) => <Space><Button type="link" size="small" onClick={() => open(item)}>编辑</Button><Popconfirm title="删除此推荐位？" onConfirm={async () => { await consoleApi.deleteCatalogItem(item.id); await load(); }}><Button type="link" danger size="small">删除</Button></Popconfirm></Space> },
   ];
-  return <><ProTable<CatalogItem<Record<string, unknown>>> rowKey="id" columns={columns} dataSource={items} loading={loading} search={false} options={{ reload: () => void load(), density: true }} toolBarRender={() => [<Button key="new" type="primary" icon={<PlusOutlined />} onClick={() => open(null)}>新增推荐位</Button>]} /><Drawer width={580} open={editing !== undefined} title={editing ? "编辑推荐位" : "新增推荐位"} onClose={() => setEditing(undefined)} destroyOnHidden extra={<Button type="primary" onClick={() => form.submit()}>保存</Button>}><Form form={form} layout="vertical" onFinish={async (values) => { const { sort, ...valuesData } = values; const data = { ...(editing?.data || {}), ...valuesData, placement: "skills.recommended" }; try { if (editing) await consoleApi.updateCatalogItem(editing.id, { data, sort }); else await consoleApi.createCatalogItem("SKILL_RECOMMENDATIONS", { ...data, starts_at: 0, ends_at: 0 }, sort); message.success("推荐位已保存"); setEditing(undefined); await load(); } catch (reason) { message.error(reason instanceof Error ? reason.message : "保存失败"); } }}><Form.Item name="provider" label="来源" rules={[{ required: true }]}><Select options={[{ value: "agentmate", label: "AgentMate" }, { value: "skillhub", label: "SkillHub" }]} /></Form.Item><Form.Item name="skill_slug" label="技能 slug" rules={[{ required: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*$/ }]}><AutoComplete options={skills.map((item) => ({ value: item.data.slug, label: `${item.data.name} · ${item.data.slug}` }))} placeholder="选择 AgentMate 技能或输入 SkillHub slug" /></Form.Item><Form.Item name="title" label="展示标题"><Input /></Form.Item><Row gutter={12}><Col span={8}><Form.Item name="icon" label="图标"><IconPicker ariaLabel="选择推荐位图标" /></Form.Item></Col><Col span={16}><Form.Item name="category" label="分类"><Input /></Form.Item></Col></Row><Form.Item name="description" label="简介"><Input.TextArea rows={4} /></Form.Item><Form.Item name="sort" label="排序"><InputNumber min={0} className="full-width" /></Form.Item></Form></Drawer></>;
+
+  return <>
+    <ProTable<CatalogItem<Record<string, unknown>>>
+      rowKey="id" columns={columns} dataSource={items} loading={loading} search={false}
+      options={{ reload: () => void load(), density: true }}
+      toolBarRender={() => [<Button key="new" type="primary" icon={<PlusOutlined />} onClick={() => open(null)}>新增推荐位</Button>]}
+    />
+    <Drawer width={580} open={editing !== undefined} title={editing ? "编辑推荐位" : "新增推荐位"} onClose={() => setEditing(undefined)} destroyOnHidden extra={<Button type="primary" onClick={() => form.submit()}>保存</Button>}>
+      <Form form={form} layout="vertical" onFinish={async (values) => {
+        const { sort, ...valuesData } = values;
+        const selectedCategory = categories.find((category) => category.data.slug === values.category_slug);
+        const skill = skills.find((item) => item.data.slug === values.skill_slug);
+        const data = {
+          ...(editing?.data || {}), ...valuesData,
+          category_slug: values.provider === "agentmate" ? skill?.data.category_slug : values.category_slug,
+          category: values.provider === "agentmate" ? skill?.data.category : selectedCategory?.data.name,
+          placement: "skills.recommended",
+        };
+        try {
+          if (editing) await consoleApi.updateCatalogItem(editing.id, { data, sort });
+          else await consoleApi.createCatalogItem("SKILL_RECOMMENDATIONS", { ...data, starts_at: 0, ends_at: 0 }, sort);
+          message.success("推荐位已保存");
+          setEditing(undefined);
+          await load();
+        } catch (reason) {
+          message.error(reason instanceof Error ? reason.message : "保存失败");
+        }
+      }}>
+        <Form.Item name="provider" label="来源" rules={[{ required: true }]}>
+          <Select options={[{ value: "agentmate", label: "AgentMate" }, { value: "skillhub", label: "SkillHub" }]} onChange={(value) => { if (value === "agentmate") syncAgentMateCategory(form.getFieldValue("skill_slug")); }} />
+        </Form.Item>
+        <Form.Item name="skill_slug" label="技能 slug" rules={[{ required: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*$/ }]}>
+          <AutoComplete options={skills.map((item) => ({ value: item.data.slug, label: `${item.data.name} · ${item.data.slug}` }))} placeholder="选择 AgentMate 技能或输入 SkillHub slug" onSelect={(value) => { if (provider === "agentmate") syncAgentMateCategory(value); }} />
+        </Form.Item>
+        <Form.Item name="title" label="展示标题"><Input /></Form.Item>
+        <Row gutter={12}>
+          <Col span={8}><Form.Item name="icon" label="图标"><IconPicker ariaLabel="选择推荐位图标" /></Form.Item></Col>
+          <Col span={16}>
+            <Form.Item name="category_slug" label="分类" rules={[{ required: true, message: "请选择分类" }]} extra={provider === "agentmate" ? "AgentMate 技能自动继承定义分类。" : undefined}>
+              <Select
+                disabled={provider === "agentmate"}
+                showSearch
+                optionFilterProp="label"
+                options={categories.map((category) => ({ value: category.data.slug, label: `${category.data.icon || "🧩"} ${category.data.name}`, disabled: !category.enabled }))}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Form.Item name="description" label="简介"><Input.TextArea rows={4} /></Form.Item>
+        <Form.Item name="sort" label="排序"><InputNumber min={0} className="full-width" /></Form.Item>
+      </Form>
+    </Drawer>
+  </>;
 }

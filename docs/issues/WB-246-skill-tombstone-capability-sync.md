@@ -9,7 +9,7 @@ files:
   - server/routers/catalog.py:42
   - backend/server_sync.py:113
   - backend/storage/db.py:2072
-  - shared/skill-tools.json:1
+  - server/db.py:164
 created: 2026-07-21
 ---
 
@@ -51,3 +51,4 @@ P0：紧急撤回失效；不兼容能力可以被展示或安装；离线、网
 - 验证：覆盖 revision 命中、工具不兼容、安装拒绝、tombstone 压制 builtin/runtime、旧 Server 回退与
   断网保留；Backend 14/14、Server 7/7 定向回归通过，`py_compile` 与 `tsc --noEmit` 通过。
 - commit：见本次 WB-246 提交。
+- 2026-07-21 后续：WB-266 将工具契约运营字段迁入 Server `tool_catalog`，能力报告直接读取 App 真实实现注册表；旧 JSON 已删除。
