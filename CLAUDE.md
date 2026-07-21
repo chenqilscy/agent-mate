@@ -85,10 +85,11 @@ cd backend && ./.venv/Scripts/python.exe -m py_compile <改动的 .py>
 
 ## Issue 流程
 
-问题台账在 [`docs/issues/`](docs/issues/)（索引 `docs/issues/README.md`）。**所有发现的问题先登记成一条 issue（`WB-###`），再处理**。
+活动台账在 [`docs/issues/`](docs/issues/)（索引 `docs/issues/README.md`），终态记录合并在 `docs/issues/archive/`。**所有发现的问题先登记成一条 issue（`WB-###`），再处理**。
 登记/处理的完整规范由 skill **`issue-tracker`** 定义（`.agents/skills/issue-tracker/SKILL.md`），会话中用 `/issue-tracker` 调起。
 
-- 处理某条时：把该 issue 与台账状态改 `in-progress`/🟡 → 按其「建议修法」改 → 按「验证」核对 → 改 `fixed`/✅ 并在文件末尾追加「处理记录」。
+- 处理某条时：改为 `in-progress`/🟡 → 按建议修法与验证完成 → 追加处理记录并改为终态 → 运行 `python scripts/archive_issues.py --apply` 合并归档，最后以 `--check` 校验。
+- 新编号必须用 `python scripts/archive_issues.py --next-id`，同时覆盖活动文件和归档记录。
 - 一条 commit 对应一个（或一组同源）issue，标题带 `WB-###`。
 - 顺手发现的新问题**另开 issue**，不夹带进当前修复。
 

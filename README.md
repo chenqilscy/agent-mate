@@ -18,10 +18,9 @@ The working baseline includes:
 - Tauri 2 shell, PyInstaller sidecar, tray and MSI/NSIS build scaffolding;
 - optional AgentMate Server control plane and its same-origin AgentMate Console.
 
-The live issue ledger is [`docs/issues/`](docs/issues/README.md). Notable open work includes the remaining Console
-React/Ant Design migration ([WB-236](docs/issues/WB-236-console-remaining-pages-ant-design.md)), the App production
-build type failures ([WB-237](docs/issues/WB-237-app-production-build-type-errors.md)), production capability-release
-governance and a signed desktop update service.
+The active issue ledger is [`docs/issues/`](docs/issues/README.md), with completed records compacted under its archive.
+The product/code roadmap is closed; the only deferred item is formal production desktop-update deployment, which needs
+deployment-owned HTTPS infrastructure, protected signing material and a production rollout window.
 
 ## Architecture
 

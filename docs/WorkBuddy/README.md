@@ -35,4 +35,4 @@
 - App/Server 数据归属与同步：[../agentmate-数据分层与同步规范.md](../agentmate-数据分层与同步规范.md)
 - Console 运营与发布：[../agentmate-console-管理门户设计.md](../agentmate-console-管理门户设计.md)
 - 桌面构建与升级：[../desktop-build.md](../desktop-build.md)
-- 本轮文档收敛记录：[../issues/WB-235-capability-release-docs-workbuddy-reference.md](../issues/WB-235-capability-release-docs-workbuddy-reference.md)
+- 本轮文档收敛记录：[WB-235](../issues/archive/2026/WB-200-299.md#wb-235)

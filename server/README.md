@@ -2,7 +2,7 @@
 
 AgentMate 从纯 local-first 走向「本地执行 + 云端控制平面」重构的**中心服务**（见
 [`docs/agentmate-server-架构设计.md`](../docs/agentmate-server-架构设计.md)、epic
-[`WB-058`](../docs/issues/WB-058-hub-control-plane-epic.md)）。本目录（WB-061）是它的**骨架**：
+[`WB-058`](../docs/issues/archive/2026/WB-001-099.md#wb-058)）。本目录（WB-061）是它的**骨架**：
 账号 / 组织 / 项目 / 成员·角色 / 邀请的**权威源**，以及鉴权签发。
 
 > monorepo：与本地 `backend/` 代码解耦、可单独部署与启动，但同仓共享一份 git 历史。
@@ -45,5 +45,5 @@ pnpm dev:console         # 可选：:8103 开发服务，/api 代理到 Server :
 
 ## 边界（WB-061 不做）
 
-同步逻辑（[WB-062](../docs/issues/WB-062-local-hub-sync-protocol.md)）、实时通道、计费/SaaS 多区域、
-完整目录下发（[WB-063](../docs/issues/WB-063-hub-migration-and-local-fallback.md)）。
+同步逻辑（[WB-062](../docs/issues/archive/2026/WB-001-099.md#wb-062)）、实时通道、计费/SaaS 多区域、
+完整目录下发（[WB-063](../docs/issues/archive/2026/WB-001-099.md#wb-063)）。

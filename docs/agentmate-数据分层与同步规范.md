@@ -1,7 +1,7 @@
 # AgentMate 数据分层与同步规范
 
 > 状态：v2（2026-07-21 修订）。本规范是 **AgentMate App ⇄ AgentMate Server** 之间“哪些数据上云、哪些留本地、怎么同步”的**唯一准绳**；Console 是 Server 的 Web 管理界面。
-> 新增任何实体前，先按 §5 的决策流程给它归层，再写代码。相关落地见 epic [WB-112](issues/WB-112-manager-positioning-data-spec.md)。
+> 新增任何实体前，先按 §5 的决策流程给它归层，再写代码。相关落地见 epic [WB-112](issues/archive/2026/WB-100-199.md#wb-112)。
 
 ## 0. 定位
 

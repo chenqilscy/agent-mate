@@ -81,9 +81,8 @@ src-tauri/           Tauri 2 壳、sidecar、托盘与 updater 脚手架
 docs/                当前方案、专项设计、参考资料和 issue 台账
 ```
 
-Console 技能管理已迁移到 React + Ant Design，其余 legacy 页面按
-[WB-236](issues/WB-236-console-remaining-pages-ant-design.md) 继续迁移。生产构建门禁见
-[WB-237](issues/WB-237-app-production-build-type-errors.md)。
+Console 全站已按 [WB-236](issues/archive/2026/WB-200-299.md#wb-236) 迁移到 React + Ant Design；
+生产构建门禁问题 [WB-237](issues/archive/2026/WB-200-299.md#wb-237) 也已关闭。
 
 ## 4. App 前端
 
