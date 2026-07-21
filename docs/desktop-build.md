@@ -7,8 +7,9 @@ AgentMate 用 Tauri 2 打成桌面应用：前端在系统 WebView2 里显示，
 ## 前置
 
 - Node 20+ / pnpm、Python 3.11+（后端 venv 已装 PyInstaller）、Rust（`cargo` / `rustc`）。
-- Windows 打包还需要 WebView2 运行时（Win10/11 一般自带）。WiX / NSIS 由 `tauri build`
-  首次自动下载。
+- Windows 打包还需要 WebView2 运行时（Win10/11 一般自带）。它与 GNU 目标动态链接所需的
+  `WebView2Loader.dll` 不是同一个组件；后者由 Windows bundle 配置随安装包放到主程序同目录。
+  WiX / NSIS 由 `tauri build` 首次自动下载。
 
 ## 开发运行
 
@@ -36,6 +37,8 @@ pnpm tauri:dev                                               # 原生窗口，�
 backend/.venv/Scripts/python.exe backend/build_sidecar.py
 # 2) 出安装包（release 编译 + WiX/NSIS 打包）
 pnpm tauri build
+# 3) 安装产物后核对主程序、sidecar 与 GNU WebView2 Loader 均已落盘
+powershell -ExecutionPolicy Bypass -File scripts/validate-windows-tauri-install.ps1
 ```
 产物在 `src-tauri/target/release/bundle/`：
 - `msi/AgentMate_<ver>_x64_en-US.msi`（WiX）
@@ -50,6 +53,9 @@ pnpm tauri build
 - **sidecar**：`backend/build_sidecar.py` 跑 `agentmate-backend.spec`（onefile），按 Rust
   目标三元组命名拷进 `src-tauri/binaries/`。Windows 上 Tauri 按 `x86_64-pc-windows-msvc`
   匹配（即便 host 是 gnu），脚本已同时放 msvc/gnu 两个名字。
+- **WebView2 Loader**：Windows GNU Rust 目标会动态依赖 Cargo 生成到
+  `src-tauri/target/release/WebView2Loader.dll` 的 Loader；`tauri.windows.conf.json` 将它安装到
+  `agentmate.exe` 同目录。它缺失时 Windows 会在应用代码运行前直接拒绝启动。
 - **进程接管**：`src-tauri/src/lib.rs` 启动时 `spawn` sidecar、drain 其输出、退出时 kill。
 - **前端 API 基址**：壳内自动走绝对 `http://127.0.0.1:8101/api`（无 Vite 代理），后端 CORS
   已放行 tauri 源。
@@ -87,6 +93,11 @@ stable/beta、平台、架构、当前版本和匿名设备哈希返回 204 或�
 4. 先在 beta 真机验证，再推进 stable 灰度。失败时暂停通道或把通道 rollback 到上一签名 release。
 5. 验证从上一受支持版本升级：下载、签名校验、安装、sidecar/DB 迁移、自重启、版本显示和旧数据。
 
+仓库提供 `scripts/desktop_update_smoke_server.py` 作为本机安装演练服务。它只绑定 `127.0.0.1`，可在
+隔离的演练构建中分别提供正常签名、`--bad-signature` 和 `--rollback` manifest；不得在正式构建中
+开启非 HTTPS updater 传输，也不得用演练密钥替代 CI 私钥。WB-257 的完整演练证据见
+`docs/evaluations/WB-257-desktop-update-signing-smoke.md`。
+
 ### 生产发布要求
 
 - **不可变产物**：安装包、updater artifact、`.sig`、manifest 和 release notes 按版本归档，禁止
@@ -122,7 +133,7 @@ CA 的代码签名证书**（OV 或 EV；**自签名无效**，SmartScreen 只�
 
 ## 已知待办
 
-- **A4 自动更新**代码链路已完成；每个部署仍必须配置公开 HTTPS Server、CI 私钥和真实签名产物，
-  并用前后两个安装版本完成升级/回滚演练，不能把本地 API 测试当成生产安装证明。
+- **A4 自动更新**代码链路及本机真实 updater 签名安装演练已完成；每个部署仍必须配置公开 HTTPS
+  Server、CI 私钥、可信代码签名证书和生产签名产物，并用前后两个生产安装版本复跑升级/回滚。
 - **代码签名**需你购买证书（见上）。
 - 第三方 stdio 连接器（GitHub 等）在打包版里默认禁用（内置连接器已可用）。

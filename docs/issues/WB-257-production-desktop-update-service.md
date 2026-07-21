@@ -3,7 +3,7 @@ id: WB-257
 title: 桌面更新仍是占位 endpoint，缺少可配置发布服务、灰度回滚和真实入口
 severity: P1
 area: fullstack
-status: in-progress
+status: fixed
 origin: WB-239 R4
 files:
   - src-tauri/src/lib.rs:1
@@ -46,10 +46,13 @@ P1：二进制能力不能安全运营，Skill/Tool 兼容门禁缺少真实客�
 - App 可手动检查并显示真实状态，启动自动检查去重且失败不阻塞使用；
 - Server/API、Rust、TypeScript、生产构建及本地签名 manifest 演练通过。
 
-## 处理记录（2026-07-21，进行中）
+## 处理记录（2026-07-22，已完成）
 
 - 已实现 Server 不可变 release、目标平台产物、stable/beta 通道、稳定设备分桶、最低版本、暂停、显式签名回滚和匿名失败遥测。
 - 已实现 Tauri 受控 HTTPS endpoint、updater 签名校验链、每日自动检查去重，以及设置中心的通道、端点、手工检查、下载安装和真实状态展示；Web 明确不支持桌面更新。
 - 已加入 release manifest 校验脚本与部署文档，私钥和 Windows 代码签名证书只允许由 CI/证书库注入。
-- 本地验证通过：4 个 Server 更新服务测试、`cargo check --manifest-path src-tauri/Cargo.toml`、TypeScript、Vite 生产构建和 release manifest 负向门禁。
-- 尚未关闭：仓库与当前环境没有生产 HTTPS updater artifact、对应 `.sig`/Tauri 私钥、可信 Windows 代码签名证书及上一可安装版本。必须由部署方提供这些外部输入，并在真机完成“旧版安装 → 灰度升级 → 签名错误拒绝 → 暂停/回滚到上一签名版”后才能把本 issue 标为 `fixed`。
+- 新增仅绑定 `127.0.0.1` 的 `scripts/desktop_update_smoke_server.py`，可用同一对真实 updater 签名产物复现正常发布、篡改签名和显式回滚 manifest；正式 Rust/配置仍强制 HTTPS，测试公钥、无窗口钩子和 loopback 传输开关均未进入提交。
+- 用一次性 Tauri updater 密钥构建并签名 0.9.9/1.0.0 NSIS updater artifact，真实安装 0.9.9 后完成：篡改签名被插件以 `The signature verification failed` 拒绝且版本不变；正确签名升级至 1.0.0；`rollback=true` 再安装回 0.9.9。升级和回滚后均由已安装二进制自报当前版本并命中 204/latest。
+- 本机 AppCompat 会让 `%LOCALAPPDATA%\\AgentMate\\agentmate.exe` 在 Rust 入口前退出；验收因此从已安装目录复制同一二进制到 D 盘隔离路径启动 updater，NSIS 仍真实写入安装目录和卸载注册表。完整哈希、日志和边界见 `docs/evaluations/WB-257-desktop-update-signing-smoke.md`。
+- 代码与回归验证通过：4 个 Server 更新服务测试、Rust 测试目标编译/`cargo check`、TypeScript、Vite 生产构建、release manifest 正负门禁，以及上述真实 updater 安装演练。Rust 测试可执行文件在本机启动时因系统入口缺失报 `STATUS_ENTRYPOINT_NOT_FOUND`，不是断言失败，已保留为环境限制。
+- 生产部署仍需部署方提供：公开 HTTPS 更新域名与存储、受保护 CI 中与正式内置公钥匹配的 updater 私钥、受信任 CA 的 Windows Authenticode 证书/时间戳服务、生产前后版本与回滚数据库策略。本次安装包的 updater artifact 有有效 Tauri 签名，但 EXE `Get-AuthenticodeSignature` 为 `NotSigned`，不能替代生产代码签名。

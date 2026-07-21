@@ -224,7 +224,7 @@ Console 管账号、组织、项目协作和 AgentMate 自有目录。Skill 定�
 | Skill 生产发布与客户端兼容闭环 | 已完成 | WB-245～WB-250 |
 | 内置工具目录入库、扩充与 Console 管理 | 已完成 | WB-266 |
 | Console 全站 React/Ant Design | 已完成 | WB-234、WB-236 |
-| 桌面更新代码链 | 已完成；待生产签名产物真机演练 | WB-257、[`desktop-build.md`](desktop-build.md) |
+| 桌面更新代码链 | 已完成；本机真实 updater 签名升级/拒绝/回滚已演练，生产域名与代码签名材料待部署注入 | WB-257、[`desktop-build.md`](desktop-build.md) |
 
 腾讯 WorkBuddy 的任务工作台、能力分层、自动化与企业控制面可作为产品结构参考；AgentMate 保持
 local-first、私有数据不上云与真实能力可验收的独立边界。参考资料见 [`WorkBuddy/`](WorkBuddy/README.md)。
