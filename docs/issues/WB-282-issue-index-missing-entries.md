@@ -3,13 +3,13 @@ id: WB-282
 title: issue 索引漏列 WB-173～175，文件与台账状态不一致
 severity: P2
 area: docs
-status: in-progress
+status: fixed
 origin: 集成一致性审计
 files:
   - docs/issues/README.md
-  - docs/issues/WB-173-weknora-backend.md
-  - docs/issues/WB-174-weknora-frontend.md
-  - docs/issues/WB-175-knowledge-add-tool.md
+  - docs/issues/WB-173-knowledge-base-via-weknora-backend.md
+  - docs/issues/WB-174-knowledge-base-weknora-frontend.md
+  - docs/issues/WB-175-agent-knowledge-add-tool.md
 created: 2026-07-22
 ---
 
@@ -39,3 +39,11 @@ WeKnora 后端、前端和 `knowledge_add` 三项工作从未登记或已经丢�
 - WB issue 文件数量与唯一 ID 数量一致；
 - README 中 WB-173～175 均显示 `✅`，并与各自 `status: fixed` 一致；
 - 全量状态镜像审计无遗漏。
+
+## 处理记录（2026-07-22）
+
+- 改动：按编号顺序把 WB-173～175 的真实文件链接、`✅` 状态、优先级、领域与摘要补回 README；未改动
+  三个既有 issue 的状态或处理记录。
+- 验证：全量扫描得到 281 个 issue 文件、281 个唯一 ID、0 个重复 ID、0 个 README 状态缺失/不匹配；
+  `git diff --check` 通过。
+- commit：登记提交 `9039417`；修复随本提交。

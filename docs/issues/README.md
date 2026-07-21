@@ -189,6 +189,9 @@
 | [WB-170](WB-170-memory-embedding-backend-configurable.md) | ✅ | P2 | fullstack | 记忆嵌入后端可配置 —— 本地(fastembed bge-small-zh) ⇄ 在线(GLM embedding-3) 用户可选 + 跨模型 tag 惰性重嵌入迁移（知识库档位选择 WB-144/169 已就绪，本条只补记忆侧） |
 | [WB-171](WB-171-hub-knowledge-base-document-backend.md) | ✅ | P2 | backend | Server 真·知识库 + 文档后端(项目级) —— 建库/传档(字节存 Server)/文档管理 + 有文档后锁向量维度(400 拦截)；Console 不算向量(向量化交执行面，且只调 GLM 嵌入接口、不用 GLM 知识库功能) |
 | [WB-172](WB-172-manager-project-knowledge-base-tab.md) | ✅ | P2 | frontend | Console 项目「知识库」tab —— 真·建库(向量维度联动下拉/切片方式下拉)+文档上传/列/删+有文档后维度 select 锁定+诚实未向量化状态(kbm- 前缀)；配 WB-171 |
+| [WB-173](WB-173-knowledge-base-via-weknora-backend.md) | ✅ | P2 | backend | 知识库改用自托管 WeKnora：后端作为 WeKnora 客户端，替换 GLM 托管知识库 |
+| [WB-174](WB-174-knowledge-base-weknora-frontend.md) | ✅ | P2 | frontend | 知识库前端移除 GLM 专属配置，改为配置自托管 WeKnora 后端 |
+| [WB-175](WB-175-agent-knowledge-add-tool.md) | ✅ | P2 | backend | 会话内 agent 支持把工作区文件加入已挂载的 WeKnora 知识库 |
 | [WB-176](WB-176-trim-experts-showcase-data.md) | ✅ | P3 | fullstack | 精简专家/专家团橱窗数据 —— 三层数据源(前端静态兜底/后端种子/运行库)同步裁剪至 专家7·团3·场景3·分类6，避开「删空即重种」与「兜底顶上来」两个复活陷阱 |
 | [WB-177](WB-177-connectors-showcase-weknora.md) | ✅ | P3 | fullstack | 连接器橱窗改版 —— 三层同步去掉 ima知识库/乐享知识库/腾讯文档/TAPD/企查查(12→8)，新增 WeKnora知识库 卡 + CONN_META 详情(工具清单逐字镜像后端真 knowledge_retrieve/knowledge_add) |
 | [WB-178](WB-178-skills-subsystem-epic.md) | ✅ | P1 | fullstack | 技能子系统重构（总纲/epic）—— 以 slug 为主键焊死「橱窗/loadout/磁盘」三层；WB-179~186 已全部完成并经真实功能门禁验收 |
@@ -298,7 +301,7 @@
 | [WB-279](WB-279-skill-catalog-test-server-gate.md) | ✅ | P2 | test | Skill catalog 同步回归未开启 Server gate |
 | [WB-280](WB-280-regression-test-state-isolation.md) | ✅ | P2 | test | 回归测试泄漏 DB 与安全上下文导致顺序相关失败 |
 | [WB-281](WB-281-chatsearch-cross-node-match.md) | ✅ | P3 | frontend | ChatSearch 无法匹配跨 Markdown 文本节点短语 |
-| [WB-282](WB-282-issue-index-missing-entries.md) | 🟡 | P2 | docs | issue 索引漏列 WB-173～175，文件与台账状态不一致 |
+| [WB-282](WB-282-issue-index-missing-entries.md) | ✅ | P2 | docs | issue 索引漏列 WB-173～175，文件与台账状态不一致 |
 
 ## 来源
 
