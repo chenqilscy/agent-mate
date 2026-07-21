@@ -287,6 +287,7 @@
 | [WB-268](WB-268-full-regression-contract-drift.md) | ✅ | P1 | frontend | 全量回归门禁与已落地 Ant 及项目工作台实现漂移，持续集成仍有三项失败 |
 | [WB-269](WB-269-settings-center-mobile-overlap.md) | ✅ | P1 | ui | 设置中心在手机宽度仍保持双栏导致内容挤压重叠 |
 | [WB-270](WB-270-tauri-webview2loader-missing.md) | ✅ | P0 | misc | GNU Tauri 安装包遗漏 WebView2Loader.dll 导致桌面端无法启动 |
+| [WB-271](WB-271-duplicate-attachment-feedback.md) | ✅ | P3 | frontend | 重名附件被静默丢弃却仍提示添加成功 |
 | [WB-281](WB-281-chatsearch-cross-node-match.md) | ✅ | P3 | frontend | ChatSearch 无法匹配跨 Markdown 文本节点短语 |
 
 ## 来源

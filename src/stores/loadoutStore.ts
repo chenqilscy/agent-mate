@@ -8,6 +8,9 @@
 import { create } from 'zustand'
 
 export interface AttachedRef {
+  // UI identity is separate from the display name: different source files may
+  // legitimately share a basename and still need independent chips/removal.
+  id: string
   name: string
   content: string
   // 'file' = @引用/添加文件（📎）；'todo' = 计划「添加到输入框」的待办（🔖）。默认 file。
@@ -15,6 +18,8 @@ export interface AttachedRef {
   // 当 kind==='todo'：关联的 work_item id，让 agent 能回写其状态（WB-030）。
   itemId?: string
 }
+
+export type NewAttachedRef = Omit<AttachedRef, 'id'>
 
 type Kind = 'exp' | 'skill' | 'conn' | 'kb'
 const KEY: Record<Kind, 'experts' | 'skills' | 'connectors' | 'knowledgeIds'> = {
@@ -42,8 +47,8 @@ interface LoadoutState {
   summonSkills: (skills: string[]) => void
   // 同 summon，但换成连接器班底（用于连接器目录的「去试试」：进入新草稿时保持挂载）。
   summonConnectors: (connectors: string[]) => void
-  addRef: (r: AttachedRef) => void
-  removeRef: (name: string) => void
+  addRef: (r: NewAttachedRef) => boolean
+  removeRef: (id: string) => void
   clearRefs: () => void
   setDraft: (text: string) => void
   clearDraft: () => void
@@ -51,7 +56,7 @@ interface LoadoutState {
   reset: () => void
 }
 
-export const useLoadoutStore = create<LoadoutState>((set) => ({
+export const useLoadoutStore = create<LoadoutState>((set, get) => ({
   experts: [],
   skills: [],
   connectors: [],
@@ -76,9 +81,16 @@ export const useLoadoutStore = create<LoadoutState>((set) => ({
   summonConnectors: (connectors) =>
     set({ experts: [], skills: [], connectors: [...new Set(connectors)], knowledgeIds: [], refs: [], draft: '' }),
 
-  addRef: (r) =>
-    set((s) => (s.refs.some((x) => x.name === r.name) ? {} : { refs: [...s.refs, r] })),
-  removeRef: (name) => set((s) => ({ refs: s.refs.filter((r) => r.name !== name) })),
+  addRef: (r) => {
+    const duplicate = get().refs.some((x) =>
+      x.name === r.name && x.content === r.content
+      && x.kind === r.kind && x.itemId === r.itemId,
+    )
+    if (duplicate) return false
+    set((s) => ({ refs: [...s.refs, { ...r, id: crypto.randomUUID() }] }))
+    return true
+  },
+  removeRef: (id) => set((s) => ({ refs: s.refs.filter((r) => r.id !== id) })),
   clearRefs: () => set({ refs: [] }),
   setDraft: (text) => set({ draft: text }),
   clearDraft: () => set({ draft: '' }),

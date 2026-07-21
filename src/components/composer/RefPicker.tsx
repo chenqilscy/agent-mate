@@ -43,8 +43,8 @@ export function RefPicker({ scope, onClose }: { scope: Scope; onClose: () => voi
         toast('该文件不是文本，无法引用')
         return
       }
-      addRef({ name: f.path, content: c.content })
-      toast('已引用 · ' + f.name)
+      const added = addRef({ name: f.path, content: c.content })
+      toast((added ? '已引用 · ' : '已引用过 · ') + f.name)
       onClose()
     } catch {
       toast('读取失败')

@@ -86,7 +86,10 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
     if (file.size > MAX_ATTACH) { toast('文件过大（上限约 4MB 文本）'); return }
     try {
       const content = await file.text()
-      addRef({ name: file.name, content })
+      if (!addRef({ name: file.name, content })) {
+        toast('已添加过 · ' + file.name)
+        return
+      }
       toast(content.length > EFFECTIVE_REF_LIMIT
         ? `已添加 · ${file.name}（超 100 万字符，注入时会截断至前 100 万字符）`
         : '已添加 · ' + file.name)
@@ -174,7 +177,7 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
           {refs.map((r) => {
             const truncated = r.content.length > EFFECTIVE_REF_LIMIT
             return (
-              <span className={`np-chip ${r.kind === 'todo' ? 'ref-todo' : 'ref-file'}`} key={'r' + r.name} title={truncated ? `${r.name}（注入时截断至前 100 万字符）` : r.name}><span>{r.kind === 'todo' ? '🔖' : '📎'}</span><span className="np-lbl">{r.name}{truncated ? ' · 已截断' : ''}</span><span className="x" {...clickable} onClick={() => removeRef(r.name)}>×</span></span>
+              <span className={`np-chip ${r.kind === 'todo' ? 'ref-todo' : 'ref-file'}`} key={r.id} title={truncated ? `${r.name}（注入时截断至前 100 万字符）` : r.name}><span>{r.kind === 'todo' ? '🔖' : '📎'}</span><span className="np-lbl">{r.name}{truncated ? ' · 已截断' : ''}</span><span className="x" {...clickable} onClick={() => removeRef(r.id)}>×</span></span>
             )
           })}
         </div>
