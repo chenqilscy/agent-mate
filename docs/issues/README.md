@@ -255,6 +255,7 @@
 | [WB-236](WB-236-console-remaining-pages-ant-design.md) | ✅ | P1 | frontend | AgentMate Console 其余 legacy 页面尚未迁移到统一组件体系 |
 | [WB-237](WB-237-app-production-build-type-errors.md) | ✅ | P1 | frontend | AgentMate App 生产构建被现有 TypeScript 错误阻断 |
 | [WB-238](WB-238-stale-authoritative-docs-cleanup.md) | ✅ | P1 | misc | 权威文档残留过时架构、端口与能力边界，且以勘误掩盖正文冲突 |
+| [WB-239](WB-239-task-delivery-roadmap-epic.md) | 🟡 | P1 | fullstack | AgentMate 功能主线尚未围绕可验收任务交付闭环组织（路线图 epic） |
 
 ## 来源
 
