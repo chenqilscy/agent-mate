@@ -1,7 +1,7 @@
 import { WbButton, WbTextArea } from '../components/ui/Primitives'
-import { useEffect, useState } from 'react'
-import { api } from '../lib/api'
-import type { ProjectInfo, SessionInfo } from '../lib/types'
+import { useCallback, useEffect, useState } from 'react'
+import { api, type Assistant } from '../lib/api'
+import type { Automation, ProjectInfo, SessionInfo } from '../lib/types'
 import { useProjectStore } from '../stores/projectStore'
 import { useChatStore } from '../stores/chatStore'
 import { useLoadoutStore } from '../stores/loadoutStore'
@@ -12,6 +12,7 @@ import { PickerOverlay } from '../components/project/NewProjectModal'
 import { KanbanBoard, TaskList, WorkloadView, GanttView } from '../components/project/ProjectWork'
 import { AssetsManager } from '../components/project/AssetsManager'
 import { MembersModal } from '../components/project/MembersModal'
+import { ProjectBindingsModal, type ProjectBindingKind } from '../components/project/ProjectBindingsModal'
 import { ServerCommentsPanel } from '../components/server/ServerCommentsPanel'
 import { useWorkItemStore } from '../stores/workItemStore'
 import { useCatalogStore } from '../stores/catalogStore'
@@ -46,6 +47,7 @@ export function ProjectHomeView() {
   const active = useProjectStore((s) => s.active)
   const setActive = useProjectStore((s) => s.setActive)
   const reloadProjects = useProjectStore((s) => s.load)
+  const projects = useProjectStore((s) => s.projects)
   const setView = useUIStore((s) => s.setView)
   const startProject = useChatStore((s) => s.startProject)
   const openSession = useChatStore((s) => s.openSession)
@@ -61,12 +63,30 @@ export function ProjectHomeView() {
   const [picker, setPicker] = useState<Kind | null>(null)
   const [pickerSet, setPickerSet] = useState<Set<string>>(new Set())
   const [membersOpen, setMembersOpen] = useState(false)
+  const [bindingPicker, setBindingPicker] = useState<ProjectBindingKind | null>(null)
+  const [assistants, setAssistants] = useState<Assistant[]>([])
+  const [automations, setAutomations] = useState<Automation[]>([])
+  const [bindingsLoaded, setBindingsLoaded] = useState(false)
   const loadWork = useWorkItemStore((s) => s.load)
   const kbs = useKnowledgeStore((s) => s.kbs)
   const kbLoaded = useKnowledgeStore((s) => s.loaded)
   const loadKbs = useKnowledgeStore((s) => s.load)
 
   const pid = active?.id
+
+  const loadBindings = useCallback(async () => {
+    try {
+      const [assistantResult, automationResult] = await Promise.all([
+        api.listAssistants(),
+        api.listAutomations(),
+      ])
+      setAssistants(assistantResult.assistants)
+      setAutomations(automationResult.automations)
+      setBindingsLoaded(true)
+    } catch {
+      setBindingsLoaded(false)
+    }
+  }, [])
 
   useEffect(() => {
     if (!pid) return
@@ -82,7 +102,8 @@ export function ProjectHomeView() {
     }).catch(() => {})
     api.projectSessions(pid).then((r) => setSessions(r.sessions)).catch(() => {})
     loadWork(pid)
-  }, [pid, setActive, loadWork])
+    void loadBindings()
+  }, [pid, setActive, loadWork, loadBindings])
 
   useEffect(() => { if (!kbLoaded) void loadKbs() }, [kbLoaded, loadKbs])
 
@@ -126,6 +147,32 @@ export function ProjectHomeView() {
     void send(text)
   }
   const openExec = (id: string) => { openSession(id); setView('projexec', { projectId: project.id, sessionId: id }) }
+
+  const boundAssistants = assistants.filter((item) => item.workspace === `project:${project.id}`)
+  const boundAutomations = automations.filter((item) => item.project_id === project.id)
+
+  const bindingSection = (kind: ProjectBindingKind, label: string) => {
+    const items = kind === 'assistant' ? boundAssistants : boundAutomations
+    return (
+      <ProCard className="pjcfg-sec" styles={{ body: { display: 'contents' } }}>
+        <div className="pjcfg-h">
+          {label}<span className="n">{bindingsLoaded ? items.length : '—'}</span>
+          {canManage && <span className="add" aria-label={`配置${label}`} {...clickable} onClick={() => setBindingPicker(kind)}>{IC_ADD}</span>}
+        </div>
+        {items.length ? (
+          <Avatar.Group className="pjcfg-icons">
+            {items.map((item) => (
+              <Tooltip title={item.name} key={item.id}>
+                <Avatar className="pjcfg-ic">{kind === 'assistant' ? ((item as Assistant).avatar || '🤖') : '⏰'}</Avatar>
+              </Tooltip>
+            ))}
+          </Avatar.Group>
+        ) : (
+          <div className="pjcfg-sub">{bindingsLoaded ? (canManage ? '未配置，点 ＋ 添加' : '未配置') : '暂时无法读取配置'}</div>
+        )}
+      </ProCard>
+    )
+  }
 
   const cfgSection = (k: Kind, label: string) => {
     const items = project[FIELD[k]] ?? []
@@ -228,6 +275,8 @@ export function ProjectHomeView() {
           {cfgSection('exp', '专家')}
           {cfgSection('skill', '技能')}
           {cfgSection('kb', '知识库')}
+          {bindingSection('assistant', '助手')}
+          {bindingSection('automation', '自动化')}
 
           <div className="pjcfg-sec">
             <div className="pjcfg-h">
@@ -239,14 +288,28 @@ export function ProjectHomeView() {
             </div>
           </div>
 
-          <div className="pjcfg-sec">
-            <div className="pjcfg-h">自动化</div>
-            <div className="pjcfg-sub">让 AI 按计划自动执行任务（阶段 B）</div>
-          </div>
         </ProCard>
       </div>
 
       {membersOpen && <MembersModal project={project} onClose={() => setMembersOpen(false)} onLeft={onLeft} />}
+
+      {bindingPicker && (
+        <ProjectBindingsModal
+          kind={bindingPicker}
+          project={project}
+          projects={projects}
+          onClose={() => setBindingPicker(null)}
+          onSaved={(nextAssistants, nextAutomations) => {
+            setAssistants(nextAssistants)
+            setAutomations(nextAutomations)
+            setBindingsLoaded(true)
+          }}
+          onNavigate={(kind) => {
+            setBindingPicker(null)
+            setView(kind === 'assistant' ? 'assistant' : 'automation')
+          }}
+        />
+      )}
 
       {picker && (
         <PickerOverlay

@@ -280,6 +280,7 @@
 | [WB-261](WB-261-app-console-typography-unification.md) | ✅ | P1 | ui | AgentMate App 与 Console 字体体系和基础排版密度不一致 |
 | [WB-262](WB-262-antd6-spin-tip-deprecation.md) | ✅ | P2 | frontend | App 与 Console 仍使用 Ant Design 6 已弃用的 Spin tip 属性 |
 | [WB-263](WB-263-console-project-workspace-parity.md) | ✅ | P1 | frontend | Console React 迁移后项目工作台缩水并与 App 项目模型失配 |
+| [WB-264](WB-264-project-settings-assistants-automations.md) | ✅ | P1 | frontend | 项目配置缺少助手与自动化的真实绑定管理 |
 | [WB-265](WB-265-configurable-icon-picker.md) | ✅ | P1 | ui | 多个配置表单仍要求手工输入 Emoji，缺少统一图标选择器 |
 
 ## 来源
