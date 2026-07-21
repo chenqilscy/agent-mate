@@ -1,19 +1,7 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { NavigationToggle } from './components/layout/NavigationToggle'
 import { Sidebar } from './components/layout/Sidebar'
 import { ToastHost } from './components/ui/ToastHost'
-import { HomeView } from './views/HomeView'
-import { ChatView } from './views/ChatView'
-import { AssistantView } from './views/AssistantView'
-import { ProjectsView } from './views/ProjectsView'
-import { ProjectHomeView } from './views/ProjectHomeView'
-import { ProjExecView } from './views/ProjExecView'
-import { ConnectorsView, ExpertsView, SkillsView } from './views/ExpertsView'
-import { AutomationView } from './views/AutomationView'
-import { InspireView } from './views/InspireView'
-import { MyFilesView } from './views/MyFilesView'
-import { KdocsView } from './views/KdocsView'
-import { KnowledgeView } from './views/KnowledgeView'
 import { useUIStore } from './stores/uiStore'
 import { useAuthStore } from './stores/authStore'
 import { useChatStore } from './stores/chatStore'
@@ -24,6 +12,22 @@ import { useProjectStore } from './stores/projectStore'
 import { useSystemSettingsStore } from './stores/systemSettingsStore'
 import { useSkillStore } from './stores/skillStore'
 import { PageContainer, ProLayout } from '@ant-design/pro-components'
+import { Spin } from 'antd'
+
+const HomeView = lazy(() => import('./views/HomeView').then((module) => ({ default: module.HomeView })))
+const ChatView = lazy(() => import('./views/ChatView').then((module) => ({ default: module.ChatView })))
+const AssistantView = lazy(() => import('./views/AssistantView').then((module) => ({ default: module.AssistantView })))
+const ProjectsView = lazy(() => import('./views/ProjectsView').then((module) => ({ default: module.ProjectsView })))
+const ProjectHomeView = lazy(() => import('./views/ProjectHomeView').then((module) => ({ default: module.ProjectHomeView })))
+const ProjExecView = lazy(() => import('./views/ProjExecView').then((module) => ({ default: module.ProjExecView })))
+const ExpertsView = lazy(() => import('./views/ExpertsView').then((module) => ({ default: module.ExpertsView })))
+const SkillsView = lazy(() => import('./views/ExpertsView').then((module) => ({ default: module.SkillsView })))
+const ConnectorsView = lazy(() => import('./views/ExpertsView').then((module) => ({ default: module.ConnectorsView })))
+const AutomationView = lazy(() => import('./views/AutomationView').then((module) => ({ default: module.AutomationView })))
+const InspireView = lazy(() => import('./views/InspireView').then((module) => ({ default: module.InspireView })))
+const MyFilesView = lazy(() => import('./views/MyFilesView').then((module) => ({ default: module.MyFilesView })))
+const KdocsView = lazy(() => import('./views/KdocsView').then((module) => ({ default: module.KdocsView })))
+const KnowledgeView = lazy(() => import('./views/KnowledgeView').then((module) => ({ default: module.KnowledgeView })))
 
 function MainView() {
   const view = useUIStore((s) => s.view)
@@ -74,7 +78,13 @@ function MainView() {
     default:
       content = <HomeView />
   }
-  return <PageContainer className="agentmate-page-container">{content}</PageContainer>
+  return (
+    <PageContainer className="agentmate-page-container">
+      <Suspense fallback={<div className="route-loading"><Spin description="正在加载…" /></div>}>
+        {content}
+      </Suspense>
+    </PageContainer>
+  )
 }
 
 export function App() {

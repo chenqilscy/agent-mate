@@ -9,8 +9,8 @@ import { toast } from '../stores/toastStore'
 import { useCatalog } from '../stores/catalogStore'
 import { Popover } from '../components/ui/Popover'
 import { PermPopover } from '../components/composer/PermPopover'
-import { api, type RawMessage } from '../lib/api'
-import type { SessionInfo } from '../lib/types'
+import { api } from '../lib/api'
+import type { OpsRecentArtifact, OpsSummary, SessionInfo } from '../lib/types'
 import { Empty, Segmented, Spin, Statistic } from 'antd'
 import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
@@ -21,24 +21,6 @@ const SCENES: [string, string, string][] = [
   ['code', '💻', '代码开发'],
   ['design', '🎨', '设计创意'],
 ]
-
-type Delivery = { session: SessionInfo; files: string[] }
-
-function changedFiles(messages: RawMessage[]): string[] {
-  const files = new Set<string>()
-  for (const message of messages) {
-    for (const raw of message.trace) {
-      if (!raw || typeof raw !== 'object') continue
-      const trace = raw as { kind?: unknown; file?: unknown }
-      if (trace.kind === 'diff' && typeof trace.file === 'string') files.add(trace.file)
-    }
-  }
-  return [...files]
-}
-
-function fileName(path: string): string {
-  return path.replaceAll('\\', '/').split('/').pop() ?? path
-}
 
 function runState(session: SessionInfo): { label: string; tone: string } {
   if (session.run_status === 'error') return { label: '自动化失败', tone: 'error' }
@@ -61,8 +43,8 @@ export function HomeView() {
   const loadProjects = useProjectStore((s) => s.load)
   const setActiveProject = useProjectStore((s) => s.setActive)
   const perm = useSettingsStore((s) => s.perm)
-  const [deliveries, setDeliveries] = useState<Delivery[]>([])
-  const [deliveriesLoading, setDeliveriesLoading] = useState(true)
+  const [ops, setOps] = useState<OpsSummary | null>(null)
+  const [opsLoading, setOpsLoading] = useState(true)
 
   // 首页新任务的目标空间（null = 默认空间，不绑定任何项目）与两个 tray popover。
   const [selProject, setSelProject] = useState<string | null>(null)
@@ -85,33 +67,19 @@ export function HomeView() {
 
   useEffect(() => {
     let cancelled = false
-    const candidates = sessions
-      .filter((s) => s.kind !== 'assistant' && s.status !== 'running' && s.status !== 'waiting')
-      .slice(0, 12)
-
-    if (candidates.length === 0) {
-      setDeliveries([])
-      setDeliveriesLoading(false)
-      return () => { cancelled = true }
+    const load = () => {
+      void api.opsSummary().then((summary) => {
+        if (!cancelled) setOps(summary)
+      }).catch(() => {}).finally(() => {
+        if (!cancelled) setOpsLoading(false)
+      })
     }
-
-    setDeliveriesLoading(true)
-    void Promise.all(candidates.map(async (session) => {
-      try {
-        const { messages } = await api.getMessages(session.id)
-        const files = changedFiles(messages)
-        return files.length > 0 ? { session, files } : null
-      } catch {
-        return null
-      }
-    })).then((items) => {
-      if (!cancelled) {
-        setDeliveries(items.filter((item): item is Delivery => item !== null).slice(0, 4))
-        setDeliveriesLoading(false)
-      }
-    })
-    return () => { cancelled = true }
-  }, [sessions])
+    load()
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') load()
+    }, 15_000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [])
 
   const selName = selProject ? projects.find((p) => p.id === selProject)?.name : null
 
@@ -134,6 +102,14 @@ export function HomeView() {
       sessionId: session.id,
     })
   }
+
+  const openArtifact = (artifact: OpsRecentArtifact) => openRun({
+    id: artifact.session_id,
+    title: artifact.session_title,
+    kind: artifact.project_id ? 'projexec' : 'chat',
+    status: 'done',
+    project_id: artifact.project_id,
+  })
 
   const attentionRuns = [...activeRuns, ...recentFailures.filter((failed) => !activeRuns.some((run) => run.id === failed.id))].slice(0, 4)
 
@@ -229,14 +205,17 @@ export function HomeView() {
             <div className="home-console-head">
               <div>
                 <b>任务进展</b>
-                <span>从真实会话与执行记录汇总</span>
+                <span>{ops ? `近 ${ops.window_days} 天 · ${ops.runs.tool_calls} 次工具调用 · ${Math.round(ops.runs.avg_duration_sec)} 秒平均耗时` : '从真实 Run、Artifact 与协作记录汇总'}</span>
               </div>
               <WbButton className="home-console-action" onClick={() => setView('projects')}>查看项目</WbButton>
             </div>
             <div className="home-metrics">
-              <ProCard className="home-metric"><Statistic value={activeRuns.length} title="执行中 / 等待输入" /></ProCard>
-              <ProCard className="home-metric danger"><Statistic value={recentFailures.length} title="7 天内自动化失败" /></ProCard>
-              <ProCard className="home-metric"><Statistic value={deliveries.length} title="最近文件交付" /></ProCard>
+              <ProCard className="home-metric"><Statistic value={ops?.runs.success_rate ?? 0} suffix="%" title="Run 成功率" /></ProCard>
+              <ProCard className="home-metric"><Statistic value={ops?.runs.attention_sessions ?? activeRuns.length} title="执行中 / 等待处理" /></ProCard>
+              <ProCard className="home-metric danger"><Statistic value={ops?.runs.failed ?? 0} title="Run 失败" /></ProCard>
+              <ProCard className="home-metric"><Statistic value={ops?.artifacts.pending_review ?? 0} title="待验收产物" /></ProCard>
+              <ProCard className={`home-metric ${(ops?.projects.overdue ?? 0) > 0 ? 'danger' : ''}`}><Statistic value={ops?.projects.overdue ?? 0} title="逾期工作项" /></ProCard>
+              <ProCard className={`home-metric ${(ops?.assistants.channels_attention ?? 0) > 0 ? 'danger' : ''}`}><Statistic value={ops?.assistants.channels_attention ?? 0} title="助理渠道异常" /></ProCard>
             </div>
             <div className="home-console-grid">
               <div className="home-run-group">
@@ -257,12 +236,12 @@ export function HomeView() {
               </div>
               <div className="home-run-group">
                 <h2>最近交付</h2>
-                {deliveriesLoading ? <Spin className="home-empty" description="正在核对最近会话的真实文件变更…" /> : deliveries.length > 0 ? <List dataSource={deliveries} renderItem={({ session, files }) => <List.Item className="home-run-item">
-                  <WbButton className="home-run" onClick={() => void openRun(session)}>
+                {opsLoading ? <Spin className="home-empty" description="正在汇总真实 Artifact…" /> : (ops?.recent_artifacts.length ?? 0) > 0 ? <List dataSource={ops?.recent_artifacts ?? []} renderItem={(artifact) => <List.Item className="home-run-item">
+                  <WbButton className="home-run" onClick={() => void openArtifact(artifact)}>
                     <span className="home-file-icon">📄</span>
                     <span className="home-run-body">
-                      <b>{session.title}</b>
-                      <small>{files.slice(0, 2).map(fileName).join('、')}{files.length > 2 ? ` 等 ${files.length} 个文件` : ''}</small>
+                      <b>{artifact.session_title}</b>
+                      <small>{artifact.name} · {artifact.acceptance_status === 'pending' ? '待验收' : artifact.acceptance_status === 'accepted' ? '已验收' : '已驳回'}</small>
                     </span>
                     <span className="home-run-arrow">›</span>
                   </WbButton>

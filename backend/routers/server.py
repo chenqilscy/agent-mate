@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import server_client
 import server_sync
@@ -75,7 +75,7 @@ def server_status(authorization: str = Header(default="")) -> dict:
 class ServerLoginBody(BaseModel):
     name: str
     password: str
-    register: bool = False
+    create_account: bool = Field(default=False, alias="register")
 
 
 @router.post("/server/login")
@@ -83,7 +83,7 @@ def server_login(body: ServerLoginBody) -> dict:
     """代理登录/注册到 Server。前端拿到返回的 token 后存为自己的 token，即以 Server 账号身份操作。"""
     if not server_client.server_enabled():
         raise HTTPException(400, "server not configured")
-    res = server_client.server_login((body.name or "").strip(), body.password, body.register)
+    res = server_client.server_login((body.name or "").strip(), body.password, body.create_account)
     if not res or not res.get("token"):
         raise HTTPException(401, "Server 登录失败（账号密码错误或 Server 不可达）")
     return res

@@ -9,9 +9,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from agent.skills import canonical_skill_keys
+from auth.deps import current_user
 from channels import manager
 from storage import db
-from storage.models import LOCAL_USER_ID
 
 router = APIRouter(prefix="/api", tags=["channels"])
 
@@ -52,26 +52,28 @@ class ChannelBody(BaseModel):
 _VALID_MODES = {"exec", "plan", "ask"}
 
 
-def _owned_assistant(assistant_id: str) -> dict:
+def _owned_assistant(assistant_id: str, owner_id: str) -> dict:
     a = db.get_assistant(assistant_id)
-    if a is None or a["owner_id"] != LOCAL_USER_ID:
+    if a is None or a["owner_id"] != owner_id:
         raise HTTPException(404, "assistant not found")
     return a
 
 
 @router.get("/assistants")
 def list_assistants() -> dict:
-    return {"assistants": [manager.assistant_public(a) for a in db.list_assistants(LOCAL_USER_ID)]}
+    user = current_user()
+    return {"assistants": [manager.assistant_public(a) for a in db.list_assistants(user.id)]}
 
 
 @router.post("/assistants")
 async def create_assistant(body: AssistantBody) -> dict:
+    user = current_user()
     name = (body.name or "").strip()
     if not name:
         raise HTTPException(400, "name required")
     mode = body.mode if body.mode in _VALID_MODES else "exec"
     a = db.create_assistant(
-        owner_id=LOCAL_USER_ID, name=name, avatar=body.avatar, instruction=body.instruction,
+        owner_id=user.id, name=name, avatar=body.avatar, instruction=body.instruction,
         model=body.model, mode=mode, workspace=(body.workspace or "default"),
         experts=body.experts or [], skills=canonical_skill_keys(body.skills or []), connectors=body.connectors or [],
         enabled=True if body.enabled is None else body.enabled,
@@ -82,12 +84,12 @@ async def create_assistant(body: AssistantBody) -> dict:
 
 @router.get("/assistants/{assistant_id}")
 def get_assistant(assistant_id: str) -> dict:
-    return manager.assistant_public(_owned_assistant(assistant_id), with_messages=True)
+    return manager.assistant_public(_owned_assistant(assistant_id, current_user().id), with_messages=True)
 
 
 @router.patch("/assistants/{assistant_id}")
 async def update_assistant(assistant_id: str, body: AssistantBody) -> dict:
-    _owned_assistant(assistant_id)
+    _owned_assistant(assistant_id, current_user().id)
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     if "skills" in patch:
         patch["skills"] = canonical_skill_keys(patch["skills"] or [])
@@ -100,7 +102,7 @@ async def update_assistant(assistant_id: str, body: AssistantBody) -> dict:
 
 @router.delete("/assistants/{assistant_id}")
 async def delete_assistant(assistant_id: str) -> dict:
-    _owned_assistant(assistant_id)
+    _owned_assistant(assistant_id, current_user().id)
     db.delete_assistant(assistant_id)
     await manager.refresh()
     return {"ok": True}
@@ -108,13 +110,13 @@ async def delete_assistant(assistant_id: str) -> dict:
 
 @router.post("/assistants/{assistant_id}/say")
 async def assistant_say(assistant_id: str, body: SayBody) -> dict:
-    _owned_assistant(assistant_id)
+    _owned_assistant(assistant_id, current_user().id)
     return await manager.say(assistant_id, body.text)
 
 
 @router.post("/assistants/{assistant_id}/channels")
 async def add_channel(assistant_id: str, body: ChannelBody) -> dict:
-    _owned_assistant(assistant_id)
+    _owned_assistant(assistant_id, current_user().id)
     ctype = (body.type or "").strip()
     if not any(t["type"] == ctype and t["available"] for t in manager.CHANNEL_TYPES):
         raise HTTPException(400, "unsupported or unavailable channel type")
@@ -129,7 +131,7 @@ async def add_channel(assistant_id: str, body: ChannelBody) -> dict:
 
 @router.patch("/assistants/{assistant_id}/channels/{channel_id}")
 async def update_channel(assistant_id: str, channel_id: str, body: ChannelBody) -> dict:
-    _owned_assistant(assistant_id)
+    _owned_assistant(assistant_id, current_user().id)
     ch = db.get_channel(channel_id)
     if ch is None or ch["assistant_id"] != assistant_id:
         raise HTTPException(404, "channel not found")
@@ -143,7 +145,7 @@ async def update_channel(assistant_id: str, channel_id: str, body: ChannelBody) 
 
 @router.delete("/assistants/{assistant_id}/channels/{channel_id}")
 async def delete_channel(assistant_id: str, channel_id: str) -> dict:
-    _owned_assistant(assistant_id)
+    _owned_assistant(assistant_id, current_user().id)
     ch = db.get_channel(channel_id)
     if ch is None or ch["assistant_id"] != assistant_id:
         raise HTTPException(404, "channel not found")
@@ -154,7 +156,7 @@ async def delete_channel(assistant_id: str, channel_id: str) -> dict:
 
 @router.post("/assistants/{assistant_id}/channels/{channel_id}/unbind")
 async def unbind_channel(assistant_id: str, channel_id: str) -> dict:
-    _owned_assistant(assistant_id)
+    _owned_assistant(assistant_id, current_user().id)
     ch = db.get_channel(channel_id)
     if ch is None or ch["assistant_id"] != assistant_id:
         raise HTTPException(404, "channel not found")

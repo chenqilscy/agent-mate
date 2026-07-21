@@ -146,8 +146,8 @@
 .tray-chip > svg { width: 14px; height: 14px; }
 .mascot2 { position: absolute; right: 16px; top: -70px; width: 82px; height: 82px; z-index: 0; pointer-events: none; }
 
-/* Home task control center (WB-240): derived only from persisted sessions and
-   diff traces. Keep it visually subordinate to the composer, using existing tokens. */
+/* Home task control center (WB-240/WB-286): owner-scoped Run, Artifact and
+   collaboration aggregates. Keep it visually subordinate to the composer. */
 .home-console { margin-top: 22px; padding: 15px; border: 1px solid var(--border); border-radius: 16px; background: var(--chip); }
 .home-console-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .home-console-head > div { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
@@ -175,6 +175,7 @@
 .home-run-body small { color: var(--text-3); font-size: 11px; }
 .home-run-arrow { color: var(--text-3); font-size: 18px; line-height: 1; }
 .home-empty { min-height: 48px; display: flex; align-items: center; padding: 9px 10px; border: 1px dashed var(--border); border-radius: 10px; color: var(--text-3); font-size: 11.5px; line-height: 1.45; }
+.route-loading { min-height: 240px; display: grid; place-items: center; color: var(--text-2); }
 
 /* ---- Chat view ---- */
 .chat-head { padding: 14px 24px; border-bottom: 1px solid var(--border-2); display: flex; align-items: center; gap: 10px; flex-shrink: 0; }

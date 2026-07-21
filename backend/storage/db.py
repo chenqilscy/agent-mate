@@ -1892,6 +1892,134 @@ def list_runs(
     return [_row_to_run(row) for row in rows]
 
 
+def get_ops_summary(user_id: str, *, days: int = 7) -> dict[str, Any]:
+    """Aggregate the local execution plane into one owner/access-scoped dashboard.
+
+    Private runs stay owner-only; project runs, artifacts and work items are visible
+    to project members exactly like their detail endpoints.  The query deliberately
+    reads Run/Artifact manifests instead of reconstructing delivery from message traces.
+    """
+    window_days = max(1, min(int(days), 90))
+    now = time.time()
+    since = now - window_days * 86400
+    today = time.strftime("%Y-%m-%d", time.localtime(now))
+    conn = get_conn()
+    project_scope = (
+        "(SELECT id FROM projects WHERE owner_id=? "
+        "UNION SELECT project_id FROM project_members WHERE user_id=?)"
+    )
+    run_scope = f"(r.owner_id=? OR (r.project_id IS NOT NULL AND r.project_id IN {project_scope}))"
+    run_params = (user_id, user_id, user_id)
+
+    run_row = conn.execute(
+        f"""SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN r.status IN ('draft','planning','waiting_approval','running','paused') THEN 1 ELSE 0 END) AS active,
+                   SUM(CASE WHEN r.status IN ('completed','accepted') THEN 1 ELSE 0 END) AS succeeded,
+                   SUM(CASE WHEN r.status='failed' THEN 1 ELSE 0 END) AS failed,
+                   SUM(CASE WHEN r.status='cancelled' THEN 1 ELSE 0 END) AS cancelled,
+                   COALESCE(SUM(r.prompt_tokens),0) AS prompt_tokens,
+                   COALESCE(SUM(r.completion_tokens),0) AS completion_tokens,
+                   COALESCE(SUM(r.tool_calls),0) AS tool_calls,
+                   COALESCE(AVG(CASE WHEN r.ended_at IS NOT NULL AND r.started_at IS NOT NULL
+                                     THEN MAX(0, r.ended_at-r.started_at) END),0) AS avg_duration_sec
+            FROM runs r WHERE {run_scope} AND r.created_at>=?""",
+        (*run_params, since),
+    ).fetchone()
+    attention_session_row = conn.execute(
+        f"""SELECT COUNT(*) AS total
+            FROM sessions s
+            WHERE s.kind!='assistant'
+              AND (s.status IN ('running','waiting') OR s.run_status='running')
+              AND (s.owner_id=? OR (s.project_id IS NOT NULL AND s.project_id IN {project_scope}))""",
+        (user_id, user_id, user_id),
+    ).fetchone()
+    succeeded = int(run_row["succeeded"] or 0)
+    failed = int(run_row["failed"] or 0)
+    terminal = succeeded + failed
+
+    artifact_row = conn.execute(
+        f"""SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN a.acceptance_status='pending' THEN 1 ELSE 0 END) AS pending_review
+            FROM artifacts a JOIN runs r ON r.id=a.run_id WHERE {run_scope}""",
+        run_params,
+    ).fetchone()
+    recent_artifacts = [dict(row) for row in conn.execute(
+        f"""SELECT a.id,a.run_id,r.session_id,s.title AS session_title,r.project_id,
+                   a.name,a.path,a.mime_type,a.size,a.sha256,a.acceptance_status,a.created_at
+            FROM artifacts a
+            JOIN runs r ON r.id=a.run_id
+            JOIN sessions s ON s.id=r.session_id
+            WHERE {run_scope}
+            ORDER BY a.created_at DESC LIMIT 4""",
+        run_params,
+    ).fetchall()]
+
+    project_count = int(conn.execute(
+        f"SELECT COUNT(*) AS n FROM projects WHERE id IN {project_scope}",
+        (user_id, user_id),
+    ).fetchone()["n"] or 0)
+    work_row = conn.execute(
+        f"""SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN status='doing' THEN 1 ELSE 0 END) AS doing,
+                   SUM(CASE WHEN status!='done' AND due_date IS NOT NULL AND due_date!='' AND due_date<? THEN 1 ELSE 0 END) AS overdue
+            FROM work_items WHERE (parent_id IS NULL OR parent_id='') AND project_id IN {project_scope}""",
+        (today, user_id, user_id),
+    ).fetchone()
+    automation_row = conn.execute(
+        "SELECT COUNT(*) AS total, SUM(CASE WHEN enabled=1 THEN 1 ELSE 0 END) AS enabled FROM automations WHERE owner_id=?",
+        (user_id,),
+    ).fetchone()
+    fire_row = conn.execute(
+        """SELECT SUM(CASE WHEN status='dead_letter' THEN 1 ELSE 0 END) AS dead_letter,
+                  SUM(CASE WHEN status='dead_letter' AND updated_at>=? THEN 1 ELSE 0 END) AS failed_window
+           FROM automation_fires WHERE owner_id=?""",
+        (since, user_id),
+    ).fetchone()
+    assistant_row = conn.execute(
+        "SELECT COUNT(*) AS total, SUM(CASE WHEN enabled=1 THEN 1 ELSE 0 END) AS enabled FROM assistants WHERE owner_id=?",
+        (user_id,),
+    ).fetchone()
+
+    return {
+        "window_days": window_days,
+        "generated_at": now,
+        "runs": {
+            "total": int(run_row["total"] or 0),
+            "active": int(run_row["active"] or 0),
+            "attention_sessions": int(attention_session_row["total"] or 0),
+            "succeeded": succeeded,
+            "failed": failed,
+            "cancelled": int(run_row["cancelled"] or 0),
+            "success_rate": round(succeeded * 100 / terminal, 1) if terminal else None,
+            "avg_duration_sec": round(float(run_row["avg_duration_sec"] or 0), 1),
+            "prompt_tokens": int(run_row["prompt_tokens"] or 0),
+            "completion_tokens": int(run_row["completion_tokens"] or 0),
+            "tool_calls": int(run_row["tool_calls"] or 0),
+        },
+        "artifacts": {
+            "total": int(artifact_row["total"] or 0),
+            "pending_review": int(artifact_row["pending_review"] or 0),
+        },
+        "recent_artifacts": recent_artifacts,
+        "projects": {
+            "total": project_count,
+            "work_items": int(work_row["total"] or 0),
+            "doing": int(work_row["doing"] or 0),
+            "overdue": int(work_row["overdue"] or 0),
+        },
+        "automations": {
+            "total": int(automation_row["total"] or 0),
+            "enabled": int(automation_row["enabled"] or 0),
+            "dead_letter": int(fire_row["dead_letter"] or 0),
+            "failed_window": int(fire_row["failed_window"] or 0),
+        },
+        "assistants": {
+            "total": int(assistant_row["total"] or 0),
+            "enabled": int(assistant_row["enabled"] or 0),
+        },
+    }
+
+
 def set_run_status(
     run_id: str, status: str, *, error_code: Optional[str] = None,
     error_message: Optional[str] = None, checkpoint: Optional[dict[str, Any]] = None,

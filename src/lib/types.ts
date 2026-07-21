@@ -199,6 +199,40 @@ export interface AgentRun {
   artifacts?: ArtifactManifest[]
 }
 
+export interface OpsRecentArtifact {
+  id: string
+  run_id: string
+  session_id: string
+  session_title: string
+  project_id?: string | null
+  name: string
+  path: string
+  mime_type: string
+  size: number
+  sha256: string
+  acceptance_status: 'pending' | 'accepted' | 'rejected'
+  created_at: number
+}
+
+export interface OpsSummary {
+  window_days: number
+  generated_at: number
+  runs: {
+    total: number; active: number; attention_sessions: number
+    succeeded: number; failed: number; cancelled: number
+    success_rate: number | null; avg_duration_sec: number
+    prompt_tokens: number; completion_tokens: number; tool_calls: number
+  }
+  artifacts: { total: number; pending_review: number }
+  recent_artifacts: OpsRecentArtifact[]
+  projects: { total: number; work_items: number; doing: number; overdue: number }
+  automations: { total: number; enabled: number; dead_letter: number; failed_window: number }
+  assistants: {
+    total: number; enabled: number; channels: number
+    channels_running: number; channels_attention: number
+  }
+}
+
 export type OrchestrationStatus = 'planning' | 'running' | 'reviewing' | 'completed' | 'failed' | 'cancelled'
 
 export interface OrchestrationAttempt {
