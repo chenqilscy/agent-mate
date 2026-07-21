@@ -303,6 +303,7 @@
 | [WB-281](WB-281-chatsearch-cross-node-match.md) | ✅ | P3 | frontend | ChatSearch 无法匹配跨 Markdown 文本节点短语 |
 | [WB-282](WB-282-issue-index-missing-entries.md) | ✅ | P2 | docs | issue 索引漏列 WB-173～175，文件与台账状态不一致 |
 | [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) | ⏸ | P1 | fullstack | 正式桌面更新服务缺少生产域名、CI 签名材料与上线验收（外部部署前置条件） |
+| [WB-284](WB-284-terminal-issue-archive-compaction.md) | ⬜ | P2 | misc | 已关闭 issue 单文件长期堆积导致台账难以浏览和维护 |
 
 ## 来源
 
