@@ -107,15 +107,16 @@ export function IconPicker({
             <div className="icon-picker-grid">
               {items.map((option) => (
                 <Tooltip title={option.label} key={option.value} mouseEnterDelay={0.35}>
-                  <button
-                    type="button"
+                  <Button
+                    type="text"
+                    htmlType="button"
                     className={`icon-picker-option ${value === option.value ? 'selected' : ''}`.trim()}
                     aria-label={option.label}
                     aria-pressed={value === option.value}
                     onClick={() => choose(option.value)}
                   >
                     {option.glyph}
-                  </button>
+                  </Button>
                 </Tooltip>
               ))}
             </div>

@@ -12,9 +12,9 @@ class ConsoleAntDesignEntryTests(unittest.TestCase):
     def test_console_dependencies_are_antd6_compatible(self) -> None:
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
         dependencies = package["dependencies"]
-        self.assertTrue(dependencies["antd"].startswith("^6."))
+        self.assertEqual(dependencies["antd"], "6.5.1")
         # Pro Components stable 2.x does not declare antd 6 support; pin the compatible 3.x prerelease.
-        self.assertTrue(dependencies["@ant-design/pro-components"].startswith("3."))
+        self.assertEqual(dependencies["@ant-design/pro-components"], "3.1.14-2")
 
     def test_server_serves_react_entry_for_every_console_route(self) -> None:
         main = (ROOT / "server" / "main.py").read_text(encoding="utf-8")

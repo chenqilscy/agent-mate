@@ -36,6 +36,11 @@ class AppAntDesignMigrationTests(unittest.TestCase):
                 violations.append(str(path.relative_to(ROOT)))
         self.assertEqual(violations, [])
 
+        icon_picker = (SRC / "components/ui/IconPicker.tsx").read_text(encoding="utf-8")
+        icon_picker_css = (SRC / "styles/icon-picker.css").read_text(encoding="utf-8")
+        self.assertIn('<Button\n                    type="text"', icon_picker)
+        self.assertIn(".icon-picker-option.ant-btn", icon_picker_css)
+
     def test_all_product_modals_use_ant_modal_bridge(self) -> None:
         sources = "\n".join(path.read_text(encoding="utf-8") for path in SRC.rglob("*.tsx"))
         bridge = (SRC / "components/ui/AntModalBridge.tsx").read_text(encoding="utf-8")

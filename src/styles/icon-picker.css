@@ -65,9 +65,11 @@
   gap: 5px;
 }
 
-.icon-picker-option {
+.icon-picker-option.ant-btn {
   width: 100%;
+  height: auto;
   aspect-ratio: 1;
+  padding: 0;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
@@ -80,18 +82,18 @@
   transition: background-color .15s ease, border-color .15s ease, transform .15s ease;
 }
 
-.icon-picker-option:hover,
-.icon-picker-option:focus-visible {
+.icon-picker-option.ant-btn:hover,
+.icon-picker-option.ant-btn:focus-visible {
   background: color-mix(in srgb, currentColor 8%, transparent);
   border-color: color-mix(in srgb, currentColor 18%, transparent);
   outline: none;
 }
 
-.icon-picker-option:focus-visible {
+.icon-picker-option.ant-btn:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, #16b37a 42%, transparent);
 }
 
-.icon-picker-option.selected {
+.icon-picker-option.ant-btn.selected {
   background: color-mix(in srgb, #16b37a 14%, transparent);
   border-color: #16b37a;
 }

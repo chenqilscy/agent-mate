@@ -40,10 +40,15 @@ class ConsoleCatalogEditorContractTests(unittest.TestCase):
 
     def test_project_workspace_covers_all_legacy_capabilities(self) -> None:
         page = (CONSOLE / "pages" / "ProjectDetailPage.tsx").read_text(encoding="utf-8")
-        for marker in ("ProjectOverview", "TasksTab", "KnowledgeTab", "CollaborationTab",
-                       "ConfigTab", "createWorkItem", "uploadKnowledgeDocument",
+        workspace = (CONSOLE / "components" / "project" / "ProjectWorkspace.tsx").read_text(encoding="utf-8")
+        for marker in ("ProjectWorkProvider", "ProjectOverview", "ProjectPlan", "ProjectTasks",
+                       "ProjectWorkload", "ProjectGantt", "KnowledgeTab", "CollaborationTab",
+                       "ConfigTab", "uploadKnowledgeDocument",
                        "inviteProjectMember", "createComment", "updateProject"):
             self.assertIn(marker, page)
+        for marker in ("createWorkItem", "updateWorkItem", "deleteWorkItem", "createMilestone",
+                       "consoleApi.workItems", "consoleApi.activity"):
+            self.assertIn(marker, workspace)
 
     def test_raw_catalog_and_user_admin_are_react_crud_pages(self) -> None:
         raw = (CONSOLE / "pages" / "RawCatalogPage.tsx").read_text(encoding="utf-8")

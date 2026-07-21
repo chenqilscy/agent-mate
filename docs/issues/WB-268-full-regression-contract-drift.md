@@ -3,7 +3,7 @@ id: WB-268
 title: 全量回归门禁与已落地 Ant 及项目工作台实现漂移，持续集成仍有三项失败
 severity: P1
 area: frontend
-status: open
+status: fixed
 origin: WB-266 全量回归发现
 files:
   - package.json:20
@@ -42,3 +42,17 @@ P1：定向功能和生产构建虽然通过，但仓库完整回归仍为红色
 - `python -m unittest discover -s server/tests -p "test_*.py"` 全绿。
 - `python -m unittest discover -s backend/tests/regression -p "test_*.py"` 全绿。
 - `npx tsc --noEmit`、Console 类型检查和生产构建通过。
+
+## 处理记录（2026-07-22）
+
+- 改动：Console 依赖门禁改为断言已采用的精确 `antd 6.5.1` 与 Pro Components
+  `3.1.14-2`；项目工作台契约改为覆盖 `ProjectOverview/ProjectPlan/ProjectTasks/ProjectWorkload/ProjectGantt`
+  及现有工作项 API，不再查找已删除的 `TasksTab`。
+- 改动：`IconPicker` 图标选项从原生 `<button>` 迁到 Ant `Button type="text"`，保留
+  `aria-label`、`aria-pressed`、原生键盘焦点与选中状态；CSS 使用 `.icon-picker-option.ant-btn`
+  精确覆盖 Ant 基础样式，未添加文件级门禁豁免。
+- 验证：Server 全量 40/40；隔离集成态 Backend 全量 90/90（显式初始化隔离数据库并启用 mocked
+  Server 契约）；`pnpm build` 完整通过。隔离 `:8110` 真页面验证 Ant Button、tabIndex、ARIA、
+  780px 滚动、明暗主题与零 console error/warn；隔离进程、数据库和工作树均已清理。
+- 边界：主工作树同时存在 WB-255/WB-257 的未提交验证状态，其中 updater 临时把 Tauri 版本设为
+  `0.9.9`，会单独触发产品版本契约；本 issue 未覆盖或提交这些并行改动。
