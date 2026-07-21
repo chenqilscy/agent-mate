@@ -183,7 +183,7 @@ export function KdocsView() {
           )}
 
         {/* ── 连接态引导（未安装 / 未授权 / 连接中）───────────────────── */}
-        {conn === 'loading' && <Spin className="mf-empty" tip="正在加载…" />}
+        {conn === 'loading' && <Spin className="mf-empty" description="正在加载…" />}
 
         {conn === 'not_installed' && (
           <Result className="mf-empty" status="warning" title="未检测到 kdocs-cli" subTitle="请先在本机安装金山文档命令行工具，再回到这里连接。" />

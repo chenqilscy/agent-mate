@@ -195,7 +195,7 @@ export function KnowledgeView() {
         {!openKb && configured && (
           <>
             <div className="sec-title" style={{ marginTop: 18 }}>我的知识库</div>
-            {!loaded && <Spin className="mf-empty" tip="正在加载…" />}
+            {!loaded && <Spin className="mf-empty" description="正在加载…" />}
             {loaded && kbs.length === 0 && configured && (
               <Empty className="mf-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有知识库。点右上「新建知识库」创建一个，再上传文档。" />
             )}
@@ -262,7 +262,7 @@ export function KnowledgeView() {
                 return Upload.LIST_IGNORE
               }}
             >
-              {uploading ? <Spin tip="上传中…" /> : <p>拖拽文件到此，或点击选择文件上传</p>}
+              {uploading ? <Spin description="上传中…" /> : <p>拖拽文件到此，或点击选择文件上传</p>}
             </Upload.Dragger>
 
             <div style={{ fontSize: 12, color: 'var(--text-2)', margin: '14px 2px 8px' }}>

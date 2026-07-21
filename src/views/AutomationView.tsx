@@ -281,7 +281,7 @@ function RunsTab({ query, onOpenDetail }: { query: string; onOpenDetail: (r: Ses
 
   return (
     <div className="auto-runs">
-      {loading && runs.length === 0 && <Spin className="auto-row-empty" tip="加载中…" />}
+      {loading && runs.length === 0 && <Spin className="auto-row-empty" description="加载中…" />}
       {!loading && shown.length === 0 && <Empty className="auto-row-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? '无匹配运行记录' : '还没有运行记录'} />}
       {groups.map((g) => (
         <div key={g.label}>
@@ -338,7 +338,7 @@ function AutomationDlqTab({ query }: { query: string }) {
   }
   return (
     <div className="auto-runs">
-      {loading && fires.length === 0 && <Spin className="auto-row-empty" tip="加载中…" />}
+      {loading && fires.length === 0 && <Spin className="auto-row-empty" description="加载中…" />}
       {!loading && shown.length === 0 && <Empty className="auto-row-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? '无匹配异常' : '异常队列为空'} />}
       <List dataSource={shown} renderItem={(fire) => (
         <List.Item className="auto-run" key={fire.id}>

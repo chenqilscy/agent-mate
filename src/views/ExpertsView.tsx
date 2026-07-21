@@ -367,7 +367,7 @@ function SkillSearchResults({ q, onOpenDetail }: { q: string; onOpenDetail: (tar
     <>
       <div className="sec-title" style={{ marginTop: 2 }}>搜索「{q.trim()}」</div>
       {loading && results.length === 0
-        ? <Spin className="cap-blank" tip="搜索中…" />
+        ? <Spin className="cap-blank" description="搜索中…" />
         : results.length === 0
           ? <Empty className="cap-blank" image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有找到相关技能" />
           : (

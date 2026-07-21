@@ -278,6 +278,7 @@
 | [WB-259](WB-259-antd-version-gate-drift.md) | ✅ | P2 | frontend | Ant Design 依赖声明与精确版本门禁漂移，完整回归持续失败 |
 | [WB-260](WB-260-wbbutton-hover-border-jitter.md) | ✅ | P1 | ui | WbButton 无边框控件悬浮时被 Ant 补边框导致内容抖动 |
 | [WB-261](WB-261-app-console-typography-unification.md) | ✅ | P1 | ui | AgentMate App 与 Console 字体体系和基础排版密度不一致 |
+| [WB-262](WB-262-antd6-spin-tip-deprecation.md) | ✅ | P2 | frontend | App 与 Console 仍使用 Ant Design 6 已弃用的 Spin tip 属性 |
 
 ## 来源
 

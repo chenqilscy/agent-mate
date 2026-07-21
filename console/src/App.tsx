@@ -103,7 +103,7 @@ function ConsoleContent({ account, mode, onToggleTheme, onLogout }: { account: A
       ]}
       token={{ header: { colorBgHeader: mode === "dark" ? "#151b2a" : "#ffffff" }, sider: { colorMenuBackground: mode === "dark" ? "#111827" : "#ffffff" } }}
     >
-      <Suspense fallback={<div className="page-loading"><Spin size="large" tip="页面加载中…" /></div>}><CurrentPage account={account} pathname={pathname} onUnreadChange={setUnread} /></Suspense>
+      <Suspense fallback={<div className="page-loading"><Spin size="large" description="页面加载中…" /></div>}><CurrentPage account={account} pathname={pathname} onUnreadChange={setUnread} /></Suspense>
     </ProLayout>
   );
 }
@@ -122,5 +122,5 @@ export default function ConsoleApp() {
     },
   }), [mode]);
   async function logout() { try { await consoleApi.logout(); } catch { /* browser token removal is authoritative */ } setToken(""); setAccount(null); navigate("/", true); }
-  return <ConfigProvider componentSize="small" theme={themeConfig}><AntApp>{booting ? <div className="boot-screen"><Spin size="large" tip="正在连接 AgentMate Server…" /></div> : account ? <ConsoleContent account={account} mode={mode} onToggleTheme={() => setMode((current) => current === "dark" ? "light" : "dark")} onLogout={() => void logout()} /> : <LoginPage onAuthenticated={setAccount} />}</AntApp></ConfigProvider>;
+  return <ConfigProvider componentSize="small" theme={themeConfig}><AntApp>{booting ? <div className="boot-screen"><Spin size="large" description="正在连接 AgentMate Server…" /></div> : account ? <ConsoleContent account={account} mode={mode} onToggleTheme={() => setMode((current) => current === "dark" ? "light" : "dark")} onLogout={() => void logout()} /> : <LoginPage onAuthenticated={setAccount} />}</AntApp></ConfigProvider>;
 }

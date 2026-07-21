@@ -257,7 +257,7 @@ export function HomeView() {
               </div>
               <div className="home-run-group">
                 <h2>最近交付</h2>
-                {deliveriesLoading ? <Spin className="home-empty" tip="正在核对最近会话的真实文件变更…" /> : deliveries.length > 0 ? <List dataSource={deliveries} renderItem={({ session, files }) => <List.Item className="home-run-item">
+                {deliveriesLoading ? <Spin className="home-empty" description="正在核对最近会话的真实文件变更…" /> : deliveries.length > 0 ? <List dataSource={deliveries} renderItem={({ session, files }) => <List.Item className="home-run-item">
                   <WbButton className="home-run" onClick={() => void openRun(session)}>
                     <span className="home-file-icon">📄</span>
                     <span className="home-run-body">

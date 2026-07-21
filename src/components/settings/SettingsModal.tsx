@@ -421,7 +421,7 @@ function MemoryPanel() {
       )}
 
       <div className="set-memlist">
-        {!loaded && <Spin className="set-pdesc" tip="加载中…" />}
+        {!loaded && <Spin className="set-pdesc" description="加载中…" />}
         {loaded && items.length === 0 && <Empty className="set-mem-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyHint} />}
         {items.map((m) => (
           editingId === m.id ? (
@@ -563,7 +563,7 @@ function AgentPanel() {
     } catch { toast('保存失败') } finally { setSaving(false) }
   }
 
-  if (!s) return <div className="set-body"><div className="set-ptitle">智能体设置</div><Spin className="set-pdesc" tip="加载中…" /></div>
+  if (!s) return <div className="set-body"><div className="set-ptitle">智能体设置</div><Spin className="set-pdesc" description="加载中…" /></div>
   const [rMin, rMax] = s.limits.max_rounds
   const [tMin, tMax] = s.limits.temperature
   return (

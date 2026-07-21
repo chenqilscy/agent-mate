@@ -130,7 +130,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
       </div>
 
       {loading && !data ? (
-        <Spin className="cap-blank" tip="加载中…" />
+        <Spin className="cap-blank" description="加载中…" />
       ) : !data && !marketCard ? (
         <Empty className="cap-blank" image={Empty.PRESENTED_IMAGE_SIMPLE} description="未找到该技能" />
       ) : (
