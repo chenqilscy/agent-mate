@@ -289,6 +289,7 @@
 | [WB-270](WB-270-tauri-webview2loader-missing.md) | ✅ | P0 | misc | GNU Tauri 安装包遗漏 WebView2Loader.dll 导致桌面端无法启动 |
 | [WB-271](WB-271-duplicate-attachment-feedback.md) | ✅ | P3 | frontend | 重名附件被静默丢弃却仍提示添加成功 |
 | [WB-272](WB-272-plan-ask-mode-conflict.md) | ✅ | P3 | fullstack | Plan 与 Ask 可叠加并产生冲突系统提示 |
+| [WB-273](WB-273-plan-connector-transparency.md) | ✅ | P3 | backend | Plan 模式静默忽略已选连接器 |
 | [WB-281](WB-281-chatsearch-cross-node-match.md) | ✅ | P3 | frontend | ChatSearch 无法匹配跨 Markdown 文本节点短语 |
 
 ## 来源

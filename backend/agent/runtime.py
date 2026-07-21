@@ -291,6 +291,13 @@ def normalize_modes(plan: bool, ask: bool) -> tuple[bool, bool]:
     return (False, True) if ask else (bool(plan), False)
 
 
+def connector_mode_skips(connectors: list[str], *, plan: bool, ask: bool) -> list[dict[str, str]]:
+    """Explain connector selections that a safe mode intentionally does not load."""
+    if plan and not ask:
+        return [{"name": name, "reason": "计划模式不启用外部连接器"} for name in connectors]
+    return []
+
+
 async def _run_chat_inner(
     session: Session,
     user: User,
@@ -600,7 +607,7 @@ async def _run_chat_inner(
         )
         active_tools = {t.name: t for t in tools_list}
         mcp_tools = []
-        mcp_skipped: list[dict[str, str]] = []
+        mcp_skipped = connector_mode_skips(active_connectors, plan=plan, ask=ask)
         if active_connectors and not plan and not ask:
             mcp_tools, mcp_stack, mcp_skipped = await open_connectors(
                 active_connectors, env={"AGENTMATE_NOTES_DIR": str(current_root())}
