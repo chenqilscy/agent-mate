@@ -266,7 +266,7 @@
 | [WB-247](WB-247-skill-runtime-resources-and-composition.md) | ✅ | P1 | backend | Skill references 与模板运行时不可达且多 Skill 指令缺少总预算和冲突规则 |
 | [WB-248](WB-248-skill-permission-and-worker-isolation.md) | ✅ | P1 | backend | Skill 工具权限只有 plan_safe 粗粒度标记且长任务无法可靠取消隔离 |
 | [WB-249](WB-249-skill-installation-scope-and-locking.md) | ✅ | P1 | backend | Skill 安装启停为机器全局状态且并发安装卸载缺少事务锁与恢复能力 |
-| [WB-250](WB-250-skill-release-console-lifecycle.md) | ⬜ | P1 | fullstack | Console Skill 管理仍是可变 CRUD，缺少测试审核灰度撤回和运行指标闭环 |
+| [WB-250](WB-250-skill-release-console-lifecycle.md) | ✅ | P1 | fullstack | Console Skill 管理仍是可变 CRUD，缺少测试审核灰度撤回和运行指标闭环 |
 | [WB-251](WB-251-reliable-automation-delivery-governance.md) | ✅ | P1 | backend | 自动化缺少真实失败判定、持久幂等重试、DLQ、成本上限与结果投递（WB-239 R2） |
 | [WB-255](WB-255-work-item-run-artifact-collaboration.md) | ✅ | P1 | fullstack | 项目工作项无法直接发起、跟踪和验收本地 Run 与 Artifact（WB-239 R3） |
 | [WB-257](WB-257-production-desktop-update-service.md) | ⬜ | P1 | fullstack | 桌面更新仍是占位 endpoint，缺少可配置发布服务、灰度回滚和真实入口（WB-239 R4） |

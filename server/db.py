@@ -158,6 +158,57 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_catalog_items_cat ON catalog_items(category, scope, sort);
 
+        -- Skill 发布控制面（WB-250）：定义正文是不可变 release 快照；状态、测试、审核与
+        -- 灰度参数独立演进。catalog_items 仅保存当前公开投影，draft/testing 不会进入下行。
+        CREATE TABLE IF NOT EXISTS skill_releases (
+            id TEXT PRIMARY KEY,
+            catalog_item_id TEXT,
+            slug TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            state TEXT NOT NULL DEFAULT 'draft',
+            data TEXT NOT NULL,
+            sort INTEGER NOT NULL DEFAULT 0,
+            content_hash TEXT NOT NULL,
+            base_release_id TEXT NOT NULL DEFAULT '',
+            min_app_version TEXT NOT NULL DEFAULT '0.0.0',
+            rollout_channel TEXT NOT NULL DEFAULT 'stable',
+            rollout_percent INTEGER NOT NULL DEFAULT 100,
+            effective_at REAL NOT NULL DEFAULT 0,
+            author_id TEXT NOT NULL,
+            reviewer_id TEXT NOT NULL DEFAULT '',
+            test_status TEXT NOT NULL DEFAULT 'pending',
+            test_report TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            published_at REAL,
+            UNIQUE(slug, version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_skill_releases_slug
+            ON skill_releases(slug, version DESC);
+        CREATE INDEX IF NOT EXISTS idx_skill_releases_state
+            ON skill_releases(state, effective_at);
+
+        CREATE TABLE IF NOT EXISTS skill_release_audit (
+            id TEXT PRIMARY KEY,
+            release_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            details TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_skill_release_audit_release
+            ON skill_release_audit(release_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS skill_release_metrics (
+            release_id TEXT PRIMARY KEY,
+            installs INTEGER NOT NULL DEFAULT 0,
+            install_failures INTEGER NOT NULL DEFAULT 0,
+            runs INTEGER NOT NULL DEFAULT 0,
+            run_failures INTEGER NOT NULL DEFAULT 0,
+            rollbacks INTEGER NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL
+        );
+
         -- 团队时间线（WB-062 Phase 3）：本地执行产出上行的只读镜像（append-only）。
         -- 只存元数据 + 可选摘要，绝不含凭据 / 工作区文件。(project_id, ext_id) 唯一 → 重复上报去重。
         CREATE TABLE IF NOT EXISTS timeline_events (
@@ -991,6 +1042,181 @@ def list_all_catalog_items(scope: str = "builtin", include_disabled: bool = Fals
         out.append({"id": r["id"], "category": r["category"], "kind": r["kind"], "data": data,
                     "sort": r["sort"], "version": r["version"], "enabled": bool(r["enabled"])})
     return out
+
+
+# ---- Skill release governance（WB-250）----------------------------------
+
+_SKILL_RELEASE_STATES = {
+    "draft", "testing", "approved", "rolling_out", "published", "withdrawn", "superseded",
+}
+
+
+def _decode_skill_release(row: sqlite3.Row | None) -> Optional[dict[str, Any]]:
+    if row is None:
+        return None
+    item = dict(row)
+    for field in ("data", "test_report"):
+        try:
+            item[field] = json.loads(item[field] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            item[field] = {}
+    return item
+
+
+def create_skill_release(
+    *, data: dict[str, Any], sort: int, author_id: str, catalog_item_id: str = "",
+    base_release_id: str = "", min_app_version: str = "0.0.0",
+) -> dict[str, Any]:
+    slug = str(data.get("slug") or "").strip()
+    encoded = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    content_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    conn = get_conn()
+    now = time.time()
+    with conn:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(version),0)+1 AS version FROM skill_releases WHERE slug=?", (slug,),
+        ).fetchone()
+        version = int(row["version"] if row else 1)
+        release_id = new_uuid()
+        conn.execute(
+            """INSERT INTO skill_releases
+               (id,catalog_item_id,slug,version,state,data,sort,content_hash,base_release_id,
+                min_app_version,author_id,created_at,updated_at)
+               VALUES (?,?,?,?,'draft',?,?,?,?,?,?,?,?)""",
+            (release_id, catalog_item_id or None, slug, version, encoded, int(sort), content_hash,
+             base_release_id, min_app_version or "0.0.0", author_id, now, now),
+        )
+        conn.execute(
+            "INSERT INTO skill_release_audit (id,release_id,action,actor_id,details,created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (new_uuid(), release_id, "draft_created", author_id, "{}", now),
+        )
+    return get_skill_release(release_id) or {}
+
+
+def get_skill_release(release_id: str) -> Optional[dict[str, Any]]:
+    return _decode_skill_release(get_conn().execute(
+        "SELECT * FROM skill_releases WHERE id=?", (release_id,),
+    ).fetchone())
+
+
+def list_skill_releases(*, slug: str = "", catalog_item_id: str = "") -> list[dict[str, Any]]:
+    where, params = [], []
+    if slug:
+        where.append("slug=?"); params.append(slug)
+    if catalog_item_id:
+        where.append("catalog_item_id=?"); params.append(catalog_item_id)
+    sql = "SELECT * FROM skill_releases"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY slug, version DESC"
+    return [_decode_skill_release(row) or {} for row in get_conn().execute(sql, params).fetchall()]
+
+
+def set_skill_release_state(
+    release_id: str, state: str, actor_id: str, *, reviewer_id: str | None = None,
+    test_status: str | None = None, test_report: dict[str, Any] | None = None,
+    rollout_channel: str | None = None, rollout_percent: int | None = None,
+    effective_at: float | None = None, action: str = "state_changed",
+    details: dict[str, Any] | None = None,
+) -> Optional[dict[str, Any]]:
+    if state not in _SKILL_RELEASE_STATES:
+        raise ValueError(f"invalid skill release state: {state}")
+    sets: list[str] = ["state=?", "updated_at=?"]
+    values: list[Any] = [state, time.time()]
+    for field, value in (
+        ("reviewer_id", reviewer_id), ("test_status", test_status),
+        ("test_report", json.dumps(test_report, ensure_ascii=False) if test_report is not None else None),
+        ("rollout_channel", rollout_channel), ("rollout_percent", rollout_percent),
+        ("effective_at", effective_at),
+    ):
+        if value is not None:
+            sets.append(f"{field}=?"); values.append(value)
+    if state in {"rolling_out", "published"}:
+        sets.append("published_at=COALESCE(published_at,?)"); values.append(time.time())
+    values.append(release_id)
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(f"UPDATE skill_releases SET {', '.join(sets)} WHERE id=?", values)
+        if not cur.rowcount:
+            return None
+        conn.execute(
+            "INSERT INTO skill_release_audit (id,release_id,action,actor_id,details,created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (new_uuid(), release_id, action, actor_id,
+             json.dumps(details or {}, ensure_ascii=False), time.time()),
+        )
+    return get_skill_release(release_id)
+
+
+def supersede_other_skill_releases(slug: str, release_id: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE skill_releases SET state='superseded',updated_at=? "
+            "WHERE slug=? AND id<>? AND state IN ('rolling_out','published')",
+            (time.time(), slug, release_id),
+        )
+
+
+def attach_skill_release_catalog_item(release_id: str, catalog_item_id: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE skill_releases SET catalog_item_id=?,updated_at=? WHERE id=?",
+            (catalog_item_id, time.time(), release_id),
+        )
+
+
+def skill_release_audit(release_id: str) -> list[dict[str, Any]]:
+    rows = get_conn().execute(
+        "SELECT * FROM skill_release_audit WHERE release_id=? ORDER BY created_at DESC", (release_id,),
+    ).fetchall()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["details"] = json.loads(item["details"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            item["details"] = {}
+        result.append(item)
+    return result
+
+
+def skill_release_metrics(release_id: str) -> dict[str, Any]:
+    row = get_conn().execute(
+        "SELECT * FROM skill_release_metrics WHERE release_id=?", (release_id,),
+    ).fetchone()
+    return dict(row) if row else {
+        "release_id": release_id, "installs": 0, "install_failures": 0,
+        "runs": 0, "run_failures": 0, "rollbacks": 0, "updated_at": 0,
+    }
+
+
+def record_skill_release_metric(release_id: str, event: str) -> dict[str, Any]:
+    columns = {
+        "installed": "installs", "install_failed": "install_failures",
+        "run_succeeded": "runs", "run_failed": "run_failures", "rollback": "rollbacks",
+    }
+    column = columns.get(event)
+    if not column:
+        raise ValueError("invalid skill release metric event")
+    now = time.time()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO skill_release_metrics (release_id,updated_at) VALUES (?,?) "
+            "ON CONFLICT(release_id) DO UPDATE SET updated_at=excluded.updated_at",
+            (release_id, now),
+        )
+        if event == "run_failed":
+            conn.execute(
+                "UPDATE skill_release_metrics SET runs=runs+1,run_failures=run_failures+1,updated_at=? "
+                "WHERE release_id=?", (now, release_id),
+            )
+        else:
+            conn.execute(
+                f"UPDATE skill_release_metrics SET {column}={column}+1,updated_at=? WHERE release_id=?",
+                (now, release_id),
+            )
+    return skill_release_metrics(release_id)
 
 
 # ---- 平台设置 settings（WB-095）：服务端凭据/配置的 k-v 存储 -------------

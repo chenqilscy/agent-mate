@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from agent import skills, skills_store
 from auth.deps import current_user
+import server_client
 
 router = APIRouter(prefix="/api", tags=["skills"])
 
@@ -18,6 +19,13 @@ def _scope_owner() -> str:
     owner = current_user().id
     skills_store.set_owner(owner)
     return owner
+
+
+def _report_release_metric(owner_id: str, release_id: str, event: str) -> None:
+    from storage import db
+    token = db.get_server_identity(owner_id) or ""
+    if token and release_id:
+        server_client.record_skill_release_metric(token, release_id, event)
 
 
 class InstallBody(BaseModel):
@@ -94,7 +102,7 @@ def catalog_skill_detail(key: str) -> dict:
 def install_catalog_skill(key: str) -> dict:
     """Install an AgentMate recommended definition into the local skill directory."""
     from storage import db
-    _scope_owner()
+    owner = _scope_owner()
 
     state = db.skill_catalog_state(key)
     if state.get("withdrawn"):
@@ -108,7 +116,7 @@ def install_catalog_skill(key: str) -> dict:
         required_permissions = skills.tool_permissions(
             spec.get("tools") if isinstance(spec.get("tools"), list) else []
         )
-        return skills_store.install_catalog_skill(
+        result = skills_store.install_catalog_skill(
             str(spec["slug"]),
             str(spec["name"]),
             str(spec.get("description") or ""),
@@ -118,8 +126,12 @@ def install_catalog_skill(key: str) -> dict:
             spec.get("tools") if isinstance(spec.get("tools"), list) else [],
             required_permissions,
             str(spec.get("tool_contract_version") or "1"),
+            str(spec.get("server_release_id") or ""),
         )
+        _report_release_metric(owner, str(spec.get("server_release_id") or ""), "installed")
+        return result
     except skills_store.SkillImportError as exc:
+        _report_release_metric(owner, str(spec.get("server_release_id") or ""), "install_failed")
         raise HTTPException(exc.status_code, str(exc)) from exc
 
 
@@ -127,7 +139,7 @@ def install_catalog_skill(key: str) -> dict:
 def upgrade_catalog_skill(key: str, body: UpgradeCatalogBody | None = None) -> dict:
     """把已安装的 AgentMate 目录技能原子升级到当前 Server 定义。"""
     from storage import db
-    _scope_owner()
+    owner = _scope_owner()
 
     state = db.skill_catalog_state(key)
     if state.get("withdrawn"):
@@ -153,15 +165,19 @@ def upgrade_catalog_skill(key: str, body: UpgradeCatalogBody | None = None) -> d
             "added_permissions": added_permissions,
         })
     try:
-        return skills_store.upgrade_catalog_skill(
+        result = skills_store.upgrade_catalog_skill(
             str(spec["slug"]), str(spec["name"]), str(spec.get("description") or ""),
             str(spec["instructions"]), str(spec.get("version") or ""),
             spec.get("files") if isinstance(spec.get("files"), list) else [],
             spec.get("tools") if isinstance(spec.get("tools"), list) else [],
             required_permissions,
             str(spec.get("tool_contract_version") or "1"),
+            str(spec.get("server_release_id") or ""),
         )
+        _report_release_metric(owner, str(spec.get("server_release_id") or ""), "installed")
+        return result
     except skills_store.SkillImportError as exc:
+        _report_release_metric(owner, str(spec.get("server_release_id") or ""), "install_failed")
         raise HTTPException(exc.status_code, str(exc)) from exc
 
 

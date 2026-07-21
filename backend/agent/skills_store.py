@@ -707,6 +707,7 @@ def install_catalog_skill(
     tools: list[str] | None = None,
     permissions: list[str] | None = None,
     tool_contract_version: str = "1",
+    release_id: str = "",
 ) -> dict[str, Any]:
     """Install an AgentMate catalog definition as a real local skill snapshot."""
     slug = (slug or "").strip()
@@ -743,6 +744,8 @@ def install_catalog_skill(
     release = _build_release_manifest(
         slug, version, package_files, tools, permissions, tool_contract_version,
     )
+    if release_id:
+        release["release_id"] = release_id
     package_files.append((RELEASE_MANIFEST, _canonical_json(release) + b"\n"))
     return _install_import_files(
         package_files,
@@ -757,6 +760,7 @@ def upgrade_catalog_skill(
     tools: list[str] | None = None,
     permissions: list[str] | None = None,
     tool_contract_version: str = "1",
+    release_id: str = "",
 ) -> dict[str, Any]:
     """原子升级一个 AgentMate 目录技能；保留启停状态，失败时恢复旧目录。"""
     slug = (slug or "").strip()
@@ -793,6 +797,8 @@ def upgrade_catalog_skill(
     release = _build_release_manifest(
         slug, version, package_files, tools, permissions, tool_contract_version,
     )
+    if release_id:
+        release["release_id"] = release_id
     package_files.append((RELEASE_MANIFEST, _canonical_json(release) + b"\n"))
     return _install_import_files(
         package_files, f"{slug}.md", installed_source="agentmate", replace_existing=True,

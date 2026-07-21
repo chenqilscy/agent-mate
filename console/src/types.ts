@@ -30,6 +30,7 @@ export interface SkillData {
   permissions?: string[];
   files: SkillFile[];
   source: string;
+  min_app_version?: string;
 }
 
 export interface CatalogItem<T> {
@@ -50,6 +51,46 @@ export interface SkillTool {
   description?: string;
   permissions?: string[];
   min_app_version?: string;
+  contract_version?: string;
+}
+
+export type SkillReleaseState = "draft" | "testing" | "approved" | "rolling_out" | "published" | "withdrawn" | "superseded";
+
+export interface SkillRelease {
+  id: string;
+  catalog_item_id?: string;
+  slug: string;
+  version: number;
+  state: SkillReleaseState;
+  data: SkillData;
+  sort: number;
+  content_hash: string;
+  base_release_id: string;
+  min_app_version: string;
+  rollout_channel: string;
+  rollout_percent: number;
+  effective_at: number;
+  author_id: string;
+  reviewer_id: string;
+  test_status: "pending" | "passed" | "failed";
+  test_report: Record<string, unknown>;
+  diff: {
+    changed_fields: string[];
+    tools_added: string[];
+    tools_removed: string[];
+    permissions_before: string[];
+    permissions_after: string[];
+  };
+  metrics: {
+    installs: number;
+    install_failures: number;
+    runs: number;
+    run_failures: number;
+    rollbacks: number;
+  };
+  audit: Array<{ id: string; action: string; actor_id: string; details: Record<string, unknown>; created_at: number }>;
+  created_at: number;
+  published_at?: number;
 }
 
 export type Role = "Owner" | "Admin" | "Member" | "Viewer";

@@ -9,6 +9,7 @@ import hashlib
 
 import json
 import re
+import time
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
@@ -102,12 +103,63 @@ def _skill_compatibility(data: dict[str, Any], report: "CatalogPullBody") -> dic
     }
 
 
+def _skill_bucket(account_id: str, slug: str) -> int:
+    """稳定账号分桶；同一账号/slug 在灰度期间不会版本抖动。"""
+    digest = hashlib.sha256(f"{account_id}:{slug}".encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "big") % 100
+
+
+def _project_skill_releases(items: list[dict[str, Any]], account: Account) -> list[dict[str, Any]]:
+    """把 catalog 的公开投影解析成该账号确定可见的不可变 release。"""
+    result: list[dict[str, Any]] = []
+    account_id = str(getattr(account, "id", "anonymous") or "anonymous")
+    now = time.time()
+    for original in items:
+        row = dict(original)
+        if row.get("category") != "APP_SKILLS" or not isinstance(row.get("data"), dict):
+            result.append(row)
+            continue
+        slug = str(row["data"].get("slug") or "")
+        releases = db.list_skill_releases(slug=slug) if slug else []
+        if not releases or not row.get("enabled", True):
+            result.append(row)
+            continue
+        active = next((
+            release for release in releases
+            if release["state"] in {"rolling_out", "published"}
+            and float(release.get("effective_at") or 0) <= now
+        ), None)
+        selected = active
+        if active and active["state"] == "rolling_out":
+            percent = int(active.get("rollout_percent") or 0)
+            if _skill_bucket(account_id, slug) >= percent:
+                selected = next((
+                    release for release in releases
+                    if release["state"] == "superseded" and release["version"] < active["version"]
+                ), None)
+        if active is None:
+            selected = next((release for release in releases if release["state"] == "superseded"), None)
+        if selected is None:
+            # 新技能尚未到生效时间或账号未进入灰度，不下发半成品。
+            continue
+        data = _normalize_app_skill(selected["data"])
+        data.update({
+            "release_id": selected["id"], "release_version": selected["version"],
+            "content_hash": selected["content_hash"],
+        })
+        row.update({"data": data, "version": selected["version"], "release_id": selected["id"]})
+        result.append(row)
+    return result
+
+
 @router.get("/catalog")
 def list_all_catalog(all: bool = False, account: Account = CurrentAccount) -> dict:
     """所有 builtin 目录项（跨 category），供客户端一次性下行覆盖本地。
     `?all=true`（仅平台管理员）连停用项一并返回，供门户高级 JSON 视图。"""
     inc = all and account.is_platform_admin
     items = _downlink_catalog_items(include_all=inc)
+    if not inc:
+        items = _project_skill_releases(items, account)
     return {"items": items, "revision": _catalog_revision(items)}
 
 
@@ -117,11 +169,237 @@ def list_skill_tools(account: Account = CurrentAccount) -> dict:
     return {"tools": _SKILL_TOOL_CATALOG}
 
 
+class SkillReleaseBody(BaseModel):
+    data: dict[str, Any]
+    sort: int = 0
+    catalog_item_id: str = ""
+    base_release_id: str = ""
+    min_app_version: str = "0.0.0"
+
+
+class SkillReleaseTestBody(BaseModel):
+    passed: bool
+    client_run_id: str = Field(min_length=1, max_length=200)
+    app_version: str = Field(min_length=1, max_length=40)
+    supported_tools: dict[str, str] = Field(default_factory=dict)
+    trace_id: str = Field(default="", max_length=200)
+    artifacts: list[str] = Field(default_factory=list, max_length=20)
+    error: str = Field(default="", max_length=1000)
+
+
+class SkillPublishBody(BaseModel):
+    rollout_percent: int = Field(default=100, ge=1, le=100)
+    rollout_channel: str = Field(default="stable", pattern=r"^[A-Za-z0-9._-]+$")
+    effective_at: float = Field(default=0, ge=0)
+
+
+class SkillMetricBody(BaseModel):
+    event: str
+
+
+def _skill_release_payload(release: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(release)
+    payload["audit"] = db.skill_release_audit(release["id"])
+    payload["metrics"] = db.skill_release_metrics(release["id"])
+    base = db.get_skill_release(str(release.get("base_release_id") or ""))
+    before = base.get("data", {}) if base else {}
+    after = release.get("data", {})
+    before_tools = set(before.get("tools", [])) if isinstance(before, dict) else set()
+    after_tools = set(after.get("tools", [])) if isinstance(after, dict) else set()
+    changed = sorted(
+        key for key in set(before) | set(after)
+        if before.get(key) != after.get(key)
+    ) if isinstance(before, dict) and isinstance(after, dict) else []
+    payload["diff"] = {
+        "changed_fields": changed,
+        "tools_added": sorted(after_tools - before_tools),
+        "tools_removed": sorted(before_tools - after_tools),
+        "permissions_before": _normalize_app_skill(before).get("permissions", []) if before else [],
+        "permissions_after": _normalize_app_skill(after).get("permissions", []) if after else [],
+    }
+    return payload
+
+
+def _publish_skill_release(release: dict[str, Any], actor_id: str, body: SkillPublishBody) -> dict[str, Any]:
+    data = _normalize_app_skill(release["data"])
+    data["min_app_version"] = str(release.get("min_app_version") or "0.0.0")
+    item_id = str(release.get("catalog_item_id") or "")
+    item = db.get_catalog_item(item_id) if item_id else None
+    if item is None:
+        existing = next((
+            row for row in db.list_catalog_items("APP_SKILLS", scope="builtin", include_disabled=True)
+            if isinstance(row.get("data"), dict) and row["data"].get("slug") == release["slug"]
+        ), None)
+        item_id = existing["id"] if existing else db.create_catalog_item(
+            category="APP_SKILLS", data=data, scope="builtin", sort=int(release.get("sort") or 0),
+        )
+    db.update_catalog_item(item_id, data=data, sort=int(release.get("sort") or 0), enabled=True)
+    db.attach_skill_release_catalog_item(release["id"], item_id)
+    db.supersede_other_skill_releases(release["slug"], release["id"])
+    effective_at = body.effective_at or time.time()
+    state = "published" if body.rollout_percent == 100 and effective_at <= time.time() else "rolling_out"
+    updated = db.set_skill_release_state(
+        release["id"], state, actor_id, rollout_channel=body.rollout_channel,
+        rollout_percent=body.rollout_percent, effective_at=effective_at,
+        action="published" if state == "published" else "rollout_started",
+        details={"channel": body.rollout_channel, "percent": body.rollout_percent, "effective_at": effective_at},
+    )
+    return updated or release
+
+
+@router.get("/catalog/skill-releases")
+def list_releases(slug: str = "", catalog_item_id: str = "", account: Account = CurrentAccount) -> dict:
+    _require_admin(account)
+    return {"releases": [_skill_release_payload(item) for item in db.list_skill_releases(
+        slug=slug, catalog_item_id=catalog_item_id,
+    )]}
+
+
+@router.post("/catalog/skill-releases")
+def create_release(body: SkillReleaseBody, account: Account = CurrentAccount) -> dict:
+    _require_admin(account)
+    data = _normalize_app_skill(body.data)
+    data["min_app_version"] = body.min_app_version or str(data.get("min_app_version") or "0.0.0")
+    _validate_app_skill(data, ignore_id=body.catalog_item_id)
+    if body.catalog_item_id:
+        item = db.get_catalog_item(body.catalog_item_id)
+        if not item or item.get("category") != "APP_SKILLS":
+            raise HTTPException(404, "skill catalog item not found")
+        old_slug = str(item.get("data", {}).get("slug") or "")
+        if old_slug and old_slug != data["slug"]:
+            raise HTTPException(409, "skill slug is immutable after creation")
+    base_release_id = body.base_release_id
+    if not base_release_id and body.catalog_item_id:
+        prior = db.list_skill_releases(catalog_item_id=body.catalog_item_id)
+        base_release_id = prior[0]["id"] if prior else ""
+    if base_release_id and not db.get_skill_release(base_release_id):
+        raise HTTPException(404, "base skill release not found")
+    release = db.create_skill_release(
+        data=data, sort=body.sort, author_id=account.id, catalog_item_id=body.catalog_item_id,
+        base_release_id=base_release_id, min_app_version=body.min_app_version,
+    )
+    return {"release": _skill_release_payload(release)}
+
+
+@router.post("/catalog/skill-releases/{release_id}/test-result")
+def record_release_test(
+    release_id: str, body: SkillReleaseTestBody, account: Account = CurrentAccount,
+) -> dict:
+    release = db.get_skill_release(release_id)
+    if not release:
+        raise HTTPException(404, "skill release not found")
+    if release["state"] not in {"draft", "testing"}:
+        raise HTTPException(409, "only draft or testing release accepts test results")
+    report = CatalogPullBody(app_version=body.app_version, supported_tools=body.supported_tools)
+    compatibility = _skill_compatibility(release["data"], report)
+    passed = bool(body.passed and compatibility["compatible"])
+    test_report = {
+        "passed": passed, "client_run_id": body.client_run_id, "runner_id": account.id,
+        "app_version": body.app_version, "trace_id": body.trace_id,
+        "artifacts": body.artifacts, "error": body.error if not passed else "", **compatibility,
+    }
+    updated = db.set_skill_release_state(
+        release_id, "testing", account.id, test_status="passed" if passed else "failed",
+        test_report=test_report, action="client_test_passed" if passed else "client_test_failed",
+    )
+    return {"release": _skill_release_payload(updated or release)}
+
+
+@router.post("/catalog/skill-releases/{release_id}/approve")
+def approve_release(release_id: str, account: Account = CurrentAccount) -> dict:
+    _require_admin(account)
+    release = db.get_skill_release(release_id)
+    if not release:
+        raise HTTPException(404, "skill release not found")
+    if release["state"] != "testing" or release["test_status"] != "passed":
+        raise HTTPException(409, "a passing client test is required before approval")
+    if release["author_id"] == account.id:
+        raise HTTPException(409, "release author cannot approve their own release")
+    updated = db.set_skill_release_state(
+        release_id, "approved", account.id, reviewer_id=account.id, action="approved",
+    )
+    return {"release": _skill_release_payload(updated or release)}
+
+
+@router.post("/catalog/skill-releases/{release_id}/publish")
+def publish_release(
+    release_id: str, body: SkillPublishBody, account: Account = CurrentAccount,
+) -> dict:
+    _require_admin(account)
+    release = db.get_skill_release(release_id)
+    if not release:
+        raise HTTPException(404, "skill release not found")
+    if release["state"] != "approved" or not release["reviewer_id"]:
+        raise HTTPException(409, "approved release required")
+    return {"release": _skill_release_payload(_publish_skill_release(release, account.id, body))}
+
+
+@router.post("/catalog/skill-releases/{release_id}/pause")
+def pause_release(release_id: str, account: Account = CurrentAccount) -> dict:
+    _require_admin(account)
+    release = db.get_skill_release(release_id)
+    if not release or release["state"] != "rolling_out":
+        raise HTTPException(409, "only a rolling release can be paused")
+    updated = db.set_skill_release_state(release_id, "approved", account.id, action="rollout_paused")
+    return {"release": _skill_release_payload(updated or release)}
+
+
+@router.post("/catalog/skill-releases/{release_id}/withdraw")
+def withdraw_release(release_id: str, account: Account = CurrentAccount) -> dict:
+    _require_admin(account)
+    release = db.get_skill_release(release_id)
+    if not release:
+        raise HTTPException(404, "skill release not found")
+    if release["state"] in {"withdrawn", "superseded"}:
+        raise HTTPException(409, "skill release is not active")
+    item_id = str(release.get("catalog_item_id") or "")
+    if item_id:
+        db.update_catalog_item(item_id, enabled=False)
+    updated = db.set_skill_release_state(release_id, "withdrawn", account.id, action="withdrawn")
+    return {"release": _skill_release_payload(updated or release)}
+
+
+@router.post("/catalog/skill-releases/{release_id}/rollback")
+def rollback_release(release_id: str, account: Account = CurrentAccount) -> dict:
+    _require_admin(account)
+    target = db.get_skill_release(release_id)
+    if not target:
+        raise HTTPException(404, "skill release not found")
+    restored = db.create_skill_release(
+        data=target["data"], sort=int(target.get("sort") or 0), author_id=account.id,
+        catalog_item_id=str(target.get("catalog_item_id") or ""), base_release_id=target["id"],
+        min_app_version=str(target.get("min_app_version") or "0.0.0"),
+    )
+    restored = db.set_skill_release_state(
+        restored["id"], "approved", account.id, reviewer_id=account.id, test_status="passed",
+        test_report={"passed": True, "rollback_from": target["id"]}, action="rollback_approved",
+    ) or restored
+    published = _publish_skill_release(restored, account.id, SkillPublishBody())
+    db.record_skill_release_metric(published["id"], "rollback")
+    return {"release": _skill_release_payload(published)}
+
+
+@router.post("/catalog/skill-releases/{release_id}/metrics")
+def record_release_metric(
+    release_id: str, body: SkillMetricBody, account: Account = CurrentAccount,
+) -> dict:
+    if not db.get_skill_release(release_id):
+        raise HTTPException(404, "skill release not found")
+    try:
+        metrics = db.record_skill_release_metric(release_id, body.event)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"metrics": metrics}
+
+
 @router.get("/catalog/{category}")
 def list_catalog(category: str, all: bool = False, account: Account = CurrentAccount) -> dict:
     """某 category 目录项。`?all=true`（仅平台管理员）含停用项 + `enabled` 标志，供门户 CRUD 列表。"""
     inc = all and account.is_platform_admin
-    return {"category": category, "items": db.list_catalog_items(category, scope="builtin", include_disabled=inc)}
+    items = db.list_catalog_items(category, scope="builtin", include_disabled=inc)
+    if category == "APP_SKILLS" and not inc:
+        items = _project_skill_releases(items, account)
+    return {"category": category, "items": items}
 
 
 class CatalogItemBody(BaseModel):
@@ -143,7 +421,7 @@ class CatalogPullBody(BaseModel):
 @router.post("/catalog/pull")
 def pull_catalog(body: CatalogPullBody, account: Account = CurrentAccount) -> dict:
     """Conditional capability-aware catalog snapshot for AgentMate App clients."""
-    items = _downlink_catalog_items(include_withdrawn=True)
+    items = _project_skill_releases(_downlink_catalog_items(include_withdrawn=True), account)
     revision = _catalog_revision(items)
     if body.revision and body.revision == revision:
         return {"revision": revision, "unchanged": True, "items": []}
@@ -489,8 +767,7 @@ def create_item(body: CatalogItemBody, account: Account = CurrentAccount) -> dic
     _require_admin(account)
     data = body.data
     if body.category == "APP_SKILLS":
-        data = _normalize_app_skill(body.data)
-        _validate_app_skill(data)
+        raise HTTPException(409, "APP_SKILLS must be created through the skill release workflow")
     elif body.category == "SKILL_RECOMMENDATIONS":
         _validate_skill_recommendation(body.data)
     elif body.category == "CONN_DEFS":
@@ -522,13 +799,8 @@ def update_item(item_id: str, body: UpdateItemBody, account: Account = CurrentAc
     if not item:
         raise HTTPException(404, "catalog item not found")
     data = body.data
-    if item["category"] == "APP_SKILLS" and body.data is not None:
-        data = _normalize_app_skill(body.data)
-        _validate_app_skill(data, ignore_id=item_id)
-        old_slug = str(item.get("data", {}).get("slug", "")) if isinstance(item.get("data"), dict) else ""
-        new_slug = str(data.get("slug", "")) if isinstance(data, dict) else ""
-        if old_slug and old_slug != new_slug:
-            raise HTTPException(409, "skill slug is immutable after creation")
+    if item["category"] == "APP_SKILLS" and (body.data is not None or body.enabled is not None):
+        raise HTTPException(409, "APP_SKILLS definition and state must use the skill release workflow")
     elif item["category"] == "SKILL_RECOMMENDATIONS" and body.data is not None:
         _validate_skill_recommendation(body.data, ignore_id=item_id)
     elif item["category"] == "CONN_DEFS" and body.data is not None:
@@ -566,6 +838,8 @@ def delete_item(item_id: str, account: Account = CurrentAccount) -> dict:
         raise HTTPException(404, "catalog item not found")
     if item["category"] == "APP_SKILLS" and isinstance(item.get("data"), dict):
         slug = str(item["data"].get("slug", ""))
+        if db.list_skill_releases(catalog_item_id=item_id):
+            raise HTTPException(409, "published skill must be withdrawn through the release workflow")
         if slug and _skill_is_recommended(slug):
             raise HTTPException(409, "skill is referenced by a recommendation")
         # local-first 客户端可能仍持有该 slug 的项目引用和安装快照；保留身份记录，只归档。

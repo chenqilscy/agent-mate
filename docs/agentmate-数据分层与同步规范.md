@@ -35,7 +35,7 @@
 | 团队动态 timeline_events | **Server** | ✅（仅元数据） | App→Server 上行 push | 本地 sessions 兜底显示 | ⚠️ 未回读，队友动态互不可见（WB-112） |
 | 讨论 comments / @提及 | **Server** | ✅ | Server 代理 | 无离线态 | ✅（设计取舍） |
 | 在线状态 presence | **Server** | ✅ | Server | 无 | ✅ |
-| 目录 catalog（人格/连接器/技能/推荐位） | **Server** | ✅ | Server→App 版本下发 | 首次用 builtin；离线保留最后可用快照 | ⚠️ 基础全量 pull 已有；tombstone/条件刷新待补 |
+| 目录 catalog（人格/连接器/技能/推荐位） | **Server** | ✅ | Server→App 带 revision 条件下发 | 首次用 builtin；离线保留最后可用快照 | ✅ Skill tombstone、能力报告与兼容门禁已完成；实时失效推送待补 |
 | **资产/文件 assets** | **App 本地** | ❌ | 不同步 | 全功能 | ✅ 故意不上云（红线 2） |
 | 自动化 automations | **App 本地** | ❌ | 不同步（暂） | 全功能 | 未上云；是否需团队级待定 |
 | 助理/频道 channels | **App 本地** | ❌ | 不同步 | 全功能 | 私有 |

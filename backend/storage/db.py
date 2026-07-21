@@ -469,6 +469,8 @@ def init_db() -> None:
             tools TEXT NOT NULL DEFAULT '[]',
             permissions TEXT NOT NULL DEFAULT '[]',
             tool_contract_version TEXT NOT NULL DEFAULT '1',
+            server_release_id TEXT NOT NULL DEFAULT '',
+            server_content_hash TEXT NOT NULL DEFAULT '',
             files TEXT NOT NULL DEFAULT '[]',
             category TEXT NOT NULL DEFAULT '',
             source TEXT NOT NULL DEFAULT '',
@@ -862,6 +864,8 @@ def _migrate_columns() -> None:
         ("min_app_version", "min_app_version TEXT NOT NULL DEFAULT '0.0.0'"),
         ("permissions", "permissions TEXT NOT NULL DEFAULT '[]'"),
         ("tool_contract_version", "tool_contract_version TEXT NOT NULL DEFAULT '1'"),
+        ("server_release_id", "server_release_id TEXT NOT NULL DEFAULT ''"),
+        ("server_content_hash", "server_content_hash TEXT NOT NULL DEFAULT ''"),
     ):
         if col not in have_cs:
             conn.execute(f"ALTER TABLE catalog_skills ADD COLUMN {ddl}")
@@ -2071,7 +2075,7 @@ def skill_specs() -> list[dict[str, Any]]:
     """
     rows = get_conn().execute(
         "SELECT scope,slug,name,icon,description,instructions,version,tools,permissions,"
-        "tool_contract_version,files,category,source,"
+        "tool_contract_version,server_release_id,server_content_hash,files,category,source,"
         "withdrawn,compatible,compatibility_error,min_app_version "
         "FROM catalog_skills WHERE enabled=1 OR (scope='server' AND withdrawn=1) "
         "ORDER BY CASE scope WHEN 'server' THEN 0 ELSE 1 END, sort, name"
@@ -2103,6 +2107,8 @@ def skill_specs() -> list[dict[str, Any]]:
             "tools": tools if isinstance(tools, list) else [],
             "permissions": permissions if isinstance(permissions, list) else [],
             "tool_contract_version": r["tool_contract_version"],
+            "server_release_id": r["server_release_id"],
+            "server_content_hash": r["server_content_hash"],
             "files": files if isinstance(files, list) else [],
             "category": r["category"], "source": r["source"], "scope": r["scope"],
             "compatible": bool(r["compatible"]),
@@ -2233,6 +2239,7 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
             json.dumps([str(t) for t in tools], ensure_ascii=False),
             json.dumps(sorted({str(value) for value in permissions if str(value)}), ensure_ascii=False),
             str(raw.get("tool_contract_version", "1")),
+            str(raw.get("release_id", "")), str(raw.get("content_hash", "")),
             json.dumps(files, ensure_ascii=False), str(raw.get("category", "")),
             str(raw.get("source", "Server")), 1 if withdrawn else 0,
             1 if raw.get("compatible", True) else 0,
@@ -2244,9 +2251,9 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
         conn.executemany(
             """INSERT INTO catalog_skills
                (id,scope,owner_id,slug,name,icon,description,instructions,version,tools,permissions,
-                tool_contract_version,files,category,source,
+                tool_contract_version,server_release_id,server_content_hash,files,category,source,
                 withdrawn,compatible,compatibility_error,min_app_version,enabled,sort,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
     return {"inserted": len(rows), "skipped": skipped}

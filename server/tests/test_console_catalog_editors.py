@@ -25,6 +25,19 @@ class ConsoleCatalogEditorContractTests(unittest.TestCase):
         for marker in ("file-workspace", "tools.map", "requestClose", "saving"):
             self.assertIn(marker, editor)
 
+    def test_skill_page_uses_release_governance_instead_of_mutable_definition_save(self) -> None:
+        page = (CONSOLE / "SkillsPage.tsx").read_text(encoding="utf-8")
+        editor = (CONSOLE / "SkillEditor.tsx").read_text(encoding="utf-8")
+        api = (CONSOLE / "api.ts").read_text(encoding="utf-8")
+        for marker in ("发布治理", "提交客户端 Test Run", "approveSkillRelease",
+                       "publishSkillRelease", "pauseSkillRelease", "withdrawSkillRelease",
+                       "rollbackSkillRelease", "content_hash", "metrics"):
+            self.assertIn(marker, page)
+        self.assertIn("createSkillRelease", editor)
+        self.assertNotIn("consoleApi.updateSkill(item.id, { data", editor)
+        for endpoint in ("test-result", "/approve", "/publish", "/pause", "/withdraw", "/rollback"):
+            self.assertIn(endpoint, api)
+
     def test_project_workspace_covers_all_legacy_capabilities(self) -> None:
         page = (CONSOLE / "pages" / "ProjectDetailPage.tsx").read_text(encoding="utf-8")
         for marker in ("ProjectOverview", "TasksTab", "KnowledgeTab", "CollaborationTab",

@@ -153,7 +153,7 @@ class SkillRecommendationContractTest(unittest.TestCase):
 
         item = db.list_catalog_items("APP_SKILLS", scope="builtin", include_disabled=True)[0]
         admin = SimpleNamespace(is_platform_admin=True)
-        with self.assertRaisesRegex(HTTPException, "immutable"):
+        with self.assertRaisesRegex(HTTPException, "release workflow"):
             update_item(item["id"], UpdateItemBody(data={**complete, "slug": "renamed"}), admin)
         before_version = db.get_catalog_item(item["id"])["version"]
         update_item(item["id"], UpdateItemBody(sort=99), admin)

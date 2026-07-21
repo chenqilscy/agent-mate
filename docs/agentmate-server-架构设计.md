@@ -1,6 +1,6 @@
 # AgentMate Server 架构设计
 
-> 状态：已实现的控制平面基线 + 尚待实现的能力发布目标，更新于 2026-07-21。
+> 状态：控制平面与 Skill 发布治理已实现；桌面二进制发布仍待生产化，更新于 2026-07-21。
 > 对应基础 epic [WB-058](issues/WB-058-hub-control-plane-epic.md)；数据权威与隐私边界以
 > [`agentmate-数据分层与同步规范.md`](agentmate-数据分层与同步规范.md) 为准。
 
@@ -104,11 +104,9 @@ Server scope。App 自造专家、本地 Skill 安装和连接器凭据属于本
 - 会话执行产出只上报可配置的时间线元数据；先写本地 outbox，再由调度器重试。
 - 写 Server 失败不能伪装为已经完成同步；是否允许离线本地写由具体实体契约决定。
 
-### 5.3 尚未完成
+### 5.3 已完成与剩余边界
 
-- 目录 revision、条件请求和增量合并；
-- 发布 tombstone 与撤回状态；
-- App capability report 与工具契约版本；
+- 已完成目录 revision、条件请求、last-known-good、显式 tombstone、App capability report 与工具契约门禁；
 - 唤醒/恢复/低频刷新和实时“目录已失效”信号；
 - 同步冲突可视化、稳定重放与企业级审计。
 
@@ -124,9 +122,10 @@ Server scope。App 自造专家、本地 Skill 安装和连接器凭据属于本
 Server 下发只改变控制面定义；App runtime 是本机最终执行裁决者。未知工具、版本不兼容、缺凭据、
 未安装或被撤回的能力必须拒绝运行并给出明确原因。
 
-## 7. 能力发布目标
+## 7. Skill 能力发布（已实现基线）
 
-> 本节是目标设计，不代表当前目录 CRUD 已具备生产发布能力。
+> WB-245～WB-250 已落地 Skill 的不可变快照、兼容门禁、权限确认、灰度、撤回、回滚和聚合指标。
+> Expert、Expert Team、Connector 与 Policy 复用该模型仍属于扩展目标。
 
 ### 7.1 不可变 release
 
@@ -137,7 +136,7 @@ CapabilityRelease
   slug
   version
   content_hash
-  status               draft | testing | published | withdrawn
+  status               draft | testing | approved | rolling_out | published | withdrawn | superseded
   min_app_version
   min_tool_contract_version
   permissions
@@ -148,8 +147,8 @@ CapabilityRelease
   release_notes
 ```
 
-Skill release 必须原子包含 `instructions + tools + files + permissions + hash`。推荐排序、营销文案或目录
-分类不是运行包版本，不能在旧指令上单独切换新工具。
+Skill release 已原子包含 `instructions + tools + files + permissions + hash`。Console 保存产生新 draft，
+不再直接覆盖公开投影；推荐排序、营销文案或目录分类不是运行包版本。
 
 ### 7.2 客户端 capability report
 
@@ -172,18 +171,18 @@ Server 据此完成发布前兼容检查和下行门禁。不兼容版本可浏�
 
 ### 7.4 灰度、回滚与客户端更新
 
-- 灰度按通道、组织和稳定设备分桶；重复刷新不能在版本间抖动。
-- App 与 Skill 都保留 last-known-good；校验或安装失败自动回滚并上报非敏感失败码。
+- Skill 灰度按通道、比例和稳定账号分桶；重复刷新不会在版本间抖动。组织定向分桶尚未实现。
+- App 保留 last-known-good；Skill 安装/升级为原子写入，Console 支持显式回滚到历史内容并生成新版本。
+- App 只按 release 聚合上报安装/运行成功与失败计数，不上传 prompt、文件、工具参数或凭据。
 - Server API 在桌面升级窗口内保持向后兼容；强制升级只用于明确的安全/协议断裂。
 - App 二进制升级走 Tauri 签名 updater，不能由目录 payload 自行替换可执行文件。
 
 ## 8. Console 管理职责
 
-Console 管账号、组织、项目协作和 AgentMate 自有目录。技能定义与推荐位已分离；技能管理已迁移到
-React + Ant Design，legacy 页面继续按 WB-236 迁移。
-
-完整发布中心仍需提供草稿、Test Run、审核、灰度、撤回、回滚、兼容覆盖和审计视图。在这些对象及
-门禁落地前，“保存目录项”只能称为配置变更，不能称为生产发布。
+Console 管账号、组织、项目协作和 AgentMate 自有目录。Skill 定义与推荐位已分离；Skill 编辑统一
+创建不可变 draft。发布治理页展示客户端 Test Run 证据、作者/审核者分离、定义/工具/权限 diff、
+灰度比例、暂停、撤回、回滚、审计及按 release 聚合的安装/运行指标。普通目录 CRUD 已禁止直接修改
+已纳管 Skill 的定义和启停状态。
 
 ## 9. 部署与安全
 
@@ -203,7 +202,7 @@ React + Ant Design，legacy 页面继续按 WB-236 迁移。
 | 存量迁移与 local-first 回退 | 已完成基础链路 | WB-063 |
 | 第三方 SkillHub 回归 App 本地 | 已完成 | WB-215 |
 | Skill/连接器/专家推荐位分离 | 已完成 | WB-217、WB-220、WB-221 |
-| 生产能力发布与客户端兼容闭环 | 未完成 | WB-235 设计；需后续实现 issue |
+| Skill 生产发布与客户端兼容闭环 | 已完成 | WB-245～WB-250 |
 | Console 全站 React/Ant Design | 进行中 | WB-234、WB-236 |
 | 正式桌面签名更新服务 | 未完成 | [`desktop-build.md`](desktop-build.md) |
 

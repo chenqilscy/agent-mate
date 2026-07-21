@@ -113,8 +113,9 @@ Markdown 输出按 `marked → highlight.js → DOMPurify` 处理。任何新增
   → 持久化消息、轨迹、状态与用量
 ```
 
-基础工具包括目录/文件读写、命令执行、计划更新和向用户提问；Skill 可以绑定受支持的真实工具；
-MCP 连接器由 `backend/agent/mcp_client.py` 统一拉起和隔离环境。
+基础工具包括目录/文件读写、命令执行、计划更新和向用户提问；Skill 可以绑定受支持的真实工具。
+工具注册表同时声明读写/网络/进程等结构化权限、超时和隔离级别；MCP 连接器由
+`backend/agent/mcp_client.py` 统一拉起和隔离环境。
 
 安全边界：
 
@@ -138,9 +139,15 @@ Skill 包含 `SKILL.md`、可选 `references/`/`scripts/`、工具绑定与本�
 
 - Server 管 AgentMate 自有定义与推荐位；SkillHub 推荐只保存 slug 和展示文案。
 - App 本地完成安装并扫描磁盘；未安装内容不能读取本地源码或伪装可运行。
-- 已安装 Skill 可手动升级，但生产级发布仍缺不可变 release、兼容门禁、tombstone、灰度和回滚闭环。
+- Server Skill 以不可变 release 发布，状态覆盖 draft/testing/approved/rolling_out/published/
+  withdrawn/superseded；未发布 draft 不进入 App 下行。
+- App 上报版本与工具契约，Server 做兼容门禁和稳定账号灰度；撤回显式下发 tombstone。
+- 安装快照校验文件 hash、工具、权限和 release id；扩大权限的升级必须再次确认。
+- 安装/启停状态按 owner 入库，物理包可安全去重；并发操作加锁，最后引用删除进入可恢复回收站。
+- runtime 按需读取 manifest 内 resources，总 Skill 指令有预算与冲突优先级；安装/运行结果按 release
+  仅上报非敏感聚合指标。
 
-目标发布模型见 [`agentmate-server-架构设计.md`](agentmate-server-架构设计.md) 的能力发布章节。
+发布模型与剩余扩展边界见 [`agentmate-server-架构设计.md`](agentmate-server-架构设计.md) 的能力发布章节。
 
 ### 6.3 连接器
 
@@ -163,7 +170,8 @@ AgentMate 能力目录。AgentMate Console 同源调用 `/api/*`，不直接执�
 - 目录使用显式 `POST /api/server/pull` 全量替换本机 `scope=server` 镜像。
 - 项目会话完成后可把不含正文的时间线元数据写入 outbox；后台失败重试，且上报默认关闭。
 - server-origin 工作项、里程碑等协作实体采用 Server 代理与本地镜像回退。
-- 目录 revision、tombstone、条件请求、客户端 capability report 和实时失效信号尚未形成完整闭环。
+- 目录 revision、条件请求、tombstone、客户端 capability report 和兼容门禁已形成闭环；实时推送
+  “目录已失效”信号仍未实现，当前由显式/低频 pull 获取。
 
 ## 8. 桌面构建与升级
 
@@ -209,7 +217,7 @@ backend/.venv/Scripts/python.exe -m py_compile backend/main.py server/main.py
 |---|---|
 | 本文 | 当前产品拓扑、代码边界与真实能力基线 |
 | [`agentmate-数据分层与同步规范.md`](agentmate-数据分层与同步规范.md) | App/Server 数据权威、隐私红线与同步契约 |
-| [`agentmate-server-架构设计.md`](agentmate-server-架构设计.md) | Server 控制平面与能力发布目标 |
+| [`agentmate-server-架构设计.md`](agentmate-server-架构设计.md) | Server 控制平面、Skill 发布实现与扩展边界 |
 | [`agentmate-console-管理门户设计.md`](agentmate-console-管理门户设计.md) | Console 管理范围与迁移状态 |
 | [`agentmate-助理-架构设计.md`](agentmate-助理-架构设计.md) | 多助理、多渠道数据与运行时边界 |
 | [`desktop-build.md`](desktop-build.md) | 桌面构建、签名与更新 |

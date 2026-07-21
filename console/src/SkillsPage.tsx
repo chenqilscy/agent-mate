@@ -1,16 +1,20 @@
 import {
   App,
+  Alert,
   AutoComplete,
   Avatar,
   Button,
   Card,
   Col,
+  Descriptions,
   Drawer,
   Dropdown,
   Empty,
   Form,
   Input,
   InputNumber,
+  List,
+  Modal,
   Popconfirm,
   Row,
   Select,
@@ -36,31 +40,33 @@ import type { ActionType, ProColumns } from "@ant-design/pro-components";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { consoleApi } from "./api";
 import SkillEditor from "./SkillEditor";
-import type { CatalogItem, SkillData, SkillTool } from "./types";
+import type { CatalogItem, SkillData, SkillRelease, SkillReleaseState, SkillTool } from "./types";
 
 type StatusFilter = "all" | "enabled" | "disabled";
-type SkillTab = "gallery" | "manage" | "recommendations";
+type SkillTab = "gallery" | "manage" | "releases" | "recommendations";
 
 export default function SkillsPage() {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const [items, setItems] = useState<CatalogItem<SkillData>[]>([]);
   const [tools, setTools] = useState<SkillTool[]>([]);
+  const [releases, setReleases] = useState<SkillRelease[]>([]);
   const [loading, setLoading] = useState(true);
   const [mutatingId, setMutatingId] = useState("");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | undefined>();
   const [status, setStatus] = useState<StatusFilter>("all");
   const requestedTab = new URLSearchParams(window.location.search).get("tab");
-  const [tab, setTab] = useState<SkillTab>(requestedTab === "manage" || requestedTab === "recommendations" ? requestedTab : "gallery");
+  const [tab, setTab] = useState<SkillTab>(requestedTab === "manage" || requestedTab === "releases" || requestedTab === "recommendations" ? requestedTab : "gallery");
   const [editor, setEditor] = useState<{ item: CatalogItem<SkillData> | null; tab: "info" | "files" } | null>(null);
 
   async function load() {
     setLoading(true);
     try {
-      const [skills, toolCatalog] = await Promise.all([consoleApi.skills(), consoleApi.skillTools()]);
+      const [skills, toolCatalog, releaseList] = await Promise.all([consoleApi.skills(), consoleApi.skillTools(), consoleApi.skillReleases()]);
       setItems(skills.items.sort((left, right) => left.sort - right.sort));
       setTools(toolCatalog.tools || []);
+      setReleases(releaseList.releases || []);
     } catch (reason) {
       message.error(reason instanceof Error ? reason.message : "技能目录加载失败");
     } finally {
@@ -82,19 +88,6 @@ export default function SkillsPage() {
     });
   }, [category, items, query, status]);
 
-  async function toggleSkill(item: CatalogItem<SkillData>, enabled: boolean) {
-    setMutatingId(item.id);
-    try {
-      await consoleApi.updateSkill(item.id, { enabled });
-      message.success(enabled ? "技能已启用" : "技能已停用");
-      await load();
-    } catch (reason) {
-      message.error(reason instanceof Error ? reason.message : "状态更新失败");
-    } finally {
-      setMutatingId("");
-    }
-  }
-
   async function moveSkill(item: CatalogItem<SkillData>, delta: number) {
     const index = items.findIndex((candidate) => candidate.id === item.id);
     const target = index + delta;
@@ -112,25 +105,6 @@ export default function SkillsPage() {
     } finally {
       setMutatingId("");
     }
-  }
-
-  function archiveSkill(item: CatalogItem<SkillData>) {
-    modal.confirm({
-      title: `归档技能“${item.data.name}”？`,
-      content: `slug ${item.data.slug} 会保留，以保护已安装客户端；稍后仍可重新启用。`,
-      okText: "归档",
-      okButtonProps: { danger: true },
-      cancelText: "取消",
-      onOk: async () => {
-        try {
-          await consoleApi.archiveSkill(item.id);
-          message.success("技能已归档");
-          await load();
-        } catch (reason) {
-          message.error(reason instanceof Error ? reason.message : "归档失败");
-        }
-      },
-    });
   }
 
   const columns: ProColumns<CatalogItem<SkillData>>[] = [
@@ -161,14 +135,7 @@ export default function SkillsPage() {
       dataIndex: "enabled",
       width: 90,
       render: (_value, item) => (
-        <Switch
-          size="small"
-          checked={item.enabled}
-          loading={mutatingId === item.id}
-          checkedChildren="启用"
-          unCheckedChildren="停用"
-          onChange={(checked) => void toggleSkill(item, checked)}
-        />
+        <Tag color={item.enabled ? "green" : "default"}>{item.enabled ? "已发布" : "已撤回"}</Tag>
       ),
     },
     {
@@ -189,7 +156,7 @@ export default function SkillsPage() {
                   { key: "up", icon: <ArrowUpOutlined />, label: "上移", disabled: index <= 0, onClick: () => void moveSkill(item, -1) },
                   { key: "down", icon: <ArrowDownOutlined />, label: "下移", disabled: index >= items.length - 1, onClick: () => void moveSkill(item, 1) },
                   { type: "divider" },
-                  { key: "archive", icon: <DeleteOutlined />, danger: true, label: "归档", disabled: !item.enabled, onClick: () => archiveSkill(item) },
+                  { key: "releases", icon: <SafetyCertificateOutlined />, label: "发布记录", onClick: () => setTab("releases") },
                 ],
               }}
             >
@@ -214,6 +181,7 @@ export default function SkillsPage() {
         items={[
           { key: "gallery", label: "目录预览" },
           { key: "manage", label: "目录管理" },
+          { key: "releases", label: "发布治理" },
           { key: "recommendations", label: "推荐位管理" },
         ]}
         onChange={(key) => { const next = key as SkillTab; setTab(next); const url = new URL(window.location.href); url.searchParams.set("tab", next); history.replaceState(null, "", url); }}
@@ -222,7 +190,9 @@ export default function SkillsPage() {
         <Card loading={loading} title="客户端生效预览" extra={<Input.Search allowClear placeholder="搜索技能" value={query} onChange={(event) => setQuery(event.target.value)} />}>
           {visibleItems.filter((item) => item.enabled).length ? <Row gutter={[16, 16]}>{visibleItems.filter((item) => item.enabled).map((item) => <Col xs={24} md={12} xl={8} key={item.id}><Card size="small" className="catalog-card"><Space align="start"><Avatar shape="square" size={44}>{item.data.icon || <SafetyCertificateOutlined />}</Avatar><div><Typography.Title level={5}>{item.data.name}</Typography.Title><Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }}>{item.data.description}</Typography.Paragraph><Space wrap><Tag>{item.data.slug}</Tag>{item.data.category && <Tag color="blue">{item.data.category}</Tag>}</Space></div></Space></Card></Col>)}</Row> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无生效技能" />}
         </Card>
-      ) : tab === "recommendations" ? <SkillRecommendations skills={items} /> : <ProTable<CatalogItem<SkillData>>
+      ) : tab === "recommendations" ? <SkillRecommendations skills={items} /> : tab === "releases" ? (
+        <SkillReleaseConsole releases={releases} tools={tools} loading={loading} reload={load} />
+      ) : <ProTable<CatalogItem<SkillData>>
         actionRef={actionRef}
         rowKey="id"
         columns={columns}
@@ -250,6 +220,122 @@ export default function SkillsPage() {
       />
     </PageContainer>
   );
+}
+
+const RELEASE_STATE: Record<SkillReleaseState, { label: string; color: string }> = {
+  draft: { label: "草稿", color: "default" },
+  testing: { label: "测试中", color: "blue" },
+  approved: { label: "已审核", color: "cyan" },
+  rolling_out: { label: "灰度中", color: "gold" },
+  published: { label: "已发布", color: "green" },
+  withdrawn: { label: "已撤回", color: "red" },
+  superseded: { label: "已替代", color: "default" },
+};
+
+function SkillReleaseConsole({
+  releases, tools, loading, reload,
+}: { releases: SkillRelease[]; tools: SkillTool[]; loading: boolean; reload: () => Promise<void> }) {
+  const { message } = App.useApp();
+  const [busy, setBusy] = useState("");
+  const [detail, setDetail] = useState<SkillRelease | null>(null);
+  const [testTarget, setTestTarget] = useState<SkillRelease | null>(null);
+  const [publishTarget, setPublishTarget] = useState<SkillRelease | null>(null);
+  const [testForm] = Form.useForm<{ passed: boolean; client_run_id: string; app_version: string; trace_id: string; error: string }>();
+  const [publishForm] = Form.useForm<{ rollout_percent: number; rollout_channel: string }>();
+
+  async function mutate(id: string, action: () => Promise<unknown>, success: string) {
+    setBusy(id);
+    try {
+      await action();
+      message.success(success);
+      await reload();
+    } catch (reason) {
+      message.error(reason instanceof Error ? reason.message : "发布操作失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function openTest(release: SkillRelease) {
+    setTestTarget(release);
+    testForm.setFieldsValue({ passed: true, client_run_id: "", app_version: "1.0.0", trace_id: "", error: "" });
+  }
+
+  function openPublish(release: SkillRelease) {
+    setPublishTarget(release);
+    publishForm.setFieldsValue({ rollout_percent: 100, rollout_channel: "stable" });
+  }
+
+  const columns: ProColumns<SkillRelease>[] = [
+    { title: "技能", width: 210, fixed: "left", render: (_value, release) => <div><Typography.Text strong>{release.data.name}</Typography.Text><div><Typography.Text code>{release.slug}</Typography.Text></div></div> },
+    { title: "版本", dataIndex: "version", width: 75, render: (value) => `v${value}` },
+    { title: "状态", dataIndex: "state", width: 95, render: (_value, release) => <Tag color={RELEASE_STATE[release.state].color}>{RELEASE_STATE[release.state].label}</Tag> },
+    { title: "客户端测试", dataIndex: "test_status", width: 110, render: (_value, release) => <Tag color={release.test_status === "passed" ? "green" : release.test_status === "failed" ? "red" : "default"}>{release.test_status === "passed" ? "通过" : release.test_status === "failed" ? "失败" : "待测试"}</Tag> },
+    { title: "灰度", width: 110, render: (_value, release) => release.state === "rolling_out" || release.state === "published" ? `${release.rollout_channel} · ${release.rollout_percent}%` : "—" },
+    { title: "运行", width: 120, render: (_value, release) => `${release.metrics.runs - release.metrics.run_failures}/${release.metrics.runs} 成功` },
+    { title: "创建者 / 审核者", width: 190, render: (_value, release) => <Typography.Text type="secondary">{release.author_id} / {release.reviewer_id || "待审核"}</Typography.Text> },
+    { title: "创建时间", dataIndex: "created_at", width: 170, render: (value) => new Date(Number(value) * 1000).toLocaleString() },
+    {
+      title: "操作", valueType: "option", width: 300, fixed: "right",
+      render: (_value, release) => <Space size={2} wrap>
+        <Button type="link" size="small" onClick={() => setDetail(release)}>详情</Button>
+        {(release.state === "draft" || release.state === "testing") && <Button type="link" size="small" onClick={() => openTest(release)}>提交测试</Button>}
+        {release.state === "testing" && release.test_status === "passed" && <Button type="link" size="small" loading={busy === release.id} onClick={() => void mutate(release.id, () => consoleApi.approveSkillRelease(release.id), "版本已审核")}>审核</Button>}
+        {release.state === "approved" && <Button type="link" size="small" onClick={() => openPublish(release)}>发布</Button>}
+        {release.state === "rolling_out" && <Button type="link" size="small" loading={busy === release.id} onClick={() => void mutate(release.id, () => consoleApi.pauseSkillRelease(release.id), "灰度已暂停")}>暂停</Button>}
+        {(release.state === "rolling_out" || release.state === "published") && <Popconfirm title="撤回后客户端将收到 tombstone，确认继续？" onConfirm={() => void mutate(release.id, () => consoleApi.withdrawSkillRelease(release.id), "版本已撤回")}><Button danger type="link" size="small">撤回</Button></Popconfirm>}
+        {(release.state === "withdrawn" || release.state === "superseded") && <Popconfirm title={`以 v${release.version} 内容创建并发布新的回滚版本？`} onConfirm={() => void mutate(release.id, () => consoleApi.rollbackSkillRelease(release.id), "回滚版本已发布")}><Button type="link" size="small">回滚</Button></Popconfirm>}
+      </Space>,
+    },
+  ];
+
+  return <>
+    <Alert type="info" showIcon message="Skill 定义以不可变版本发布：草稿需先由真实 App 客户端回传 Test Run，再由非作者管理员审核；灰度按账号稳定分桶。" />
+    <ProTable<SkillRelease>
+      rowKey="id" columns={columns} dataSource={releases} loading={loading} search={false}
+      pagination={{ pageSize: 20 }} scroll={{ x: 1320 }} options={{ reload: () => void reload(), density: true, setting: true }}
+    />
+    <Drawer width={720} open={Boolean(detail)} title={detail ? `${detail.data.name} · v${detail.version}` : "发布详情"} onClose={() => setDetail(null)}>
+      {detail && <Space direction="vertical" size="large" className="full-width">
+        <Descriptions bordered size="small" column={2} items={[
+          { key: "state", label: "状态", children: RELEASE_STATE[detail.state].label },
+          { key: "hash", label: "内容哈希", children: <Typography.Text code copyable>{detail.content_hash.slice(0, 16)}</Typography.Text> },
+          { key: "author", label: "作者", children: detail.author_id },
+          { key: "reviewer", label: "审核者", children: detail.reviewer_id || "—" },
+          { key: "install", label: "安装", children: `${detail.metrics.installs} / 失败 ${detail.metrics.install_failures}` },
+          { key: "run", label: "运行", children: `${detail.metrics.runs} / 失败 ${detail.metrics.run_failures}` },
+        ]} />
+        <Card size="small" title="定义 / 工具 / 权限 Diff"><Space wrap>
+          {detail.diff.changed_fields.map((field) => <Tag key={field}>{field}</Tag>)}
+          {detail.diff.tools_added.map((tool) => <Tag color="green" key={`+${tool}`}>+ {tool}</Tag>)}
+          {detail.diff.tools_removed.map((tool) => <Tag color="red" key={`-${tool}`}>- {tool}</Tag>)}
+          {detail.diff.permissions_after.map((permission) => <Tag color="blue" key={permission}>{permission}</Tag>)}
+        </Space></Card>
+        <Card size="small" title="审计记录"><List size="small" dataSource={detail.audit} renderItem={(entry) => <List.Item><Space><Tag>{entry.action}</Tag><Typography.Text>{entry.actor_id}</Typography.Text><Typography.Text type="secondary">{new Date(entry.created_at * 1000).toLocaleString()}</Typography.Text></Space></List.Item>} /></Card>
+      </Space>}
+    </Drawer>
+    <Modal open={Boolean(testTarget)} title={testTarget ? `提交客户端 Test Run · ${testTarget.slug} v${testTarget.version}` : "提交客户端 Test Run"} okText="提交结果" onCancel={() => setTestTarget(null)} onOk={() => testForm.submit()} confirmLoading={Boolean(testTarget && busy === testTarget.id)}>
+      <Form form={testForm} layout="vertical" onFinish={(values) => {
+        if (!testTarget) return;
+        const supported_tools = Object.fromEntries(tools.map((tool) => [tool.name, tool.contract_version || "1"]));
+        void mutate(testTarget.id, () => consoleApi.submitSkillReleaseTest(testTarget.id, { ...values, supported_tools }), values.passed ? "客户端测试结果已登记" : "失败结果已登记").then(() => setTestTarget(null));
+      }}>
+        <Form.Item name="client_run_id" label="客户端 Run ID" rules={[{ required: true, whitespace: true }]}><Input placeholder="真实 App 执行产生的 run id" /></Form.Item>
+        <Row gutter={12}><Col span={12}><Form.Item name="app_version" label="App 版本" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="trace_id" label="Trace ID"><Input /></Form.Item></Col></Row>
+        <Form.Item name="passed" label="执行结果" rules={[{ required: true }]}><Select options={[{ value: true, label: "通过" }, { value: false, label: "失败" }]} /></Form.Item>
+        <Form.Item name="error" label="错误摘要"><Input.TextArea rows={3} maxLength={1000} /></Form.Item>
+      </Form>
+    </Modal>
+    <Modal open={Boolean(publishTarget)} title={publishTarget ? `发布 ${publishTarget.slug} v${publishTarget.version}` : "发布版本"} okText="开始发布" onCancel={() => setPublishTarget(null)} onOk={() => publishForm.submit()} confirmLoading={Boolean(publishTarget && busy === publishTarget.id)}>
+      <Form form={publishForm} layout="vertical" onFinish={(values) => {
+        if (!publishTarget) return;
+        void mutate(publishTarget.id, () => consoleApi.publishSkillRelease(publishTarget.id, values), values.rollout_percent === 100 ? "版本已发布" : "灰度发布已启动").then(() => setPublishTarget(null));
+      }}>
+        <Form.Item name="rollout_channel" label="发布通道" rules={[{ required: true }]}><Select options={[{ value: "stable", label: "Stable" }, { value: "beta", label: "Beta" }]} /></Form.Item>
+        <Form.Item name="rollout_percent" label="账号灰度比例（%）" rules={[{ required: true }]}><InputNumber min={1} max={100} precision={0} className="full-width" /></Form.Item>
+      </Form>
+    </Modal>
+  </>;
 }
 
 function SkillRecommendations({ skills }: { skills: CatalogItem<SkillData>[] }) {

@@ -294,6 +294,10 @@ Server 停用必须下发 tombstone，不能让同 slug 的 builtin 静默复活
 | **R4 可运营** | 让组织安全发布和升级能力 | 原子 Skill 版本、capability report、兼容门禁、灰度、tombstone、回滚、正式桌面更新服务 | 可完成一次灰度发布、权限变更确认、紧急撤回和客户端回滚演练 |
 | **R5 可编排** | 在有评测证据后引入多 Agent | DAG 调度、独立 Run、并行、审稿、预算和评测 | 至少两个目标场景显著优于单 Agent，且成本/失败边界清楚 |
 
+截至 2026-07-21：R2 的持久 fire/retry/DLQ/预算/投递、R3 的 WorkItem↔Run↔Artifact 主链，以及
+R4 的 Skill 不可变版本/capability/灰度/tombstone/回滚已经落地；R4 仍由正式桌面签名更新服务
+（WB-257）阻塞完整退出，R1 的办公产物工具与 R5 多 Agent 仍未完成。
+
 ### 8.1 排期规则
 
 - R0 未退出前，不新建大规模展示型模块；

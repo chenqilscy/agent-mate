@@ -1,7 +1,7 @@
 import type {
   Account, Activity, AuthResponse, CatalogData, CatalogItem, CommentRecord,
   KnowledgeBase, KnowledgeDocument, Member, Milestone, NotificationRecord,
-  Organization, Project, SkillData, SkillTool, TimelineEvent, WorkItem,
+  Organization, Project, SkillData, SkillRelease, SkillTool, TimelineEvent, WorkItem,
 } from "./types";
 
 const TOKEN_KEY = "agentmate.console.token";
@@ -88,12 +88,24 @@ export const consoleApi = {
   skills: () =>
     apiRequest<{ items: CatalogItem<SkillData>[] }>("GET", "/catalog/APP_SKILLS?all=true"),
   skillTools: () => apiRequest<{ tools: SkillTool[] }>("GET", "/catalog/skill-tools"),
-  createSkill: (data: SkillData, sort: number) =>
-    apiRequest<{ id: string }>("POST", "/catalog", { category: "APP_SKILLS", data, sort }),
   updateSkill: (id: string, patch: { data?: SkillData; sort?: number; enabled?: boolean }) =>
     apiRequest<{ ok: boolean }>("PATCH", `/catalog/item/${encodeURIComponent(id)}`, patch),
-  archiveSkill: (id: string) =>
-    apiRequest<{ ok: boolean; archived?: boolean }>("DELETE", `/catalog/item/${encodeURIComponent(id)}`),
+  skillReleases: (catalogItemId = "") =>
+    apiRequest<{ releases: SkillRelease[] }>("GET", `/catalog/skill-releases${catalogItemId ? `?catalog_item_id=${encodeURIComponent(catalogItemId)}` : ""}`),
+  createSkillRelease: (data: SkillData, sort: number, catalogItemId = "", minAppVersion = "0.0.0") =>
+    apiRequest<{ release: SkillRelease }>("POST", "/catalog/skill-releases", { data, sort, catalog_item_id: catalogItemId, min_app_version: minAppVersion }),
+  submitSkillReleaseTest: (id: string, body: { passed: boolean; client_run_id: string; app_version: string; supported_tools: Record<string, string>; trace_id?: string; artifacts?: string[]; error?: string }) =>
+    apiRequest<{ release: SkillRelease }>("POST", `/catalog/skill-releases/${encodeURIComponent(id)}/test-result`, body),
+  approveSkillRelease: (id: string) =>
+    apiRequest<{ release: SkillRelease }>("POST", `/catalog/skill-releases/${encodeURIComponent(id)}/approve`),
+  publishSkillRelease: (id: string, body: { rollout_percent: number; rollout_channel: string; effective_at?: number }) =>
+    apiRequest<{ release: SkillRelease }>("POST", `/catalog/skill-releases/${encodeURIComponent(id)}/publish`, body),
+  pauseSkillRelease: (id: string) =>
+    apiRequest<{ release: SkillRelease }>("POST", `/catalog/skill-releases/${encodeURIComponent(id)}/pause`),
+  withdrawSkillRelease: (id: string) =>
+    apiRequest<{ release: SkillRelease }>("POST", `/catalog/skill-releases/${encodeURIComponent(id)}/withdraw`),
+  rollbackSkillRelease: (id: string) =>
+    apiRequest<{ release: SkillRelease }>("POST", `/catalog/skill-releases/${encodeURIComponent(id)}/rollback`),
   projects: () => apiRequest<{ projects: Project[] }>("GET", "/projects"),
   project: (id: string) => apiRequest<Project>("GET", `/projects/${encodeURIComponent(id)}`),
   createProject: (body: Partial<Project> & { name: string }) => apiRequest<Project>("POST", "/projects", body),

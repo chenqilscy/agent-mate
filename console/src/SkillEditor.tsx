@@ -35,6 +35,7 @@ interface SkillFormValues {
   description: string;
   instructions: string;
   tools: string[];
+  min_app_version: string;
   sort: number;
 }
 
@@ -90,6 +91,7 @@ export default function SkillEditor({ open, item, tools, initialTab, onClose, on
       description: data?.description || "",
       instructions: data?.instructions || "",
       tools: Array.isArray(data?.tools) ? data.tools : [],
+      min_app_version: data?.min_app_version || "0.0.0",
       sort: item?.sort || 0,
     };
     form.setFieldsValue(values);
@@ -242,12 +244,12 @@ export default function SkillEditor({ open, item, tools, initialTab, onClose, on
       tools: values.tools || [],
       files: effectiveFiles,
       source: "Server",
+      min_app_version: values.min_app_version.trim() || "0.0.0",
     };
     setSaving(true);
     try {
-      if (item) await consoleApi.updateSkill(item.id, { data, sort: values.sort || 0 });
-      else await consoleApi.createSkill(data, values.sort || 0);
-      message.success(item ? "技能已更新" : "技能已创建");
+      await consoleApi.createSkillRelease(data, values.sort || 0, item?.id || "", data.min_app_version);
+      message.success(item ? "新版本草稿已创建，测试和审核后方可发布" : "技能草稿已创建，尚未进入客户端下行");
       onSaved();
       onClose();
     } catch (reason) {
@@ -261,7 +263,7 @@ export default function SkillEditor({ open, item, tools, initialTab, onClose, on
     <Drawer
       open={open}
       width={960}
-      title={item ? `编辑技能 · ${item.data.name}` : "新增技能"}
+      title={item ? `新建版本草稿 · ${item.data.name}` : "新增技能草稿"}
       onClose={requestClose}
       destroyOnHidden
       maskClosable={false}
@@ -269,7 +271,7 @@ export default function SkillEditor({ open, item, tools, initialTab, onClose, on
         <Space>
           <Button onClick={requestClose}>取消</Button>
           <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => void save()}>
-            保存技能
+            保存草稿
           </Button>
         </Space>
       )}
@@ -307,6 +309,9 @@ export default function SkillEditor({ open, item, tools, initialTab, onClose, on
         </Row>
         <Form.Item name="description" label="简介" rules={[{ required: true, whitespace: true, message: "请输入技能简介" }]}>
           <Input.TextArea rows={3} maxLength={500} showCount />
+        </Form.Item>
+        <Form.Item name="min_app_version" label="最低 App 版本" extra="低于该版本的客户端只能看到兼容提示，不能安装或运行。" rules={[{ required: true, pattern: /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/, message: "请输入语义版本，如 1.2.0" }]}>
+          <Input placeholder="0.0.0" />
         </Form.Item>
         <Form.Item name="instructions" label="技能指令" extra="保存后生成 SKILL.md 正文，并在使用技能时注入模型。" rules={[{ required: true, whitespace: true, message: "请输入技能指令" }]}>
           <Input.TextArea rows={9} maxLength={50000} showCount className="code-input" />

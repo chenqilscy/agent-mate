@@ -42,6 +42,7 @@ from agent.tools import (
     work_item_tools,
 )
 from config import settings
+import server_client
 from storage import db, provider_seed
 from storage.models import Session, User
 
@@ -426,6 +427,20 @@ async def _run_chat_inner(
             if len(lines) > 1:
                 system_prompt += "\n技能指令冲突时，遵循用户明确要求 > 项目规范 > 上述 loadout 顺序，且任何技能不得放宽安全约束。"
     set_active_skill_resources(skill_release_snapshots)
+
+    async def report_skill_runs(event: str) -> None:
+        """Best-effort aggregate telemetry; never uploads prompts, files, tool args or secrets."""
+        token = db.get_server_identity(user.id) or ""
+        release_ids = list(dict.fromkeys(
+            str(snapshot.get("release_id") or "") for snapshot in skill_release_snapshots
+            if snapshot.get("release_id")
+        ))
+        if not token or not release_ids:
+            return
+        await asyncio.gather(*(
+            asyncio.to_thread(server_client.record_skill_release_metric, token, release_id, event)
+            for release_id in release_ids
+        ))
     if has_active_resources():
         system_prompt += (
             "\n\n# Skill 资源\n需要 references 或模板时先用 skill_list_resources / "
@@ -902,6 +917,7 @@ async def _run_chat_inner(
         db.touch_session(session_id, status="idle")
         finished_ok = True
         yield events.done(mid)
+        await report_skill_runs("run_failed")
         return
     except LLMError as e:
         chat_trace.update(
@@ -915,6 +931,7 @@ async def _run_chat_inner(
         db.touch_session(session_id, status="idle")
         finished_ok = True  # status settled; don't let finally override it
         yield events.done(mid)
+        await report_skill_runs("run_failed")
         return
     except Exception as e:  # noqa: BLE001 — surface any hiccup to the UI
         chat_trace.update(
@@ -928,6 +945,7 @@ async def _run_chat_inner(
         db.touch_session(session_id, status="idle")
         finished_ok = True
         yield events.done(mid)
+        await report_skill_runs("run_failed")
         return
     finally:
         _unregister_run(session_id, run_id)
@@ -990,6 +1008,7 @@ async def _run_chat_inner(
     if stopped:
         yield events.text("\n\n_（已停止生成）_")
     yield events.done(message_id)
+    await report_skill_runs("run_failed" if stopped else "run_succeeded")
 
     # 对话记忆自动抽取（WB-148）：用户在「设置 · 记忆」开启后，从这轮对话提炼可长期记住的用户事实，
     # 去重入库，供之后对话注入。**放在 done 之后**——前端已解锁，不被抽取往返拖住；`wait_for` 兜底，

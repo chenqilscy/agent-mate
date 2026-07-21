@@ -59,7 +59,7 @@ class SkillCatalogContractTest(unittest.TestCase):
 
     def test_server_catalog_overrides_by_slug_and_drives_categories(self) -> None:
         result = db.replace_server_skill_catalog([
-            {"slug": "excel-csv", "name": "表格分析（运营版）", "icon": "📊", "description": "Server 描述", "instructions": "Server 指令", "version": "7", "tools": ["analyze_csv", "not-real"], "files": [{"path": "references/columns.md", "content": "# 字段"}], "category": "办公效率"},
+            {"slug": "excel-csv", "name": "表格分析（运营版）", "icon": "📊", "description": "Server 描述", "instructions": "Server 指令", "version": "7", "release_id": "release-v7", "content_hash": "server-hash-v7", "tools": ["analyze_csv", "not-real"], "files": [{"path": "references/columns.md", "content": "# 字段"}], "category": "办公效率"},
             {"slug": "bad slug", "name": "非法项"},
         ])
         self.assertEqual({"inserted": 1, "skipped": 1}, result)
@@ -68,6 +68,8 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertEqual("表格分析（运营版）", spec["name"])
         self.assertEqual("Server 指令", spec["instructions"])
         self.assertEqual("7", spec["version"])
+        self.assertEqual("release-v7", spec["server_release_id"])
+        self.assertEqual("server-hash-v7", spec["server_content_hash"])
         self.assertEqual([{"path": "references/columns.md", "content": "# 字段"}], spec["files"])
         self.assertEqual(1, len([s for s in db.skill_specs() if s["slug"] == "excel-csv"]))
 
@@ -204,6 +206,7 @@ class SkillCatalogContractTest(unittest.TestCase):
         db.replace_server_skill_catalog([{
             "slug": "ops-guide", "name": "运营指南", "description": "带配套文件的技能",
             "instructions": "执行前阅读 references/guide.md。", "tools": [], "category": "商业运营",
+            "release_id": "server-release-ops-v1", "content_hash": "server-content-ops-v1",
             "files": [
                 {"path": "references/guide.md", "content": "# 运营检查表\n"},
                 {"path": "templates/report.txt", "content": "结论：{{summary}}\n"},
@@ -213,12 +216,14 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertIsNotNone(spec)
         result = skills_store.install_catalog_skill(
             spec["slug"], spec["name"], spec["description"], spec["instructions"], files=spec["files"],
+            release_id=spec["server_release_id"],
         )
         self.assertTrue(result["ok"])
         root = settings.SKILLS_DIR / "ops-guide"
         self.assertTrue((root / "SKILL.md").is_file())
         self.assertEqual("# 运营检查表\n", (root / "references" / "guide.md").read_text(encoding="utf-8"))
         self.assertEqual("结论：{{summary}}\n", (root / "templates" / "report.txt").read_text(encoding="utf-8"))
+        self.assertEqual("server-release-ops-v1", skills_store.release_snapshot("ops-guide")["release_id"])
 
     def test_catalog_upgrade_is_versioned_atomic_and_preserves_disabled_state(self) -> None:
         from agent import skills_store

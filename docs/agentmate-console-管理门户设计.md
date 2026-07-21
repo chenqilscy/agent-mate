@@ -1,8 +1,7 @@
 # AgentMate Console 管理门户设计
 
-> 状态：Server 管理功能已落地；Console 正从 legacy 单文件页面分阶段迁移到 React + Ant Design。
-> 技能管理迁移由 [WB-234](issues/WB-234-console-ant-design-migration.md) 完成，其余页面见
-> [WB-236](issues/WB-236-console-remaining-pages-ant-design.md)。能力发布中心仍是目标设计。
+> 状态：Server 管理功能与 React + Ant Design Console 已落地；Skill 发布治理由
+> [WB-245～WB-250](issues/README.md) 完成。更新于 2026-07-21。
 
 ## 1. 定位
 
@@ -23,13 +22,12 @@ AgentMate Console  通过 Server /api 管理控制面
 
 Server `:8100` 同源提供 API 与 Console：
 
-- `server/web/console.html`：现有 legacy 页面，保留项目、组织、通知和尚未迁移的目录页面。
 - `console/`：React + Ant Design 源码。
 - `server/web/console-dist/`：Console 构建产物。
-- `/catalog/skills`：优先进入新的 React 技能管理页；构建产物缺失时受控回退 legacy 页面。
-- 其它路由仍由 legacy History API 页面承载，迁移完成前保持功能连续。
+- Server 对全部 Console 稳定路由提供 History API 回退到 `console-dist/index.html`；未知 `/api/*`
+  仍返回 404，不会被 HTML 入口伪装成成功。
 
-这是一段明确的迁移期架构，不能再把 Console 描述为“最终由单个 `console.html` 提供”。
+旧 `server/web/console.html` 已删除；运行时不依赖 Node，构建产物必须随 Server 发布。
 
 ### 2.2 已有模块
 
@@ -51,7 +49,7 @@ Console 只能管理 Server 权威数据：
 | 账号、组织、项目、成员角色、邀请 | App 本机会话正文与工具轨迹 |
 | Server 协作实体与最小时间线元数据 | workspace 文件和产物本体 |
 | AgentMate 自有专家/团队/连接器/Skill 定义 | LLM key、连接器 token、OAuth token |
-| 能力推荐位、排序、启停、生效时间 | 第三方 SkillHub Key、榜单镜像、技能包与安装目录 |
+| 能力推荐位、Skill release、审核、灰度与撤回 | 第三方 SkillHub Key、榜单镜像、技能包与安装目录 |
 
 平台管理员才能运营公共目录；项目写操作按 Owner/Admin/Member/Viewer 门禁。Viewer 只读。所有管理
 API 仍需由 Server 校验，不能只靠前端隐藏按钮。
@@ -107,7 +105,8 @@ Console 不搜索或代理商店，不保存 Key、榜单、安装包、`SKILL.m
 
 ### 5.3 技能编辑
 
-React 技能页当前支持列表、搜索/筛选/排序、类型化编辑、工具选择、文件树/编辑、启停与删除保护。
+React 技能页支持列表、搜索/筛选/排序、类型化编辑、工具选择、文件树/编辑；保存会创建新 draft，
+不能直接覆盖已发布定义。发布治理页统一处理测试、审核、灰度、撤回和回滚。
 Server 必须继续校验：
 
 - slug 与引用完整性；
@@ -116,21 +115,21 @@ Server 必须继续校验：
 - dirty close、删除确认和 Viewer/非管理员门禁；
 - 已安装副本的版本差异不能静默覆盖。
 
-## 6. 能力发布中心（目标设计）
+## 6. Skill 能力发布中心（已实现）
 
-当前保存目录项只会更新控制面定义，并不等于生产发布。完整发布中心需要：
+当前实现：
 
 1. **草稿**：编辑不可变 release 的候选内容。
-2. **Test Run**：选择兼容测试客户端执行真实工具链，展示 trace、产物、权限请求和失败原因。
+2. **Test Run**：真实 App 客户端以 Run ID、App/工具版本、trace/产物引用回传成功或失败证据；失败不能审核。
 3. **审核**：作者与审核者分离，记录 hash、版本、权限 diff 与审核意见。
-4. **发布**：配置通道、组织、比例、最低 App/工具契约版本和生效时间。
+4. **发布**：配置通道、比例、最低 App/工具契约版本和生效时间，按账号稳定分桶；组织定向仍待扩展。
 5. **监控**：查看兼容覆盖、安装/运行成功率、回滚率与非敏感错误码。
 6. **撤回/回滚**：下发 tombstone 或上一 last-known-good 版本，不把网络失败当撤回。
 
 Server 对象、客户端 capability report 与状态机见
 [`agentmate-server-架构设计.md`](agentmate-server-架构设计.md)。
 
-## 7. React + Ant Design 迁移规则
+## 7. React + Ant Design 维护规则
 
 - 迁移单位是稳定路由，不是散落组件；每迁一页保留原 API 与深链。
 - 复用统一的 Layout、Menu、Form、Table、Modal/Drawer、Result、notification 和权限守卫。
@@ -150,6 +149,6 @@ Server 对象、客户端 capability report 与状态机见
 
 - Server API 的权限门禁与 Console UI 状态一致，直接请求也不能越权。
 - 项目与目录的稳定 URL 可刷新、前进/后退；未知 `/api/*` 保持 404，不被 HTML 回退伪装成 200。
-- React 与 legacy 页面迁移期可连续工作，构建产物缺失时只回退声明的路由。
+- 构建产物缺失必须明确报错，不能回退到已删除的 legacy 页面。
 - SkillHub 数据边界检查不允许 Server 恢复镜像、Key 或技能包。
-- 全站迁移完成后，才能登记并验证删除 legacy `console.html` 的独立 issue。
+- Skill 草稿、失败测试不得出现在普通 App 下行；发布/暂停/撤回/回滚必须有审计记录。
