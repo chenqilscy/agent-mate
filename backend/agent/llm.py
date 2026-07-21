@@ -49,6 +49,7 @@ async def stream_chat(
     api_base: str | None = None,
     api_key: str | None = None,
     chat_path: str = "/chat/completions",
+    max_tokens: int | None = None,
 ) -> AsyncIterator[Delta]:
     """Yield Delta increments from an OpenAI-compatible /chat/completions stream.
 
@@ -79,6 +80,8 @@ async def stream_chat(
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
+    if max_tokens and max_tokens > 0:
+        body["max_tokens"] = int(max_tokens)
 
     timeout = httpx.Timeout(connect=15.0, read=None, write=15.0, pool=15.0)
     async with httpx.AsyncClient(timeout=timeout) as client:

@@ -254,6 +254,7 @@ async def run_chat(
     idempotency_key: str | None = None,
     retry_of: str | None = None,
     max_total_tokens: int = 0,
+    max_output_tokens: int = 0,
 ) -> AsyncIterator[str]:
     """Trace one user turn, delegating the unchanged SSE loop to the inner runner."""
     mode = "ask" if ask else ("plan" if plan else "exec")
@@ -276,6 +277,7 @@ async def run_chat(
             system_extra=system_extra, workspace=workspace,
             idempotency_key=idempotency_key, retry_of=retry_of,
             max_total_tokens=max_total_tokens,
+            max_output_tokens=max_output_tokens,
             chat_trace=chat_trace,
         ):
             yield chunk
@@ -299,6 +301,7 @@ async def _run_chat_inner(
     idempotency_key: str | None = None,
     retry_of: str | None = None,
     max_total_tokens: int = 0,
+    max_output_tokens: int = 0,
     chat_trace: telemetry.Observation,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
@@ -687,6 +690,7 @@ async def _run_chat_inner(
                     llm_messages, model=model_id, tools=schemas,
                     api_base=model_base, api_key=model_key, chat_path=model_path,
                     temperature=_temperature,
+                    max_tokens=max_output_tokens or None,
                 ):
                     if stop.is_set():
                         stopped = True
