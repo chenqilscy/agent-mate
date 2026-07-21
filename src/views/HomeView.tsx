@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Composer } from '../components/composer/Composer'
 import { useChatStore } from '../stores/chatStore'
 import { useUIStore } from '../stores/uiStore'
@@ -8,6 +8,8 @@ import { toast } from '../stores/toastStore'
 import { useCatalog } from '../stores/catalogStore'
 import { Popover } from '../components/ui/Popover'
 import { PermPopover } from '../components/composer/PermPopover'
+import { api, type RawMessage } from '../lib/api'
+import type { SessionInfo } from '../lib/types'
 
 const SCENES: [string, string, string][] = [
   ['day', '🔥', '日常办公'],
@@ -15,17 +17,47 @@ const SCENES: [string, string, string][] = [
   ['design', '🎨', '设计创意'],
 ]
 
+type Delivery = { session: SessionInfo; files: string[] }
+
+function changedFiles(messages: RawMessage[]): string[] {
+  const files = new Set<string>()
+  for (const message of messages) {
+    for (const raw of message.trace) {
+      if (!raw || typeof raw !== 'object') continue
+      const trace = raw as { kind?: unknown; file?: unknown }
+      if (trace.kind === 'diff' && typeof trace.file === 'string') files.add(trace.file)
+    }
+  }
+  return [...files]
+}
+
+function fileName(path: string): string {
+  return path.replaceAll('\\', '/').split('/').pop() ?? path
+}
+
+function runState(session: SessionInfo): { label: string; tone: string } {
+  if (session.run_status === 'error') return { label: '自动化失败', tone: 'error' }
+  if (session.status === 'waiting') return { label: '等待输入', tone: 'waiting' }
+  return { label: '执行中', tone: 'running' }
+}
+
 export function HomeView() {
   const [scene, setScene] = useState('day')
   const startDraft = useChatStore((s) => s.startDraft)
   const startProject = useChatStore((s) => s.startProject)
+  const openSession = useChatStore((s) => s.openSession)
+  const sessions = useChatStore((s) => s.sessions)
+  const loadSessions = useChatStore((s) => s.loadSessions)
   const send = useChatStore((s) => s.send)
   const setView = useUIStore((s) => s.setView)
   const { QUICK } = useCatalog()
 
   const projects = useProjectStore((s) => s.projects)
   const loadProjects = useProjectStore((s) => s.load)
+  const setActiveProject = useProjectStore((s) => s.setActive)
   const perm = useSettingsStore((s) => s.perm)
+  const [deliveries, setDeliveries] = useState<Delivery[]>([])
+  const [deliveriesLoading, setDeliveriesLoading] = useState(true)
 
   // 首页新任务的目标空间（null = 默认空间，不绑定任何项目）与两个 tray popover。
   const [selProject, setSelProject] = useState<string | null>(null)
@@ -33,7 +65,48 @@ export function HomeView() {
   const wsAnchor = useRef<HTMLButtonElement | null>(null)
   const permAnchor = useRef<HTMLButtonElement | null>(null)
 
-  useEffect(() => { void loadProjects() }, [loadProjects])
+  useEffect(() => { void loadProjects(); void loadSessions() }, [loadProjects, loadSessions])
+
+  const activeRuns = useMemo(() => sessions.filter((s) =>
+    s.kind !== 'assistant' && (s.status === 'running' || s.status === 'waiting' || s.run_status === 'running'),
+  ), [sessions])
+
+  const recentFailures = useMemo(() => {
+    const since = Date.now() / 1000 - 7 * 86400
+    return sessions.filter((s) =>
+      s.kind === 'automation' && s.run_status === 'error' && (s.updated_at ?? s.created_at ?? 0) >= since,
+    )
+  }, [sessions])
+
+  useEffect(() => {
+    let cancelled = false
+    const candidates = sessions
+      .filter((s) => s.kind !== 'assistant' && s.status !== 'running' && s.status !== 'waiting')
+      .slice(0, 12)
+
+    if (candidates.length === 0) {
+      setDeliveries([])
+      setDeliveriesLoading(false)
+      return () => { cancelled = true }
+    }
+
+    setDeliveriesLoading(true)
+    void Promise.all(candidates.map(async (session) => {
+      try {
+        const { messages } = await api.getMessages(session.id)
+        const files = changedFiles(messages)
+        return files.length > 0 ? { session, files } : null
+      } catch {
+        return null
+      }
+    })).then((items) => {
+      if (!cancelled) {
+        setDeliveries(items.filter((item): item is Delivery => item !== null).slice(0, 4))
+        setDeliveriesLoading(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [sessions])
 
   const selName = selProject ? projects.find((p) => p.id === selProject)?.name : null
 
@@ -44,6 +117,20 @@ export function HomeView() {
     setView('chat')
     void send(text)
   }
+
+  const openRun = async (session: SessionInfo) => {
+    if (session.project_id) {
+      const project = projects.find((p) => p.id === session.project_id)
+      if (project) setActiveProject(project)
+    }
+    await openSession(session.id)
+    setView(session.project_id ? 'projexec' : 'chat', {
+      projectId: session.project_id ?? undefined,
+      sessionId: session.id,
+    })
+  }
+
+  const attentionRuns = [...activeRuns, ...recentFailures.filter((failed) => !activeRuns.some((run) => run.id === failed.id))].slice(0, 4)
 
   return (
     <section className="view active" data-view="home">
@@ -132,6 +219,61 @@ export function HomeView() {
               <PermPopover />
             </Popover>
           </div>
+
+          <section className="home-console" aria-label="任务进展">
+            <div className="home-console-head">
+              <div>
+                <b>任务进展</b>
+                <span>从真实会话与执行记录汇总</span>
+              </div>
+              <button onClick={() => setView('projects')}>查看项目</button>
+            </div>
+            <div className="home-metrics">
+              <div className="home-metric">
+                <strong>{activeRuns.length}</strong>
+                <span>执行中 / 等待输入</span>
+              </div>
+              <div className="home-metric danger">
+                <strong>{recentFailures.length}</strong>
+                <span>7 天内自动化失败</span>
+              </div>
+              <div className="home-metric">
+                <strong>{deliveries.length}</strong>
+                <span>最近文件交付</span>
+              </div>
+            </div>
+            <div className="home-console-grid">
+              <div className="home-run-group">
+                <h2>需要关注</h2>
+                {attentionRuns.length > 0 ? attentionRuns.map((session) => {
+                  const state = runState(session)
+                  return (
+                    <button className="home-run" key={session.id} onClick={() => void openRun(session)}>
+                      <span className={`home-run-dot ${state.tone}`} />
+                      <span className="home-run-body">
+                        <b>{session.title}</b>
+                        <small>{state.label} · {session.ago ?? '刚刚'}</small>
+                      </span>
+                      <span className="home-run-arrow">›</span>
+                    </button>
+                  )
+                }) : <div className="home-empty">当前没有执行中、等待输入或近期失败的任务</div>}
+              </div>
+              <div className="home-run-group">
+                <h2>最近交付</h2>
+                {deliveriesLoading ? <div className="home-empty">正在核对最近会话的真实文件变更…</div> : deliveries.length > 0 ? deliveries.map(({ session, files }) => (
+                  <button className="home-run" key={session.id} onClick={() => void openRun(session)}>
+                    <span className="home-file-icon">📄</span>
+                    <span className="home-run-body">
+                      <b>{session.title}</b>
+                      <small>{files.slice(0, 2).map(fileName).join('、')}{files.length > 2 ? ` 等 ${files.length} 个文件` : ''}</small>
+                    </span>
+                    <span className="home-run-arrow">›</span>
+                  </button>
+                )) : <div className="home-empty">最近完成的会话还没有产生文件交付</div>}
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </section>

@@ -256,6 +256,7 @@
 | [WB-237](WB-237-app-production-build-type-errors.md) | ✅ | P1 | frontend | AgentMate App 生产构建被现有 TypeScript 错误阻断 |
 | [WB-238](WB-238-stale-authoritative-docs-cleanup.md) | ✅ | P1 | misc | 权威文档残留过时架构、端口与能力边界，且以勘误掩盖正文冲突 |
 | [WB-239](WB-239-task-delivery-roadmap-epic.md) | 🟡 | P1 | fullstack | AgentMate 功能主线尚未围绕可验收任务交付闭环组织（路线图 epic） |
+| [WB-240](WB-240-home-task-control-center.md) | ✅ | P1 | frontend | 首页只能发起新任务，无法看到真实执行状态与最近交付（WB-239 R0） |
 
 ## 来源
 
