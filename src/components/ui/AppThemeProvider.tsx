@@ -2,6 +2,7 @@ import { App as AntApp, ConfigProvider, theme as antTheme, type ThemeConfig } fr
 import zhCN from 'antd/locale/zh_CN'
 import type { ReactNode } from 'react'
 import { useUIStore } from '../../stores/uiStore'
+import { UI_CONTROL_FONT_WEIGHT, uiTypographyToken } from '../../theme/typography'
 
 const sharedToken: ThemeConfig['token'] = {
   colorPrimary: '#16b37a',
@@ -12,7 +13,7 @@ const sharedToken: ThemeConfig['token'] = {
   borderRadius: 10,
   borderRadiusLG: 14,
   controlHeight: 36,
-  fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  ...uiTypographyToken,
 }
 
 export function AppThemeProvider({ children }: { children: ReactNode }) {
@@ -34,7 +35,7 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
           colorBorder: dark ? '#343b44' : '#e6e8eb',
         },
         components: {
-          Button: { fontWeight: 600 },
+          Button: { fontWeight: UI_CONTROL_FONT_WEIGHT },
           Card: { paddingLG: 20 },
           Layout: {
             bodyBg: dark ? '#15191e' : '#f7f8fa',

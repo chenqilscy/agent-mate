@@ -2,6 +2,7 @@ import {
   App as AntApp, Avatar, Badge, Button, ConfigProvider, Dropdown, Result, Space, Spin,
   Switch, Tag, Tooltip, theme,
 } from "antd";
+import { UI_CONTROL_FONT_WEIGHT, uiTypographyToken } from "../../src/theme/typography";
 import {
   AppstoreOutlined, BellOutlined, BookOutlined, DashboardOutlined, LogoutOutlined,
   MoonOutlined, ProjectOutlined, SafetyCertificateOutlined, SettingOutlined, SunOutlined,
@@ -113,7 +114,13 @@ export default function ConsoleApp() {
   const [mode, setMode] = useState<ThemeMode>(() => localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark");
   useEffect(() => { document.body.classList.toggle("dark", mode === "dark"); document.documentElement.style.colorScheme = mode; localStorage.setItem(THEME_KEY, mode); }, [mode]);
   useEffect(() => { let active = true; async function boot() { if (!getToken()) { setBooting(false); return; } try { const response = await consoleApi.me(); if (active) setAccount(response.account); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) setToken(""); } finally { if (active) setBooting(false); } } void boot(); return () => { active = false; }; }, []);
-  const themeConfig = useMemo(() => ({ algorithm: mode === "dark" ? [theme.darkAlgorithm, theme.compactAlgorithm] : [theme.defaultAlgorithm, theme.compactAlgorithm], token: { colorPrimary: "#16b37a", borderRadius: 8, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif' } }), [mode]);
+  const themeConfig = useMemo(() => ({
+    algorithm: mode === "dark" ? theme.darkAlgorithm : theme.defaultAlgorithm,
+    token: { colorPrimary: "#16b37a", borderRadius: 8, ...uiTypographyToken },
+    components: {
+      Button: { fontWeight: UI_CONTROL_FONT_WEIGHT },
+    },
+  }), [mode]);
   async function logout() { try { await consoleApi.logout(); } catch { /* browser token removal is authoritative */ } setToken(""); setAccount(null); navigate("/", true); }
-  return <ConfigProvider theme={themeConfig}><AntApp>{booting ? <div className="boot-screen"><Spin size="large" tip="正在连接 AgentMate Server…" /></div> : account ? <ConsoleContent account={account} mode={mode} onToggleTheme={() => setMode((current) => current === "dark" ? "light" : "dark")} onLogout={() => void logout()} /> : <LoginPage onAuthenticated={setAccount} />}</AntApp></ConfigProvider>;
+  return <ConfigProvider componentSize="small" theme={themeConfig}><AntApp>{booting ? <div className="boot-screen"><Spin size="large" tip="正在连接 AgentMate Server…" /></div> : account ? <ConsoleContent account={account} mode={mode} onToggleTheme={() => setMode((current) => current === "dark" ? "light" : "dark")} onLogout={() => void logout()} /> : <LoginPage onAuthenticated={setAccount} />}</AntApp></ConfigProvider>;
 }
