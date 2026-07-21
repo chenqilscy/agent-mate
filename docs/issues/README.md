@@ -292,6 +292,7 @@
 | [WB-273](WB-273-plan-connector-transparency.md) | ✅ | P3 | backend | Plan 模式静默忽略已选连接器 |
 | [WB-274](WB-274-legacy-model-id-colon.md) | ✅ | P3 | backend | 旧模型选择解析会截断含冒号的真实模型 ID |
 | [WB-275](WB-275-files-usage-full-scan.md) | ✅ | P3 | backend | files usage 连续请求每次全量遍历工作区 |
+| [WB-276](WB-276-llm-stream-close-on-stop.md) | ✅ | P3 | backend | 停止生成时 LLM HTTP 流未被立即关闭 |
 | [WB-281](WB-281-chatsearch-cross-node-match.md) | ✅ | P3 | frontend | ChatSearch 无法匹配跨 Markdown 文本节点短语 |
 
 ## 来源

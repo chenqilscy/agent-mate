@@ -13,6 +13,7 @@ signal, token accounting — so it upgrades (not rewrites) to PydanticAI later
 from __future__ import annotations
 
 import asyncio
+from contextlib import aclosing
 from datetime import datetime, timezone
 import json
 import time
@@ -712,41 +713,42 @@ async def _run_chat_inner(
                 temperature=_temperature,
                 round_number=_round + 1,
             ) as generation_trace:
-                async for delta in stream_chat(
+                async with aclosing(stream_chat(
                     llm_messages, model=model_id, tools=schemas,
                     api_base=model_base, api_key=model_key, chat_path=model_path,
                     temperature=_temperature,
                     max_tokens=max_output_tokens or None,
-                ):
-                    if stop.is_set():
-                        stopped = True
-                        break
-                    if first_token_at is None and (delta.content or delta.reasoning or delta.tool_calls):
-                        first_token_at = datetime.now(timezone.utc)
-                    if delta.reasoning:
-                        think_pending = False
-                        reasoning_buf += delta.reasoning
-                        while "\n" in reasoning_buf:
-                            line, reasoning_buf = reasoning_buf.split("\n", 1)
-                            line = line.strip()
-                            if line:
-                                yield record({"kind": "think", "text": line})
-                    if delta.content:
-                        content_buf += delta.content
-                        assistant_text += delta.content
-                        yield events.text(delta.content)
-                    for tc in delta.tool_calls:
-                        acc = tool_acc.setdefault(tc.index, {"id": None, "name": "", "args": ""})
-                        if tc.id:
-                            acc["id"] = tc.id
-                        if tc.name:
-                            acc["name"] = tc.name
-                        acc["args"] += tc.arguments
-                    if delta.usage:
-                        round_prompt = int(delta.usage.get("prompt_tokens") or round_prompt)
-                        round_completion += int(delta.usage.get("completion_tokens") or 0)
-                        last_prompt = round_prompt or last_prompt
-                        total_completion += int(delta.usage.get("completion_tokens") or 0)
+                )) as deltas:
+                    async for delta in deltas:
+                        if stop.is_set():
+                            stopped = True
+                            break
+                        if first_token_at is None and (delta.content or delta.reasoning or delta.tool_calls):
+                            first_token_at = datetime.now(timezone.utc)
+                        if delta.reasoning:
+                            think_pending = False
+                            reasoning_buf += delta.reasoning
+                            while "\n" in reasoning_buf:
+                                line, reasoning_buf = reasoning_buf.split("\n", 1)
+                                line = line.strip()
+                                if line:
+                                    yield record({"kind": "think", "text": line})
+                        if delta.content:
+                            content_buf += delta.content
+                            assistant_text += delta.content
+                            yield events.text(delta.content)
+                        for tc in delta.tool_calls:
+                            acc = tool_acc.setdefault(tc.index, {"id": None, "name": "", "args": ""})
+                            if tc.id:
+                                acc["id"] = tc.id
+                            if tc.name:
+                                acc["name"] = tc.name
+                            acc["args"] += tc.arguments
+                        if delta.usage:
+                            round_prompt = int(delta.usage.get("prompt_tokens") or round_prompt)
+                            round_completion += int(delta.usage.get("completion_tokens") or 0)
+                            last_prompt = round_prompt or last_prompt
+                            total_completion += int(delta.usage.get("completion_tokens") or 0)
 
                 generation_trace.update(
                     output={
