@@ -3,7 +3,7 @@ id: WB-151
 title: GLM 知识库 WB-141 审查修复 —— 轮询闭包/无扩展名/key 前置/空 body/形状守卫
 severity: P2
 area: fullstack
-status: in-progress
+status: fixed
 origin: 🆕 近期改动
 files:
   - src/views/KnowledgeView.tsx
@@ -38,4 +38,11 @@ WB-141 落地后代码复审（独立 review agent + 自审）发现 5 处缺陷
 
 - 改动：H1（interval 用 id 参数）+ L1（capUsed/capTotal/capWords 可选链兜底）于 KnowledgeView.tsx；M2（`"." in filename` 守卫）+ M4（`key=_key()` 前置于流式读 body）于 knowledge.py；M3（`_unwrap` 2xx 空 body → None）于 glm_kb.py。
 - 验证：`npx tsc --noEmit` 过、`py_compile`+import 过。硬重启 :8000 真机验 M2 三态：无扩展名 `noext` 过我方校验→GLM 自身拒「不支持的文档类型」（不再是我方误报 `.noext`）、`.exe` 我方拒、`.md` 成功。M4/M3 逻辑核实（M3 GLM delete 实返信封故原本不触发，加防御）；H1/L1 前端 tsc 过、修法即 review 定位的根因。
-- commit：待提交（隔离 index，base=当前 HEAD e1486e0）。
+- commit：`edf6f31`（`fix(WB-151): GLM 知识库 WB-141 审查修复`）。
+
+## 关闭复核（2026-07-22）
+
+- 历史修复提交、处理记录与 README 的 ✅ 状态一致，frontmatter 原先遗留的
+  `in-progress` 已纠正为 `fixed`。
+- 后续知识库执行面已由 GLM 迁移至 WeKnora；仍适用的轮询闭包修复和无扩展名判断已保留在
+  当前实现中，已移除的 GLM 客户端不再作为现行运行时依赖。

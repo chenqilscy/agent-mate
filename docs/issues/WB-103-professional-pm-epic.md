@@ -3,7 +3,7 @@ id: WB-103
 title: BuddyWebMgr 专业项目管理 + App 数据打通（总纲 / epic）
 severity: P1
 area: fullstack
-status: in-progress
+status: fixed
 origin: 用户诉求（2026-07-09）
 files:
   - hub/db.py
@@ -69,3 +69,11 @@ P1：把门户项目管理从「演示级看板」升级为可用的团队 PM，
 - App 端登录 Hub、打开该项目工作台：任务与门户**双向可见**（门户建的任务 App 看得到、App 改状态门户看得到），新字段同步。
 - 断网/未登录：App 纯本地 work_items 全功能照常（离线兜底不破坏）。
 - 明暗（门户仅暗色）/窄视口过一遍；各 grid 不横向溢出。
+
+## 关闭复核（2026-07-22）
+
+- 子任务 WB-104、WB-105、WB-106、WB-107、WB-108 与收尾增强 WB-110 均已标记
+  `fixed`，对应实现提交可追溯；WB-103 主提交为 `bbd21b0`。
+- epic 正文已明确“完整专业 PM + App 打通”核心闭环完成，后续多级子任务、依赖等属于
+  可选增强，应按新增需求另开 issue，不再阻塞本 epic 关闭。
+- 本次仅纠正台账状态，不改动运行时代码。
