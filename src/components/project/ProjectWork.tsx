@@ -322,7 +322,6 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
     void api.serverItemComments(projectId, itemId).then((r) => { if (alive) { setComments(r.comments || []); setServerOn(r.server) } }).catch(() => {})
     return () => { alive = false }
   }, [projectId, itemId])
-  if (!item) return null
   const loadDelivery = () => {
     void api.getWorkItemDelivery(itemId).then((value) => {
       setDelivery(value)
@@ -340,6 +339,7 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
     const timer = setInterval(loadDelivery, 2500)
     return () => clearInterval(timer)
   }, [deliveryActive, itemId]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!item) return null
 
   const startEdit = () => { setDescDraft(item.description); setEditDesc(true) }
   const saveDesc = () => { setEditDesc(false); if (descDraft !== item.description) void update(item.id, { description: descDraft }) }
@@ -421,7 +421,6 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
             <div className={`wb-td-desc ${item.description ? '' : 'empty'}`.trim()}>{item.description || '暂无描述，点「编辑」补充。'}</div>
           )}
 
-          <div className="wb-td-sec-h">标签</div>
           <div className="wb-td-sec-h">
             Agent 交付
             {delivery?.can_write && (
@@ -461,6 +460,7 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
             </div>
           )}
 
+          <div className="wb-td-sec-h">标签</div>
           <LabelsEditor labels={item.labels} onChange={(l) => void update(item.id, { labels: l })} />
 
           {item.attachments.length > 0 && <div className="wb-td-sec-h">附件 {item.attachments.length}</div>}

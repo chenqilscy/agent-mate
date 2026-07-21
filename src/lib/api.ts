@@ -331,7 +331,6 @@ export const api = {
 
   deleteWorkItem: (id: string) => send<{ ok: boolean }>('DELETE', `/work-items/${id}`),
 
-  // 里程碑（WB-108）：server-origin 项目走 Server 权威 + 本地镜像，离线回退本地。
   getWorkItemDelivery: (id: string) => get<WorkItemDelivery>(`/work-items/${id}/delivery`),
   executeWorkItem: (id: string, idempotencyKey: string, model?: string | null) =>
     send<{ ok: boolean; created: boolean; launch: WorkItemLaunch }>('POST', `/work-items/${id}/execute`, {
@@ -340,6 +339,7 @@ export const api = {
   acceptWorkItemDelivery: (id: string, runId: string) =>
     send<{ ok: boolean; work_item: WorkItem; run: AgentRun }>('POST', `/work-items/${id}/accept`, { run_id: runId }),
 
+  // 里程碑（WB-108）：server-origin 项目走 Server 权威 + 本地镜像，离线回退本地。
   listMilestones: (project: string) => get<{ milestones: Milestone[] }>(`/milestones?project=${project}`),
   createMilestone: (body: { project_id: string; name: string; description?: string; due_date?: string | null; status?: 'open' | 'closed' }) =>
     send<Milestone>('POST', '/milestones', body),
