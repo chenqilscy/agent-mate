@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -334,8 +334,19 @@ export const api = {
 
   deleteAutomation: (id: string) => send<{ ok: boolean }>('DELETE', `/automations/${id}`),
 
-  runAutomation: (id: string) =>
-    send<{ ok: boolean; session_id: string | null }>('POST', `/automations/${id}/run`),
+  runAutomation: (id: string, idempotencyKey?: string) =>
+    send<{ ok: boolean; session_id: string | null; fire_id: string | null; status: string | null }>(
+      'POST', `/automations/${id}/run`, idempotencyKey ? { idempotency_key: idempotencyKey } : {},
+    ),
+
+  listAutomationFires: (status = 'dead_letter') =>
+    get<{ fires: AutomationFire[] }>(`/automation-fires?status=${encodeURIComponent(status)}`),
+
+  replayAutomationFire: (id: string, idempotencyKey: string) =>
+    send<{ ok: boolean; fire: AutomationFire }>('POST', `/automation-fires/${id}/replay`, { idempotency_key: idempotencyKey }),
+
+  ignoreAutomationFire: (id: string) =>
+    send<{ ok: boolean; fire: AutomationFire }>('POST', `/automation-fires/${id}/ignore`, {}),
 
   listAutomationRuns: (id: string) =>
     get<{ runs: SessionInfo[] }>(`/automations/${id}/runs`),

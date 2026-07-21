@@ -45,6 +45,10 @@ from storage.models import Session, User
 SYSTEM_PROMPT = (
     "你是 AgentMate，一个运行在用户本机的智能工作伙伴。\n"
     "你可以使用提供的工具在工作区（沙箱目录）内操作：列目录(list_dir)、读文件(read_file)、"
+
+class RuntimeBudgetExceeded(RuntimeError):
+    """Raised before another tool/LLM round once the configured token cap is reached."""
+
     "写文件(write_file)、生成并校验 DOCX/XLSX/PPTX/PDF、使用浏览器导航/读取/安全交互、"
     "运行命令(run_command)、更新待办清单(update_plan)；"
     "遇到影响方向的关键决策时用 ask_user 向用户确认。\n"
@@ -248,6 +252,7 @@ async def run_chat(
 ) -> AsyncIterator[str]:
     """Trace one user turn, delegating the unchanged SSE loop to the inner runner."""
     mode = "ask" if ask else ("plan" if plan else "exec")
+    max_total_tokens: int = 0,
     with telemetry.chat_observation(
         session_id=session.id,
         user_id=user.id,
@@ -269,6 +274,7 @@ async def run_chat(
             chat_trace=chat_trace,
         ):
             yield chunk
+            max_total_tokens=max_total_tokens,
 
 
 async def _run_chat_inner(
@@ -291,6 +297,7 @@ async def _run_chat_inner(
     chat_trace: telemetry.Observation,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
+    max_total_tokens: int = 0,
 
     Persists the user turn, runs the tool loop, persists the assistant turn with
     its full trace so history replay reproduces the trace. Plan mode plans only
@@ -505,6 +512,7 @@ async def _run_chat_inner(
     total_completion = 0
     stopped = False
     schemas: list[dict[str, Any]] = []
+    total_prompt = 0
     tool_call_count = 0
     t0 = time.time()
 
@@ -520,7 +528,7 @@ async def _run_chat_inner(
             msg = db.add_message(
                 session_id=session_id, role="assistant", content=assistant_text,
                 actor="assistant", trace=trace_items,
-                usage={"prompt": last_prompt, "completion": total_completion or _approx_tokens(assistant_text)},
+                usage={"prompt": total_prompt or last_prompt, "completion": total_completion or _approx_tokens(assistant_text)},
             )
             return msg.id
         return None
@@ -703,6 +711,12 @@ async def _run_chat_inner(
                 yield record({"kind": "think", "text": "深度思考"})
 
             calls = []
+            total_prompt += round_prompt
+            if max_total_tokens > 0 and total_prompt + total_completion > max_total_tokens:
+                raise RuntimeBudgetExceeded(
+                    f"Token budget exceeded: {total_prompt + total_completion} > {max_total_tokens}"
+                )
+
             for idx in sorted(tool_acc):
                 acc = tool_acc[idx]
                 calls.append(
@@ -837,7 +851,7 @@ async def _run_chat_inner(
         )
         yield events.error(str(e))
         mid = _persist_partial()  # 保留已流式的半截回复（WB-160）
-        db.update_run_runtime(run_id, prompt_tokens=last_prompt, completion_tokens=total_completion, tool_calls=tool_call_count)
+        db.update_run_runtime(run_id, prompt_tokens=total_prompt or last_prompt, completion_tokens=total_completion, tool_calls=tool_call_count)
         db.set_run_status(run_id, "failed", error_code="llm_error", error_message=str(e))
         db.touch_session(session_id, status="idle")
         finished_ok = True  # status settled; don't let finally override it
@@ -850,7 +864,7 @@ async def _run_chat_inner(
         )
         yield events.error(f"执行出错：{e}")
         mid = _persist_partial()  # 保留已流式的半截回复（WB-160）
-        db.update_run_runtime(run_id, prompt_tokens=last_prompt, completion_tokens=total_completion, tool_calls=tool_call_count)
+        db.update_run_runtime(run_id, prompt_tokens=total_prompt or last_prompt, completion_tokens=total_completion, tool_calls=tool_call_count)
         db.set_run_status(run_id, "failed", error_code="runtime_error", error_message=str(e))
         db.touch_session(session_id, status="idle")
         finished_ok = True
@@ -869,14 +883,32 @@ async def _run_chat_inner(
                     db.set_run_status(run_id, "paused", checkpoint={"reason": "stream_disconnected"})
                 except ValueError:
                     db.set_run_status(run_id, "cancelled", error_code="stream_disconnected")
+    except RuntimeBudgetExceeded as e:
+        chat_trace.update(
+            output={"status": "token_budget_exceeded", "partial_chars": len(assistant_text)},
+            level="ERROR", status_message=str(e),
+        )
+        yield events.error("本次自动化已达到 token 成本上限")
+        mid = _persist_partial()
+        db.update_run_runtime(
+            run_id, prompt_tokens=total_prompt or last_prompt,
+            completion_tokens=total_completion, tool_calls=tool_call_count,
+        )
+        db.set_run_status(
+            run_id, "failed", error_code="token_budget_exceeded", error_message=str(e)
+        )
+        db.touch_session(session_id, status="idle")
+        finished_ok = True
+        yield events.done(mid)
+        return
         if mcp_stack is not None:
             try:
                 await mcp_stack.aclose()  # terminate connector MCP servers
             except Exception:  # noqa: BLE001
                 pass
 
-    if last_prompt == 0:
-        last_prompt = sum(_approx_tokens(str(m.get("content") or "")) for m in llm_messages)
+    if total_prompt == 0:
+        total_prompt = last_prompt or sum(_approx_tokens(str(m.get("content") or "")) for m in llm_messages)
     if total_completion == 0:
         total_completion = _approx_tokens(assistant_text)
 
@@ -889,14 +921,14 @@ async def _run_chat_inner(
             content=assistant_text,
             actor="assistant",
             trace=trace_items,
-            usage={"prompt": last_prompt, "completion": total_completion},
+            usage={"prompt": total_prompt, "completion": total_completion},
         )
         message_id = msg.id
 
     db.update_run_runtime(
         run_id,
         plan=[{"text": item["text"]} for item in trace_items if item.get("kind") == "todo"],
-        prompt_tokens=last_prompt, completion_tokens=total_completion, tool_calls=tool_call_count,
+        prompt_tokens=total_prompt, completion_tokens=total_completion, tool_calls=tool_call_count,
     )
     db.set_run_status(run_id, "cancelled" if stopped else "completed")
 
@@ -904,7 +936,7 @@ async def _run_chat_inner(
         output={"content": assistant_text, "stopped": stopped},
         metadata={
             "message_id": message_id or "",
-            "prompt_tokens": last_prompt,
+            "prompt_tokens": total_prompt,
             "completion_tokens": total_completion,
             "tool_trace_items": len(trace_items),
         },
@@ -912,7 +944,7 @@ async def _run_chat_inner(
 
     db.touch_session(session_id, status="done")
 
-    yield _usage_event(last_prompt, total_completion, schemas, system_prompt)
+    yield _usage_event(total_prompt, total_completion, schemas, system_prompt)
     yield events.status("done", secs=secs)
     if stopped:
         yield events.text("\n\n_（已停止生成）_")

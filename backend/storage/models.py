@@ -250,6 +250,42 @@ class Automation:
     last_run_at: Optional[float] = None
     last_session_id: Optional[str] = None
     last_status: Optional[str] = None  # "ok" | "error" | "running"
+    timeout_sec: int = 300
+    max_attempts: int = 3
+    retry_backoff_sec: int = 30
+    max_total_tokens: int = 0  # 0 = unlimited
+    notify_policy: str = "failure,recovery"
+    concurrency_policy: str = "skip"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class AutomationFire:
+    """One logical automation trigger, durable across restarts and retries."""
+
+    id: str
+    automation_id: str
+    owner_id: str
+    fire_key: str
+    trigger_kind: str  # scheduled | manual | replay
+    planned_at: float
+    status: str  # queued | running | retry_wait | succeeded | dead_letter | ignored
+    attempt: int
+    max_attempts: int
+    session_id: Optional[str]
+    run_id: Optional[str]
+    retry_of_run_id: Optional[str]
+    error_code: Optional[str]
+    error_message: Optional[str]
+    prompt_tokens: int
+    completion_tokens: int
+    next_attempt_at: Optional[float]
+    notified: list[str]
+    created_at: float
+    updated_at: float
+    finished_at: Optional[float]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

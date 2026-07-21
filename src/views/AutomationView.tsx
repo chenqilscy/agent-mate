@@ -11,7 +11,7 @@ import { useProjectStore } from '../stores/projectStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
 import { Popover } from '../components/ui/Popover'
-import type { Automation, CreateAutomationInput, SessionInfo, TriggerKind } from '../lib/types'
+import type { Automation, AutomationFire, CreateAutomationInput, SessionInfo, TriggerKind } from '../lib/types'
 import { AntModalBridge } from '../components/ui/AntModalBridge'
 import { Empty, List, Spin, Switch, Tabs, Tag } from 'antd'
 import { ProCard } from '@ant-design/pro-components'
@@ -75,7 +75,7 @@ export function AutomationView() {
 
   const [editing, setEditing] = useState<EditState | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(false)
-  const [tab, setTab] = useState<'schedule' | 'runs'>('schedule')
+  const [tab, setTab] = useState<'schedule' | 'runs' | 'dlq'>('schedule')
   const [query, setQuery] = useState('')
   const [menuId, setMenuId] = useState<string | null>(null)
   const menuAnchor = useRef<HTMLElement | null>(null)
@@ -158,7 +158,7 @@ export function AutomationView() {
     <section className="view active" data-view="automation">
       <div className="page-scroll">
         <div className="auto-hd">
-          <Tabs className="auto-tabs" activeKey={tab} onChange={(key) => setTab(key as 'schedule' | 'runs')} items={[{ key: 'schedule', label: '定时任务' }, { key: 'runs', label: '运行记录' }]} />
+          <Tabs className="auto-tabs" activeKey={tab} onChange={(key) => setTab(key as 'schedule' | 'runs' | 'dlq')} items={[{ key: 'schedule', label: '定时任务' }, { key: 'runs', label: '运行记录' }, { key: 'dlq', label: '异常队列' }]} />
           {items.length > 0 && <div className="auto-tools">
             <div className="auto-search">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
@@ -230,8 +230,10 @@ export function AutomationView() {
               {templateGrid}
             </div>
           </>
-        ) : (
+        ) : tab === 'runs' ? (
           <RunsTab query={q} onOpenDetail={setDetail} />
+        ) : (
+          <AutomationDlqTab query={q} />
         )}
       </div>
 
@@ -297,6 +299,60 @@ function RunsTab({ query, onOpenDetail }: { query: string; onOpenDetail: (r: Ses
           )} />
         </div>
       ))}
+    </div>
+  )
+}
+
+function AutomationDlqTab({ query }: { query: string }) {
+  const [fires, setFires] = useState<AutomationFire[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState<string | null>(null)
+  const load = useCallback(() => {
+    api.listAutomationFires('dead_letter').then(({ fires }) => setFires(fires)).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+  useEffect(() => {
+    load()
+    const timer = setInterval(load, 5000)
+    return () => clearInterval(timer)
+  }, [load])
+  const shown = fires.filter((fire) => {
+    const text = `${fire.error_code ?? ''} ${fire.error_message ?? ''}`.toLowerCase()
+    return !query || text.includes(query)
+  })
+  const replay = async (fire: AutomationFire) => {
+    setBusy(fire.id)
+    try {
+      await api.replayAutomationFire(fire.id, crypto.randomUUID())
+      toast('已重新入队')
+      load()
+    } catch { toast('重新入队失败') } finally { setBusy(null) }
+  }
+  const ignore = async (fire: AutomationFire) => {
+    setBusy(fire.id)
+    try {
+      await api.ignoreAutomationFire(fire.id)
+      setFires((current) => current.filter((item) => item.id !== fire.id))
+      toast('已忽略该异常')
+    } catch { toast('忽略失败') } finally { setBusy(null) }
+  }
+  return (
+    <div className="auto-runs">
+      {loading && fires.length === 0 && <Spin className="auto-row-empty" tip="加载中…" />}
+      {!loading && shown.length === 0 && <Empty className="auto-row-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? '无匹配异常' : '异常队列为空'} />}
+      <List dataSource={shown} renderItem={(fire) => (
+        <List.Item className="auto-run" key={fire.id}>
+          <div className="auto-run-main">
+            <span className="auto-run-n">{fire.error_code || '运行失败'}</span>
+            <span className="auto-run-lb">{fire.error_message || '未提供错误摘要'}</span>
+          </div>
+          <div className="auto-run-right">
+            <Tag color="error">{fire.attempt}/{fire.max_attempts} 次</Tag>
+            <span className="auto-run-time">{fullTime(fire.finished_at ?? fire.updated_at)}</span>
+            <WbButton className="btn-ghost" disabled={busy === fire.id} onClick={() => replay(fire)}>重跑</WbButton>
+            <WbButton className="btn-ghost" disabled={busy === fire.id} onClick={() => ignore(fire)}>忽略</WbButton>
+          </div>
+        </List.Item>
+      )} />
     </div>
   )
 }
@@ -371,6 +427,10 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
   const [kind, setKind] = useState<TriggerKind>(auto?.trigger_kind ?? prefill?.trigger_kind ?? 'interval')
   const [intervalMinutes, setIntervalMinutes] = useState(auto?.interval_min ?? prefill?.interval_min ?? 60)
   const [atTime, setAtTime] = useState(auto?.at_time ?? prefill?.at_time ?? '09:00')
+  const [timeoutSec, setTimeoutSec] = useState(auto?.timeout_sec ?? prefill?.timeout_sec ?? 300)
+  const [maxAttempts, setMaxAttempts] = useState(auto?.max_attempts ?? prefill?.max_attempts ?? 3)
+  const [retryBackoffSec, setRetryBackoffSec] = useState(auto?.retry_backoff_sec ?? prefill?.retry_backoff_sec ?? 30)
+  const [maxTotalTokens, setMaxTotalTokens] = useState(auto?.max_total_tokens ?? prefill?.max_total_tokens ?? 0)
   const [busy, setBusy] = useState(false)
 
   const [wsOpen, setWsOpen] = useState(false)
@@ -410,6 +470,12 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
       at_time: atTime,
       project_id: projectId,
       model,
+      timeout_sec: Math.min(3600, Math.max(1, timeoutSec)),
+      max_attempts: Math.min(10, Math.max(1, maxAttempts)),
+      retry_backoff_sec: Math.min(86400, Math.max(1, retryBackoffSec)),
+      max_total_tokens: Math.max(0, maxTotalTokens),
+      notify_policy: auto?.notify_policy ?? 'failure,recovery',
+      concurrency_policy: 'skip',
     }
     try {
       if (auto) {
@@ -507,6 +573,27 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
                 运行
               </div>
             )}
+          </div>
+
+          <div className="np-lbl">可靠性与成本</div>
+          <div className="auto-trig">
+            <div className="auto-trig-in">
+              单次超时
+              <WbInput type="number" min={1} max={3600} aria-label="单次超时秒数" value={timeoutSec} onChange={(e) => setTimeoutSec(Number(e.target.value) || 1)} />
+              秒
+            </div>
+            <div className="auto-trig-in">
+              最多尝试
+              <WbInput type="number" min={1} max={10} aria-label="最大尝试次数" value={maxAttempts} onChange={(e) => setMaxAttempts(Number(e.target.value) || 1)} />
+              次，首次退避
+              <WbInput type="number" min={1} max={86400} aria-label="首次重试退避秒数" value={retryBackoffSec} onChange={(e) => setRetryBackoffSec(Number(e.target.value) || 1)} />
+              秒
+            </div>
+            <div className="auto-trig-in">
+              Token 上限
+              <WbInput type="number" min={0} aria-label="Token 成本上限" value={maxTotalTokens} onChange={(e) => setMaxTotalTokens(Math.max(0, Number(e.target.value) || 0))} />
+              {maxTotalTokens === 0 ? '（不限）' : '（超限即停止）'}
+            </div>
           </div>
         </div>
 

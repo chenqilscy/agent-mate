@@ -490,7 +490,13 @@ export interface Automation {
   next_run_at: number
   last_run_at: number | null
   last_session_id: string | null
-  last_status: 'ok' | 'error' | 'running' | null
+  last_status: 'ok' | 'error' | 'running' | 'retrying' | null
+  timeout_sec: number
+  max_attempts: number
+  retry_backoff_sec: number
+  max_total_tokens: number
+  notify_policy: string
+  concurrency_policy: 'skip'
   next_run_label: string
   last_run_label: string
 }
@@ -504,6 +510,36 @@ export interface CreateAutomationInput {
   project_id?: string | null
   model?: string | null
   enabled?: boolean
+  timeout_sec?: number
+  max_attempts?: number
+  retry_backoff_sec?: number
+  max_total_tokens?: number
+  notify_policy?: string
+  concurrency_policy?: 'skip'
+}
+
+export interface AutomationFire {
+  id: string
+  automation_id: string
+  owner_id: string
+  fire_key: string
+  trigger_kind: 'scheduled' | 'manual' | 'replay'
+  planned_at: number
+  status: 'queued' | 'running' | 'retry_wait' | 'succeeded' | 'dead_letter' | 'ignored'
+  attempt: number
+  max_attempts: number
+  session_id: string | null
+  run_id: string | null
+  retry_of_run_id: string | null
+  error_code: string | null
+  error_message: string | null
+  prompt_tokens: number
+  completion_tokens: number
+  next_attempt_at: number | null
+  notified: string[]
+  created_at: number
+  updated_at: number
+  finished_at: number | null
 }
 
 // SkillHub 商店卡（WB-070）：搜索/浏览的目录条目。

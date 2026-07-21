@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from agent import scheduler
@@ -30,6 +30,12 @@ class CreateAutomationBody(BaseModel):
     project_id: str | None = None
     model: str | None = None
     enabled: bool = True
+    timeout_sec: int = 300
+    max_attempts: int = 3
+    retry_backoff_sec: int = 30
+    max_total_tokens: int = 0
+    notify_policy: str = "failure,recovery"
+    concurrency_policy: str = "skip"
 
 
 class UpdateAutomationBody(BaseModel):
@@ -41,6 +47,20 @@ class UpdateAutomationBody(BaseModel):
     project_id: str | None = None
     model: str | None = None
     enabled: bool | None = None
+    timeout_sec: int | None = None
+    max_attempts: int | None = None
+    retry_backoff_sec: int | None = None
+    max_total_tokens: int | None = None
+    notify_policy: str | None = None
+    concurrency_policy: str | None = None
+
+
+class RunAutomationBody(BaseModel):
+    idempotency_key: str | None = None
+
+
+class ReplayAutomationFireBody(BaseModel):
+    idempotency_key: str | None = None
 
 
 def _ago(ts: float) -> str:
@@ -85,6 +105,22 @@ def _validate(kind: str, interval_min: int, at_time: str) -> None:
             raise HTTPException(400, "at_time must be HH:MM")
 
 
+def _validate_governance(data: dict) -> None:
+    for key, lo, hi in (
+        ("timeout_sec", 1, 3600), ("max_attempts", 1, 10),
+        ("retry_backoff_sec", 1, 86400), ("max_total_tokens", 0, 10_000_000),
+    ):
+        value = data.get(key)
+        if value is not None and not lo <= int(value) <= hi:
+            raise HTTPException(400, f"{key} must be between {lo} and {hi}")
+    if data.get("concurrency_policy") not in {None, "skip"}:
+        raise HTTPException(400, "concurrency_policy must be 'skip'")
+    if data.get("notify_policy") is not None:
+        values = {x.strip() for x in str(data["notify_policy"]).split(",") if x.strip()}
+        if not values <= {"failure", "recovery", "success"}:
+            raise HTTPException(400, "notify_policy contains an unsupported event")
+
+
 @router.get("/automations")
 def list_automations() -> dict:
     user = current_user()
@@ -99,12 +135,16 @@ def create_automation(body: CreateAutomationBody) -> dict:
     if not name or not prompt:
         raise HTTPException(400, "name and prompt are required")
     _validate(body.trigger_kind, body.interval_min, body.at_time)
+    _validate_governance(body.model_dump())
     if body.project_id and db.get_project(body.project_id, user.id) is None:
         raise HTTPException(404, "project not found")
     a = db.create_automation(
         owner_id=user.id, name=name, prompt=prompt, trigger_kind=body.trigger_kind,
         interval_min=body.interval_min, at_time=body.at_time,
         project_id=body.project_id, model=body.model, enabled=body.enabled,
+        timeout_sec=body.timeout_sec, max_attempts=body.max_attempts,
+        retry_backoff_sec=body.retry_backoff_sec, max_total_tokens=body.max_total_tokens,
+        notify_policy=body.notify_policy, concurrency_policy=body.concurrency_policy,
     )
     return _view(a)
 
@@ -126,6 +166,7 @@ def update_automation(auto_id: str, body: UpdateAutomationBody) -> dict:
     # (WB-037/038). Setting a workspace must resolve to a project this user owns;
     # clearing (null) skips the ownership check.
     data = body.model_dump(exclude_unset=True)
+    _validate_governance(data)
     if data.get("project_id") is not None and db.get_project(data["project_id"], user.id) is None:
         raise HTTPException(404, "project not found")
     a = db.update_automation(auto_id, **data)
@@ -142,12 +183,59 @@ def delete_automation(auto_id: str) -> dict:
 
 
 @router.post("/automations/{auto_id}/run")
-async def run_automation(auto_id: str) -> dict:
+async def run_automation(auto_id: str, body: RunAutomationBody | None = None) -> dict:
     user = current_user()
     if db.get_automation(auto_id, user.id) is None:
         raise HTTPException(404, "automation not found")
-    session_id = await scheduler.run_now(auto_id)
-    return {"ok": session_id is not None, "session_id": session_id}
+    fire = await scheduler.run_now(auto_id, body.idempotency_key if body else None)
+    return {
+        "ok": fire is not None,
+        "session_id": fire.session_id if fire else None,
+        "fire_id": fire.id if fire else None,
+        "status": fire.status if fire else None,
+    }
+
+
+@router.get("/automation-fires")
+def list_automation_fires(
+    status: str | None = Query(default=None), automation_id: str | None = Query(default=None),
+) -> dict:
+    user = current_user()
+    statuses = {item.strip() for item in status.split(",")} if status else None
+    return {
+        "fires": [
+            fire.to_dict() for fire in db.list_automation_fires(
+                user.id, statuses=statuses, automation_id=automation_id
+            )
+        ]
+    }
+
+
+@router.post("/automation-fires/{fire_id}/replay")
+async def replay_automation_fire(
+    fire_id: str, body: ReplayAutomationFireBody | None = None,
+) -> dict:
+    user = current_user()
+    if db.get_automation_fire(fire_id, user.id) is None:
+        raise HTTPException(404, "automation fire not found")
+    fire = await scheduler.replay_fire(
+        fire_id, user.id, body.idempotency_key if body else None
+    )
+    if fire is None:
+        raise HTTPException(409, "only dead-letter or ignored fires can be replayed")
+    return {"ok": True, "fire": fire.to_dict()}
+
+
+@router.post("/automation-fires/{fire_id}/ignore")
+def ignore_automation_fire(fire_id: str) -> dict:
+    user = current_user()
+    try:
+        fire = db.ignore_automation_fire(fire_id, user.id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if fire is None:
+        raise HTTPException(404, "automation fire not found")
+    return {"ok": True, "fire": fire.to_dict()}
 
 
 def _run_view(s) -> dict:

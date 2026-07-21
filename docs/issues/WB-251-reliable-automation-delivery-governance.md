@@ -3,7 +3,7 @@ id: WB-251
 title: 自动化缺少真实失败判定、持久幂等重试、DLQ、成本上限与结果投递
 severity: P1
 area: backend
-status: open
+status: fixed
 origin: WB-239 R2
 files:
   - backend/agent/scheduler.py:1
@@ -45,3 +45,13 @@ P1：无人值守任务不能长期托管，外部写可能重复，失败不可
 - token 或时间超限停止后续重试并可追溯，owner 可重跑 DLQ 且重复请求不产生重复 fire；
 - 成功/失败通知只投递一次，不含 prompt、secret 或文件正文；
 - 连续调度回归、真 API 和生产构建通过。
+
+## 处理记录
+
+- 2026-07-21：新增持久 `automation_fires`、稳定 fire key、原子 claim 与进程中断恢复；调度器以真实
+  Run 终态判定结果，失败按指数退避生成 `retry_of` 关联，耗尽后进入 owner-scoped DLQ。
+- 2026-07-21：自动化增加超时、最大尝试、退避、token 上限、通知和并发策略；runtime 在下一次工具执行前
+  以累计 token 停止并留下 `token_budget_exceeded` Run 证据。失败/恢复通知原子去重且不带 prompt/正文。
+- 2026-07-21：增加异常队列 UI（重跑/忽略）和可靠性配置；68 条 backend regression、TypeScript、Vite
+  production build 通过。隔离真 API 调用在 LLM error 正常结束 SSE 的情况下仍得到
+  `fire=dead_letter / session=error / run=failed`，证明不再误报成功；临时数据库、工作区与进程已清理。

@@ -36,6 +36,7 @@ from storage.models import (
     LOCAL_USER_ID,
     LOCAL_USER_NAME,
     Automation,
+    AutomationFire,
     Artifact,
     CatalogConnector,
     CatalogExpert,
@@ -320,6 +321,12 @@ def init_db() -> None:
             project_id TEXT,
             model TEXT,
             enabled INTEGER NOT NULL DEFAULT 1,
+            timeout_sec INTEGER NOT NULL DEFAULT 300,
+            max_attempts INTEGER NOT NULL DEFAULT 3,
+            retry_backoff_sec INTEGER NOT NULL DEFAULT 30,
+            max_total_tokens INTEGER NOT NULL DEFAULT 0,
+            notify_policy TEXT NOT NULL DEFAULT 'failure,recovery',
+            concurrency_policy TEXT NOT NULL DEFAULT 'skip',
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL,
             next_run_at REAL NOT NULL,
@@ -329,6 +336,39 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_automations_owner
             ON automations(owner_id, created_at DESC);
+
+        -- One durable logical trigger; retries mutate this row and each attempt is
+        -- independently evidenced by its Run + idempotency key (WB-251).
+        CREATE TABLE IF NOT EXISTS automation_fires (
+            id TEXT PRIMARY KEY,
+            automation_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            fire_key TEXT NOT NULL,
+            trigger_kind TEXT NOT NULL,
+            planned_at REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'queued',
+            attempt INTEGER NOT NULL DEFAULT 0,
+            max_attempts INTEGER NOT NULL DEFAULT 3,
+            session_id TEXT,
+            run_id TEXT,
+            retry_of_run_id TEXT,
+            error_code TEXT,
+            error_message TEXT,
+            prompt_tokens INTEGER NOT NULL DEFAULT 0,
+            completion_tokens INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at REAL,
+            notified TEXT NOT NULL DEFAULT '[]',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            finished_at REAL,
+            FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_fires_key
+            ON automation_fires(automation_id, fire_key);
+        CREATE INDEX IF NOT EXISTS idx_automation_fires_due
+            ON automation_fires(status, next_attempt_at);
+        CREATE INDEX IF NOT EXISTS idx_automation_fires_owner
+            ON automation_fires(owner_id, created_at DESC);
 
         -- In-app message center (M7 C4): real cross-user events land here, one row
         -- per recipient. Fed by collaboration actions (added to a project, role
@@ -407,6 +447,8 @@ def init_db() -> None:
             instructions TEXT NOT NULL DEFAULT '',
             version TEXT NOT NULL DEFAULT '',
             tools TEXT NOT NULL DEFAULT '[]',
+            permissions TEXT NOT NULL DEFAULT '[]',
+            tool_contract_version TEXT NOT NULL DEFAULT '1',
             files TEXT NOT NULL DEFAULT '[]',
             category TEXT NOT NULL DEFAULT '',
             source TEXT NOT NULL DEFAULT '',
@@ -780,6 +822,8 @@ def _migrate_columns() -> None:
         ("compatible", "compatible INTEGER NOT NULL DEFAULT 1"),
         ("compatibility_error", "compatibility_error TEXT NOT NULL DEFAULT ''"),
         ("min_app_version", "min_app_version TEXT NOT NULL DEFAULT '0.0.0'"),
+        ("permissions", "permissions TEXT NOT NULL DEFAULT '[]'"),
+        ("tool_contract_version", "tool_contract_version TEXT NOT NULL DEFAULT '1'"),
     ):
         if col not in have_cs:
             conn.execute(f"ALTER TABLE catalog_skills ADD COLUMN {ddl}")
@@ -1901,6 +1945,17 @@ def expert_catalog_specs() -> list[dict[str, Any]]:
 def replace_server_expert_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
     """用 Server EXPERT_DEFS 全量替换本机 server scope；本机自定义 experts 表完全不动。"""
     conn = get_conn()
+    have_a = {r["name"] for r in conn.execute("PRAGMA table_info(automations)").fetchall()}
+    for col, ddl in (
+        ("timeout_sec", "timeout_sec INTEGER NOT NULL DEFAULT 300"),
+        ("max_attempts", "max_attempts INTEGER NOT NULL DEFAULT 3"),
+        ("retry_backoff_sec", "retry_backoff_sec INTEGER NOT NULL DEFAULT 30"),
+        ("max_total_tokens", "max_total_tokens INTEGER NOT NULL DEFAULT 0"),
+        ("notify_policy", "notify_policy TEXT NOT NULL DEFAULT 'failure,recovery'"),
+        ("concurrency_policy", "concurrency_policy TEXT NOT NULL DEFAULT 'skip'"),
+    ):
+        if col not in have_a:
+            conn.execute(f"ALTER TABLE automations ADD COLUMN {ddl}")
     now = time.time()
     rows: list[tuple[Any, ...]] = []
     seen: set[str] = set()
@@ -1977,7 +2032,8 @@ def skill_specs() -> list[dict[str, Any]]:
     （同连接器「launch spec 存库、实现在代码」的分工）。
     """
     rows = get_conn().execute(
-        "SELECT scope,slug,name,icon,description,instructions,version,tools,files,category,source,"
+        "SELECT scope,slug,name,icon,description,instructions,version,tools,permissions,"
+        "tool_contract_version,files,category,source,"
         "withdrawn,compatible,compatibility_error,min_app_version "
         "FROM catalog_skills WHERE enabled=1 OR (scope='server' AND withdrawn=1) "
         "ORDER BY CASE scope WHEN 'server' THEN 0 ELSE 1 END, sort, name"
@@ -1998,11 +2054,17 @@ def skill_specs() -> list[dict[str, Any]]:
             files = json.loads(r["files"]) if r["files"] else []
         except (json.JSONDecodeError, TypeError):
             files = []
+        try:
+            permissions = json.loads(r["permissions"]) if r["permissions"] else []
+        except (json.JSONDecodeError, TypeError):
+            permissions = []
         out.append({
             "slug": r["slug"], "name": r["name"], "icon": r["icon"],
             "description": r["description"], "instructions": r["instructions"],
             "version": r["version"],
             "tools": tools if isinstance(tools, list) else [],
+            "permissions": permissions if isinstance(permissions, list) else [],
+            "tool_contract_version": r["tool_contract_version"],
             "files": files if isinstance(files, list) else [],
             "category": r["category"], "source": r["source"], "scope": r["scope"],
             "compatible": bool(r["compatible"]),
@@ -2116,6 +2178,9 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
         tools = raw.get("tools", [])
         if not isinstance(tools, list):
             tools = []
+        permissions = raw.get("permissions", [])
+        if not isinstance(permissions, list):
+            permissions = []
         files = raw.get("files", [])
         if not isinstance(files, list):
             files = []
@@ -2128,6 +2193,8 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
             new_uuid(), "server", None, slug, name, str(raw.get("icon", "🧩")),
             description, instructions, str(raw.get("version", "")),
             json.dumps([str(t) for t in tools], ensure_ascii=False),
+            json.dumps(sorted({str(value) for value in permissions if str(value)}), ensure_ascii=False),
+            str(raw.get("tool_contract_version", "1")),
             json.dumps(files, ensure_ascii=False), str(raw.get("category", "")),
             str(raw.get("source", "Server")), 1 if withdrawn else 0,
             1 if raw.get("compatible", True) else 0,
@@ -2138,9 +2205,10 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
         conn.execute("DELETE FROM catalog_skills WHERE scope='server'")
         conn.executemany(
             """INSERT INTO catalog_skills
-               (id,scope,owner_id,slug,name,icon,description,instructions,version,tools,files,category,source,
+               (id,scope,owner_id,slug,name,icon,description,instructions,version,tools,permissions,
+                tool_contract_version,files,category,source,
                 withdrawn,compatible,compatibility_error,min_app_version,enabled,sort,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
     return {"inserted": len(rows), "skipped": skipped}
@@ -3769,6 +3837,10 @@ def _row_to_automation(r) -> Automation:
         project_id=r["project_id"], model=r["model"], enabled=bool(r["enabled"]),
         created_at=r["created_at"], updated_at=r["updated_at"], next_run_at=r["next_run_at"],
         last_run_at=r["last_run_at"], last_session_id=r["last_session_id"], last_status=r["last_status"],
+        timeout_sec=int(r["timeout_sec"]), max_attempts=int(r["max_attempts"]),
+        retry_backoff_sec=int(r["retry_backoff_sec"]),
+        max_total_tokens=int(r["max_total_tokens"]), notify_policy=r["notify_policy"],
+        concurrency_policy=r["concurrency_policy"],
     )
 
 
@@ -3776,6 +3848,9 @@ def create_automation(
     *, owner_id: str, name: str, prompt: str, trigger_kind: str = "interval",
     interval_min: int = 60, at_time: str = "09:00",
     project_id: Optional[str] = None, model: Optional[str] = None, enabled: bool = True,
+    timeout_sec: int = 300, max_attempts: int = 3, retry_backoff_sec: int = 30,
+    max_total_tokens: int = 0, notify_policy: str = "failure,recovery",
+    concurrency_policy: str = "skip",
 ) -> Automation:
     now = time.time()
     a = Automation(
@@ -3784,14 +3859,20 @@ def create_automation(
         project_id=project_id, model=model, enabled=enabled,
         created_at=now, updated_at=now,
         next_run_at=compute_next_run(trigger_kind, interval_min, at_time, now),
+        timeout_sec=timeout_sec, max_attempts=max_attempts,
+        retry_backoff_sec=retry_backoff_sec, max_total_tokens=max_total_tokens,
+        notify_policy=notify_policy, concurrency_policy=concurrency_policy,
     )
     get_conn().execute(
         """INSERT INTO automations
            (id,owner_id,name,prompt,trigger_kind,interval_min,at_time,project_id,model,
-            enabled,created_at,updated_at,next_run_at,last_run_at,last_session_id,last_status)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            enabled,timeout_sec,max_attempts,retry_backoff_sec,max_total_tokens,notify_policy,
+            concurrency_policy,created_at,updated_at,next_run_at,last_run_at,last_session_id,last_status)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (a.id, a.owner_id, a.name, a.prompt, a.trigger_kind, a.interval_min, a.at_time,
-         a.project_id, a.model, int(a.enabled), a.created_at, a.updated_at, a.next_run_at,
+         a.project_id, a.model, int(a.enabled), a.timeout_sec, a.max_attempts,
+         a.retry_backoff_sec, a.max_total_tokens, a.notify_policy, a.concurrency_policy,
+         a.created_at, a.updated_at, a.next_run_at,
          a.last_run_at, a.last_session_id, a.last_status),
     )
     get_conn().commit()
@@ -3823,7 +3904,11 @@ def list_due_automations(now: float) -> list[Automation]:
     return [_row_to_automation(r) for r in rows]
 
 
-_AUTOMATION_FIELDS = {"name", "prompt", "trigger_kind", "interval_min", "at_time", "project_id", "model", "enabled"}
+_AUTOMATION_FIELDS = {
+    "name", "prompt", "trigger_kind", "interval_min", "at_time", "project_id", "model",
+    "enabled", "timeout_sec", "max_attempts", "retry_backoff_sec", "max_total_tokens",
+    "notify_policy", "concurrency_policy",
+}
 # Columns whose NULL is a real value ("clear it"), not "field not provided" — callers
 # pass only fields the client set (exclude_unset), so None here means explicit clear
 # (WB-037/038). The others must never be written NULL.
@@ -3874,6 +3959,287 @@ def mark_automation_run(
     vals.append(auto_id)
     get_conn().execute(f"UPDATE automations SET {', '.join(sets)} WHERE id=?", vals)
     get_conn().commit()
+
+
+_FIRE_ACTIVE = {"queued", "running", "retry_wait"}
+_FIRE_TERMINAL = {"succeeded", "dead_letter", "ignored"}
+
+
+def _row_to_automation_fire(row: sqlite3.Row) -> AutomationFire:
+    return AutomationFire(
+        id=row["id"], automation_id=row["automation_id"], owner_id=row["owner_id"],
+        fire_key=row["fire_key"], trigger_kind=row["trigger_kind"],
+        planned_at=row["planned_at"], status=row["status"], attempt=int(row["attempt"]),
+        max_attempts=int(row["max_attempts"]), session_id=row["session_id"],
+        run_id=row["run_id"], retry_of_run_id=row["retry_of_run_id"],
+        error_code=row["error_code"], error_message=row["error_message"],
+        prompt_tokens=int(row["prompt_tokens"] or 0),
+        completion_tokens=int(row["completion_tokens"] or 0),
+        next_attempt_at=row["next_attempt_at"], notified=_load_json(row["notified"], []),
+        created_at=row["created_at"], updated_at=row["updated_at"],
+        finished_at=row["finished_at"],
+    )
+
+
+def create_automation_fire(
+    *, automation_id: str, owner_id: str, fire_key: str, trigger_kind: str,
+    planned_at: float, max_attempts: int, session_id: Optional[str] = None,
+    retry_of_run_id: Optional[str] = None,
+) -> tuple[AutomationFire, bool]:
+    auto = get_automation(automation_id, owner_id)
+    if auto is None:
+        raise ValueError("automation scope mismatch")
+    key = fire_key.strip()[:240]
+    if not key:
+        raise ValueError("fire_key is required")
+    now = time.time()
+    fire_id = new_uuid()
+    try:
+        get_conn().execute(
+            """INSERT INTO automation_fires
+               (id,automation_id,owner_id,fire_key,trigger_kind,planned_at,status,attempt,
+                max_attempts,session_id,retry_of_run_id,next_attempt_at,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,'queued',0,?,?,?,?,?,?)""",
+            (fire_id, automation_id, owner_id, key, trigger_kind, planned_at,
+             max(1, int(max_attempts)), session_id, retry_of_run_id, planned_at, now, now),
+        )
+        get_conn().commit()
+    except sqlite3.IntegrityError:
+        row = get_conn().execute(
+            "SELECT * FROM automation_fires WHERE automation_id=? AND fire_key=?",
+            (automation_id, key),
+        ).fetchone()
+        if row:
+            return _row_to_automation_fire(row), False
+        raise
+    return get_automation_fire(fire_id), True  # type: ignore[return-value]
+
+
+def get_automation_fire(
+    fire_id: str, owner_id: Optional[str] = None,
+) -> Optional[AutomationFire]:
+    if owner_id is None:
+        row = get_conn().execute(
+            "SELECT * FROM automation_fires WHERE id=?", (fire_id,)
+        ).fetchone()
+    else:
+        row = get_conn().execute(
+            "SELECT * FROM automation_fires WHERE id=? AND owner_id=?", (fire_id, owner_id)
+        ).fetchone()
+    return _row_to_automation_fire(row) if row else None
+
+
+def list_automation_fires(
+    owner_id: str, *, statuses: Optional[set[str]] = None,
+    automation_id: Optional[str] = None, limit: int = 200,
+) -> list[AutomationFire]:
+    clauses = ["owner_id=?"]
+    values: list[Any] = [owner_id]
+    if statuses:
+        allowed = sorted(statuses & (_FIRE_ACTIVE | _FIRE_TERMINAL))
+        if not allowed:
+            return []
+        clauses.append(f"status IN ({','.join('?' * len(allowed))})")
+        values.extend(allowed)
+    if automation_id:
+        clauses.append("automation_id=?")
+        values.append(automation_id)
+    values.append(max(1, min(int(limit), 500)))
+    rows = get_conn().execute(
+        f"SELECT * FROM automation_fires WHERE {' AND '.join(clauses)} "
+        "ORDER BY created_at DESC LIMIT ?", values,
+    ).fetchall()
+    return [_row_to_automation_fire(row) for row in rows]
+
+
+def list_due_automation_fires(now: float, limit: int = 100) -> list[AutomationFire]:
+    rows = get_conn().execute(
+        """SELECT * FROM automation_fires
+           WHERE status IN ('queued','retry_wait') AND next_attempt_at<=?
+           ORDER BY next_attempt_at ASC LIMIT ?""",
+        (now, max(1, min(int(limit), 500))),
+    ).fetchall()
+    return [_row_to_automation_fire(row) for row in rows]
+
+
+def recover_stale_automation_fires(now: float) -> list[AutomationFire]:
+    """Turn process-crash leftovers into retry/DLQ instead of permanent `running`."""
+    rows = get_conn().execute(
+        """SELECT f.* FROM automation_fires f
+           JOIN automations a ON a.id=f.automation_id
+           WHERE f.status='running' AND f.updated_at + a.timeout_sec <= ?""",
+        (now,),
+    ).fetchall()
+    recovered: list[AutomationFire] = []
+    for row in rows:
+        fire = _row_to_automation_fire(row)
+        run = get_run(fire.run_id) if fire.run_id else get_run_by_idempotency(
+            fire.owner_id, f"automation:{fire.id}:attempt:{fire.attempt}"
+        )
+        if run and run.status in {"planning", "waiting_approval", "running", "paused"}:
+            run = set_run_status(
+                run.id, "failed", error_code="scheduler_restarted",
+                error_message="Automation worker stopped before the attempt finished",
+            )
+        terminal = fire.attempt >= fire.max_attempts
+        get_conn().execute(
+            """UPDATE automation_fires SET status=?,retry_of_run_id=COALESCE(?,retry_of_run_id),
+               error_code='scheduler_restarted',error_message=?,next_attempt_at=?,
+               finished_at=?,updated_at=? WHERE id=? AND status='running'""",
+            (
+                "dead_letter" if terminal else "retry_wait", run.id if run else None,
+                "Automation worker stopped before the attempt finished",
+                None if terminal else now, now if terminal else None, now, fire.id,
+            ),
+        )
+        get_conn().commit()
+        if fire.session_id:
+            mark_session_run(
+                fire.session_id, run_status="error", run_summary="Automation worker stopped"
+            )
+        mark_automation_run(
+            fire.automation_id, last_run_at=now, last_session_id=fire.session_id,
+            last_status="error" if terminal else "retrying",
+        )
+        current = get_automation_fire(fire.id)
+        if current:
+            recovered.append(current)
+    return recovered
+
+
+def has_active_automation_fire(automation_id: str) -> bool:
+    return get_conn().execute(
+        "SELECT 1 FROM automation_fires WHERE automation_id=? "
+        "AND status IN ('queued','running','retry_wait') LIMIT 1", (automation_id,),
+    ).fetchone() is not None
+
+
+def get_active_automation_fire(automation_id: str) -> Optional[AutomationFire]:
+    row = get_conn().execute(
+        "SELECT * FROM automation_fires WHERE automation_id=? "
+        "AND status IN ('queued','running','retry_wait') ORDER BY created_at DESC LIMIT 1",
+        (automation_id,),
+    ).fetchone()
+    return _row_to_automation_fire(row) if row else None
+
+
+def get_previous_terminal_automation_fire(
+    automation_id: str, exclude_fire_id: str,
+) -> Optional[AutomationFire]:
+    row = get_conn().execute(
+        """SELECT * FROM automation_fires WHERE automation_id=? AND id<>?
+           AND status IN ('succeeded','dead_letter','ignored')
+           ORDER BY finished_at DESC LIMIT 1""",
+        (automation_id, exclude_fire_id),
+    ).fetchone()
+    return _row_to_automation_fire(row) if row else None
+
+
+def claim_automation_fire(fire_id: str, now: float) -> Optional[AutomationFire]:
+    cur = get_conn().execute(
+        """UPDATE automation_fires SET status='running',attempt=attempt+1,updated_at=?
+           WHERE id=? AND status IN ('queued','retry_wait') AND next_attempt_at<=?""",
+        (now, fire_id, now),
+    )
+    get_conn().commit()
+    return get_automation_fire(fire_id) if cur.rowcount == 1 else None
+
+
+def attach_automation_fire_session(fire_id: str, session_id: str) -> AutomationFire:
+    fire = get_automation_fire(fire_id)
+    session = get_session(session_id)
+    if not fire or not session or session.owner_id != fire.owner_id:
+        raise ValueError("automation fire session scope mismatch")
+    get_conn().execute(
+        "UPDATE automation_fires SET session_id=?,updated_at=? WHERE id=?",
+        (session_id, time.time(), fire_id),
+    )
+    get_conn().commit()
+    return get_automation_fire(fire_id)  # type: ignore[return-value]
+
+
+def schedule_automation_fire_retry(
+    fire_id: str, *, run_id: Optional[str], error_code: Optional[str],
+    error_message: Optional[str], prompt_tokens: int, completion_tokens: int,
+    next_attempt_at: float,
+) -> AutomationFire:
+    cur = get_conn().execute(
+        """UPDATE automation_fires SET status='retry_wait',run_id=?,retry_of_run_id=?,
+           error_code=?,error_message=?,prompt_tokens=prompt_tokens+?,
+           completion_tokens=completion_tokens+?,next_attempt_at=?,updated_at=?
+           WHERE id=? AND status='running'""",
+        (run_id, run_id, error_code, (error_message or "")[:500], max(0, prompt_tokens),
+         max(0, completion_tokens), next_attempt_at, time.time(), fire_id),
+    )
+    get_conn().commit()
+    if cur.rowcount != 1:
+        raise ValueError("automation fire is not running")
+    return get_automation_fire(fire_id)  # type: ignore[return-value]
+
+
+def finish_automation_fire(
+    fire_id: str, *, status: str, run_id: Optional[str] = None,
+    retry_of_run_id: Optional[str] = None, error_code: Optional[str] = None,
+    error_message: Optional[str] = None, prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+) -> AutomationFire:
+    if status not in _FIRE_TERMINAL:
+        raise ValueError("invalid automation fire terminal status")
+    now = time.time()
+    cur = get_conn().execute(
+        """UPDATE automation_fires SET status=?,run_id=COALESCE(?,run_id),
+           retry_of_run_id=COALESCE(?,retry_of_run_id),error_code=?,error_message=?,
+           prompt_tokens=prompt_tokens+?,completion_tokens=completion_tokens+?,
+           next_attempt_at=NULL,finished_at=?,updated_at=?
+           WHERE id=? AND status IN ('queued','running','retry_wait')""",
+        (status, run_id, retry_of_run_id, error_code, (error_message or "")[:500] or None,
+         max(0, prompt_tokens), max(0, completion_tokens), now, now, fire_id),
+    )
+    get_conn().commit()
+    if cur.rowcount != 1:
+        fire = get_automation_fire(fire_id)
+        if fire and fire.status == status:
+            return fire
+        raise ValueError("automation fire is not active")
+    return get_automation_fire(fire_id)  # type: ignore[return-value]
+
+
+def mark_automation_fire_notified(fire_id: str, event: str) -> bool:
+    conn = get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute("SELECT notified FROM automation_fires WHERE id=?", (fire_id,)).fetchone()
+        if row is None:
+            conn.rollback()
+            return False
+        notified = _load_json(row["notified"], [])
+        if event in notified:
+            conn.rollback()
+            return False
+        notified.append(event)
+        conn.execute(
+            "UPDATE automation_fires SET notified=?,updated_at=? WHERE id=?",
+            (json.dumps(notified, ensure_ascii=False), time.time(), fire_id),
+        )
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def ignore_automation_fire(fire_id: str, owner_id: str) -> Optional[AutomationFire]:
+    fire = get_automation_fire(fire_id, owner_id)
+    if fire is None:
+        return None
+    if fire.status != "dead_letter":
+        raise ValueError("only dead-letter fires can be ignored")
+    get_conn().execute(
+        "UPDATE automation_fires SET status='ignored',updated_at=? WHERE id=?",
+        (time.time(), fire_id),
+    )
+    get_conn().commit()
+    return get_automation_fire(fire_id, owner_id)
 
 
 def delete_automation(auto_id: str) -> None:
