@@ -801,6 +801,29 @@ def init_db() -> None:
             created_at REAL NOT NULL,
             PRIMARY KEY (channel_id, chat_id)
         );
+
+        -- 邮件入站处理凭据（WB-160）：IMAP UID 只在同一 UIDVALIDITY 下定位消息；
+        -- message_key 则用 Message-ID（缺失时用原始邮件摘要）跨重连去重。先持久化
+        -- agent/reply 状态，再精确 STORE Seen，避免 Seen 写失败或重启后重复驱动/回复。
+        CREATE TABLE IF NOT EXISTS email_deliveries (
+            channel_id TEXT NOT NULL,
+            message_key TEXT NOT NULL,
+            message_id TEXT NOT NULL DEFAULT '',
+            from_addr TEXT NOT NULL DEFAULT '',
+            subject TEXT NOT NULL DEFAULT '',
+            uid_validity TEXT NOT NULL DEFAULT '',
+            imap_uid TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            reply TEXT NOT NULL DEFAULT '',
+            outbound_message_id TEXT NOT NULL DEFAULT '',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (channel_id, message_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_email_deliveries_status
+            ON email_deliveries(channel_id, status, updated_at);
         """
     )
     conn.commit()
@@ -4446,6 +4469,7 @@ def delete_assistant(assistant_id: str) -> None:
     conn = get_conn()
     for ch in list_channels(assistant_id):
         conn.execute("DELETE FROM channel_chat_sessions WHERE channel_id=?", (ch["id"],))
+        conn.execute("DELETE FROM email_deliveries WHERE channel_id=?", (ch["id"],))
     conn.execute("DELETE FROM channels WHERE assistant_id=?", (assistant_id,))
     conn.execute("DELETE FROM assistants WHERE id=?", (assistant_id,))
     conn.commit()
@@ -4506,6 +4530,7 @@ def update_channel(channel_id: str, *, config: Optional[dict] = None, enabled: O
 def delete_channel(channel_id: str) -> None:
     conn = get_conn()
     conn.execute("DELETE FROM channel_chat_sessions WHERE channel_id=?", (channel_id,))
+    conn.execute("DELETE FROM email_deliveries WHERE channel_id=?", (channel_id,))
     conn.execute("DELETE FROM channels WHERE id=?", (channel_id,))
     conn.commit()
 
@@ -4540,6 +4565,112 @@ def bind_chat(channel_id: str, chat_id: str, session_id: str, owner_id: str) -> 
 def clear_channel_chats(channel_id: str) -> None:
     get_conn().execute("DELETE FROM channel_chat_sessions WHERE channel_id=?", (channel_id,))
     get_conn().commit()
+
+
+# ---- Email durable delivery state (WB-160) -----------------------------
+
+def observe_email_delivery(channel_id: str, mail: dict) -> dict:
+    """Upsert the latest IMAP transport address without resetting processing state."""
+    key = str(mail.get("message_key") or "").strip()
+    if not key:
+        raise ValueError("email message_key is required")
+    now = time.time()
+    conn = get_conn()
+    conn.execute(
+        """INSERT INTO email_deliveries
+           (channel_id,message_key,message_id,from_addr,subject,uid_validity,imap_uid,status,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,'pending',?,?)
+           ON CONFLICT(channel_id,message_key) DO UPDATE SET
+             message_id=excluded.message_id,
+             uid_validity=excluded.uid_validity,
+             imap_uid=excluded.imap_uid,
+             updated_at=excluded.updated_at""",
+        (channel_id, key, str(mail.get("message_id") or ""),
+         str(mail.get("from") or ""), str(mail.get("subject") or ""),
+         str(mail.get("uid_validity") or ""), str(mail.get("imap_uid") or ""), now, now),
+    )
+    conn.commit()
+    return get_email_delivery(channel_id, key) or {}
+
+
+def get_email_delivery(channel_id: str, message_key: str) -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT * FROM email_deliveries WHERE channel_id=? AND message_key=?",
+        (channel_id, message_key),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def claim_email_delivery(channel_id: str, message_key: str) -> Optional[dict]:
+    """Atomically claim a new/known-failed message for one agent attempt."""
+    now = time.time()
+    conn = get_conn()
+    cur = conn.execute(
+        """UPDATE email_deliveries
+           SET status='processing', attempts=attempts+1, last_error='', updated_at=?
+           WHERE channel_id=? AND message_key=? AND status IN ('pending','retryable')""",
+        (now, channel_id, message_key),
+    )
+    conn.commit()
+    return get_email_delivery(channel_id, message_key) if cur.rowcount else None
+
+
+def update_email_delivery(
+    channel_id: str,
+    message_key: str,
+    status: str,
+    *,
+    reply: Optional[str] = None,
+    outbound_message_id: Optional[str] = None,
+    error: str = "",
+) -> dict:
+    allowed = {
+        "retryable", "reply_ready", "sending", "send_retryable",
+        "replied", "delivery_unknown", "delivery_unknown_seen", "seen", "ignored",
+    }
+    if status not in allowed:
+        raise ValueError(f"invalid email delivery status: {status}")
+    sets = ["status=?", "last_error=?", "updated_at=?"]
+    values: list[Any] = [status, (error or "")[:500], time.time()]
+    if reply is not None:
+        sets.append("reply=?")
+        values.append(reply)
+    if outbound_message_id is not None:
+        sets.append("outbound_message_id=?")
+        values.append(outbound_message_id)
+    values.extend((channel_id, message_key))
+    conn = get_conn()
+    cur = conn.execute(
+        f"UPDATE email_deliveries SET {','.join(sets)} WHERE channel_id=? AND message_key=?",
+        values,
+    )
+    conn.commit()
+    if not cur.rowcount:
+        raise KeyError((channel_id, message_key))
+    return get_email_delivery(channel_id, message_key) or {}
+
+
+def recover_email_deliveries(channel_id: str) -> None:
+    """Reconcile a poller/process restart without risking a duplicate SMTP reply.
+
+    Agent work is safe to retry because no reply was prepared yet. A crash while
+    SMTP was in flight is fundamentally ambiguous, so it becomes delivery_unknown:
+    the poller will mark that already-processed inbound message Seen but will not
+    resend it automatically.
+    """
+    conn = get_conn()
+    now = time.time()
+    conn.execute(
+        "UPDATE email_deliveries SET status='retryable', last_error='poller restarted during agent processing', updated_at=? "
+        "WHERE channel_id=? AND status='processing'",
+        (now, channel_id),
+    )
+    conn.execute(
+        "UPDATE email_deliveries SET status='delivery_unknown', last_error='poller restarted while SMTP result was unknown', updated_at=? "
+        "WHERE channel_id=? AND status='sending'",
+        (now, channel_id),
+    )
+    conn.commit()
 
 
 def _migrate_assistants() -> None:

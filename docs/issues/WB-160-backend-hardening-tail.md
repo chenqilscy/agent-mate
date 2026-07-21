@@ -58,3 +58,16 @@ created: 2026-07-14
 - 验证：py_compile（backend+hub）+ tsc 过；`_is_blocked_host` 对 localhost/127.0.0.1/169.254.169.254/10.x/192.168.x/::1/0.0.0.0 全 True、8.8.8.8 False；`_guarded_get('http://127.0.0.1:8000/...')` 抛「拒绝访问本机/内网」。
 - 状态：`in-progress`（邮件项 deferred，其余已修）。
 - commit：未提交（待用户确认）。
+
+## 处理记录（2026-07-22，邮件尾项实现）
+
+- 历史核验：前 5 项修复仍在当前代码中——通知 `ids=[]` no-op、MCP 连接局部 `AsyncExitStack`、异常流 `_persist_partial()`、逐跳 SSRF 守卫、Skill slug 字符集/`..`/前导 `-` 校验均未回退。
+- 拉取协议：`backend/channels/email_api.py` 改用 `UID SEARCH UNSEEN` + `UID FETCH (UID BODY.PEEK[])`，批量抓取不再产生 `\\Seen`；每封邮件携带 `UIDVALIDITY + UID` 传输地址，并用“邮箱身份 + Message-ID”（缺失时原始 RFC 邮件摘要）生成稳定去重键。
+- 精确已读：仅在单封邮件鉴权通过、agent 成功且 SMTP 得到成功或不可判定结果后，通过新 IMAP 连接执行该封的 `UID STORE +FLAGS.SILENT (\\Seen)`。重连时先核对 UIDVALIDITY；邮箱重建后只允许唯一 Message-ID 命中，0/多条或无 Message-ID 时 fail closed，等待下一轮 PEEK 提供新 UID。
+- 重试与去重：`backend/storage/db.py` 新增 `email_deliveries` 持久状态。agent 失败/明确 SMTP 失败保持未读并可重试；agent 已完成、Seen 写失败时只重试 STORE，不再重复 agent/SMTP；重启时 `processing` 回到可重试，`sending` 进入 `delivery_unknown`，为避免回复风暴不自动重发。出站使用稳定 Message-ID，SMTP 在 DATA 阶段断线的不可判定状态保留在 DB。
+- 协议测试：`backend/tests/regression/test_email_delivery_protocol.py` 9/9 通过，覆盖 10 封 PEEK 无 STORE、同 UIDVALIDITY 精确 UID、UIDVALIDITY 变化后的唯一/歧义 Message-ID、agent 失败重试、Seen 失败不重复回复、SMTP 成功头与在途断线、重启隔离未知发送。
+- 编译：修改的 4 个 Python 文件 `py_compile` 通过。
+- 全量回归：Backend regression 运行 100 项，本 issue 新增 9 项全部通过；总套件另有 8 个既有错误（`db.list_messages()` 当前返回 `None` 导致 4 项 runtime 错误、catalog revision 1 项、未初始化测试 DB 3 项）。失败模块独立复跑仍失败或暴露自身初始化问题；未在 WB-160 夹带修复。
+- 真机缺口：本 worktree 没有可用的真实 IMAP/SMTP 测试账号与服务端，尚未验证具体供应商对 `BODY.PEEK[]`、UIDVALIDITY、`UID SEARCH HEADER Message-ID`、`UID STORE` 及 SMTP 接收/断线的真实行为。模拟协议测试不能替代真机；需用真实邮箱完成“#1 处理中崩溃后 #2–10 仍 UNSEEN、重启可续跑、每封至多一封回复、最终逐封 Seen”后才能改为 `fixed`/✅。
+- 状态：保持 `in-progress`/🟡，代码实现完成但真实邮箱验收阻塞。
+- commit：本次 WB-160 独立提交。

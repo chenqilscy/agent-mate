@@ -10,6 +10,7 @@ App 面向：assistants / channels 的读态（**绝不回传 token**）+ 从 Ap
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 from typing import Optional
@@ -69,15 +70,17 @@ def _workspace_spec(a: dict) -> str:
     return f"dedicated:{a['id']}" if ws == "dedicated" else ws
 
 
-async def _run_agent(a: dict, session_id: str, text: str) -> str:
+async def _run_agent_result(a: dict, session_id: str, text: str) -> tuple[bool, str]:
     user = db.get_user(a["owner_id"]) or db.get_user(LOCAL_USER_ID)
     session = db.get_session(session_id)
     if user is None or session is None:
-        return "（本机用户或会话缺失，无法处理。）"
+        return False, "（本机用户或会话缺失，无法处理。）"
     mode = a.get("mode") or "exec"
+    failed = False
 
     async def _drive() -> None:
-        async for _ in runtime.run_chat(
+        nonlocal failed
+        async for chunk in runtime.run_chat(
             session, user, text,
             model=(a.get("model") or None),
             plan=(mode == "plan"), ask=(mode == "ask"),
@@ -85,7 +88,8 @@ async def _run_agent(a: dict, session_id: str, text: str) -> str:
             system_extra=(a.get("instruction") or None),
             workspace=_workspace_spec(a),
         ):
-            pass
+            if chunk.startswith("event: error\n"):
+                failed = True
 
     # 一个助理的 App + 所有渠道共写同一 session。若两个渠道（或 say + 入站）在同一 session 上
     # 并发跑，transcript 会交错，且下面「before/after diff 取新回复」会把别人的回复当成自己的
@@ -95,14 +99,22 @@ async def _run_agent(a: dict, session_id: str, text: str) -> str:
         try:
             await asyncio.wait_for(_drive(), timeout=RUN_TIMEOUT)
         except asyncio.TimeoutError:
-            return "（处理超时，请把任务拆小一点再试。）"
+            return False, "（处理超时，请把任务拆小一点再试。）"
         except Exception as e:  # noqa: BLE001 — 单条消息失败不该杀掉 poller
             log.exception("驱动 agent 失败")
-            return f"（处理失败：{str(e)[:300]}）"
+            return False, f"（处理失败：{str(e)[:300]}）"
         for m in reversed(db.list_messages(session_id)):
             if m.role == "assistant" and m.id not in before and (m.content or "").strip():
-                return m.content
-    return "（助手这次没有产生文本回复。）"
+                return not failed, m.content
+    if failed:
+        return False, "（Agent 处理失败，邮件保留未读并将在下一轮重试。）"
+    return True, "（助手这次没有产生文本回复。）"
+
+
+async def _run_agent(a: dict, session_id: str, text: str) -> str:
+    """Compatibility wrapper for Telegram/App callers that still return an error reply."""
+    _ok, reply = await _run_agent_result(a, session_id, text)
+    return reply
 
 
 # ---- Telegram 渠道：鉴权 + 路由 + 轮询 ---------------------------------
@@ -235,17 +247,87 @@ def _authorize_email(ch: dict, from_addr: str, subject: str, body: str) -> Optio
     return session_id
 
 
+def _email_outbound_message_id(ch_id: str, message_key: str, username: str) -> str:
+    digest = hashlib.sha256(f"{ch_id}:{message_key}".encode("utf-8")).hexdigest()[:32]
+    domain = username.rsplit("@", 1)[-1] if "@" in username else "agentmate.local"
+    return f"<agentmate-{digest}@{domain}>"
+
+
+async def _mark_email_seen(ch: dict, mail: dict, delivery: dict) -> bool:
+    ok, info = await asyncio.to_thread(email_api.mark_seen, ch["config"], mail)
+    was_unknown = delivery["status"] in {"sending", "delivery_unknown", "delivery_unknown_seen"}
+    status = ("delivery_unknown_seen" if was_unknown else "seen") if ok else delivery["status"]
+    error = delivery.get("last_error", "") if ok and was_unknown else ("" if ok else info)
+    db.update_email_delivery(ch["id"], mail["message_key"], status, error=error)
+    if not ok:
+        log.warning("邮件渠道 %s 精确标 Seen 失败：%s", ch["id"], info)
+    return ok
+
+
+async def _send_email_reply(ch: dict, mail: dict, delivery: dict) -> None:
+    message_key = mail["message_key"]
+    outbound_id = delivery.get("outbound_message_id") or _email_outbound_message_id(
+        ch["id"], message_key, (ch["config"].get("username") or "").strip()
+    )
+    delivery = db.update_email_delivery(
+        ch["id"], message_key, "sending", outbound_message_id=outbound_id
+    )
+    status, info = await asyncio.to_thread(
+        email_api.send_reply_delivery,
+        ch["config"], delivery.get("from_addr", ""), delivery.get("subject", ""), delivery.get("reply", ""),
+        mail.get("message_id", ""), outbound_id,
+    )
+    if status == "retryable":
+        db.update_email_delivery(ch["id"], message_key, "send_retryable", error=info)
+        log.warning("邮件渠道 %s 回信失败、保留未读待重试：%s", ch["id"], info)
+        return
+    durable_status = "replied" if status == "sent" else "delivery_unknown"
+    delivery = db.update_email_delivery(ch["id"], message_key, durable_status, error=info if status != "sent" else "")
+    if status == "unknown":
+        log.warning("邮件渠道 %s SMTP 结果未知；为避免重复回复不会自动重发：%s", ch["id"], info)
+    await _mark_email_seen(ch, mail, delivery)
+
+
 async def _handle_email(ch_id: str, mail: dict) -> None:
     ch = db.get_channel(ch_id)
     if ch is None:
+        return
+    if not mail.get("message_key"):
+        log.warning("邮件渠道 %s 收到缺少稳定身份的邮件，保持未读", ch_id)
+        return
+    delivery = db.observe_email_delivery(ch_id, mail)
+    status = delivery.get("status")
+    if status == "ignored":
+        return
+    if status in {"seen", "replied", "delivery_unknown", "delivery_unknown_seen", "sending"}:
+        # replied + Seen STORE 失败时只重试精确 STORE，不再运行 agent/SMTP。
+        if status == "sending":
+            delivery = db.update_email_delivery(
+                ch_id, mail["message_key"], "delivery_unknown",
+                error="检测到未决 SMTP 发送；为避免重复回复不自动重发",
+            )
+        await _mark_email_seen(ch, mail, delivery)
+        return
+    if status in {"reply_ready", "send_retryable"}:
+        await _send_email_reply(ch, mail, delivery)
+        return
+    if status == "processing":
+        return
+    delivery = db.claim_email_delivery(ch_id, mail["message_key"])
+    if delivery is None:
+        return
+    if mail.get("ignore_reason"):
+        db.update_email_delivery(ch_id, mail["message_key"], "ignored", error=str(mail["ignore_reason"]))
         return
     frm, subject, body = mail.get("from", ""), mail.get("subject", ""), mail.get("body", "")
     session_id = _authorize_email(ch, frm, subject, body)
     if session_id is None:
         log.info("邮件渠道 %s 忽略未授权/无暗号发件人 %s", ch_id, frm)
+        db.update_email_delivery(ch_id, mail["message_key"], "ignored", error="unauthorized")
         return
     text = (f"【邮件主题】{subject}\n\n{body}" if subject else body).strip()
     if not text:
+        db.update_email_delivery(ch_id, mail["message_key"], "ignored", error="empty message")
         return
     key = f"{ch_id}:{frm}"
     if key in _busy:
@@ -253,12 +335,17 @@ async def _handle_email(ch_id: str, mail: dict) -> None:
     _busy.add(key)
     try:
         a = db.get_assistant(ch["assistant_id"])
-        reply = await _run_agent(a, session_id, text) if a else "（助理不存在）"
-        ok, info = await asyncio.to_thread(
-            email_api.send_reply, ch["config"], frm, subject, reply, mail.get("message_id", "")
-        )
+        if a is None:
+            db.update_email_delivery(ch_id, mail["message_key"], "retryable", error="assistant missing")
+            return
+        ok, reply = await _run_agent_result(a, session_id, text)
         if not ok:
-            log.warning("邮件渠道 %s 回信失败：%s", ch_id, info)
+            db.update_email_delivery(ch_id, mail["message_key"], "retryable", error=reply)
+            return
+        delivery = db.update_email_delivery(
+            ch_id, mail["message_key"], "reply_ready", reply=reply
+        )
+        await _send_email_reply(ch, mail, delivery)
     finally:
         _busy.discard(key)
 
@@ -267,6 +354,9 @@ async def _email_poll_loop(ch_id: str) -> None:
     ch = db.get_channel(ch_id)
     if ch is None:
         return
+    # A new poller means the previous one/process is gone. Agent work can retry;
+    # an in-flight SMTP result is quarantined as unknown so restart cannot spam.
+    db.recover_email_deliveries(ch_id)
     ok, info = await asyncio.to_thread(email_api.verify, ch["config"])
     log.info("邮件渠道 %s 启动（%s）：%s", ch_id, (ch["config"].get("username") or ""), info)
     while True:
