@@ -26,6 +26,7 @@ serde_json = "1"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+url = "2"
 
 [features]
 # Enabled by tauri-cli in dev; kept for parity with the standard template.

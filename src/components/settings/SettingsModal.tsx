@@ -12,6 +12,7 @@ import type { AgentSettings, AuditEntry, DataSummary, MemoryItem, MemorySearchHi
 import { useSystemSettingsStore } from '../../stores/systemSettingsStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
 import { App as AntApp, Card, Empty, Menu, Segmented, Spin, Switch } from 'antd'
+import { DesktopUpdateSettings } from './DesktopUpdateSettings'
 
 
 type Tab = { id: SettingsTab; label: string; icon: ReactNode }
@@ -226,6 +227,8 @@ function SystemPanel() {
           <option value="automation">自动化</option>
         </WbSelect>
       </div>
+
+      <DesktopUpdateSettings />
 
       <div className="set-actions">
         <WbButton className="btn-dark" disabled={!loaded || saving || !dirty} onClick={save}>{saving ? '保存中…' : '保存'}</WbButton>

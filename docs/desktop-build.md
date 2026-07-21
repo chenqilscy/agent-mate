@@ -61,35 +61,30 @@ pnpm tauri build
 
 ## 自动更新
 
-### 当前状态：只有脚手架，生产更新尚未上线
+### 当前状态：发布服务与客户端链路已落地，生产域名和签名产物由部署注入
 
-已装 `tauri-plugin-updater` + `tauri-plugin-process`，签名公钥在 `tauri.conf.json`
-`plugins.updater.pubkey`，私钥 `src-tauri/.updater-key`（**已 gitignore，务必妥善保管**）。
+已装 `tauri-plugin-updater`，签名公钥在 `tauri.conf.json` 的 `plugins.updater.pubkey`；私钥仍只允许从
+受保护 CI 注入。客户端不再编译占位 endpoint：设置中心或构建变量 `VITE_AGENTMATE_UPDATE_ENDPOINT`
+提供 Server HTTPS 根地址，Rust command 校验协议后调用 Tauri updater，签名校验仍由插件完成。
 
-`src/platform/index.ts` 已实现 `check → downloadAndInstall → relaunch`，但截至 2026-07-21：
-
-- `plugins.updater.endpoints` 仍是 `REPLACE-WITH-YOUR-RELEASE-HOST` 占位地址；
-- 前端没有实际调用 `platform.checkForUpdates()` 的启动检查或菜单/设置入口；
-- 没有签名 CI、release manifest 托管、stable/beta 通道、灰度和回滚监控。
-
-因此当前安装包**不会因为 Server 部署新版本而自动升级**。Server 目录更新只能下发数据定义；新增
-Tool 实现、运行时、sidecar 或 UI 必须发布新的签名桌面安装包。
+Server 的 `/api/admin/desktop-releases` 管理不可变 release 与签名产物，`/api/desktop-updates/...` 按
+stable/beta、平台、架构、当前版本和匿名设备哈希返回 204 或标准 Tauri manifest。通道支持稳定灰度、
+最低版本强制、暂停和显式签名回滚；App 每日去重检查，下载/安装只能由用户手工触发。
 
 ### 最小上线步骤
 
-1. 把 `plugins.updater.endpoints` 里的占位 URL 换成你托管 `latest.json` 的地址
-   （支持 `{{target}}`/`{{arch}}`/`{{current_version}}` 占位）。
-2. 构建时提供私钥签名：
+1. 构建时提供私钥签名：
    ```bash
    set TAURI_SIGNING_PRIVATE_KEY=<私钥内容或路径>
    set TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<密码，无则留空>
    pnpm tauri build
    ```
    `bundle.createUpdaterArtifacts` 已开启，会产出 `.sig` 签名文件。
-3. 把新版本的安装包与签名、以及 `latest.json`（含 version/notes/platforms+signature）
-   发布到端点。客户端「检查更新」即可下载安装并自重启。
-4. 在桌面启动、设置页和“帮助”入口调用 `platform.checkForUpdates()`；浏览器版明确返回
-   `unsupported`，不能显示假成功。
+2. 把 updater artifact 和 `.sig` 上传到不可变 HTTPS URL，生成 release JSON（每个平台含
+   `target/arch/url/signature/sha256/size_bytes`），执行 `pnpm release:validate -- release.json`。
+3. 平台管理员把验证后的 JSON POST 到 `/api/admin/desktop-releases`，再调用对应 release 的
+   `/publish` 设置通道、灰度比例和最低版本；生产 App 配置同一 Server HTTPS 根地址。
+4. 先在 beta 真机验证，再推进 stable 灰度。失败时暂停通道或把通道 rollback 到上一签名 release。
 5. 验证从上一受支持版本升级：下载、签名校验、安装、sidecar/DB 迁移、自重启、版本显示和旧数据。
 
 ### 生产发布要求
@@ -127,6 +122,7 @@ CA 的代码签名证书**（OV 或 EV；**自签名无效**，SmartScreen 只�
 
 ## 已知待办
 
-- **A4 自动更新**仍需正式端点、前端触发入口、签名 CI、通道/灰度和升级回归才真正生效（见上）。
+- **A4 自动更新**代码链路已完成；每个部署仍必须配置公开 HTTPS Server、CI 私钥和真实签名产物，
+  并用前后两个安装版本完成升级/回滚演练，不能把本地 API 测试当成生产安装证明。
 - **代码签名**需你购买证书（见上）。
 - 第三方 stdio 连接器（GitHub 等）在打包版里默认禁用（内置连接器已可用）。

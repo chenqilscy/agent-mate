@@ -5,7 +5,22 @@
 // single bundle works both as the web app and inside the shell.
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
-export type UpdateResult = 'latest' | 'updating' | 'unsupported'
+export type UpdateResult = {
+  status: 'latest' | 'available' | 'updating' | 'unsupported'
+  current_version?: string
+  version?: string | null
+  notes?: string | null
+  release_id?: string | null
+  rollback?: boolean
+  forced?: boolean
+}
+
+export type UpdateOptions = {
+  endpoint: string
+  channel: 'stable' | 'beta'
+  deviceId: string
+  install?: boolean
+}
 
 export interface Platform {
   windowControls: {
@@ -26,7 +41,7 @@ export interface Platform {
   }
   // Auto-update (A4): check the release endpoint; if newer, download+install and
   // relaunch (never returns in that case). Throws on network/endpoint failure.
-  checkForUpdates(): Promise<UpdateResult>
+  checkForUpdates(options: UpdateOptions): Promise<UpdateResult>
   isDesktop: boolean
 }
 
@@ -46,7 +61,7 @@ const webPlatform: Platform = {
   notify: webNotify,
   globalShortcut: { register() {}, unregister() {} },
   fileDialog: { async openDirectory() { return null } },
-  async checkForUpdates() { return 'unsupported' },
+  async checkForUpdates() { return { status: 'unsupported' } },
   isDesktop: false,
 }
 
@@ -63,15 +78,14 @@ const tauriPlatform: Platform = {
   notify: webNotify,
   globalShortcut: { register() {}, unregister() {} },
   fileDialog: { async openDirectory() { return null } },
-  async checkForUpdates() {
-    // Dynamic import so the web bundle never pulls the desktop-only plugin.
-    const { check } = await import('@tauri-apps/plugin-updater')
-    const update = await check()
-    if (!update) return 'latest'
-    await update.downloadAndInstall()
-    const { relaunch } = await import('@tauri-apps/plugin-process')
-    await relaunch()
-    return 'updating'
+  async checkForUpdates(options) {
+    const { invoke } = await import('@tauri-apps/api/core')
+    return invoke<UpdateResult>('check_desktop_update', {
+      endpoint: options.endpoint,
+      channel: options.channel,
+      deviceId: options.deviceId,
+      install: Boolean(options.install),
+    })
   },
   isDesktop: true,
 }
