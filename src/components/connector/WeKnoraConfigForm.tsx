@@ -1,3 +1,4 @@
+import { WbButton, WbInput } from '../ui/Primitives'
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import type { KnowledgeConfig } from '../../lib/types'
@@ -67,19 +68,19 @@ export function WeKnoraConfigForm({ onChange }: { onChange?: (c: KnowledgeConfig
       <div className="mc-cfg" style={{ marginTop: 0 }}>
         <div className="mc-cfglbl">服务地址（WeKnora 实例，默认 http://localhost:8080）</div>
         <div className="mc-frow">
-          <input
+          <WbInput
             className="np-input" placeholder="http://localhost:8080" value={urlDraft}
             onChange={(e) => setUrlDraft(e.target.value)} spellCheck={false}
           />
-          <button
+          <WbButton
             type="button" className="btn-dark" disabled={busy || !urlDirty}
             onClick={() => void save({ url: urlDraft.trim() }, '已保存服务地址')}
-          >保存</button>
+          >保存</WbButton>
           {cfg.url_source === 'db' && (
-            <button
+            <WbButton
               type="button" className="btn-ghost" disabled={busy}
               onClick={() => void save({ url: '' }, '已恢复默认地址')}
-            >恢复默认</button>
+            >恢复默认</WbButton>
           )}
         </div>
       </div>
@@ -88,20 +89,20 @@ export function WeKnoraConfigForm({ onChange }: { onChange?: (c: KnowledgeConfig
       <div className="mc-cfg">
         <div className="mc-cfglbl">API Key（WeKnora 账号页的租户 Key，sk- 开头）</div>
         <div className="mc-keyrow" style={{ marginTop: 0 }}>
-          <input
+          <WbInput
             className="np-input" type="password" autoComplete="off" spellCheck={false}
             placeholder={cfg.has_key ? '已配置，输入新 Key 覆盖（留空不改）' : 'API Key，如 sk-…'}
             value={keyDraft} onChange={(e) => setKeyDraft(e.target.value)}
           />
-          <button
+          <WbButton
             type="button" className="btn-dark" disabled={busy || !keyDraft.trim()}
             onClick={() => void save({ api_key: keyDraft.trim() }, '已保存 API Key')}
-          >保存</button>
+          >保存</WbButton>
           {cfg.key_source === 'db' && (
-            <button
+            <WbButton
               type="button" className="btn-ghost danger-b" disabled={busy}
               onClick={() => void save({ api_key: '' }, '已撤销 API Key')}
-            >撤销</button>
+            >撤销</WbButton>
           )}
         </div>
       </div>
@@ -110,21 +111,21 @@ export function WeKnoraConfigForm({ onChange }: { onChange?: (c: KnowledgeConfig
       <div className="mc-cfg">
         <div className="mc-cfglbl">嵌入模型 id（选填，留空则自动取 WeKnora 里第一个 Embedding 模型）</div>
         <div className="mc-frow">
-          <input
+          <WbInput
             className="np-input" placeholder="如 builtin:bge-m3 / 你在 WeKnora 注册的模型 id"
             value={embDraft} onChange={(e) => setEmbDraft(e.target.value)} spellCheck={false}
           />
-          <button
+          <WbButton
             type="button" className="btn-dark" disabled={busy || !embDirty}
             onClick={() => void save({ embedding_model_id: embDraft.trim() }, '已保存嵌入模型')}
-          >保存</button>
+          >保存</WbButton>
         </div>
       </div>
 
       <div className="mc-fbtns">
-        <button type="button" className="btn-ghost" disabled={testing || !cfg.has_key} onClick={() => void test()}>
+        <WbButton type="button" className="btn-ghost" disabled={testing || !cfg.has_key} onClick={() => void test()}>
           {testing ? '测试中…' : '测试连接'}
-        </button>
+        </WbButton>
       </div>
 
       <div className="mc-hint">

@@ -1,3 +1,4 @@
+import { WbButton, WbInput } from '../components/ui/Primitives'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import type { KdocsFile } from '../lib/types'
@@ -191,9 +192,9 @@ export function KdocsView() {
         {(conn === 'need_auth' || conn === 'connecting') && (
           <div className="mf-empty" style={{ flexDirection: 'column', gap: 12, textAlign: 'center', lineHeight: 1.7 }}>
             <div>尚未连接金山文档。连接后即可浏览你的云文档，凭据仅存本机、不进前端。</div>
-            <button className="cap-act" onClick={doConnect} disabled={conn === 'connecting'}>
+            <WbButton className="cap-act" onClick={doConnect} disabled={conn === 'connecting'}>
               {conn === 'connecting' ? '连接中…' : '连接金山文档'}
-            </button>
+            </WbButton>
             {authUrl && conn === 'connecting' && (
               <a href={authUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--brand)' }}>
                 没有自动打开？点此手动打开授权页
@@ -221,14 +222,14 @@ export function KdocsView() {
               <div className="mf-filter" style={{ marginTop: 14 }}>
                 <div className="search-box" style={{ margin: 0, flex: 1, maxWidth: 360 }}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-                  <input placeholder="搜索金山文档…" value={kw}
+                  <WbInput placeholder="搜索金山文档…" value={kw}
                     onChange={(e) => setKw(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') submitSearch() }} />
                 </div>
-                <button className="cap-act" onClick={submitSearch} disabled={loading}>搜索</button>
-                {active && <button className="cap-act" onClick={clearSearch} disabled={loading}>返回最近</button>}
+                <WbButton className="cap-act" onClick={submitSearch} disabled={loading}>搜索</WbButton>
+                {active && <WbButton className="cap-act" onClick={clearSearch} disabled={loading}>返回最近</WbButton>}
                 <span style={{ flex: 1 }} />
-                <button className="cap-act" onClick={refresh} disabled={loading} title="刷新">刷新</button>
+                <WbButton className="cap-act" onClick={refresh} disabled={loading} title="刷新">刷新</WbButton>
               </div>
             )}
 
@@ -244,7 +245,7 @@ export function KdocsView() {
                   ))}
                 </div>
                 <span style={{ flex: 1 }} />
-                <button className="cap-act" onClick={refresh} disabled={loading} title="刷新">刷新</button>
+                <WbButton className="cap-act" onClick={refresh} disabled={loading} title="刷新">刷新</WbButton>
               </div>
             )}
 
@@ -300,9 +301,9 @@ export function KdocsView() {
         {viewing && (
           <div className="kd-right">
             <div className="kd-vbar">
-              <button className="kd-vback" onClick={() => setViewing(null)} title="关闭（Esc）">
+              <WbButton className="kd-vback" onClick={() => setViewing(null)} title="关闭（Esc）">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 6l12 12M18 6L6 18" /></svg>关闭
-              </button>
+              </WbButton>
               <span className="kd-vic">{viewing.is_folder ? '📁' : kindOf(viewing.ext)[0]}</span>
               <span className="kd-vname" title={viewing.name}>{viewing.name}</span>
               <span style={{ flex: 1 }} />

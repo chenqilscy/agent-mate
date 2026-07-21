@@ -1,3 +1,4 @@
+import { WbButton, WbInput, WbTextArea } from '../ui/Primitives'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCatalog, useCatalogStore } from '../../stores/catalogStore'
 import { useKnowledgeStore } from '../../stores/knowledgeStore'
@@ -6,6 +7,7 @@ import { skillDisplayName, useSkillStore } from '../../stores/skillStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
 import type { ProjectInfo } from '../../lib/types'
+import { AntModalBridge } from '../ui/AntModalBridge'
 
 type Kind = 'conn' | 'exp' | 'skill' | 'kb'
 
@@ -107,26 +109,26 @@ export function NewProjectModal({ open, onClose, onCreated }: {
           </span>
         ))}
       </div>
-      <button className="np-add" onClick={() => setPicker(kind)}>＋ 添加</button>
+      <WbButton className="np-add" onClick={() => setPicker(kind)}>＋ 添加</WbButton>
     </div>
   )
 
   return (
-    <div className="np-overlay open" onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
+    <AntModalBridge onClose={close} closeOnMask={!busy}>
       <div className="np-modal" role="dialog" aria-modal="true" aria-label="新建项目">
-        <div className="np-h">新建项目<button className="np-x" onClick={close}>×</button></div>
+        <div className="np-h">新建项目<WbButton className="np-x" onClick={close}>×</WbButton></div>
         <div className="np-body">
           <div className="np-lbl">项目名称</div>
-          <input className="np-input" placeholder="请输入项目名称" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          <WbInput className="np-input" placeholder="请输入项目名称" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
 
           <div className="np-lbl">
             指令
-            <button ref={tplRef} className="np-tplbtn" onClick={() => setTplOpen((v) => !v)}>
+            <WbButton ref={tplRef} className="np-tplbtn" onClick={() => setTplOpen((v) => !v)}>
               <span>{tplLabel}</span>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 10, height: 10 }}><path d="M6 9l6 6 6-6" /></svg>
-            </button>
+            </WbButton>
           </div>
-          <textarea
+          <WbTextArea
             className="np-ta"
             placeholder="提供当前项目的背景信息和规范，让 AgentMate 的回复更精准、更符合要求。比如：项目目标、团队习惯、风格偏好、输出约束等"
             value={instruction}
@@ -140,8 +142,8 @@ export function NewProjectModal({ open, onClose, onCreated }: {
         </div>
         <div className="np-foot">
           <span className="np-hint">切换模版会覆盖当前编辑内容</span>
-          <button className="btn-ghost" onClick={close}>取消</button>
-          <button className="btn-dark" disabled={!name.trim() || busy} onClick={confirm}>确定</button>
+          <WbButton className="btn-ghost" onClick={close}>取消</WbButton>
+          <WbButton className="btn-dark" disabled={!name.trim() || busy} onClick={confirm}>确定</WbButton>
         </div>
       </div>
 
@@ -152,7 +154,7 @@ export function NewProjectModal({ open, onClose, onCreated }: {
       </Popover>
 
       {picker && <PickerOverlay kind={picker} sel={sel[picker]} onToggle={(n) => toggle(picker, n)} onClose={() => setPicker(null)} />}
-    </div>
+    </AntModalBridge>
   )
 }
 
@@ -207,15 +209,15 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
   const match = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase())
 
   return (
-    <div className="np-overlay open" style={{ zIndex: 160 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <AntModalBridge onClose={onClose} zIndex={160}>
       <div className={`np-modal pk-modal ${kind === 'exp' ? 'wide' : kind === 'skill' ? 'mid' : ''}`.trim()} role="dialog" aria-modal="true" aria-label={title}>
         <div className="np-h">
           {title}
           <div className="search-box" style={{ marginLeft: 'auto', width: 220 }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-            <input placeholder="搜索…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <WbInput placeholder="搜索…" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
-          <button className="np-x" onClick={onClose}>×</button>
+          <WbButton className="np-x" onClick={onClose}>×</WbButton>
         </div>
         <div className="np-body" style={{ paddingTop: 2 }}>
           {kind === 'conn' && (
@@ -303,9 +305,9 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
           )}
         </div>
         <div className="np-foot" style={{ justifyContent: 'flex-end', marginTop: 6 }}>
-          <button className="btn-dark" onClick={onClose}>完成（{sel.size}）</button>
+          <WbButton className="btn-dark" onClick={onClose}>完成（{sel.size}）</WbButton>
         </div>
       </div>
-    </div>
+    </AntModalBridge>
   )
 }

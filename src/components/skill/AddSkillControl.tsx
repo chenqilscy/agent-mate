@@ -1,8 +1,10 @@
+import { WbButton, WbInput } from '../ui/Primitives'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { InstalledSkill } from '../../lib/types'
 import { useSkillStore } from '../../stores/skillStore'
 import { toast } from '../../stores/toastStore'
+import { AntModalBridge } from '../ui/AntModalBridge'
 
 type DirectoryFile = File & { webkitRelativePath?: string }
 
@@ -91,9 +93,9 @@ function ImportSkillModal({ open, onClose, onImported }: {
   }
 
   return (
-    <div className="np-overlay open" style={{ zIndex: 170 }} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose() }}>
+    <AntModalBridge onClose={onClose} closeOnMask={!busy} zIndex={170}>
       <div className="np-modal skill-import-modal" role="dialog" aria-modal="true" aria-label="导入技能">
-        <div className="np-h">导入技能<button className="np-x" onClick={onClose} disabled={busy}>×</button></div>
+        <div className="np-h">导入技能<WbButton className="np-x" onClick={onClose} disabled={busy}>×</WbButton></div>
         <div className="np-body">
           <div
             className={`skill-import-drop ${dragging ? 'dragging' : ''}`.trim()}
@@ -112,12 +114,12 @@ function ImportSkillModal({ open, onClose, onImported }: {
             <b>{busy ? '正在校验并导入…' : '拖拽文件或点击上传'}</b>
             <span>支持 SKILL.md 与 .zip 技能包</span>
           </div>
-          <input ref={fileInput} type="file" accept=".md,.zip" hidden onChange={(e) => { importFile(e.target.files?.[0]); e.currentTarget.value = '' }} />
-          <input ref={folderInput} type="file" multiple hidden onChange={(e) => { void importFolder(e.target.files); e.currentTarget.value = '' }} />
+          <WbInput ref={fileInput} type="file" accept=".md,.zip" hidden onChange={(e) => { importFile(e.target.files?.[0]); e.currentTarget.value = '' }} />
+          <WbInput ref={folderInput} type="file" multiple hidden onChange={(e) => { void importFolder(e.target.files); e.currentTarget.value = '' }} />
 
-          <button className="skill-folder-btn" disabled={busy} onClick={() => folderInput.current?.click()}>
+          <WbButton className="skill-folder-btn" disabled={busy} onClick={() => folderInput.current?.click()}>
             <span>📁</span>选择本地技能文件夹
-          </button>
+          </WbButton>
 
           {error && <div className="skill-import-error" role="alert">{error}</div>}
 
@@ -131,7 +133,7 @@ function ImportSkillModal({ open, onClose, onImported }: {
           </div>
         </div>
       </div>
-    </div>
+    </AntModalBridge>
   )
 }
 
@@ -159,13 +161,13 @@ export function AddSkillControl({ onCreate, onImported }: {
   return (
     <>
       <div className="skill-add-wrap" ref={root}>
-        <button className={`cap-act ${menuOpen ? 'on' : ''}`.trim()} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>
+        <WbButton className={`cap-act ${menuOpen ? 'on' : ''}`.trim()} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>
           ＋ 添加技能
-        </button>
+        </WbButton>
         {menuOpen && (
           <div className="skill-add-menu" role="menu">
-            <button role="menuitem" onClick={() => choose(() => setImportOpen(true))}>上传技能</button>
-            <button role="menuitem" onClick={() => choose(onCreate)}>创建技能</button>
+            <WbButton role="menuitem" onClick={() => choose(() => setImportOpen(true))}>上传技能</WbButton>
+            <WbButton role="menuitem" onClick={() => choose(onCreate)}>创建技能</WbButton>
           </div>
         )}
       </div>

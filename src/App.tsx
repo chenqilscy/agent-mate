@@ -23,41 +23,58 @@ import { readRoute } from './lib/router'
 import { useProjectStore } from './stores/projectStore'
 import { useSystemSettingsStore } from './stores/systemSettingsStore'
 import { useSkillStore } from './stores/skillStore'
+import { PageContainer, ProLayout } from '@ant-design/pro-components'
 
 function MainView() {
   const view = useUIStore((s) => s.view)
+  let content
   switch (view) {
     case 'home':
-      return <HomeView />
+      content = <HomeView />
+      break
     case 'chat':
-      return <ChatView />
+      content = <ChatView />
+      break
     case 'assistant':
-      return <AssistantView />
+      content = <AssistantView />
+      break
     case 'projects':
-      return <ProjectsView />
+      content = <ProjectsView />
+      break
     case 'project':
-      return <ProjectHomeView />
+      content = <ProjectHomeView />
+      break
     case 'projexec':
-      return <ProjExecView />
+      content = <ProjExecView />
+      break
     case 'experts':
-      return <ExpertsView />
+      content = <ExpertsView />
+      break
     case 'skills':
-      return <SkillsView />
+      content = <SkillsView />
+      break
     case 'connectors':
-      return <ConnectorsView />
+      content = <ConnectorsView />
+      break
     case 'automation':
-      return <AutomationView />
+      content = <AutomationView />
+      break
     case 'inspire':
-      return <InspireView />
+      content = <InspireView />
+      break
     case 'myfiles':
-      return <MyFilesView />
+      content = <MyFilesView />
+      break
     case 'kdocs':
-      return <KdocsView />
+      content = <KdocsView />
+      break
     case 'knowledge':
-      return <KnowledgeView />
+      content = <KnowledgeView />
+      break
     default:
-      return <HomeView />
+      content = <HomeView />
   }
+  return <PageContainer className="agentmate-page-container">{content}</PageContainer>
 }
 
 export function App() {
@@ -139,17 +156,19 @@ export function App() {
   }, [setNavOpen, setSidebarCollapsed])
 
   return (
-    <div className="win">
-      <div className={['shell', navOpen && 'nav-open', sidebarCollapsed && 'sidebar-collapsed'].filter(Boolean).join(' ')}>
-        <Sidebar />
-        <NavigationToggle />
-        {/* Scrim behind the off-canvas sidebar (≤900px); inert at wide widths. */}
-        <div className="nav-scrim" onClick={() => setNavOpen(false)} />
-        <main className="main" id="main">
-          <MainView />
-        </main>
+    <ProLayout className="agentmate-pro-shell" pure headerRender={false} menuRender={false} footerRender={false}>
+      <div className="win">
+        <div className={['shell', navOpen && 'nav-open', sidebarCollapsed && 'sidebar-collapsed'].filter(Boolean).join(' ')}>
+          <Sidebar />
+          <NavigationToggle />
+          {/* Scrim behind the off-canvas sidebar (≤900px); inert at wide widths. */}
+          <div className="nav-scrim" onClick={() => setNavOpen(false)} />
+          <main className="main" id="main">
+            <MainView />
+          </main>
+        </div>
+        <ToastHost />
       </div>
-      <ToastHost />
-    </div>
+    </ProLayout>
   )
 }

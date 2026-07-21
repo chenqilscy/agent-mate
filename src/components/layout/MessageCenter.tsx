@@ -1,9 +1,11 @@
+import { WbButton } from '../ui/Primitives'
 import { useEffect } from 'react'
 import { api } from '../../lib/api'
 import type { AppNotification } from '../../lib/types'
 import { useNotificationStore } from '../../stores/notificationStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useUIStore } from '../../stores/uiStore'
+import { AntModalBridge } from '../ui/AntModalBridge'
 
 // Message center (M7 C4) — lists real collaboration events. Opening refreshes the
 // list; "全部已读" clears the badge. Clicking an event with a project jumps there.
@@ -45,11 +47,11 @@ export function MessageCenter({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="np-overlay open" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <AntModalBridge onClose={onClose}>
       <div className="np-modal msg-center" role="dialog" aria-modal="true" aria-label="消息中心">
         <div className="np-h">
           消息中心{unread > 0 && <span className="msg-unread">{unread}</span>}
-          <button className="np-x" onClick={onClose}>×</button>
+          <WbButton className="np-x" onClick={onClose}>×</WbButton>
         </div>
 
         <div className="np-body msg-body">
@@ -79,10 +81,10 @@ export function MessageCenter({ onClose }: { onClose: () => void }) {
 
         <div className="np-foot">
           <span className="np-hint" style={{ marginRight: 'auto' }} />
-          <button className="btn-ghost" disabled={unread === 0} onClick={() => void markAllRead()}>全部标记已读</button>
-          <button className="btn-ghost" onClick={onClose}>关闭</button>
+          <WbButton className="btn-ghost" disabled={unread === 0} onClick={() => void markAllRead()}>全部标记已读</WbButton>
+          <WbButton className="btn-ghost" onClick={onClose}>关闭</WbButton>
         </div>
       </div>
-    </div>
+    </AntModalBridge>
   )
 }

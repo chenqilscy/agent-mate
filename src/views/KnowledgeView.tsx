@@ -1,3 +1,4 @@
+import { WbButton, WbInput } from '../components/ui/Primitives'
 import { useEffect, useRef, useState } from 'react'
 import { useKnowledgeStore } from '../stores/knowledgeStore'
 import { useLoadoutStore } from '../stores/loadoutStore'
@@ -7,6 +8,7 @@ import type { KbDocument, KnowledgeConfig } from '../lib/types'
 import type { KbTemplate } from '../data/catalog'
 import { toast } from '../stores/toastStore'
 import { WeKnoraConfigForm } from '../components/connector/WeKnoraConfigForm'
+import { AntModalBridge } from '../components/ui/AntModalBridge'
 
 // 知识库（自托管 WeKnora RAG · WB-173/174）：建库 / 传档 / 解析状态，并可「挂载到对话」，
 // 让 agent 用 knowledge_retrieve 真检索作答。真调 WeKnora（经本地 backend，API Key 只在后端）。
@@ -130,7 +132,7 @@ export function KnowledgeView() {
             </div>
           </div>
           {!openKb && configured && (
-            <button className="cap-act on" onClick={() => { setPrefill(null); setShowCreate(true) }}>+ 新建知识库</button>
+            <WbButton className="cap-act on" onClick={() => { setPrefill(null); setShowCreate(true) }}>+ 新建知识库</WbButton>
           )}
         </div>
 
@@ -198,11 +200,11 @@ export function KnowledgeView() {
                           {(k.document_size ?? 0)} 个文档{k.word_num ? ` · ${k.word_num.toLocaleString()} 字` : ''}
                         </div>
                         <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                          <button className="btn-dark" onClick={() => openDetail(k.id)}>管理文档</button>
-                          <button className={mounted ? 'btn-dark' : 'btn-ghost'} onClick={() => onMount(k.id, k.name)}>
+                          <WbButton className="btn-dark" onClick={() => openDetail(k.id)}>管理文档</WbButton>
+                          <WbButton className={mounted ? 'btn-dark' : 'btn-ghost'} onClick={() => onMount(k.id, k.name)}>
                             {mounted ? '取消挂载' : '挂载到对话'}
-                          </button>
-                          <button className="btn-ghost" onClick={() => onDelKb(k.id, k.name)}>删除</button>
+                          </WbButton>
+                          <WbButton className="btn-ghost" onClick={() => onDelKb(k.id, k.name)}>删除</WbButton>
                         </div>
                       </div>
                     </div>
@@ -217,15 +219,15 @@ export function KnowledgeView() {
         {openKb && (
           <div style={{ marginTop: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <button className="btn-ghost" onClick={closeDetail}>← 返回</button>
+              <WbButton className="btn-ghost" onClick={closeDetail}>← 返回</WbButton>
               <div style={{ fontSize: 16, fontWeight: 700 }}>
                 {ICON_EMOJI[openKb.icon || 'book'] || '📚'} {openKb.name}
               </div>
               <span style={{ flex: 1 }} />
-              <button className="btn-dark" onClick={() => fileInput.current?.click()} disabled={uploading}>
+              <WbButton className="btn-dark" onClick={() => fileInput.current?.click()} disabled={uploading}>
                 {uploading ? '上传中…' : '+ 上传文档'}
-              </button>
-              <input ref={fileInput} type="file" multiple hidden
+              </WbButton>
+              <WbInput ref={fileInput} type="file" multiple hidden
                 accept=".txt,.md,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.html,.htm,.png,.jpg,.jpeg,.gif,.bmp,.webp"
                 onChange={(e) => doUpload(e.target.files)} />
             </div>
@@ -263,7 +265,7 @@ export function KnowledgeView() {
                         {d.word_num ? ` · ${d.word_num.toLocaleString()} 字` : ''}
                       </div>
                     </div>
-                    <button className="btn-ghost" onClick={() => onDelDoc(d)}>删除</button>
+                    <WbButton className="btn-ghost" onClick={() => onDelDoc(d)}>删除</WbButton>
                   </div>
                 )
               })}
@@ -312,43 +314,43 @@ function CreateKbModal(props: {
   const [icon, setIcon] = useState<string>(iconKey)
 
   return (
-    <div className="np-overlay open" onClick={props.onClose}>
+    <AntModalBridge onClose={props.onClose} closeOnMask={!props.creating}>
       <div className="np-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
         <div className="np-h">
           新建知识库
-          <button className="np-x" onClick={props.onClose}>✕</button>
+          <WbButton className="np-x" onClick={props.onClose}>✕</WbButton>
         </div>
         <div className="np-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <label style={{ fontSize: 13, fontWeight: 600 }}>
             名称
-            <input className="np-input" style={{ marginTop: 6, width: '100%' }} value={name} autoFocus
+            <WbInput className="np-input" style={{ marginTop: 6, width: '100%' }} value={name} autoFocus
               placeholder="如：产品手册库" onChange={(e) => setName(e.target.value)} />
           </label>
           <label style={{ fontSize: 13, fontWeight: 600 }}>
             描述（可选）
-            <input className="np-input" style={{ marginTop: 6, width: '100%' }} value={description}
+            <WbInput className="np-input" style={{ marginTop: 6, width: '100%' }} value={description}
               placeholder="这个知识库放什么资料" onChange={(e) => setDescription(e.target.value)} />
           </label>
           <div style={{ fontSize: 13, fontWeight: 600 }}>
             图标
             <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
               {ICONS.map((ic) => (
-                <button key={ic} type="button"
+                <WbButton key={ic} type="button"
                   className={icon === ic ? 'btn-dark' : 'btn-ghost'}
                   style={{ fontSize: 18, padding: '4px 8px' }}
-                  onClick={() => setIcon(ic)}>{ICON_EMOJI[ic]}</button>
+                  onClick={() => setIcon(ic)}>{ICON_EMOJI[ic]}</WbButton>
               ))}
             </div>
           </div>
         </div>
         <div className="np-foot">
-          <button className="btn-ghost" onClick={props.onClose}>取消</button>
-          <button className="btn-dark" disabled={!name.trim() || props.creating}
+          <WbButton className="btn-ghost" onClick={props.onClose}>取消</WbButton>
+          <WbButton className="btn-dark" disabled={!name.trim() || props.creating}
             onClick={() => props.onCreate({ name: name.trim(), description: description.trim(), icon })}>
             {props.creating ? '创建中…' : '创建'}
-          </button>
+          </WbButton>
         </div>
       </div>
-    </div>
+    </AntModalBridge>
   )
 }

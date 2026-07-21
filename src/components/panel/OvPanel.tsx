@@ -1,3 +1,4 @@
+import { WbButton } from '../ui/Primitives'
 import { useRef, useState } from 'react'
 import type { ChatMessage } from '../../lib/types'
 import { useUIStore } from '../../stores/uiStore'
@@ -116,10 +117,10 @@ export function OvPanel({ open, messages }: { open: boolean; messages: ChatMessa
           <FileViewer path={viewerPath} onClose={closeFile} scope={scope} />
         ) : (
           <>
-            <button ref={ddRef} className="ov-dd" onClick={() => setDdOpen((v) => !v)}>
+            <WbButton ref={ddRef} className="ov-dd" onClick={() => setDdOpen((v) => !v)}>
               <span className="ov-dd-lb">{tab}</span>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg>
-            </button>
+            </WbButton>
             <Popover open={ddOpen} anchor={ddRef.current} dir="down" onClose={() => setDdOpen(false)} minWidth={168}>
               {TABS.map((t) => (
                 <div className="pop-item" key={t.id} onClick={() => { setTab(t.id); setDdOpen(false) }}>

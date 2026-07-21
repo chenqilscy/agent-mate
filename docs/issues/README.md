@@ -257,6 +257,7 @@
 | [WB-238](WB-238-stale-authoritative-docs-cleanup.md) | ✅ | P1 | misc | 权威文档残留过时架构、端口与能力边界，且以勘误掩盖正文冲突 |
 | [WB-239](WB-239-task-delivery-roadmap-epic.md) | 🟡 | P1 | fullstack | AgentMate 功能主线尚未围绕可验收任务交付闭环组织（路线图 epic） |
 | [WB-240](WB-240-home-task-control-center.md) | ✅ | P1 | frontend | 首页只能发起新任务，无法看到真实执行状态与最近交付（WB-239 R0） |
+| [WB-241](WB-241-app-ant-design-migration.md) | ✅ | P1 | frontend | AgentMate App 仍使用手写组件体系，未统一到 Ant Design 6 与 Pro Components |
 | [WB-242](WB-242-run-artifact-delivery-kernel.md) | ⬜ | P1 | fullstack | Session 执行缺少独立 Run 与可验收 Artifact 交付内核（WB-239 R1） |
 
 ## 来源

@@ -1,3 +1,4 @@
+import { WbButton } from '../ui/Primitives'
 // 技能详情页（WB-056 + WB-215）。
 //
 // 已安装：读取本地 SKILL.md/源码/references；未安装：只展示商店卡元数据，不下载技能包。
@@ -108,7 +109,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
   return (
     <div className="cap-pane show">
       <div className="skd-head">
-        <button className="btn-ghost" onClick={onBack}>‹ 技能</button>
+        <WbButton className="btn-ghost" onClick={onBack}>‹ 技能</WbButton>
       </div>
 
       {loading && !data ? (
@@ -131,18 +132,18 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
               {installed ? (
                 <>
                   {data?.update_available && (
-                    <button className="btn-dark" disabled={installing} onClick={doUpgrade}>
+                    <WbButton className="btn-dark" disabled={installing} onClick={doUpgrade}>
                       {installing ? <><IcSpin /> 升级中…</> : `升级${data.catalog_version ? '到 v' + data.catalog_version : ''}`}
-                    </button>
+                    </WbButton>
                   )}
-                  <button className="cap-act" onClick={tryIt}>去试试</button>
+                  <WbButton className="cap-act" onClick={tryIt}>去试试</WbButton>
                   <div
                     className={`sw ${disabled ? '' : 'on'}`.trim()} role="switch" aria-checked={disabled ? 'false' : 'true'}
                     title={disabled ? '已关闭 · 点击启用' : '已启用 · 点击关闭'}
                     onClick={() => toggle(localKey, !disabled)}
                   />
                   <div className="more-wrap" onClick={(e) => e.stopPropagation()}>
-                    <button className="hc-more" aria-label="更多" onClick={() => setMenu((v) => !v)}>⋯</button>
+                    <WbButton className="hc-more" aria-label="更多" onClick={() => setMenu((v) => !v)}>⋯</WbButton>
                     {menu && (
                       <div className="card-menu open skd-menu">
                         <div className="more-item" onClick={reveal}><IcFolder />打开文件夹</div>
@@ -152,9 +153,9 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
                   </div>
                 </>
               ) : (
-                <button className="btn-dark" disabled={installing} onClick={doInstall}>
+                <WbButton className="btn-dark" disabled={installing} onClick={doInstall}>
                   {installing ? <><IcSpin /> 安装中…</> : '安装'}
-                </button>
+                </WbButton>
               )}
             </div>
           </div>
@@ -162,8 +163,8 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
           {data && installed ? (
             <div className="skd-card">
               <div className="skd-viewtoggle">
-                <button className={view === 'preview' ? 'on' : ''} aria-label="预览" title="预览" onClick={() => setView('preview')}><IcEye /></button>
-                <button className={view === 'source' ? 'on' : ''} aria-label="源码" title="源码" onClick={() => setView('source')}><IcCode /></button>
+                <WbButton className={view === 'preview' ? 'on' : ''} aria-label="预览" title="预览" onClick={() => setView('preview')}><IcEye /></WbButton>
+                <WbButton className={view === 'source' ? 'on' : ''} aria-label="源码" title="源码" onClick={() => setView('source')}><IcCode /></WbButton>
               </div>
               {view === 'preview' ? (
                 <div className="skd-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(data.body || data.markdown) }} />

@@ -1,3 +1,4 @@
+import { WbButton } from '../components/ui/Primitives'
 import { useEffect, useRef, useState } from 'react'
 import { AssistantChat } from '../components/channel/AssistantChat'
 import { AssistantSettingsForm } from '../components/channel/AssistantSettingsForm'
@@ -105,7 +106,7 @@ export function AssistantView() {
         <div className="asst-rail">
           <div className="asst-rail-h">
             <b>助理</b>
-            <button className="asst-new" onClick={onCreate}>＋ 新建</button>
+            <WbButton className="asst-new" onClick={onCreate}>＋ 新建</WbButton>
           </div>
           <div className="asst-list">
             {assistants.length === 0 && <div className="asst-empty" style={{ padding: '14px 10px' }}>还没有助理</div>}
@@ -133,7 +134,7 @@ export function AssistantView() {
                 <div className={`asst-tab ${tab === 'settings' ? 'on' : ''}`.trim()} onClick={() => setTab('settings')}>设置</div>
                 <div className={`asst-tab ${tab === 'channels' ? 'on' : ''}`.trim()} onClick={() => setTab('channels')}>渠道</div>
                 <div style={{ flex: 1 }} />
-                <button className="asst-del" onClick={onDelete} title="删除助理">删除</button>
+                <WbButton className="asst-del" onClick={onDelete} title="删除助理">删除</WbButton>
               </div>
               {tab === 'chat' ? (
                 <AssistantChat

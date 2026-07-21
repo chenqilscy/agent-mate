@@ -1,3 +1,4 @@
+import { WbButton, WbInput } from '../components/ui/Primitives'
 import { useEffect, useState } from 'react'
 import { toast } from '../stores/toastStore'
 import { useProjectStore } from '../stores/projectStore'
@@ -32,9 +33,9 @@ export function ProjectsView() {
           <div className="ph-l">
             <h1>项目</h1>
             <div className="sub">多人协同，打造超级团队</div>
-            <button className="btn-line" onClick={() => setModalOpen(true)}>
+            <WbButton className="btn-line" onClick={() => setModalOpen(true)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>新建项目
-            </button>
+            </WbButton>
           </div>
           <svg className="ph-illus" viewBox="0 0 300 150" aria-hidden="true">
             <rect width="300" height="150" rx="12" fill="#F4FAF7" />
@@ -50,7 +51,7 @@ export function ProjectsView() {
           <div className="sec-title">我的项目</div>
           <div className="search-box">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-            <input placeholder="搜索项目" />
+            <WbInput placeholder="搜索项目" />
           </div>
         </div>
         <div id="myProjList">

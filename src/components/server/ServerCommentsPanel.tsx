@@ -1,3 +1,4 @@
+import { WbButton, WbInput } from '../ui/Primitives'
 // 项目讨论面板（WB-067 Slice 2）：在线成员 + 评论 + @提及，全走本地 backend 代理到 Server。
 // v1 传输 = REST + 15s 轮询（无 WebSocket，见 WB-065 决策）。
 // 三态：未接入 Server（AGENTMATE_SERVER_URL 空）→ 本地模式提示；已接入未登录 → 连接引导；已登录 → 讨论。
@@ -72,7 +73,7 @@ export function ServerCommentsPanel({ projectId }: { projectId: string }) {
       <>
         <div className="pj-empty">连接 AgentMate Server 账号后，即可在此与项目成员讨论、@提及、看谁在线。</div>
         <div style={{ textAlign: 'center', marginTop: 12 }}>
-          <button className="btn-dark" onClick={() => setConnectOpen(true)}>连接 AgentMate Server</button>
+          <WbButton className="btn-dark" onClick={() => setConnectOpen(true)}>连接 AgentMate Server</WbButton>
         </div>
         {connectOpen && <ServerConnectModal onClose={() => { setConnectOpen(false); void refreshStatus() }} />}
       </>
@@ -83,7 +84,7 @@ export function ServerCommentsPanel({ projectId }: { projectId: string }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
         <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>🟢 已连接 AgentMate Server · {linked?.name}</span>
-        <button className="btn-line" style={{ marginLeft: 'auto', marginTop: 0, height: 28, padding: '0 12px' }} onClick={() => setConnectOpen(true)}>管理</button>
+        <WbButton className="btn-line" style={{ marginLeft: 'auto', marginTop: 0, height: 28, padding: '0 12px' }} onClick={() => setConnectOpen(true)}>管理</WbButton>
       </div>
 
       {presence.length > 0 && (
@@ -99,9 +100,9 @@ export function ServerCommentsPanel({ projectId }: { projectId: string }) {
       )}
 
       <div className="cap-cmt-box" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <input className="np-input" style={{ flex: 1 }} value={draft} placeholder="写条评论…用 @用户名 提及成员"
+        <WbInput className="np-input" style={{ flex: 1 }} value={draft} placeholder="写条评论…用 @用户名 提及成员"
           onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} />
-        <button className="btn-dark" disabled={!draft.trim() || sending} onClick={send}>发送</button>
+        <WbButton className="btn-dark" disabled={!draft.trim() || sending} onClick={send}>发送</WbButton>
       </div>
 
       {comments.length === 0 ? (

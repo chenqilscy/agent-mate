@@ -1,3 +1,4 @@
+import { WbButton, WbInput } from '../components/ui/Primitives'
 import { useState } from 'react'
 import { toast } from '../stores/toastStore'
 
@@ -30,7 +31,7 @@ export function MyFilesView() {
               </div>
               <div className="search-box" style={{ margin: 0, width: 260 }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-                <input placeholder="搜索文件、任务或工作空间" />
+                <WbInput placeholder="搜索文件、任务或工作空间" />
               </div>
               <label className={`mf-check ${fav ? 'on' : ''}`.trim()} onClick={() => setFav((v) => !v)}>
                 <span className="bx">✓</span>我的收藏
@@ -45,12 +46,12 @@ export function MyFilesView() {
         {tab === 'cloud' && (
           <div>
             <div className="mf-filter">
-              <button className="cap-act" onClick={() => toast('新建文件夹')}>新建文件夹</button>
-              <button className="cap-act" onClick={() => toast('上传文件')}>上传文件</button>
+              <WbButton className="cap-act" onClick={() => toast('新建文件夹')}>新建文件夹</WbButton>
+              <WbButton className="cap-act" onClick={() => toast('上传文件')}>上传文件</WbButton>
               <span className="mf-store">存储空间已用 880.1 KB / 5.00 GB <i title="存储说明">ⓘ</i></span>
               <span style={{ flex: 1 }} />
               <div className="search-box" style={{ margin: 0, width: 200 }}>
-                <input placeholder="搜索文件或文件夹..." />
+                <WbInput placeholder="搜索文件或文件夹..." />
               </div>
             </div>
             <div className="mf-crumb"><span>云端网盘</span>/<span>配置文件</span>/<b>2072364915794640896</b></div>

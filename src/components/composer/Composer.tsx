@@ -1,3 +1,4 @@
+import { WbButton, WbInput, WbTextArea } from '../ui/Primitives'
 import { useEffect, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useLoadoutStore } from '../../stores/loadoutStore'
@@ -177,7 +178,7 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
           })}
         </div>
       )}
-      <textarea
+      <WbTextArea
         ref={taRef}
         rows={1}
         autoFocus={autoFocus}
@@ -191,7 +192,7 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
           }
         }}
       />
-      <input ref={fileRef} type="file" hidden onChange={onFileChosen} />
+      <WbInput ref={fileRef} type="file" hidden onChange={onFileChosen} />
       {picker && (
         <PickerOverlay
           kind={picker}
@@ -202,20 +203,20 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
       )}
       {refOpen && <RefPicker scope={scope} onClose={() => setRefOpen(false)} />}
       <div className="cbar">
-        <button className="cicon plusbtn" aria-label="添加" onClick={(e) => openPop('plusx', e)}>
+        <WbButton className="cicon plusbtn" aria-label="添加" onClick={(e) => openPop('plusx', e)}>
           {pop === 'plusx' ? <IcClose /> : <IcPlus />}
-        </button>
+        </WbButton>
 
         {variant === 'chat' && (
-          <button className="ctool" onClick={(e) => openPop('perm', e)}>
+          <WbButton className="ctool" onClick={(e) => openPop('perm', e)}>
             <IcShield style={{ width: 14, height: 14 }} />
             <span className="perm-lb">{perm}</span>
             <IcChevronDown style={{ width: 10, height: 10 }} />
-          </button>
+          </WbButton>
         )}
 
         {variant === 'chat' && (
-          <button
+          <WbButton
             className="ctool"
             style={planMode ? { borderColor: 'var(--brand)', color: 'var(--brand-600)' } : undefined}
             title="计划模式：只规划不执行，用提问卡与你确认关键决策"
@@ -223,24 +224,24 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 13, height: 13 }}><rect x="6" y="4" width="12" height="16" rx="2" /><path d="M9 4h6M9 10h6M9 14h4" /></svg>
             {planMode ? 'Plan' : '执行'}
-          </button>
+          </WbButton>
         )}
 
         <div className="sp" />
 
         {variant === 'chat' && (
-          <button className="cicon" aria-label="上下文用量" onClick={(e) => openPop('ctx', e)}>
+          <WbButton className="cicon" aria-label="上下文用量" onClick={(e) => openPop('ctx', e)}>
             <span className="ringc" />
-          </button>
+          </WbButton>
         )}
 
-        <button className="ctool model" onClick={(e) => openPop('model', e)}>
+        <WbButton className="ctool model" onClick={(e) => openPop('model', e)}>
           <span className="mk">🐋</span>
           <span className="model-lb">{modelLabel}</span>
           <IcChevronDown style={{ width: 10, height: 10 }} />
-        </button>
+        </WbButton>
 
-        <button
+        <WbButton
           className={`cicon mic${voice.state === 'recording' ? ' rec' : ''}${voice.state === 'transcribing' ? ' busy' : ''}`}
           aria-label={voice.state === 'recording' ? '松开结束录音' : '按住说话'}
           title={voice.available === false ? '语音输入不可用（后端未安装 faster-whisper）' : voice.state === 'transcribing' ? '转写中…' : '按住说话，松开转写'}
@@ -252,16 +253,16 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
           onContextMenu={(e) => e.preventDefault()}
         >
           <IcMic />
-        </button>
+        </WbButton>
 
         {streaming ? (
-          <button className="cstop" aria-label="停止" onClick={onStop}>
+          <WbButton className="cstop" aria-label="停止" onClick={onStop}>
             <span className="sq" />
-          </button>
+          </WbButton>
         ) : (
-          <button className="csend" aria-label="发送" disabled={!text.trim()} onClick={submit}>
+          <WbButton className="csend" aria-label="发送" disabled={!text.trim()} onClick={submit}>
             <IcSend />
-          </button>
+          </WbButton>
         )}
       </div>
 

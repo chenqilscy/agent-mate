@@ -1,8 +1,10 @@
+import { WbButton, WbInput, WbSelect } from '../ui/Primitives'
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import type { ProjectInfo, ProjectMember } from '../../lib/types'
 import { useAuthStore } from '../../stores/authStore'
 import { toast } from '../../stores/toastStore'
+import { AntModalBridge } from '../ui/AntModalBridge'
 
 // Project members & roles (M7 C2). Owner/Admin can invite by username, change a
 // member's role, and remove members; everyone else sees the roster read-only and
@@ -90,24 +92,24 @@ export function MembersModal({ project, onClose, onLeft }: {
   }
 
   return (
-    <div className="np-overlay open" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <AntModalBridge onClose={onClose}>
       <div className="np-modal members-modal" role="dialog" aria-modal="true" aria-label="项目成员">
-        <div className="np-h">项目成员<button className="np-x" onClick={onClose}>×</button></div>
+        <div className="np-h">项目成员<WbButton className="np-x" onClick={onClose}>×</WbButton></div>
 
         <div className="np-body">
           {canManage && (
             <>
               <div className="np-lbl">邀请成员（按用户名）</div>
               <div className="mm-add">
-                <input
+                <WbInput
                   className="np-input" value={name} placeholder="对方的用户名"
                   onChange={(e) => setName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') void add() }}
                 />
-                <select className="mm-role-sel" value={role} onChange={(e) => setRole(e.target.value)} aria-label="角色">
+                <WbSelect className="mm-role-sel" value={role} onChange={(e) => setRole(e.target.value)} aria-label="角色">
                   {ASSIGNABLE.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-                </select>
-                <button className="btn-dark" disabled={!name.trim() || busy} onClick={add}>添加</button>
+                </WbSelect>
+                <WbButton className="btn-dark" disabled={!name.trim() || busy} onClick={add}>添加</WbButton>
               </div>
             </>
           )}
@@ -124,13 +126,13 @@ export function MembersModal({ project, onClose, onLeft }: {
                 </div>
                 {canManage && !m.is_owner ? (
                   <>
-                    <select
+                    <WbSelect
                       className="mm-role-sel" value={m.role}
                       onChange={(e) => changeRole(m.user_id, e.target.value)} aria-label={`${m.name} 的角色`}
                     >
                       {ASSIGNABLE.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-                    </select>
-                    <button className="mm-x" title="移除" onClick={() => remove(m)}>×</button>
+                    </WbSelect>
+                    <WbButton className="mm-x" title="移除" onClick={() => remove(m)}>×</WbButton>
                   </>
                 ) : (
                   <span className="mm-badge">{m.is_owner ? ROLE_LABEL.Owner : ROLE_LABEL[m.role] || m.role}</span>
@@ -141,11 +143,11 @@ export function MembersModal({ project, onClose, onLeft }: {
         </div>
 
         <div className="np-foot">
-          {canLeave && <button className="btn-ghost danger-b" onClick={leaveSelf}>退出项目</button>}
+          {canLeave && <WbButton className="btn-ghost danger-b" onClick={leaveSelf}>退出项目</WbButton>}
           <span className="np-hint" style={{ marginLeft: canLeave ? 0 : 'auto' }} />
-          <button className="btn-ghost" onClick={onClose}>关闭</button>
+          <WbButton className="btn-ghost" onClick={onClose}>关闭</WbButton>
         </div>
       </div>
-    </div>
+    </AntModalBridge>
   )
 }

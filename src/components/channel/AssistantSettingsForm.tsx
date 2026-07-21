@@ -1,3 +1,4 @@
+import { WbButton, WbInput, WbTextArea, WbSelect } from '../ui/Primitives'
 import { useEffect, useState } from 'react'
 import { api, type Assistant, type AssistantMode } from '../../lib/api'
 import type { ProjectInfo } from '../../lib/types'
@@ -66,7 +67,7 @@ export function AssistantSettingsForm({ assistant, onSaved }: {
       {arr.map((n) => (
         <span className="np-chip" key={n} title={n}><span className="np-lbl">{kind === 'skill' ? skillDisplayName(n) : n}</span><span className="x" onClick={() => toggle(kind, n)}>×</span></span>
       ))}
-      <button className="asst-addchip" onClick={() => setPicker(kind)}>＋ 编辑</button>
+      <WbButton className="asst-addchip" onClick={() => setPicker(kind)}>＋ 编辑</WbButton>
     </div>
   )
 
@@ -74,35 +75,35 @@ export function AssistantSettingsForm({ assistant, onSaved }: {
     <div className="asst-form">
       <div className="np-lbl">头像与名字</div>
       <div style={{ display: 'flex', gap: 10 }}>
-        <input className="np-input" style={{ width: 60, textAlign: 'center', flexShrink: 0 }} value={avatar} onChange={(e) => setAvatar(e.target.value)} maxLength={4} aria-label="头像 emoji" />
-        <input className="np-input" style={{ flex: 1 }} value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="助理名字" />
+        <WbInput className="np-input" style={{ width: 60, textAlign: 'center', flexShrink: 0 }} value={avatar} onChange={(e) => setAvatar(e.target.value)} maxLength={4} aria-label="头像 emoji" />
+        <WbInput className="np-input" style={{ flex: 1 }} value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="助理名字" />
       </div>
 
       <div className="np-lbl">指令 / 人格<small className="asst-hint">注入系统提示，决定它怎么回答</small></div>
-      <textarea className="np-ta" value={instruction} onChange={(e) => setInstruction(e.target.value)} maxLength={8000} placeholder="如：语气简洁、条列作答、结论先行。留空则用默认风格。" />
+      <WbTextArea className="np-ta" value={instruction} onChange={(e) => setInstruction(e.target.value)} maxLength={8000} placeholder="如：语气简洁、条列作答、结论先行。留空则用默认风格。" />
 
       <div className="np-lbl">大模型<small className="asst-hint">留空跟随后端默认</small></div>
-      <input className="np-input" value={model} onChange={(e) => setModel(e.target.value)} maxLength={120} placeholder="如：deepseek-chat" />
+      <WbInput className="np-input" value={model} onChange={(e) => setModel(e.target.value)} maxLength={120} placeholder="如：deepseek-chat" />
 
       <div className="np-lbl">权限</div>
       <div className="asst-seg">
         {MODES.map((m) => (
-          <button key={m.v} className={mode === m.v ? 'on' : ''} title={m.hint} onClick={() => setMode(m.v)}>{m.label}</button>
+          <WbButton key={m.v} className={mode === m.v ? 'on' : ''} title={m.hint} onClick={() => setMode(m.v)}>{m.label}</WbButton>
         ))}
       </div>
       <div className="asst-hint2">{MODES.find((m) => m.v === mode)?.hint}</div>
 
       <div className="np-lbl">工作空间</div>
       <div className="asst-seg">
-        <button className={wsKind === 'default' ? 'on' : ''} onClick={() => setWsKind('default')}>默认</button>
-        <button className={wsKind === 'dedicated' ? 'on' : ''} onClick={() => setWsKind('dedicated')}>专属</button>
-        <button className={wsKind === 'project' ? 'on' : ''} onClick={() => setWsKind('project')}>项目</button>
+        <WbButton className={wsKind === 'default' ? 'on' : ''} onClick={() => setWsKind('default')}>默认</WbButton>
+        <WbButton className={wsKind === 'dedicated' ? 'on' : ''} onClick={() => setWsKind('dedicated')}>专属</WbButton>
+        <WbButton className={wsKind === 'project' ? 'on' : ''} onClick={() => setWsKind('project')}>项目</WbButton>
       </div>
       {wsKind === 'project' && (
-        <select className="np-input" style={{ marginTop: 8 }} value={wsProject} onChange={(e) => setWsProject(e.target.value)}>
+        <WbSelect className="np-input" style={{ marginTop: 8 }} value={wsProject} onChange={(e) => setWsProject(e.target.value)}>
           <option value="">选择项目…</option>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        </WbSelect>
       )}
       <div className="asst-hint2">{wsKind === 'default' ? '共享默认工作区' : wsKind === 'dedicated' ? '本助理专属工作区（workspace/assistants/<id>）' : '复用所选项目的工作区'}</div>
 
@@ -111,7 +112,7 @@ export function AssistantSettingsForm({ assistant, onSaved }: {
       <div className="np-lbl">连接器</div>{chips('conn', connectors)}
 
       <div style={{ marginTop: 18 }}>
-        <button className="btn-dark" disabled={!name.trim() || busy} onClick={save}>保存设置</button>
+        <WbButton className="btn-dark" disabled={!name.trim() || busy} onClick={save}>保存设置</WbButton>
       </div>
 
       {picker && (

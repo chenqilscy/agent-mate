@@ -1,3 +1,4 @@
+import { WbButton, WbInput } from '../ui/Primitives'
 // 连接 Server 弹窗（WB-067 Slice 2）：登录/注册到中心服务，之后以 Server 账号身份协作。
 // 已连接则展示账号 + 导入本地项目到 Server + 团队通知 + 断开。
 // 视觉零重设计：复用 LoginModal / MessageCenter 的 .np-* / .msg-* / .btn-* 类，暗色天然继承；
@@ -6,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import { useServerStore } from '../../stores/serverStore'
 import { toast } from '../../stores/toastStore'
+import { AntModalBridge } from '../ui/AntModalBridge'
 
 type Notif = { id: string; title: string; body: string; created_at: number; read: number }
 
@@ -48,9 +50,9 @@ export function ServerConnectModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="np-overlay open" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <AntModalBridge onClose={onClose} closeOnMask={!busy}>
       <div className="np-modal auth-modal" role="dialog" aria-modal="true" aria-label="连接 AgentMate Server">
-        <div className="np-h">连接 AgentMate Server<button className="np-x" onClick={onClose}>×</button></div>
+        <div className="np-h">连接 AgentMate Server<WbButton className="np-x" onClick={onClose}>×</WbButton></div>
 
         {linked ? (
           <>
@@ -74,9 +76,9 @@ export function ServerConnectModal({ onClose }: { onClose: () => void }) {
               )}
             </div>
             <div className="np-foot">
-              <button className="btn-ghost" onClick={markRead}>标记已读</button>
-              <button className="btn-ghost" onClick={doImport}>导入本地项目</button>
-              <button className="btn-ghost danger-b" onClick={() => { disconnect(); toast('已断开 Server'); onClose() }}>断开</button>
+              <WbButton className="btn-ghost" onClick={markRead}>标记已读</WbButton>
+              <WbButton className="btn-ghost" onClick={doImport}>导入本地项目</WbButton>
+              <WbButton className="btn-ghost danger-b" onClick={() => { disconnect(); toast('已断开 Server'); onClose() }}>断开</WbButton>
             </div>
           </>
         ) : (
@@ -87,19 +89,19 @@ export function ServerConnectModal({ onClose }: { onClose: () => void }) {
                 <div className={`subtab ${mode === 'register' ? 'active' : ''}`.trim()} onClick={() => setMode('register')}>注册</div>
               </div>
               <div className="np-lbl">AgentMate Server 用户名</div>
-              <input className="np-input" value={name} autoFocus placeholder="你的 Server 用户名" onChange={(e) => setName(e.target.value)} onKeyDown={onKey} />
+              <WbInput className="np-input" value={name} autoFocus placeholder="你的 Server 用户名" onChange={(e) => setName(e.target.value)} onKeyDown={onKey} />
               <div className="np-lbl">密码</div>
-              <input className="np-input" type="password" value={password} placeholder={mode === 'register' ? '至少 4 位' : '密码'} onChange={(e) => setPassword(e.target.value)} onKeyDown={onKey} />
+              <WbInput className="np-input" type="password" value={password} placeholder={mode === 'register' ? '至少 4 位' : '密码'} onChange={(e) => setPassword(e.target.value)} onKeyDown={onKey} />
               <div className="auth-switch">连接后以 Server 账号身份协作；不连接则一切照常本地运行。</div>
             </div>
             <div className="np-foot">
               <span className="np-hint">中心服务 · 团队协作</span>
-              <button className="btn-ghost" onClick={onClose}>取消</button>
-              <button className="btn-dark" disabled={!name.trim() || password.length < 4 || busy} onClick={submit}>{busy ? '连接中…' : mode === 'login' ? '登录并连接' : '注册并连接'}</button>
+              <WbButton className="btn-ghost" onClick={onClose}>取消</WbButton>
+              <WbButton className="btn-dark" disabled={!name.trim() || password.length < 4 || busy} onClick={submit}>{busy ? '连接中…' : mode === 'login' ? '登录并连接' : '注册并连接'}</WbButton>
             </div>
           </>
         )}
       </div>
-    </div>
+    </AntModalBridge>
   )
 }

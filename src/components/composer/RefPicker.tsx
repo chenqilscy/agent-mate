@@ -1,7 +1,9 @@
+import { WbButton, WbInput } from '../ui/Primitives'
 import { useEffect, useState } from 'react'
 import { api, type FileEntry } from '../../lib/api'
 import { useLoadoutStore } from '../../stores/loadoutStore'
 import { toast } from '../../stores/toastStore'
+import { AntModalBridge } from '../ui/AntModalBridge'
 
 // "引用对话中的文件": pick a file from the current session/project workspace and
 // attach its content to the next message. Content is fetched real from
@@ -53,15 +55,15 @@ export function RefPicker({ scope, onClose }: { scope: Scope; onClose: () => voi
   const shown = (files ?? []).filter((f) => f.path.toLowerCase().includes(q.trim().toLowerCase()))
 
   return (
-    <div className="np-overlay open" style={{ zIndex: 160 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <AntModalBridge onClose={onClose} zIndex={160}>
       <div className="np-modal pk-modal mid" role="dialog" aria-modal="true" aria-label="引用对话中的文件">
         <div className="np-h">
           引用对话中的文件
           <div className="search-box" style={{ marginLeft: 'auto', width: 220 }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-            <input placeholder="搜索文件…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+            <WbInput placeholder="搜索文件…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
           </div>
-          <button className="np-x" onClick={onClose}>×</button>
+          <WbButton className="np-x" onClick={onClose}>×</WbButton>
         </div>
         <div className="np-body" style={{ paddingTop: 2, minHeight: 120 }}>
           {files === null && <div className="rp-empty">加载中…</div>}
@@ -80,6 +82,6 @@ export function RefPicker({ scope, onClose }: { scope: Scope; onClose: () => voi
           ))}
         </div>
       </div>
-    </div>
+    </AntModalBridge>
   )
 }

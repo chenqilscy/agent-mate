@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Popover as AntPopover } from 'antd'
+import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react'
 
 interface PopoverProps {
   open: boolean
@@ -14,23 +15,25 @@ interface PopoverProps {
 // (default, for composer bars) or below the anchor, clamped to the viewport.
 // Replaces the prototype's hand-rolled buildPop/openSubAt positioning.
 export function Popover({ open, anchor, dir = 'up', onClose, className = '', minWidth, children }: PopoverProps) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number }>({ left: -9999 })
+  const [rect, setRect] = useState<DOMRect | null>(null)
 
   useLayoutEffect(() => {
-    if (!open || !anchor || !ref.current) return
-    const r = anchor.getBoundingClientRect()
-    const w = ref.current.offsetWidth
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 12))
-    if (dir === 'down') setPos({ left, top: r.bottom + 8 })
-    else setPos({ left, bottom: window.innerHeight - r.top + 8 })
-  }, [open, anchor, dir, children])
+    if (!open || !anchor) return
+    const update = () => setRect(anchor.getBoundingClientRect())
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [open, anchor])
 
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node
-      if (ref.current?.contains(t)) return
+      if ((t as HTMLElement).closest?.('.wb-ant-popover')) return
       if (anchor?.contains(t)) return
       onClose()
     }
@@ -45,15 +48,34 @@ export function Popover({ open, anchor, dir = 'up', onClose, className = '', min
     }
   }, [open, anchor, onClose])
 
-  if (!open) return null
+  if (!open || !anchor || !rect) return null
   return (
-    <div
-      ref={ref}
-      className={`pop open ${className}`.trim()}
-      role="menu"
-      style={{ left: pos.left, top: pos.top, bottom: pos.bottom, minWidth }}
+    <AntPopover
+      open
+      arrow={false}
+      placement={dir === 'down' ? 'bottomLeft' : 'topLeft'}
+      trigger={[]}
+      onOpenChange={(next) => { if (!next) onClose() }}
+      getPopupContainer={() => document.body}
+      rootClassName="wb-ant-popover"
+      content={(
+        <div className={`pop open ${className}`.trim()} role="menu" style={{ minWidth }}>
+          {children}
+        </div>
+      )}
     >
-      {children}
-    </div>
+      <span
+        aria-hidden="true"
+        className="wb-ant-popover-anchor"
+        style={{
+          position: 'fixed',
+          left: rect.left,
+          top: dir === 'down' ? rect.bottom : rect.top,
+          width: Math.max(1, rect.width),
+          height: 1,
+          pointerEvents: 'none',
+        }}
+      />
+    </AntPopover>
   )
 }

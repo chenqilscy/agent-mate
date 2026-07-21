@@ -1,3 +1,4 @@
+import { WbButton } from '../components/ui/Primitives'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Composer } from '../components/composer/Composer'
 import { useChatStore } from '../stores/chatStore'
@@ -185,7 +186,7 @@ export function HomeView() {
             </svg>
             <Composer variant="home" onSend={launch} autoFocus />
             <div className="ctray">
-              <button
+              <WbButton
                 className="tray-chip"
                 ref={wsAnchor}
                 onClick={() => setPop((c) => (c === 'ws' ? null : 'ws'))}
@@ -193,8 +194,8 @@ export function HomeView() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
                 {selName ?? '选择工作空间'}
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 10, height: 10 }}><path d="M6 9l6 6 6-6" /></svg>
-              </button>
-              <button
+              </WbButton>
+              <WbButton
                 className="tray-chip"
                 ref={permAnchor}
                 onClick={() => setPop((c) => (c === 'perm' ? null : 'perm'))}
@@ -202,7 +203,7 @@ export function HomeView() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><circle cx="12" cy="12" r="9" /><path d="M8.5 12l2.5 2.5 4.5-5" /></svg>
                 {perm}
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 10, height: 10 }}><path d="M6 9l6 6 6-6" /></svg>
-              </button>
+              </WbButton>
             </div>
             <Popover open={pop === 'ws'} anchor={wsAnchor.current} dir="down" onClose={() => setPop(null)} minWidth={220}>
               <div className="pop-item" onClick={() => { setSelProject(null); setPop(null) }}>
@@ -226,7 +227,7 @@ export function HomeView() {
                 <b>任务进展</b>
                 <span>从真实会话与执行记录汇总</span>
               </div>
-              <button onClick={() => setView('projects')}>查看项目</button>
+              <WbButton onClick={() => setView('projects')}>查看项目</WbButton>
             </div>
             <div className="home-metrics">
               <div className="home-metric">
@@ -248,28 +249,28 @@ export function HomeView() {
                 {attentionRuns.length > 0 ? attentionRuns.map((session) => {
                   const state = runState(session)
                   return (
-                    <button className="home-run" key={session.id} onClick={() => void openRun(session)}>
+                    <WbButton className="home-run" key={session.id} onClick={() => void openRun(session)}>
                       <span className={`home-run-dot ${state.tone}`} />
                       <span className="home-run-body">
                         <b>{session.title}</b>
                         <small>{state.label} · {session.ago ?? '刚刚'}</small>
                       </span>
                       <span className="home-run-arrow">›</span>
-                    </button>
+                    </WbButton>
                   )
                 }) : <div className="home-empty">当前没有执行中、等待输入或近期失败的任务</div>}
               </div>
               <div className="home-run-group">
                 <h2>最近交付</h2>
                 {deliveriesLoading ? <div className="home-empty">正在核对最近会话的真实文件变更…</div> : deliveries.length > 0 ? deliveries.map(({ session, files }) => (
-                  <button className="home-run" key={session.id} onClick={() => void openRun(session)}>
+                  <WbButton className="home-run" key={session.id} onClick={() => void openRun(session)}>
                     <span className="home-file-icon">📄</span>
                     <span className="home-run-body">
                       <b>{session.title}</b>
                       <small>{files.slice(0, 2).map(fileName).join('、')}{files.length > 2 ? ` 等 ${files.length} 个文件` : ''}</small>
                     </span>
                     <span className="home-run-arrow">›</span>
-                  </button>
+                  </WbButton>
                 )) : <div className="home-empty">最近完成的会话还没有产生文件交付</div>}
               </div>
             </div>

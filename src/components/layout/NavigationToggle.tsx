@@ -1,3 +1,4 @@
+import { WbButton } from '../ui/Primitives'
 import { useUIStore } from '../../stores/uiStore'
 
 // The full-width menubar is intentionally gone. This edge handle only appears
@@ -15,11 +16,11 @@ export function NavigationToggle() {
   }
 
   return (
-    <button className="shell-nav-toggle" aria-label="打开侧栏" onClick={openSidebar}>
+    <WbButton className="shell-nav-toggle" aria-label="打开侧栏" onClick={openSidebar}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <rect x="3" y="4" width="18" height="16" rx="2" />
         <path d="M9 4v16M13 9l3 3-3 3" />
       </svg>
-    </button>
+    </WbButton>
   )
 }

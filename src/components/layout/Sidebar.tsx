@@ -1,3 +1,4 @@
+import { WbButton, WbInput } from '../ui/Primitives'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useUIStore } from '../../stores/uiStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -225,14 +226,14 @@ export function Sidebar() {
           {filterOpen && (
             <div className="sb-fmenu">
               {([['all', '全部'], ['running', '进行中']] as const).map(([v, label]) => (
-                <button
+                <WbButton
                   key={v}
                   type="button"
                   className={`more-item ${filter === v ? 'sel' : ''}`.trim()}
                   onClick={() => { setFilter(v); setFilterOpen(false) }}
                 >
                   {label}
-                </button>
+                </WbButton>
               ))}
             </div>
           )}
@@ -242,7 +243,7 @@ export function Sidebar() {
       {searchOpen && (
         <div className="sb-search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-          <input
+          <WbInput
             ref={searchRef}
             value={query}
             placeholder="搜索任务 / 空间"
@@ -251,9 +252,9 @@ export function Sidebar() {
             onKeyDown={(e) => { if (e.key === 'Escape') { setQuery(''); setSearchOpen(false) } }}
           />
           {query && (
-            <button type="button" className="sb-scl" aria-label="清空搜索" onClick={() => { setQuery(''); searchRef.current?.focus() }}>
+            <WbButton type="button" className="sb-scl" aria-label="清空搜索" onClick={() => { setQuery(''); searchRef.current?.focus() }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 6l12 12M18 6L6 18" /></svg>
-            </button>
+            </WbButton>
           )}
         </div>
       )}

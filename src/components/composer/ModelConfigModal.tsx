@@ -1,8 +1,10 @@
+import { WbButton, WbInput } from '../ui/Primitives'
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import type { ModelMeta, ModelOption, Provider } from '../../lib/types'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
+import { AntModalBridge } from '../ui/AntModalBridge'
 
 // 模型管理（WB-128/129/132）。内置厂商渠道（填一次 Key 即启用，Base URL 可改、可在线拉取真实模型）
 // + 自定义模型兜底；每个模型可记「能力(模态/工具/推理)+成本」为 Auto 铺路。Key 只写不回读（铁律#4）。
@@ -219,21 +221,21 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
     <div className="mc-metaed">
       <div className="mc-caprow">
         {CAPS.map((c) => (
-          <button key={c.k} className={`mc-capchip ${metaDraft.caps.includes(c.k) ? 'on' : ''}`.trim()} onClick={() => toggleCap(c.k)}>{c.icon} {c.label}</button>
+          <WbButton key={c.k} className={`mc-capchip ${metaDraft.caps.includes(c.k) ? 'on' : ''}`.trim()} onClick={() => toggleCap(c.k)}>{c.icon} {c.label}</WbButton>
         ))}
       </div>
       <div className="mc-costrow">
-        <input className="np-input" inputMode="decimal" placeholder="输入价/百万tok" value={metaDraft.input} onChange={(e) => setMetaDraft((d) => ({ ...d, input: e.target.value }))} />
-        <input className="np-input" inputMode="decimal" placeholder="缓存命中输入价" value={metaDraft.cached} onChange={(e) => setMetaDraft((d) => ({ ...d, cached: e.target.value }))} />
-        <input className="np-input" inputMode="decimal" placeholder="输出价/百万tok" value={metaDraft.output} onChange={(e) => setMetaDraft((d) => ({ ...d, output: e.target.value }))} />
+        <WbInput className="np-input" inputMode="decimal" placeholder="输入价/百万tok" value={metaDraft.input} onChange={(e) => setMetaDraft((d) => ({ ...d, input: e.target.value }))} />
+        <WbInput className="np-input" inputMode="decimal" placeholder="缓存命中输入价" value={metaDraft.cached} onChange={(e) => setMetaDraft((d) => ({ ...d, cached: e.target.value }))} />
+        <WbInput className="np-input" inputMode="decimal" placeholder="输出价/百万tok" value={metaDraft.output} onChange={(e) => setMetaDraft((d) => ({ ...d, output: e.target.value }))} />
       </div>
       <div className="mc-costrow">
-        <input className="np-input" inputMode="numeric" placeholder="上下文 tokens" value={metaDraft.ctx} onChange={(e) => setMetaDraft((d) => ({ ...d, ctx: e.target.value }))} />
-        <input className="np-input" style={{ maxWidth: 96 }} placeholder="币种 ¥/$" maxLength={8} value={metaDraft.currency} onChange={(e) => setMetaDraft((d) => ({ ...d, currency: e.target.value }))} />
+        <WbInput className="np-input" inputMode="numeric" placeholder="上下文 tokens" value={metaDraft.ctx} onChange={(e) => setMetaDraft((d) => ({ ...d, ctx: e.target.value }))} />
+        <WbInput className="np-input" style={{ maxWidth: 96 }} placeholder="币种 ¥/$" maxLength={8} value={metaDraft.currency} onChange={(e) => setMetaDraft((d) => ({ ...d, currency: e.target.value }))} />
       </div>
       <div className="mc-fbtns">
-        <button className="btn-ghost" disabled={busy} onClick={() => resetMeta(ref)}>恢复默认</button>
-        <button className="btn-dark" disabled={busy} onClick={() => saveMeta(ref)}>保存能力/成本</button>
+        <WbButton className="btn-ghost" disabled={busy} onClick={() => resetMeta(ref)}>恢复默认</WbButton>
+        <WbButton className="btn-dark" disabled={busy} onClick={() => saveMeta(ref)}>保存能力/成本</WbButton>
       </div>
     </div>
   )
@@ -257,25 +259,25 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
                 {open && (
                   <div className="mc-provbody">
                     <div className="mc-keyrow">
-                      <input
+                      <WbInput
                         className="np-input" type="password" autoComplete="off"
                         placeholder={p.has_key ? '已配置，输入新 Key 覆盖（留空不改）' : `API Key，如 ${p.key_hint}`}
                         value={keyDraft[p.id] ?? ''} onChange={(e) => setKeyDraft({ ...keyDraft, [p.id]: e.target.value })}
                       />
-                      <button className="btn-dark" disabled={busy || (!(keyDraft[p.id] ?? '').trim() && p.has_key)} onClick={() => saveKey(p)}>保存</button>
-                      {p.has_key && <button className="btn-ghost danger-b" disabled={busy} onClick={() => clearKey(p)}>撤销</button>}
+                      <WbButton className="btn-dark" disabled={busy || (!(keyDraft[p.id] ?? '').trim() && p.has_key)} onClick={() => saveKey(p)}>保存</WbButton>
+                      {p.has_key && <WbButton className="btn-ghost danger-b" disabled={busy} onClick={() => clearKey(p)}>撤销</WbButton>}
                     </div>
                     <div className="mc-cfg">
                       <div className="mc-cfglbl">接入地址（可改成你的实际网关/代理）<a href={p.site} target="_blank" rel="noreferrer">获取 Key ↗</a></div>
                       <div className="mc-frow">
-                        <input className="np-input" style={{ flex: 1 }} placeholder="Base URL，如 https://api.deepseek.com/v1" value={cfgOf(p)} onChange={(e) => setCfgDraft({ ...cfgDraft, [p.id]: e.target.value })} />
-                        <button className="btn-dark" disabled={busy} onClick={() => saveCfg(p)}>保存地址</button>
-                        {overridden(p) && <button className="btn-ghost" disabled={busy} onClick={() => resetCfg(p)}>恢复默认</button>}
+                        <WbInput className="np-input" style={{ flex: 1 }} placeholder="Base URL，如 https://api.deepseek.com/v1" value={cfgOf(p)} onChange={(e) => setCfgDraft({ ...cfgDraft, [p.id]: e.target.value })} />
+                        <WbButton className="btn-dark" disabled={busy} onClick={() => saveCfg(p)}>保存地址</WbButton>
+                        {overridden(p) && <WbButton className="btn-ghost" disabled={busy} onClick={() => resetCfg(p)}>恢复默认</WbButton>}
                       </div>
                     </div>
                     <div className="mc-modhd">
                       <span>模型</span>
-                      <button className="mc-act" disabled={!p.has_key || busy} onClick={() => fetchModels(p)} title={!p.has_key ? '先填 API Key' : '从厂商在线列举真实模型'}>↻ 拉取最新</button>
+                      <WbButton className="mc-act" disabled={!p.has_key || busy} onClick={() => fetchModels(p)} title={!p.has_key ? '先填 API Key' : '从厂商在线列举真实模型'}>↻ 拉取最新</WbButton>
                     </div>
                     <div className="mc-modlist">
                       {p.models.filter((m) => !m.hidden).map((m) => {
@@ -285,9 +287,9 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
                             <div className="mc-mod">
                               <span className="mc-modname">{m.model_id}{!m.preset && <span className="mc-tag">自加</span>}{defaultRef === ref && <span className="mc-tag on">默认</span>}</span>
                               {capBadges(m.meta)}
-                              {p.has_key && <button className={`mc-act ${defaultRef === ref ? 'on' : ''}`.trim()} disabled={busy} onClick={() => setDefault(ref)} title="未显式选模型时用它">{defaultRef === ref ? '默认 ✓' : '设为默认'}</button>}
-                              <button className={`mc-act ${metaEditing === ref ? 'on' : ''}`.trim()} disabled={busy} onClick={() => toggleMeta(ref, m.meta)}>能力</button>
-                              <button className="mc-act danger" disabled={busy} onClick={() => deleteModel(p, m.model_id)}>删除</button>
+                              {p.has_key && <WbButton className={`mc-act ${defaultRef === ref ? 'on' : ''}`.trim()} disabled={busy} onClick={() => setDefault(ref)} title="未显式选模型时用它">{defaultRef === ref ? '默认 ✓' : '设为默认'}</WbButton>}
+                              <WbButton className={`mc-act ${metaEditing === ref ? 'on' : ''}`.trim()} disabled={busy} onClick={() => toggleMeta(ref, m.meta)}>能力</WbButton>
+                              <WbButton className="mc-act danger" disabled={busy} onClick={() => deleteModel(p, m.model_id)}>删除</WbButton>
                             </div>
                             {metaEditing === ref && metaEditor(ref)}
                           </div>
@@ -302,15 +304,15 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
                           return (
                             <div className="mc-mod" key={mid}>
                               <span className="mc-modname">{mid}</span>
-                              {exists ? <span className="mc-tag">已有</span> : <button className="mc-act" disabled={busy} onClick={() => addFetched(p, mid)}>添加</button>}
+                              {exists ? <span className="mc-tag">已有</span> : <WbButton className="mc-act" disabled={busy} onClick={() => addFetched(p, mid)}>添加</WbButton>}
                             </div>
                           )
                         })}
                       </div>
                     )}
                     <div className="mc-keyrow">
-                      <input className="np-input" placeholder="手动补充模型名" value={modelDraft[p.id] ?? ''} onChange={(e) => setModelDraft({ ...modelDraft, [p.id]: e.target.value })} />
-                      <button className="btn-ghost" disabled={busy || !(modelDraft[p.id] ?? '').trim()} onClick={() => addModel(p)}>＋ 加模型</button>
+                      <WbInput className="np-input" placeholder="手动补充模型名" value={modelDraft[p.id] ?? ''} onChange={(e) => setModelDraft({ ...modelDraft, [p.id]: e.target.value })} />
+                      <WbButton className="btn-ghost" disabled={busy || !(modelDraft[p.id] ?? '').trim()} onClick={() => addModel(p)}>＋ 加模型</WbButton>
                     </div>
                   </div>
                 )}
@@ -320,7 +322,7 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
 
           <div className="np-lbl" style={{ marginTop: 20 }}>
             自定义模型<small className="mc-lblhint">预置厂商之外（自建/代理站）</small>
-            {!showForm && <button className="np-tplbtn" onClick={startNew}>＋ 添加</button>}
+            {!showForm && <WbButton className="np-tplbtn" onClick={startNew}>＋ 添加</WbButton>}
           </div>
           {custom.length === 0 && !showForm && <div className="mc-empty">没有自定义模型。预置厂商够用就不必加。</div>}
           {custom.map((m) => (
@@ -331,10 +333,10 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
                   <span className="mc-name">{m.name}{defaultRef === m.key && <span className="mc-tag on">默认</span>}{capBadges(m.meta)}</span>
                   <span className="mc-sub">{m.model_id}{m.api_base ? ` · ${m.api_base}` : ''}{m.has_key ? ' · 🔑' : ''}</span>
                 </span>
-                <button className={`mc-act ${defaultRef === m.key ? 'on' : ''}`.trim()} disabled={busy} onClick={() => setDefault(m.key)} title="未显式选模型时用它">{defaultRef === m.key ? '默认 ✓' : '设为默认'}</button>
-                <button className={`mc-act ${metaEditing === m.key ? 'on' : ''}`.trim()} onClick={() => toggleMeta(m.key, m.meta)}>能力</button>
-                <button className="mc-act" onClick={() => startEdit(m)}>编辑</button>
-                <button className="mc-act danger" onClick={() => delCustom(m)}>删除</button>
+                <WbButton className={`mc-act ${defaultRef === m.key ? 'on' : ''}`.trim()} disabled={busy} onClick={() => setDefault(m.key)} title="未显式选模型时用它">{defaultRef === m.key ? '默认 ✓' : '设为默认'}</WbButton>
+                <WbButton className={`mc-act ${metaEditing === m.key ? 'on' : ''}`.trim()} onClick={() => toggleMeta(m.key, m.meta)}>能力</WbButton>
+                <WbButton className="mc-act" onClick={() => startEdit(m)}>编辑</WbButton>
+                <WbButton className="mc-act danger" onClick={() => delCustom(m)}>删除</WbButton>
               </div>
               {metaEditing === m.key && metaEditor(m.key)}
             </div>
@@ -342,16 +344,16 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
           {showForm && (
             <div className="mc-form">
               <div className="mc-frow">
-                <input className="np-input" style={{ width: 56, textAlign: 'center', flexShrink: 0 }} value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} maxLength={4} aria-label="图标 emoji" />
-                <input className="np-input" style={{ flex: 1 }} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={80} placeholder="显示名，如 我的自建 Llama" />
+                <WbInput className="np-input" style={{ width: 56, textAlign: 'center', flexShrink: 0 }} value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} maxLength={4} aria-label="图标 emoji" />
+                <WbInput className="np-input" style={{ flex: 1 }} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={80} placeholder="显示名，如 我的自建 Llama" />
               </div>
-              <input className="np-input" style={{ marginTop: 8 }} value={form.model_id} onChange={(e) => setForm({ ...form, model_id: e.target.value })} maxLength={120} placeholder="模型 id" />
-              <input className="np-input" style={{ marginTop: 8 }} value={form.api_base} onChange={(e) => setForm({ ...form, api_base: e.target.value })} maxLength={300} placeholder="API Base（留空用后端默认），如 https://host/v1" />
-              <input className="np-input" type="password" style={{ marginTop: 8 }} value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} maxLength={400} placeholder={editing?.has_key ? 'API Key（已保存，留空不改）' : 'API Key（留空则用后端默认凭据）'} autoComplete="off" />
+              <WbInput className="np-input" style={{ marginTop: 8 }} value={form.model_id} onChange={(e) => setForm({ ...form, model_id: e.target.value })} maxLength={120} placeholder="模型 id" />
+              <WbInput className="np-input" style={{ marginTop: 8 }} value={form.api_base} onChange={(e) => setForm({ ...form, api_base: e.target.value })} maxLength={300} placeholder="API Base（留空用后端默认），如 https://host/v1" />
+              <WbInput className="np-input" type="password" style={{ marginTop: 8 }} value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} maxLength={400} placeholder={editing?.has_key ? 'API Key（已保存，留空不改）' : 'API Key（留空则用后端默认凭据）'} autoComplete="off" />
               <div className="mc-hint">Key 只存本机后端、绝不回传前端。</div>
               <div className="mc-fbtns">
-                <button className="btn-ghost" onClick={cancelForm}>取消</button>
-                <button className="btn-dark" disabled={!form.name.trim() || !form.model_id.trim() || busy} onClick={saveCustom}>{editing ? '保存' : '添加'}</button>
+                <WbButton className="btn-ghost" onClick={cancelForm}>取消</WbButton>
+                <WbButton className="btn-dark" disabled={!form.name.trim() || !form.model_id.trim() || busy} onClick={saveCustom}>{editing ? '保存' : '添加'}</WbButton>
               </div>
             </div>
           )}
@@ -366,15 +368,15 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
 
   if (embedded) return body
   return (
-    <div className="np-overlay open" style={{ zIndex: 170 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <AntModalBridge onClose={onClose} zIndex={170}>
       <div className="np-modal" role="dialog" aria-modal="true" aria-label="模型管理">
-        <div className="np-h">模型管理<button className="np-x" onClick={onClose}>×</button></div>
+        <div className="np-h">模型管理<WbButton className="np-x" onClick={onClose}>×</WbButton></div>
         {body}
         <div className="np-foot">
           <span className="np-hint" style={{ marginRight: 'auto' }} />
-          <button className="btn-dark" onClick={onClose}>完成</button>
+          <WbButton className="btn-dark" onClick={onClose}>完成</WbButton>
         </div>
       </div>
-    </div>
+    </AntModalBridge>
   )
 }

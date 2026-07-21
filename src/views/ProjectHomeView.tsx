@@ -1,3 +1,4 @@
+import { WbButton, WbTextArea } from '../components/ui/Primitives'
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import type { ProjectInfo, SessionInfo } from '../lib/types'
@@ -154,7 +155,7 @@ export function ProjectHomeView() {
           {isShared && <span className="pj-rolebadge" title={`你在本项目的角色：${ROLE_LABEL[project.role!] || project.role}`}>协作 · {ROLE_LABEL[project.role!] || project.role}</span>}
         </div>
         <div style={{ marginLeft: 'auto' }}>
-          <button className="btn-dark" style={{ height: 32 }} onClick={() => setMembersOpen(true)}>{canManage ? '邀请' : '成员'}</button>
+          <WbButton className="btn-dark" style={{ height: 32 }} onClick={() => setMembersOpen(true)}>{canManage ? '邀请' : '成员'}</WbButton>
         </div>
       </div>
 
@@ -209,10 +210,10 @@ export function ProjectHomeView() {
             </div>
             {editInstr ? (
               <>
-                <textarea className="pjcfg-ta" aria-label="项目指令" placeholder="项目指令" value={instrDraft} onChange={(e) => setInstrDraft(e.target.value)} autoFocus />
+                <WbTextArea className="pjcfg-ta" aria-label="项目指令" placeholder="项目指令" value={instrDraft} onChange={(e) => setInstrDraft(e.target.value)} autoFocus />
                 <div className="pjcfg-edit-f">
-                  <button className="btn-ghost" style={{ height: 28, padding: '0 12px' }} onClick={() => setEditInstr(false)}>取消</button>
-                  <button className="btn-dark" style={{ height: 28, padding: '0 14px' }} onClick={saveInstruction}>保存</button>
+                  <WbButton className="btn-ghost" style={{ height: 28, padding: '0 12px' }} onClick={() => setEditInstr(false)}>取消</WbButton>
+                  <WbButton className="btn-dark" style={{ height: 28, padding: '0 14px' }} onClick={saveInstruction}>保存</WbButton>
                 </div>
               </>
             ) : (

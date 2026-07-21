@@ -1,3 +1,4 @@
+import { WbButton, WbInput } from '../ui/Primitives'
 import { useState } from 'react'
 import type { AskQuestion } from '../../lib/types'
 
@@ -53,7 +54,7 @@ export function AskUserCard({
       </div>
       <div className="ak-opt ak-other">
         <span className="ak-n">✎</span>
-        <input
+        <WbInput
           placeholder="其他补充..."
           value={other}
           onChange={(e) => setOther(e.target.value)}
@@ -63,9 +64,9 @@ export function AskUserCard({
         />
       </div>
       <div className="ak-f">
-        <button className="btn-ghost" style={{ height: 30, padding: '0 14px' }} onClick={() => record(q.options[0] ?? '（跳过）')}>
+        <WbButton className="btn-ghost" style={{ height: 30, padding: '0 14px' }} onClick={() => record(q.options[0] ?? '（跳过）')}>
           跳过
-        </button>
+        </WbButton>
       </div>
     </div>
   )

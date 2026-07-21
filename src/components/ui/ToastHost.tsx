@@ -1,11 +1,22 @@
+import { App } from 'antd'
+import { useEffect } from 'react'
 import { useToastStore } from '../../stores/toastStore'
 
 export function ToastHost() {
+  const { message: messageApi } = App.useApp()
   const { message, visible } = useToastStore()
-  return (
-    <div className={`toast ${visible ? 'show' : ''}`.trim()}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 12l5 5L20 6" /></svg>
-      <span>{message}</span>
-    </div>
-  )
+
+  useEffect(() => {
+    if (visible && message) {
+      void messageApi.open({
+        key: 'agentmate-global-toast',
+        type: 'success',
+        content: message,
+        duration: 2,
+        className: 'agentmate-ant-message',
+      })
+    }
+  }, [message, messageApi, visible])
+
+  return null
 }

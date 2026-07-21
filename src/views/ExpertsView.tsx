@@ -1,3 +1,4 @@
+import { WbButton, WbInput } from '../components/ui/Primitives'
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react'
 import { toast } from '../stores/toastStore'
 import { useChatStore } from '../stores/chatStore'
@@ -14,6 +15,7 @@ import { api } from '../lib/api'
 import type { InstalledSkill, SkillCard } from '../lib/types'
 import { type ExpertTeam } from '../data/catalog'
 import { useCatalog, useCatalogStore } from '../stores/catalogStore'
+import { AntModalBridge } from '../components/ui/AntModalBridge'
 
 type CapabilityKind = 'experts' | 'skills' | 'connectors'
 
@@ -154,7 +156,7 @@ function ExpertDetailModal({ detail, onClose }: { detail: Detail; onClose: () =>
   const doSummon = (prompt?: string) => { summon(names, name, prompt); onClose() }
 
   return (
-    <div className="np-overlay open" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <AntModalBridge onClose={onClose}>
       <div className="np-modal" style={{ width: 460 }} role="dialog" aria-modal="true" aria-label={name}>
         <div className="np-h">
           <div className="ec-av" style={{ width: 50, height: 50, fontSize: 26 }}>{icon}</div>
@@ -166,7 +168,7 @@ function ExpertDetailModal({ detail, onClose }: { detail: Detail; onClose: () =>
               {badge && <span className="ec-tag">{badge}</span>}
             </div>
           </div>
-          <button className="np-x" onClick={onClose}>×</button>
+          <WbButton className="np-x" onClick={onClose}>×</WbButton>
         </div>
         <div className="np-body">
           <div className="sec-title" style={{ margin: '10px 0 8px' }}>能力介绍</div>
@@ -203,10 +205,10 @@ function ExpertDetailModal({ detail, onClose }: { detail: Detail; onClose: () =>
           )}
         </div>
         <div className="np-foot">
-          <button className="btn-dark" style={{ flex: 1, justifyContent: 'center' }} onClick={() => doSummon()}>召唤 {name}</button>
+          <WbButton className="btn-dark" style={{ flex: 1, justifyContent: 'center' }} onClick={() => doSummon()}>召唤 {name}</WbButton>
         </div>
       </div>
-    </div>
+    </AntModalBridge>
   )
 }
 
@@ -265,7 +267,7 @@ function InstalledCtl({ skill }: { skill: InstalledSkill }) {
     <div className="hc-act" onClick={(e) => e.stopPropagation()}>
       {skill.disabled && <span className="hc-off">已关闭</span>}
       <span className="hc-chk" title="已安装">✓</span>
-      <button className="hc-more" aria-label="管理技能" onClick={(e) => { e.stopPropagation(); setMenu((v) => !v) }}>⋯</button>
+      <WbButton className="hc-more" aria-label="管理技能" onClick={(e) => { e.stopPropagation(); setMenu((v) => !v) }}>⋯</WbButton>
       {menu && <SkillMenu skill={skill} onClose={() => setMenu(false)} />}
     </div>
   )
@@ -278,13 +280,13 @@ function InstallBtn({ name, slug, catalog = false }: { name: string; slug?: stri
   const busyKey = catalog ? (slug || name) : name
   const busy = useSkillStore((s) => s.installing.includes(busyKey))
   return (
-    <button className="add-btn" aria-label="安装" disabled={busy} onClick={(e) => {
+    <WbButton className="add-btn" aria-label="安装" disabled={busy} onClick={(e) => {
       e.stopPropagation()
       if (catalog && slug) void installCatalog(name, slug)
       else void install(name, slug)
     }}>
       {busy ? <IcSpin /> : <IcPlusSm />}
-    </button>
+    </WbButton>
   )
 }
 
@@ -457,7 +459,7 @@ function InstalledPane({ onBack, onOpenDetail }: { onBack: () => void; onOpenDet
   return (
     <div className="cap-pane show">
       <div className="ph" style={{ alignItems: 'center', marginTop: 2 }}>
-        <button className="btn-ghost" onClick={onBack}>‹ 技能市场</button>
+        <WbButton className="btn-ghost" onClick={onBack}>‹ 技能市场</WbButton>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>共 {installed.length} 个技能</span>
       </div>
@@ -466,7 +468,7 @@ function InstalledPane({ onBack, onOpenDetail }: { onBack: () => void; onOpenDet
           <div className="auto-empty-ic">🧩</div>
           <div className="auto-empty-t">{loading ? '加载中…' : '还没有安装任何技能'}</div>
           <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: -6 }}>去 SkillHub 商店挑选并安装你需要的技能</div>
-          <button className="btn-dark auto-empty-add" onClick={onBack}>去技能市场</button>
+          <WbButton className="btn-dark auto-empty-add" onClick={onBack}>去技能市场</WbButton>
         </div>
       ) : (
         <div className="card-grid g4" style={{ marginTop: 14 }}>
@@ -499,13 +501,13 @@ function InstalledCard({ skill, onOpenDetail, onEdit }: { skill: InstalledSkill;
 // 连接器加入本会话的按钮（受控，反映真实 loadout；stopPropagation 不触发卡片详情）。
 function ConnAddBtn({ on, onToggle }: { on: boolean; onToggle: (e: MouseEvent) => void }) {
   return (
-    <button type="button" className={`add-btn ${on ? 'on' : ''}`.trim()} aria-label={on ? '移除' : '添加'} onClick={onToggle}>
+    <WbButton type="button" className={`add-btn ${on ? 'on' : ''}`.trim()} aria-label={on ? '移除' : '添加'} onClick={onToggle}>
       {on ? (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 12l5 5L20 6" /></svg>
       ) : (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
       )}
-    </button>
+    </WbButton>
   )
 }
 
@@ -589,9 +591,9 @@ function MyExpertsPane({ onBack }: { onBack: () => void }) {
   return (
     <div className="cap-pane show">
       <div className="ph" style={{ alignItems: 'center', marginTop: 2 }}>
-        <button className="btn-ghost" onClick={onBack}>‹ 全部专家</button>
+        <WbButton className="btn-ghost" onClick={onBack}>‹ 全部专家</WbButton>
         <div style={{ flex: 1 }} />
-        {experts.length > 0 && <button className="cap-act" onClick={() => setCreateOpen(true)}>＋ 创建专家</button>}
+        {experts.length > 0 && <WbButton className="cap-act" onClick={() => setCreateOpen(true)}>＋ 创建专家</WbButton>}
       </div>
 
       {experts.length === 0 ? (
@@ -599,7 +601,7 @@ function MyExpertsPane({ onBack }: { onBack: () => void }) {
           <div className="auto-empty-ic">🎓</div>
           <div className="auto-empty-t">还没有创建任何专家</div>
           <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: -6 }}>创建属于你的专家，分享专业知识</div>
-          <button className="btn-dark auto-empty-add" onClick={() => setCreateOpen(true)}>＋ 创建专家</button>
+          <WbButton className="btn-dark auto-empty-add" onClick={() => setCreateOpen(true)}>＋ 创建专家</WbButton>
         </div>
       ) : (
         <div className="card-grid g4" style={{ marginTop: 14 }}>
@@ -615,8 +617,8 @@ function MyExpertsPane({ onBack }: { onBack: () => void }) {
               <div className="ec-d">{e.intro || e.persona}</div>
               <div className="ec-tags">{e.tags.map((t) => <span className="ec-tag" key={t}>{t}</span>)}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <button className="btn-dark" style={{ flex: 1, justifyContent: 'center' }} onClick={() => summon([e.name], e.name)}>召唤</button>
-                <button className="btn-ghost" onClick={() => { void remove(e.id); toast('已删除 · ' + e.name) }}>删除</button>
+                <WbButton className="btn-dark" style={{ flex: 1, justifyContent: 'center' }} onClick={() => summon([e.name], e.name)}>召唤</WbButton>
+                <WbButton className="btn-ghost" onClick={() => { void remove(e.id); toast('已删除 · ' + e.name) }}>删除</WbButton>
               </div>
             </div>
           ))}
@@ -671,21 +673,21 @@ function CapabilityView({ kind }: { kind: CapabilityKind }) {
         <div className="sp" />
         <div className="search-box" style={{ margin: 0, width: 260 }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-          <input placeholder={placeholder} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <WbInput placeholder={placeholder} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         {kind === 'skills' ? (
           <>
-            <button className={`cap-act ${myInstalled ? 'on' : ''}`.trim()} onClick={() => { setDetailTarget(null); setMyInstalled((v) => !v) }}>
+            <WbButton className={`cap-act ${myInstalled ? 'on' : ''}`.trim()} onClick={() => { setDetailTarget(null); setMyInstalled((v) => !v) }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="4" /><path d="M8.5 12l2.5 2.5 4.5-5" /></svg>
               我安装的<span className="cap-act-n">{installedCount}</span>
-            </button>
+            </WbButton>
             <AddSkillControl
               onCreate={createSkill}
               onImported={() => { setQuery(''); setDetailTarget(null); setMyInstalled(true) }}
             />
           </>
         ) : actLabel ? (
-          <button className="cap-act" onClick={onAct}>{actLabel}</button>
+          <WbButton className="cap-act" onClick={onAct}>{actLabel}</WbButton>
         ) : null}
       </div>
       <div className="cap-body">

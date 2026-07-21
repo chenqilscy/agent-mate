@@ -1,3 +1,4 @@
+import { WbButton, WbInput } from '../ui/Primitives'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { ChatMessage } from '../../lib/types'
 
@@ -130,7 +131,7 @@ export function ChatSearch({ containerRef, messages, onClose }: {
   return (
     <div className="chat-search" role="search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="cs-mag"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-      <input
+      <WbInput
         ref={inputRef}
         placeholder={supported ? '在对话中查找' : '当前环境不支持高亮'}
         value={query}
@@ -141,15 +142,15 @@ export function ChatSearch({ containerRef, messages, onClose }: {
         }}
       />
       <span className="cs-count">{count ? `${current + 1}/${count}` : query.trim() ? '无结果' : ''}</span>
-      <button className="cs-btn" aria-label="上一个" disabled={!count} onClick={() => go(-1)}>
+      <WbButton className="cs-btn" aria-label="上一个" disabled={!count} onClick={() => go(-1)}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6" /></svg>
-      </button>
-      <button className="cs-btn" aria-label="下一个" disabled={!count} onClick={() => go(1)}>
+      </WbButton>
+      <WbButton className="cs-btn" aria-label="下一个" disabled={!count} onClick={() => go(1)}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg>
-      </button>
-      <button className="cs-btn" aria-label="关闭搜索" onClick={onClose}>
+      </WbButton>
+      <WbButton className="cs-btn" aria-label="关闭搜索" onClick={onClose}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 6l12 12M18 6L6 18" /></svg>
-      </button>
+      </WbButton>
     </div>
   )
 }

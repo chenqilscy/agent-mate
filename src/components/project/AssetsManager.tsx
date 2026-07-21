@@ -1,3 +1,4 @@
+import { WbButton, WbInput } from '../ui/Primitives'
 import { useEffect, useRef, useState } from 'react'
 import { api, type FileEntry } from '../../lib/api'
 import type { FileScope } from '../panel/FileTree'
@@ -111,14 +112,14 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
   return (
     <div onClick={() => setMenuFor(null)}>
       <div className="as-toolbar">
-        <button className="cap-act" onClick={newFolder}>新建文件夹</button>
-        <button className="cap-act" onClick={() => fileInput.current?.click()}>上传文件</button>
-        <input ref={fileInput} type="file" multiple hidden onChange={(e) => onUpload(e.target.files)} />
+        <WbButton className="cap-act" onClick={newFolder}>新建文件夹</WbButton>
+        <WbButton className="cap-act" onClick={() => fileInput.current?.click()}>上传文件</WbButton>
+        <WbInput ref={fileInput} type="file" multiple hidden onChange={(e) => onUpload(e.target.files)} />
         <span className="as-quota">存储空间已用 {fmtSize(usage.used)} / {fmtSize(usage.quota)} <i>({pct.toFixed(2)}%)</i></span>
         <span style={{ flex: 1 }} />
         <div className="search-box" style={{ margin: 0, width: 220 }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-          <input placeholder="搜索文件或文件夹" value={q} onChange={(e) => setQ(e.target.value)} />
+          <WbInput placeholder="搜索文件或文件夹" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
 
@@ -141,7 +142,7 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
               <tr className="as-row" key={e.path}>
                 <td>
                   {renaming === e.path ? (
-                    <input
+                    <WbInput
                       className="pj-kadd" autoFocus aria-label="重命名" placeholder="新名称" style={{ marginBottom: 0 }} value={renameDraft}
                       onChange={(ev) => setRenameDraft(ev.target.value)}
                       onKeyDown={(ev) => { if (ev.key === 'Enter') doRename(e.path); if (ev.key === 'Escape') setRenaming(null) }}

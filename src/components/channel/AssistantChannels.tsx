@@ -1,7 +1,9 @@
+import { WbButton, WbInput } from '../ui/Primitives'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, type Assistant, type AssistantChannel, type ChannelType } from '../../lib/api'
 import { Popover } from '../ui/Popover'
 import { toast } from '../../stores/toastStore'
+import { AntModalBridge } from '../ui/AntModalBridge'
 
 // 助理渠道管理（WB-088/096）。类型化：Telegram + 邮件 可用，其它类型「敬请期待」占位（不造假）。
 // 凭据（token / 邮箱密码）存 DB、本机可见（WB-093 决策）。
@@ -31,16 +33,16 @@ function TelegramForm({ assistantId, channel, onClose, onSaved }: {
   return (
     <Modal label="Telegram 渠道" title={`${editing ? '编辑' : '新增'} Telegram 渠道`} onClose={onClose} busy={busy} onSave={save}>
       <label className="np-lbl" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        <WbInput type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
         启用（收到消息即用本助理处理）
       </label>
       <div className="np-lbl">Bot Token<small className="asst-hint">@BotFather 获取 · 仅存本机</small></div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <input className="np-input" style={{ flex: 1 }} type={showToken ? 'text' : 'password'} autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} maxLength={200} placeholder="粘贴 bot token" />
-        <button className="asst-addchip" type="button" onClick={() => setShowToken((v) => !v)}>{showToken ? '隐藏' : '显示'}</button>
+        <WbInput className="np-input" style={{ flex: 1 }} type={showToken ? 'text' : 'password'} autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} maxLength={200} placeholder="粘贴 bot token" />
+        <WbButton className="asst-addchip" type="button" onClick={() => setShowToken((v) => !v)}>{showToken ? '隐藏' : '显示'}</WbButton>
       </div>
       <div className="np-lbl">白名单 chat_id<small className="asst-hint">留空则第一个 /start 的人配对</small></div>
-      <input className="np-input" value={chatId} onChange={(e) => setChatId(e.target.value)} maxLength={64} placeholder="如你的 Telegram user id（可留空）" />
+      <WbInput className="np-input" value={chatId} onChange={(e) => setChatId(e.target.value)} maxLength={64} placeholder="如你的 Telegram user id（可留空）" />
     </Modal>
   )
 }
@@ -85,34 +87,34 @@ function EmailForm({ assistantId, channel, onClose, onSaved }: {
   return (
     <Modal label="邮件渠道" title={`${editing ? '编辑' : '新增'} 邮件渠道`} onClose={onClose} busy={busy} onSave={save} width={480}>
       <label className="np-lbl" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        <WbInput type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
         启用（IMAP 轮询收件 → 本助理处理 → SMTP 回信）
       </label>
       <div className="np-lbl">服务商预设<small className="asst-hint">点一下自动填主机/端口</small></div>
       <div className="asst-chips">
-        {Object.keys(MAIL_PRESETS).map((n) => <button key={n} className="asst-addchip" type="button" onClick={() => preset(n)}>{n}</button>)}
+        {Object.keys(MAIL_PRESETS).map((n) => <WbButton key={n} className="asst-addchip" type="button" onClick={() => preset(n)}>{n}</WbButton>)}
       </div>
       <div className="np-lbl">IMAP 主机 / 端口</div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <input className="np-input" style={{ flex: 2 }} value={f.imap_host} onChange={(e) => set('imap_host', e.target.value)} placeholder="imap.gmail.com" />
-        <input className="np-input" style={{ width: 80 }} value={f.imap_port} onChange={(e) => set('imap_port', e.target.value)} placeholder="993" />
+        <WbInput className="np-input" style={{ flex: 2 }} value={f.imap_host} onChange={(e) => set('imap_host', e.target.value)} placeholder="imap.gmail.com" />
+        <WbInput className="np-input" style={{ width: 80 }} value={f.imap_port} onChange={(e) => set('imap_port', e.target.value)} placeholder="993" />
       </div>
       <div className="np-lbl">SMTP 主机 / 端口<small className="asst-hint">465=SSL，其它=STARTTLS</small></div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <input className="np-input" style={{ flex: 2 }} value={f.smtp_host} onChange={(e) => set('smtp_host', e.target.value)} placeholder="smtp.gmail.com" />
-        <input className="np-input" style={{ width: 80 }} value={f.smtp_port} onChange={(e) => set('smtp_port', e.target.value)} placeholder="465" />
+        <WbInput className="np-input" style={{ flex: 2 }} value={f.smtp_host} onChange={(e) => set('smtp_host', e.target.value)} placeholder="smtp.gmail.com" />
+        <WbInput className="np-input" style={{ width: 80 }} value={f.smtp_port} onChange={(e) => set('smtp_port', e.target.value)} placeholder="465" />
       </div>
       <div className="np-lbl">邮箱账号</div>
-      <input className="np-input" value={f.username} onChange={(e) => set('username', e.target.value)} placeholder="you@example.com" />
+      <WbInput className="np-input" value={f.username} onChange={(e) => set('username', e.target.value)} placeholder="you@example.com" />
       <div className="np-lbl">应用专用密码<small className="asst-hint">邮箱开 2FA 后生成 · 仅存本机</small></div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <input className="np-input" style={{ flex: 1 }} type={showPw ? 'text' : 'password'} autoComplete="off" value={f.password} onChange={(e) => set('password', e.target.value)} placeholder="应用专用密码" />
-        <button className="asst-addchip" type="button" onClick={() => setShowPw((v) => !v)}>{showPw ? '隐藏' : '显示'}</button>
+        <WbInput className="np-input" style={{ flex: 1 }} type={showPw ? 'text' : 'password'} autoComplete="off" value={f.password} onChange={(e) => set('password', e.target.value)} placeholder="应用专用密码" />
+        <WbButton className="asst-addchip" type="button" onClick={() => setShowPw((v) => !v)}>{showPw ? '隐藏' : '显示'}</WbButton>
       </div>
       <div className="np-lbl">白名单发件人<small className="asst-hint">逗号分隔；留空则第一个来信者配对</small></div>
-      <input className="np-input" value={f.allow_from} onChange={(e) => set('allow_from', e.target.value)} placeholder="me@example.com, boss@example.com" />
+      <WbInput className="np-input" value={f.allow_from} onChange={(e) => set('allow_from', e.target.value)} placeholder="me@example.com, boss@example.com" />
       <div className="np-lbl">暗号（可选）<small className="asst-hint">只处理主题/正文含此暗号的邮件，抗 From 伪造</small></div>
-      <input className="np-input" value={f.secret} onChange={(e) => set('secret', e.target.value)} placeholder="留空则不校验暗号" />
+      <WbInput className="np-input" value={f.secret} onChange={(e) => set('secret', e.target.value)} placeholder="留空则不校验暗号" />
     </Modal>
   )
 }
@@ -122,17 +124,17 @@ function Modal({ label, title, onClose, busy, onSave, width = 440, children }: {
   label: string; title: string; onClose: () => void; busy: boolean; onSave: () => void; width?: number; children: ReactNode
 }) {
   return (
-    <div className="np-overlay open" style={{ zIndex: 160 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <AntModalBridge onClose={onClose} closeOnMask={!busy} zIndex={160}>
       <div className="np-modal" style={{ width }} role="dialog" aria-modal="true" aria-label={label}>
-        <div className="np-h">{title}<button className="np-x" onClick={onClose}>×</button></div>
+        <div className="np-h">{title}<WbButton className="np-x" onClick={onClose}>×</WbButton></div>
         <div className="np-body">{children}</div>
         <div className="np-foot">
           <div style={{ flex: 1 }} />
-          <button className="btn-ghost" onClick={onClose}>取消</button>
-          <button className="btn-dark" disabled={busy} onClick={onSave}>保存</button>
+          <WbButton className="btn-ghost" onClick={onClose}>取消</WbButton>
+          <WbButton className="btn-dark" disabled={busy} onClick={onSave}>保存</WbButton>
         </div>
       </div>
-    </div>
+    </AntModalBridge>
   )
 }
 
@@ -183,16 +185,16 @@ export function AssistantChannels({ assistant, onChanged }: {
               <div style={{ fontWeight: 600 }}>{TYPE_LABEL[ch.type] ?? ch.type} · {d.t}</div>
               <div className="asst-hint" style={{ marginLeft: 0 }}>{sub(ch)}</div>
             </div>
-            <button className="asst-addchip" onClick={() => toggleEnabled(ch)}>{ch.enabled ? '停用' : '启用'}</button>
-            <button className="asst-addchip" onClick={() => setForm({ type: ch.type, channel: ch })}>编辑</button>
-            {ch.bound_chat_id && <button className="asst-addchip" onClick={() => unbind(ch)}>解绑</button>}
-            <button className="asst-addchip danger" onClick={() => del(ch)}>删除</button>
+            <WbButton className="asst-addchip" onClick={() => toggleEnabled(ch)}>{ch.enabled ? '停用' : '启用'}</WbButton>
+            <WbButton className="asst-addchip" onClick={() => setForm({ type: ch.type, channel: ch })}>编辑</WbButton>
+            {ch.bound_chat_id && <WbButton className="asst-addchip" onClick={() => unbind(ch)}>解绑</WbButton>}
+            <WbButton className="asst-addchip danger" onClick={() => del(ch)}>删除</WbButton>
           </div>
         )
       })}
 
       <div style={{ marginTop: 12 }}>
-        <button className="btn-dark" onClick={(e) => { typeAnchor.current = e.currentTarget; setTypePick((v) => !v) }}>＋ 新增渠道</button>
+        <WbButton className="btn-dark" onClick={(e) => { typeAnchor.current = e.currentTarget; setTypePick((v) => !v) }}>＋ 新增渠道</WbButton>
       </div>
       <Popover open={typePick} anchor={typeAnchor.current} dir="down" onClose={() => setTypePick(false)} minWidth={180}>
         {types.map((t) => (

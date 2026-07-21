@@ -1,3 +1,4 @@
+import { WbButton } from '../ui/Primitives'
 import { useEffect, useRef, useState } from 'react'
 import { type ConnMeta } from '../../data/catalog'
 import { useCatalog } from '../../stores/catalogStore'
@@ -7,6 +8,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
 import { WeKnoraConfigForm } from './WeKnoraConfigForm'
+import { AntModalBridge } from '../ui/AntModalBridge'
 
 // 连接器详情弹窗（套现有 .np-overlay/.np-modal 骨架，天然继承暗色覆盖）。
 // OAuth 连接器（如金山文档）走真实授权流：点「连接」→ 后端 spawn `kdocs-cli auth login`
@@ -134,7 +136,7 @@ export function ConnectorDetailModal(
         : null
 
   return (
-    <div className="np-overlay open" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <AntModalBridge onClose={onClose}>
       <div className="np-modal" style={{ width: 480 }} role="dialog" aria-modal="true" aria-label={name}>
         <div className="np-h">
           <div className="ec-av" style={{ width: 50, height: 50, fontSize: 26 }}>{icon}</div>
@@ -147,7 +149,7 @@ export function ConnectorDetailModal(
               {added && <span className="ec-tag">本会话已接入</span>}
             </div>
           </div>
-          <button type="button" className="np-x" onClick={onClose}>×</button>
+          <WbButton type="button" className="np-x" onClick={onClose}>×</WbButton>
         </div>
 
         <div className="np-body">
@@ -180,14 +182,14 @@ export function ConnectorDetailModal(
 
           {meta?.tools && meta.tools.length > 0 && (
             <>
-              <button
+              <WbButton
                 type="button"
                 className="btn-ghost"
                 style={{ margin: '18px 0 4px', padding: '4px 0', fontWeight: 700, color: 'var(--text-2)' }}
                 onClick={() => setShowTools((v) => !v)}
               >
                 {showTools ? '▾' : '▸'} 能力清单 · {meta.tools.length} 项工具
-              </button>
+              </WbButton>
               {showTools && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {meta.tools.map((t) => (
@@ -219,7 +221,7 @@ export function ConnectorDetailModal(
 
         <div className="np-foot" style={{ gap: 8 }}>
           {isOAuth && conn !== 'connected' ? (
-            <button
+            <WbButton
               type="button"
               className="btn-dark"
               style={{ flex: 1, justifyContent: 'center' }}
@@ -227,16 +229,16 @@ export function ConnectorDetailModal(
               onClick={doConnect}
             >
               {conn === 'connecting' ? '连接中…' : '连接'}
-            </button>
+            </WbButton>
           ) : (
             <>
-              {isOAuth && <button type="button" className="btn-ghost" onClick={doDisconnect}>断开</button>}
-              <button type="button" className="btn-ghost" onClick={toggleAdd}>{added ? '移除' : '添加到本会话'}</button>
-              <button type="button" className="btn-dark" style={{ flex: 1, justifyContent: 'center' }} onClick={doTry}>去试试</button>
+              {isOAuth && <WbButton type="button" className="btn-ghost" onClick={doDisconnect}>断开</WbButton>}
+              <WbButton type="button" className="btn-ghost" onClick={toggleAdd}>{added ? '移除' : '添加到本会话'}</WbButton>
+              <WbButton type="button" className="btn-dark" style={{ flex: 1, justifyContent: 'center' }} onClick={doTry}>去试试</WbButton>
             </>
           )}
         </div>
       </div>
-    </div>
+    </AntModalBridge>
   )
 }

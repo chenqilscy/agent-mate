@@ -1,3 +1,4 @@
+import { WbButton, WbInput, WbTextArea } from '../components/ui/Primitives'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCatalog, useCatalogStore } from '../stores/catalogStore'
 import { api } from '../lib/api'
@@ -11,6 +12,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
 import { Popover } from '../components/ui/Popover'
 import type { Automation, CreateAutomationInput, SessionInfo, TriggerKind } from '../lib/types'
+import { AntModalBridge } from '../components/ui/AntModalBridge'
 
 const IC_ADD = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
@@ -138,7 +140,7 @@ export function AutomationView() {
               <span className="crumb-dim">自动化 /</span>
               <span className="crumb-cur">从模版添加</span>
             </div>
-            <button className="btn-ghost" onClick={() => setTemplatesOpen(false)}>返回</button>
+            <WbButton className="btn-ghost" onClick={() => setTemplatesOpen(false)}>返回</WbButton>
           </div>
           <div style={{ marginTop: 18 }}>{templateGrid}</div>
         </div>
@@ -155,16 +157,16 @@ export function AutomationView() {
       <div className="page-scroll">
         <div className="auto-hd">
           <div className="auto-tabs">
-            <button className={`auto-tab ${tab === 'schedule' ? 'on' : ''}`.trim()} onClick={() => setTab('schedule')}>定时任务</button>
-            <button className={`auto-tab ${tab === 'runs' ? 'on' : ''}`.trim()} onClick={() => setTab('runs')}>运行记录</button>
+            <WbButton className={`auto-tab ${tab === 'schedule' ? 'on' : ''}`.trim()} onClick={() => setTab('schedule')}>定时任务</WbButton>
+            <WbButton className={`auto-tab ${tab === 'runs' ? 'on' : ''}`.trim()} onClick={() => setTab('runs')}>运行记录</WbButton>
           </div>
           {items.length > 0 && <div className="auto-tools">
             <div className="auto-search">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-              <input placeholder="搜索自动化/记录" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <WbInput placeholder="搜索自动化/记录" value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
-            <button className="btn-line" style={{ marginTop: 0 }} onClick={() => setTemplatesOpen(true)}>从模版添加</button>
-            <button className="btn-dark auto-add" onClick={() => setEditing({})}>{IC_ADD}添加自动化</button>
+            <WbButton className="btn-line" style={{ marginTop: 0 }} onClick={() => setTemplatesOpen(true)}>从模版添加</WbButton>
+            <WbButton className="btn-dark auto-add" onClick={() => setEditing({})}>{IC_ADD}添加自动化</WbButton>
           </div>}
         </div>
 
@@ -180,7 +182,7 @@ export function AutomationView() {
                     </svg>
                   </div>
                   <div className="auto-empty-t">开启你的第一个自动化任务吧</div>
-                  <button className="btn-dark auto-empty-add" onClick={() => setEditing({})}>{IC_ADD}添加自动化</button>
+                  <WbButton className="btn-dark auto-empty-add" onClick={() => setEditing({})}>{IC_ADD}添加自动化</WbButton>
                 </div>
               </div>
             ) : (
@@ -208,12 +210,12 @@ export function AutomationView() {
                       role="switch" aria-checked={a.enabled ? 'true' : 'false'} aria-label={a.enabled ? '停用' : '启用'}
                       onClick={() => toggle(a.id, !a.enabled)}
                     />
-                    <button
+                    <WbButton
                       className="auto-more" aria-label="更多"
                       onClick={(e) => { menuAnchor.current = e.currentTarget; setMenuId(menuId === a.id ? null : a.id) }}
                     >
                       <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
-                    </button>
+                    </WbButton>
                   </div>
 
                   <Popover open={menuId === a.id} anchor={menuAnchor.current} dir="down" onClose={() => setMenuId(null)} minWidth={140}>
@@ -323,9 +325,9 @@ function RunDetailModal({ run, onClose, onOpenSession, workspaceName }: {
 }) {
   const failed = run.run_status === 'error'
   return (
-    <div className="np-overlay open" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <AntModalBridge onClose={onClose}>
       <div className="np-modal auto-detail" role="dialog" aria-modal="true" aria-label="运行详情">
-        <div className="np-h">{run.title}<button className="np-x" onClick={onClose}>×</button></div>
+        <div className="np-h">{run.title}<WbButton className="np-x" onClick={onClose}>×</WbButton></div>
         <div className="np-body">
           <div className="auto-detail-msg">
             {failed ? '本次任务已启动，但在生成结果前中断，以下为保存下来的执行摘要。' : '本次运行已完成，以下为执行摘要。'}
@@ -347,11 +349,11 @@ function RunDetailModal({ run, onClose, onOpenSession, workspaceName }: {
         </div>
         <div className="np-foot">
           <span className="np-hint" />
-          <button className="btn-ghost" onClick={onClose}>关闭</button>
-          <button className="btn-dark" onClick={() => onOpenSession(run.id)}>打开会话</button>
+          <WbButton className="btn-ghost" onClick={onClose}>关闭</WbButton>
+          <WbButton className="btn-dark" onClick={() => onOpenSession(run.id)}>打开会话</WbButton>
         </div>
       </div>
-    </div>
+    </AntModalBridge>
   )
 }
 
@@ -456,19 +458,19 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
           <span className="crumb-cur">{name.trim() || '新建自动化'}</span>
         </div>
         {auto && (
-          <button className="btn-ghost" onClick={async () => { toast('已触发运行 · ' + auto.name); await runNow(auto.id); loadRuns() }}>立即运行</button>
+          <WbButton className="btn-ghost" onClick={async () => { toast('已触发运行 · ' + auto.name); await runNow(auto.id); loadRuns() }}>立即运行</WbButton>
         )}
         {auto && (
-          <button className="btn-ghost danger-b" onClick={del}>删除</button>
+          <WbButton className="btn-ghost danger-b" onClick={del}>删除</WbButton>
         )}
-        <button className="btn-ghost" onClick={onClose}>取消</button>
-        <button className="btn-dark" disabled={!canSave} onClick={save}>保存</button>
+        <WbButton className="btn-ghost" onClick={onClose}>取消</WbButton>
+        <WbButton className="btn-dark" disabled={!canSave} onClick={save}>保存</WbButton>
       </div>
 
       <div className="auto-ed">
         <div className="auto-ed-main">
           <div className="np-lbl">名称</div>
-          <input className="np-input" placeholder="给这个自动化起个名字" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          <WbInput className="np-input" placeholder="给这个自动化起个名字" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
 
           <div className="np-lbl">工作空间<small className="np-opt">（可选）</small></div>
           <div className="np-row">
@@ -481,24 +483,24 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
                 </span>
               )}
             </div>
-            <button className="np-add" onClick={(e) => { wsAnchor.current = e.currentTarget; setWsOpen(true) }}>
+            <WbButton className="np-add" onClick={(e) => { wsAnchor.current = e.currentTarget; setWsOpen(true) }}>
               ＋ {projectId ? '更换' : '选择工作空间'}
-            </button>
+            </WbButton>
           </div>
 
           <div className="np-lbl">指令（到点会作为一次对话真实执行）</div>
-          <textarea
+          <WbTextArea
             className="np-ta"
             placeholder="例如：关注当天 AI 领域的重要动态，筛选 3-5 条整理成中文简报"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
           />
           <div className="auto-ed-tb">
-            <button className="ctool model" onClick={(e) => { modelAnchor.current = e.currentTarget; setModelOpen(true) }}>
+            <WbButton className="ctool model" onClick={(e) => { modelAnchor.current = e.currentTarget; setModelOpen(true) }}>
               <span className="mk">🐋</span>
               <span className="model-lb">{models.find((m) => m.key === model)?.name ?? model ?? '跟随默认模型'}</span>
               <IcChevronDown style={{ width: 10, height: 10 }} />
-            </button>
+            </WbButton>
           </div>
 
           <div className="np-lbl">触发方式</div>
@@ -510,13 +512,13 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
             {kind === 'interval' ? (
               <div className="auto-trig-in">
                 每
-                <input type="number" min={1} aria-label="间隔分钟" value={intervalMinutes} onChange={(e) => setIntervalMinutes(Number(e.target.value) || 1)} />
+                <WbInput type="number" min={1} aria-label="间隔分钟" value={intervalMinutes} onChange={(e) => setIntervalMinutes(Number(e.target.value) || 1)} />
                 分钟运行一次
               </div>
             ) : (
               <div className="auto-trig-in">
                 每天
-                <input type="time" aria-label="每天运行时间" value={atTime} onChange={(e) => setAtTime(e.target.value)} />
+                <WbInput type="time" aria-label="每天运行时间" value={atTime} onChange={(e) => setAtTime(e.target.value)} />
                 运行
               </div>
             )}

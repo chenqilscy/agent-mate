@@ -1,8 +1,10 @@
+import { WbButton, WbInput, WbTextArea } from '../ui/Primitives'
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../lib/api'
 import type { InstalledSkill } from '../../lib/types'
 import { useSkillStore } from '../../stores/skillStore'
 import { toast } from '../../stores/toastStore'
+import { AntModalBridge } from '../ui/AntModalBridge'
 
 export function LocalSkillEditorModal({ skill, onClose }: { skill: InstalledSkill; onClose: () => void }) {
   const [name, setName] = useState('')
@@ -63,18 +65,18 @@ export function LocalSkillEditorModal({ skill, onClose }: { skill: InstalledSkil
   }
 
   return (
-    <div className="np-overlay open" onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose() }}>
+    <AntModalBridge onClose={requestClose}>
       <div className="np-modal skill-local-edit-modal" role="dialog" aria-modal="true" aria-label={`编辑技能 ${skill.name}`}>
-        <div className="np-h">编辑技能<button className="np-x" aria-label="关闭" onClick={requestClose}>×</button></div>
+        <div className="np-h">编辑技能<WbButton className="np-x" aria-label="关闭" onClick={requestClose}>×</WbButton></div>
         <div className="np-body">
           {loading ? <div className="cap-blank">读取技能中…</div> : (
             <>
               <label className="np-lbl" htmlFor="local-skill-name">名称 <span className="np-required">必填</span></label>
-              <input id="local-skill-name" className="np-input" maxLength={120} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+              <WbInput id="local-skill-name" className="np-input" maxLength={120} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
               <label className="np-lbl" htmlFor="local-skill-description">简介 <span className="np-required">必填</span></label>
-              <textarea id="local-skill-description" className="np-ta" maxLength={500} value={description} onChange={(e) => setDescription(e.target.value)} />
+              <WbTextArea id="local-skill-description" className="np-ta" maxLength={500} value={description} onChange={(e) => setDescription(e.target.value)} />
               <label className="np-lbl" htmlFor="local-skill-instructions">技能指令 <span className="np-required">必填</span></label>
-              <textarea id="local-skill-instructions" className="np-ta skill-local-instructions" maxLength={50000} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+              <WbTextArea id="local-skill-instructions" className="np-ta skill-local-instructions" maxLength={50000} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
               <div className="mc-hint">只更新 SKILL.md；references、scripts 和其他文件保持不变。</div>
             </>
           )}
@@ -82,10 +84,10 @@ export function LocalSkillEditorModal({ skill, onClose }: { skill: InstalledSkil
         </div>
         <div className="np-foot">
           {dirty && <span className="np-hint">有未保存修改</span>}
-          <button className="btn-ghost" disabled={saving} onClick={requestClose}>取消</button>
-          <button className="btn-dark" disabled={loading || saving} onClick={save}>{saving ? '保存中…' : '保存技能'}</button>
+          <WbButton className="btn-ghost" disabled={saving} onClick={requestClose}>取消</WbButton>
+          <WbButton className="btn-dark" disabled={loading || saving} onClick={save}>{saving ? '保存中…' : '保存技能'}</WbButton>
         </div>
       </div>
-    </div>
+    </AntModalBridge>
   )
 }

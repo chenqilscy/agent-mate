@@ -1,8 +1,8 @@
+import { WbButton, WbInput, WbTextArea, WbSelect } from '../ui/Primitives'
 // 统一「设置中心」弹窗（WB-146/WB-202）。左侧按语义分组的功能导航 + 右侧内容区。
 // 套现有 .np-overlay/.np-modal（token 化天然暗色，铁律#2/#3）；设置中心专属布局用 set- 前缀类。
 // 有真实执行链路的设置直接接后端；尚未落地的入口继续诚实标注「即将上线」（铁律#1）。
 import { useEffect, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
 import { useUIStore, type SettingsTab } from '../../stores/uiStore'
 import { useAuthStore } from '../../stores/authStore'
 import { ModelConfigModal } from '../composer/ModelConfigModal'
@@ -10,6 +10,7 @@ import { toast } from '../../stores/toastStore'
 import { api } from '../../lib/api'
 import type { AgentSettings, AuditEntry, DataSummary, MemoryItem, MemorySearchHit, MemoryStats, MemoryTrace, StylePreset, SystemSettings } from '../../lib/types'
 import { useSystemSettingsStore } from '../../stores/systemSettingsStore'
+import { AntModalBridge } from '../ui/AntModalBridge'
 
 type Tab = { id: SettingsTab; label: string; icon: ReactNode }
 type TabGroup = { label: string; items: Tab[] }
@@ -100,21 +101,21 @@ function PersonalizePanel() {
       <div className="set-flabel">基本风格和语调<span className="set-fsub2">设置 AI 助手回复你的风格和语调。这不会影响 AI 助手的功能。</span></div>
       <div className="set-styles">
         {presets.map((p) => (
-          <button key={p.key} className={`set-style ${style === p.key ? 'on' : ''}`.trim()} onClick={() => { setStyle(p.key); setDirty(true) }}>
+          <WbButton key={p.key} className={`set-style ${style === p.key ? 'on' : ''}`.trim()} onClick={() => { setStyle(p.key); setDirty(true) }}>
             <span className="set-style-l">{p.label}</span>
             <span className="set-style-d">{p.desc}</span>
-          </button>
+          </WbButton>
         ))}
       </div>
 
       <div className="set-flabel">自定义指令<span className="set-fsub2">告诉 AI 助手你希望它始终遵循的规则和偏好，这会直接影响所有对话。</span></div>
-      <textarea
+      <WbTextArea
         className="np-ta" placeholder={'例如："每次回答我之前都先说 ok，再接后续内容"'}
         value={custom} maxLength={2000} onChange={(e) => { setCustom(e.target.value); setDirty(true) }}
       />
 
       <div className="set-actions">
-        <button className="btn-dark" disabled={!loaded || saving || !dirty} onClick={save}>{saving ? '保存中…' : '保存'}</button>
+        <WbButton className="btn-dark" disabled={!loaded || saving || !dirty} onClick={save}>{saving ? '保存中…' : '保存'}</WbButton>
         <span className="set-pdesc" style={{ margin: 0 }}>这些设置会应用到你之后的所有对话。</span>
       </div>
     </div>
@@ -178,9 +179,9 @@ function SystemPanel() {
           <div className="set-fname">显示语言</div>
           <div className="set-fsub">设置应用程序界面的显示语言；当前版本仅提供简体中文。</div>
         </div>
-        <select className="np-input set-select" value="zh-CN" disabled aria-label="显示语言">
+        <WbSelect className="np-input set-select" value="zh-CN" disabled aria-label="显示语言">
           <option value="zh-CN">中文（简体）</option>
-        </select>
+        </WbSelect>
       </div>
 
       <div className="set-field set-field--scale">
@@ -189,7 +190,7 @@ function SystemPanel() {
           <div className="set-fsub">同步缩放文字与控件，重启应用后仍会保留。</div>
         </div>
         <div className="set-scale">
-          <input type="range" min={90} max={110} step={5} value={draft.interface_scale}
+          <WbInput type="range" min={90} max={110} step={5} value={draft.interface_scale}
             aria-label="字体大小" onChange={(e) => change('interface_scale', Number(e.target.value) as SystemSettings['interface_scale'])} />
           <div><span>小</span><span>默认</span><span>大</span></div>
         </div>
@@ -200,9 +201,9 @@ function SystemPanel() {
           <div className="set-fname">减少动态效果</div>
           <div className="set-fsub">关闭过渡和动画，降低视觉干扰。</div>
         </div>
-        <button className={`set-switch ${draft.reduce_motion ? 'on' : ''}`.trim()} aria-pressed={draft.reduce_motion} onClick={() => change('reduce_motion', !draft.reduce_motion)}>
+        <WbButton className={`set-switch ${draft.reduce_motion ? 'on' : ''}`.trim()} aria-pressed={draft.reduce_motion} onClick={() => change('reduce_motion', !draft.reduce_motion)}>
           <span className="set-switch-dot" />
-        </button>
+        </WbButton>
       </div>
 
       <div className="set-field">
@@ -210,10 +211,10 @@ function SystemPanel() {
           <div className="set-fname">默认执行权限</div>
           <div className="set-fsub">新会话默认使用的权限级别；仍可在输入框中临时切换。</div>
         </div>
-        <select className="np-input set-select" value={draft.default_permission} onChange={(e) => change('default_permission', e.target.value as SystemSettings['default_permission'])}>
+        <WbSelect className="np-input set-select" value={draft.default_permission} onChange={(e) => change('default_permission', e.target.value as SystemSettings['default_permission'])}>
           <option value="default">默认权限</option>
           <option value="full">完全访问权限</option>
-        </select>
+        </WbSelect>
       </div>
 
       <div className="set-field">
@@ -221,17 +222,17 @@ function SystemPanel() {
           <div className="set-fname">默认启动页</div>
           <div className="set-fsub">仅在从应用根地址启动时生效，分享或收藏的具体页面链接不受影响。</div>
         </div>
-        <select className="np-input set-select" value={draft.startup_page} onChange={(e) => change('startup_page', e.target.value as SystemSettings['startup_page'])}>
+        <WbSelect className="np-input set-select" value={draft.startup_page} onChange={(e) => change('startup_page', e.target.value as SystemSettings['startup_page'])}>
           <option value="home">新建任务</option>
           <option value="projects">项目</option>
           <option value="knowledge">知识库</option>
           <option value="automation">自动化</option>
-        </select>
+        </WbSelect>
       </div>
 
       <div className="set-actions">
-        <button className="btn-dark" disabled={!loaded || saving || !dirty} onClick={save}>{saving ? '保存中…' : '保存'}</button>
-        <button className="btn-ghost" disabled={saving} onClick={reset}>恢复默认</button>
+        <WbButton className="btn-dark" disabled={!loaded || saving || !dirty} onClick={save}>{saving ? '保存中…' : '保存'}</WbButton>
+        <WbButton className="btn-ghost" disabled={saving} onClick={reset}>恢复默认</WbButton>
       </div>
     </div>
   )
@@ -342,9 +343,9 @@ function MemoryPanel() {
           <div className="set-fname">生成对话记忆</div>
           <div className="set-fsub">开启后，AgentMate 会从对话中提取并记住相关事实，供未来对话按相关性注入。</div>
         </div>
-        <button className={`set-switch ${enabled ? 'on' : ''}`.trim()} onClick={toggle} role="switch" aria-checked={enabled} aria-label="生成对话记忆">
+        <WbButton className={`set-switch ${enabled ? 'on' : ''}`.trim()} onClick={toggle} role="switch" aria-checked={enabled} aria-label="生成对话记忆">
           <span className="set-switch-dot" />
-        </button>
+        </WbButton>
       </div>
 
       <div className="set-field">
@@ -355,11 +356,11 @@ function MemoryPanel() {
             {stats?.embed?.configured === 'glm' && !stats.embed.glm && <span style={{ color: '#e5484d' }}>　未配置 GLM 密钥，当前暂用本地。</span>}
           </div>
         </div>
-        <select className="np-input" style={{ width: 190, flexShrink: 0 }}
+        <WbSelect className="np-input" style={{ width: 190, flexShrink: 0 }}
           value={stats?.embed?.configured ?? 'local'} onChange={(e) => changeBackend(e.target.value)}>
           <option value="local">本地（离线）</option>
           <option value="glm">在线 · GLM embedding-3</option>
-        </select>
+        </WbSelect>
       </div>
 
       {stats && (
@@ -373,10 +374,10 @@ function MemoryPanel() {
 
       <div className="set-flabel">检索 · 看哪些记忆与一句话最相关</div>
       <div className="set-msearch">
-        <input className="np-input" placeholder="输入一句话，检索最相关的记忆…" value={query} maxLength={300}
+        <WbInput className="np-input" placeholder="输入一句话，检索最相关的记忆…" value={query} maxLength={300}
           onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') doSearch() }} />
-        <button className="btn-dark" disabled={!query.trim() || searching} onClick={doSearch}>检索</button>
-        {hits && <button className="set-link" onClick={() => { setHits(null); setQuery('') }}>清除</button>}
+        <WbButton className="btn-dark" disabled={!query.trim() || searching} onClick={doSearch}>检索</WbButton>
+        {hits && <WbButton className="set-link" onClick={() => { setHits(null); setQuery('') }}>清除</WbButton>}
       </div>
       {hits && (
         <div style={{ marginBottom: 14 }}>
@@ -394,18 +395,18 @@ function MemoryPanel() {
       <div className="set-flabel" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         记忆内容
         <div className="set-mviews">
-          <button className={`set-mview ${view === 'active' ? 'on' : ''}`} onClick={() => switchView('active')}>活跃{stats ? ` (${stats.active})` : ''}</button>
-          <button className={`set-mview ${view === 'archived' ? 'on' : ''}`} onClick={() => switchView('archived')}>已归档{stats ? ` (${stats.archived})` : ''}</button>
-          {stats && stats.superseded > 0 && <button className={`set-mview ${view === 'superseded' ? 'on' : ''}`} onClick={() => switchView('superseded')}>已更替 ({stats.superseded})</button>}
+          <WbButton className={`set-mview ${view === 'active' ? 'on' : ''}`} onClick={() => switchView('active')}>活跃{stats ? ` (${stats.active})` : ''}</WbButton>
+          <WbButton className={`set-mview ${view === 'archived' ? 'on' : ''}`} onClick={() => switchView('archived')}>已归档{stats ? ` (${stats.archived})` : ''}</WbButton>
+          {stats && stats.superseded > 0 && <WbButton className={`set-mview ${view === 'superseded' ? 'on' : ''}`} onClick={() => switchView('superseded')}>已更替 ({stats.superseded})</WbButton>}
         </div>
-        {stats && stats.total > 0 && <button className="set-link" onClick={clear}>清空</button>}
+        {stats && stats.total > 0 && <WbButton className="set-link" onClick={clear}>清空</WbButton>}
       </div>
 
       {view === 'active' && (
         <div className="set-memadd">
-          <input className="np-input" placeholder="手动添加一条记忆，如「我是一名前端工程师」" value={adding}
+          <WbInput className="np-input" placeholder="手动添加一条记忆，如「我是一名前端工程师」" value={adding}
             maxLength={300} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add() }} />
-          <button className="btn-dark" disabled={!adding.trim() || busy} onClick={add}>添加</button>
+          <WbButton className="btn-dark" disabled={!adding.trim() || busy} onClick={add}>添加</WbButton>
         </div>
       )}
 
@@ -415,11 +416,11 @@ function MemoryPanel() {
         {items.map((m) => (
           editingId === m.id ? (
             <div className="set-mem" key={m.id}>
-              <input className="np-input" style={{ flex: 1, minWidth: 0 }} value={editText} maxLength={300} autoFocus
+              <WbInput className="np-input" style={{ flex: 1, minWidth: 0 }} value={editText} maxLength={300} autoFocus
                 onChange={(e) => setEditText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(m.id); if (e.key === 'Escape') cancelEdit() }} />
-              <button className="set-mem-x" onClick={() => saveEdit(m.id)} disabled={!editText.trim()} aria-label="保存">✓</button>
-              <button className="set-mem-x" onClick={cancelEdit} aria-label="取消">×</button>
+              <WbButton className="set-mem-x" onClick={() => saveEdit(m.id)} disabled={!editText.trim()} aria-label="保存">✓</WbButton>
+              <WbButton className="set-mem-x" onClick={cancelEdit} aria-label="取消">×</WbButton>
             </div>
           ) : (
             <div className="set-mem" key={m.id}>
@@ -427,7 +428,7 @@ function MemoryPanel() {
                 <span className="set-mem-c">{m.content}</span>
                 <div className="set-mem-meta">
                   <div className="set-strength" title={`强度 ${pct(m.strength)}%（重要度 × 新鲜度 × 使用）`}><i style={{ width: `${pct(m.strength)}%` }} /></div>
-                  <input type="range" className="set-mem-imp" min={0} max={100} value={pct(m.importance ?? 0.5)}
+                  <WbInput type="range" className="set-mem-imp" min={0} max={100} value={pct(m.importance ?? 0.5)}
                     title={`重要度 ${pct(m.importance ?? 0.5)}%`} aria-label="重要度"
                     onChange={(e) => setImpLocal(m.id, Number(e.target.value))}
                     onMouseUp={(e) => commitImp(m.id, Number((e.target as HTMLInputElement).value))}
@@ -437,15 +438,15 @@ function MemoryPanel() {
                   {m.status === 'archived' && <span className="set-badge">已归档</span>}
                   {view === 'active' ? (
                     <>
-                      <button className="set-mem-x" onClick={() => startEdit(m)} title="编辑" aria-label="编辑">✎</button>
-                      <button className="set-mem-x" onClick={() => archive(m.id)} title="归档" aria-label="归档">⊟</button>
-                      <button className="set-mem-x" onClick={() => del(m.id)} title="删除" aria-label="删除">×</button>
+                      <WbButton className="set-mem-x" onClick={() => startEdit(m)} title="编辑" aria-label="编辑">✎</WbButton>
+                      <WbButton className="set-mem-x" onClick={() => archive(m.id)} title="归档" aria-label="归档">⊟</WbButton>
+                      <WbButton className="set-mem-x" onClick={() => del(m.id)} title="删除" aria-label="删除">×</WbButton>
                     </>
                   ) : (
                     <>
-                      {view === 'superseded' && <button className="set-mem-x" onClick={() => showTrace(m.id)} title="溯源" aria-label="溯源">↪</button>}
-                      <button className="set-mem-x" onClick={() => rollback(m.id)} title="恢复为活跃" aria-label="恢复">↩</button>
-                      <button className="set-mem-x" onClick={() => del(m.id)} title="删除" aria-label="删除">×</button>
+                      {view === 'superseded' && <WbButton className="set-mem-x" onClick={() => showTrace(m.id)} title="溯源" aria-label="溯源">↪</WbButton>}
+                      <WbButton className="set-mem-x" onClick={() => rollback(m.id)} title="恢复为活跃" aria-label="恢复">↩</WbButton>
+                      <WbButton className="set-mem-x" onClick={() => del(m.id)} title="删除" aria-label="删除">×</WbButton>
                     </>
                   )}
                 </div>
@@ -508,7 +509,7 @@ function DataPanel() {
           <div className="set-fname">导出数据</div>
           <div className="set-fsub">下载一份包含你的会话、设置与记忆的 JSON 备份。</div>
         </div>
-        <button className="btn-dark" disabled={busy} onClick={doExport}>导出</button>
+        <WbButton className="btn-dark" disabled={busy} onClick={doExport}>导出</WbButton>
       </div>
 
       <div className="set-field">
@@ -518,10 +519,10 @@ function DataPanel() {
         </div>
         {confirming
           ? <span className="set-confirm">
-              <button className="btn-ghost" disabled={busy} onClick={() => setConfirming(false)}>取消</button>
-              <button className="btn-ghost danger-b" disabled={busy} onClick={doClear}>确认清空</button>
+              <WbButton className="btn-ghost" disabled={busy} onClick={() => setConfirming(false)}>取消</WbButton>
+              <WbButton className="btn-ghost danger-b" disabled={busy} onClick={doClear}>确认清空</WbButton>
             </span>
-          : <button className="btn-ghost danger-b" disabled={busy || !sum} onClick={() => setConfirming(true)}>清空</button>}
+          : <WbButton className="btn-ghost danger-b" disabled={busy || !sum} onClick={() => setConfirming(true)}>清空</WbButton>}
       </div>
 
       <Soon title="删除保护 · 批量删除审批" desc="需要执行层接管删除行为才能真正生效，暂不做以免成为「存了不生效」的假开关。" />
@@ -565,7 +566,7 @@ function AgentPanel() {
           <div className="set-fname">最多连续工具步数<span className="set-fsub2">一次回答里智能体最多连续调用工具的轮数。调小更省 token，调大更能自动完成复杂任务。默认 {s.defaults.max_rounds}。</span></div>
           <span className="set-slval">{rounds}</span>
         </div>
-        <input type="range" min={rMin} max={rMax} step={1} value={rounds}
+        <WbInput type="range" min={rMin} max={rMax} step={1} value={rounds}
           onChange={(e) => { setRounds(Number(e.target.value)); setDirty(true) }} />
       </div>
 
@@ -574,13 +575,13 @@ function AgentPanel() {
           <div className="set-fname">回复发散度（temperature）<span className="set-fsub2">越低越稳定确定、越高越有创造性。默认 {s.defaults.temperature}。</span></div>
           <span className="set-slval">{temp.toFixed(1)}</span>
         </div>
-        <input type="range" min={tMin} max={tMax} step={0.1} value={temp}
+        <WbInput type="range" min={tMin} max={tMax} step={0.1} value={temp}
           onChange={(e) => { setTemp(Number(e.target.value)); setDirty(true) }} />
       </div>
 
       <div className="set-actions">
-        <button className="btn-dark" disabled={saving || !dirty} onClick={save}>{saving ? '保存中…' : '保存'}</button>
-        <button className="btn-ghost" disabled={saving} onClick={() => { setRounds(s.defaults.max_rounds); setTemp(s.defaults.temperature); setDirty(true) }}>恢复默认</button>
+        <WbButton className="btn-dark" disabled={saving || !dirty} onClick={save}>{saving ? '保存中…' : '保存'}</WbButton>
+        <WbButton className="btn-ghost" disabled={saving} onClick={() => { setRounds(s.defaults.max_rounds); setTemp(s.defaults.temperature); setDirty(true) }}>恢复默认</WbButton>
       </div>
     </div>
   )
@@ -622,20 +623,20 @@ function SecurityPanel() {
 
       <div className="set-flabel">命令安全策略<span className="set-fsub2">命中黑名单的命令会被真拦截、不执行（大小写不敏感的子串匹配）。规则如 <code>rm -rf</code>、<code>shutdown</code>。</span></div>
       <div className="set-memadd">
-        <input className="np-input" placeholder="添加拦截规则（命令子串），如 rm -rf" value={draft} maxLength={200}
+        <WbInput className="np-input" placeholder="添加拦截规则（命令子串），如 rm -rf" value={draft} maxLength={200}
           onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add() }} />
-        <button className="btn-dark" disabled={!draft.trim() || busy} onClick={add}>添加</button>
+        <WbButton className="btn-dark" disabled={!draft.trim() || busy} onClick={add}>添加</WbButton>
       </div>
       <div className="set-chips">
         {blocklist.length === 0 && <span className="set-mem-empty">暂无拦截规则。添加后 agent 执行命中的命令会被拦截。</span>}
         {blocklist.map((p) => (
-          <span className="set-chip2" key={p}>{p}<button className="set-chip2-x" onClick={() => remove(p)} aria-label="移除">×</button></span>
+          <span className="set-chip2" key={p}>{p}<WbButton className="set-chip2-x" onClick={() => remove(p)} aria-label="移除">×</WbButton></span>
         ))}
       </div>
 
       <div className="set-flabel" style={{ display: 'flex', alignItems: 'center' }}>
         审计中心<span className="set-fsub2" style={{ flex: 1 }}>命令执行 / 拦截记录（最近 100 条）。</span>
-        {audit.length > 0 && <button className="set-link" onClick={clearAudit}>清空记录</button>}
+        {audit.length > 0 && <WbButton className="set-link" onClick={clearAudit}>清空记录</WbButton>}
       </div>
       <div className="set-memlist">
         {audit.length === 0 && <div className="set-mem-empty">暂无审计记录。agent 执行命令后这里会出现记录。</div>}
@@ -661,8 +662,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const loggedIn = useAuthStore((s) => s.loggedIn)
   const logout = useAuthStore((s) => s.logout)
 
-  return createPortal(
-    <div className="np-overlay open" style={{ zIndex: 175 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+  return (
+    <AntModalBridge onClose={onClose} zIndex={175}>
       <div className="np-modal set-modal" role="dialog" aria-modal="true" aria-label="设置">
         <div className="set-layout">
           <aside className="set-nav">
@@ -688,7 +689,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           </aside>
 
           <div className="set-panel">
-            <button className="np-x set-x" onClick={onClose} aria-label="关闭">×</button>
+            <WbButton className="np-x set-x" onClick={onClose} aria-label="关闭">×</WbButton>
 
             {tab === 'account' && (
               <div className="set-body">
@@ -713,7 +714,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 </div>
                 <div className="set-actions">
                   {loggedIn
-                    ? <button className="btn-ghost danger-b" onClick={() => { onClose(); void logout() }}>退出登录</button>
+                    ? <WbButton className="btn-ghost danger-b" onClick={() => { onClose(); void logout() }}>退出登录</WbButton>
                     : <span className="set-pdesc">当前以本机默认身份使用，登录后可跨设备协作。</span>}
                 </div>
               </div>
@@ -733,7 +734,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 <div className="set-ptitle">助理设置</div>
                 <div className="set-pdesc">助理的名字、人格、模型、权限、绑定工作空间与外部渠道，在「助理」页逐个管理。</div>
                 <div className="set-actions">
-                  <button className="btn-dark" onClick={() => { onClose(); setView('assistant') }}>前往助理管理</button>
+                  <WbButton className="btn-dark" onClick={() => { onClose(); setView('assistant') }}>前往助理管理</WbButton>
                 </div>
               </div>
             )}
@@ -760,15 +761,14 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 <div className="set-ptitle">帮助与反馈</div>
                 <div className="set-pdesc">遇到问题或有建议？下面是常用入口。</div>
                 <div className="set-actions" style={{ flexWrap: 'wrap', gap: 10 }}>
-                  <button className="btn-ghost" onClick={() => toast('反馈渠道即将上线')}>提交反馈</button>
-                  <button className="btn-ghost" onClick={() => toast('帮助文档即将上线')}>查看帮助文档</button>
+                  <WbButton className="btn-ghost" onClick={() => toast('反馈渠道即将上线')}>提交反馈</WbButton>
+                  <WbButton className="btn-ghost" onClick={() => toast('帮助文档即将上线')}>查看帮助文档</WbButton>
                 </div>
               </div>
             )}
           </div>
         </div>
       </div>
-    </div>,
-    document.body,
+    </AntModalBridge>
   )
 }
