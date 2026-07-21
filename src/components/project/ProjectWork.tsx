@@ -7,6 +7,8 @@ import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
 import type { WorkAttachment, WorkItem, WorkPriority, WorkStatus } from '../../lib/types'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { Empty, Input, Select, Table, Tag } from 'antd'
+import { ProCard } from '@ant-design/pro-components'
 
 const COLS: { key: WorkStatus; label: string }[] = [
   { key: 'todo', label: '待开始' },
@@ -93,41 +95,11 @@ function FilterDropdown({ label, options, onPick }: {
   options: { key: string; label: string }[]
   onPick: (key: string) => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
-  return (
-    <>
-      <div ref={ref} className="mf-type" role="button" tabIndex={0} onClick={() => setOpen((v) => !v)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v) } }}>
-        <span className="ft-lb">{label}</span>{IcCaret}
-      </div>
-      <Popover open={open} anchor={ref.current} dir="down" onClose={() => setOpen(false)} minWidth={148}>
-        {options.map((o) => (
-          <div className="pop-item" key={o.key} onClick={() => { onPick(o.key); setOpen(false) }}>{o.label}</div>
-        ))}
-      </Popover>
-    </>
-  )
+  return <Select className="mf-type" aria-label={label} value="" placeholder={label} options={options.map((o) => ({ value: o.key, label: o.label }))} onChange={onPick} />
 }
 
-function StatusPill({ status, dir = 'up', onPick }: { status: WorkStatus; dir?: 'up' | 'down'; onPick: (s: WorkStatus) => void }) {
-  const ref = useRef<HTMLButtonElement>(null)
-  const [open, setOpen] = useState(false)
-  return (
-    <>
-      <WbButton ref={ref} type="button" className="wb-pill" onClick={() => setOpen((v) => !v)}>
-        <span className="wb-dot" style={{ background: DOT[status] }} />
-        {STATUS_OPTS.find((s) => s.key === status)?.label}{IcCaret}
-      </WbButton>
-      <Popover open={open} anchor={ref.current} dir={dir} onClose={() => setOpen(false)} minWidth={132}>
-        {STATUS_OPTS.map((s) => (
-          <div className="pop-item" key={s.key} onClick={() => { onPick(s.key); setOpen(false) }}>
-            <span className="wb-dot" style={{ background: DOT[s.key] }} />{s.label}
-          </div>
-        ))}
-      </Popover>
-    </>
-  )
+function StatusPill({ status, onPick }: { status: WorkStatus; dir?: 'up' | 'down'; onPick: (s: WorkStatus) => void }) {
+  return <Select className="wb-pill" value={status} onChange={(value) => onPick(value as WorkStatus)} options={STATUS_OPTS.map((s) => ({ value: s.key, label: <span><span className="wb-dot" style={{ background: DOT[s.key] }} />{s.label}</span> }))} />
 }
 
 function DueDatePill({ value, dir = 'up', onChange }: { value: string | null; dir?: 'up' | 'down'; onChange: (v: string | null) => void }) {
@@ -153,24 +125,8 @@ function DueDatePill({ value, dir = 'up', onChange }: { value: string | null; di
   )
 }
 
-function PriorityPill({ value, dir = 'up', onPick }: { value: WorkPriority; dir?: 'up' | 'down'; onPick: (p: WorkPriority) => void }) {
-  const ref = useRef<HTMLButtonElement>(null)
-  const [open, setOpen] = useState(false)
-  const meta = PRIO[value] ?? PRIO['']
-  return (
-    <>
-      <WbButton ref={ref} type="button" className="wb-pill" onClick={() => setOpen((v) => !v)}>
-        <span className="wb-dot" style={{ background: meta.color }} />{value ? meta.label : '优先级'}{IcCaret}
-      </WbButton>
-      <Popover open={open} anchor={ref.current} dir={dir} onClose={() => setOpen(false)} minWidth={132}>
-        {PRIORITY_OPTS.map((o) => (
-          <div className="pop-item" key={o.key || 'none'} onClick={() => { onPick(o.key); setOpen(false) }}>
-            <span className="wb-dot" style={{ background: o.color }} />{o.label}
-          </div>
-        ))}
-      </Popover>
-    </>
-  )
+function PriorityPill({ value, onPick }: { value: WorkPriority; dir?: 'up' | 'down'; onPick: (p: WorkPriority) => void }) {
+  return <Select className="wb-pill" value={value} onChange={(next) => onPick(next as WorkPriority)} options={PRIORITY_OPTS.map((o) => ({ value: o.key, label: <span><span className="wb-dot" style={{ background: o.color }} />{o.label}</span> }))} />
 }
 
 // 里程碑选择器：从项目里程碑里选，或就地新建一个（WB-108）。
@@ -273,7 +229,7 @@ function AssetPickerOverlay({ projectId, onPick, onClose }: {
               <div style={{ flex: 1, minWidth: 0 }}><div className="pn">{f.name}</div><div className="pd">{f.path}</div></div>
             </div>
           )) : (
-            <div className="pj-empty">项目云盘暂无文件，去「资产」上传或让 Agent 生成产物。</div>
+            <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="项目云盘暂无文件，去「资产」上传或让 Agent 生成产物。" />
           )}
         </div>
       </div>
@@ -452,7 +408,7 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
 
           <div className="wb-td-sec-h">评论{comments.length > 0 ? ` ${comments.length}` : ''}</div>
           {!serverOn ? (
-            <div className="pj-empty">连接 AgentMate Server 账号后可在任务下评论、@ 队友。</div>
+            <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="连接 AgentMate Server 账号后可在任务下评论、@ 队友。" />
           ) : (
             <>
               <div className="cap-cmt-box" style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -461,7 +417,7 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
                 <WbButton className="btn-dark" disabled={!cbody.trim()} onClick={() => void sendComment()}>发送</WbButton>
               </div>
               {comments.length === 0 ? (
-                <div className="pj-empty">还没有评论。</div>
+                <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有评论" />
               ) : (
                 comments.map((c) => (
                   <div className="msg-row" key={c.id}>
@@ -716,9 +672,10 @@ export function KanbanBoard() {
               />
             )}
             {colItems.map((i) => (
-              <div
+              <ProCard
                 key={i.id}
                 className={`pj-card ${batch && sel.has(i.id) ? 'sel' : ''}`.trim()}
+                styles={{ body: { display: 'contents' } }}
                 draggable={!batch}
                 onDragStart={(e) => e.dataTransfer.setData('text/plain', i.id)}
                 onClick={() => cardClick(i)}
@@ -742,7 +699,7 @@ export function KanbanBoard() {
                   <span style={{ flex: 1 }} />
                   <span className="ago">{i.ago}</span>
                 </div>
-              </div>
+              </ProCard>
             ))}
           </div>
         )
@@ -797,7 +754,7 @@ export function KanbanBoard() {
               {renderKanban(l.items)}
             </div>
           ))
-          : <div className="pj-empty">无任务</div>)}
+          : <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="无任务" />)}
 
       {detailId && <TodoDetailModal itemId={detailId} onClose={() => setDetailId(null)} />}
       {newIn && <NewTodoModal status={newIn} onClose={() => setNewIn(null)} onCreated={(wi) => setDetailId(wi.id)} />}
@@ -826,7 +783,7 @@ export function WorkloadView() {
     return { id, name: g.name, t, todo: c('todo'), doing: c('doing'), paused: c('paused'), done, overdue, pct: t ? Math.round((done / t) * 100) : 0, est, spent }
   }).sort((a, b) => (a.id === '' ? 1 : 0) - (b.id === '' ? 1 : 0) || b.t - a.t)
 
-  if (rows.length === 0) return <div className="pj-empty">还没有任务。</div>
+  if (rows.length === 0) return <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有任务" />
   const seg = (n: number, color: string) => (n > 0 ? <div style={{ flex: n, background: color }} /> : null)
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12 }}>
@@ -855,7 +812,7 @@ export function GanttView() {
   const items = useWorkItemStore((s) => s.items).filter((i) => !i.parent_id)
   const [detailId, setDetailId] = useState<string | null>(null)
   const dated = items.filter((i) => i.due_date || i.start_date)
-  if (!dated.length) return <div className="pj-empty">无排期任务 —— 给任务设开始/截止日期即可在此按时间轴排布。</div>
+  if (!dated.length) return <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="无排期任务 —— 给任务设开始/截止日期即可在此按时间轴排布。" />
   const toD = (s: string) => { const a = s.split('-').map(Number); return Date.UTC(a[0], (a[1] || 1) - 1, a[2] || 1) / 86400000 }
   const today = (() => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` })()
   let min = Infinity, max = -Infinity
@@ -916,27 +873,23 @@ export function TaskList() {
         </div>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>你的任务是私密的，除非你共享它们</span>
         <span style={{ flex: 1 }} />
-        <div className="search-box" style={{ margin: 0, width: 220 }}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-          <WbInput placeholder="搜索任务标题" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
+        <Input.Search className="search-box" allowClear style={{ margin: 0, width: 220 }} placeholder="搜索任务标题" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
-      {filtered.length ? (
-        filtered.map((i) => (
-          <div className="pj-task" key={i.id}>
-            <span className="tt">{i.title}</span>
-            <LabelBadges labels={i.labels} />
-            {i.due_date && <span className="wb-badge due">📅 {i.due_date.slice(5)}</span>}
-            <span style={{ flex: 1 }} />
-            {i.assignee_name && <span className="wb-av" style={{ width: 20, height: 20, fontSize: 11 }} title={i.assignee_name}>{i.assignee_name[0]}</span>}
-            <PriorityPill value={i.priority} dir="down" onPick={(p) => void update(i.id, { priority: p })} />
-            <StatusPill status={i.status} dir="down" onPick={(s) => void update(i.id, { status: s })} />
-            <span className="del" title="删除" onClick={() => void remove(i.id)}>×</span>
-          </div>
-        ))
-      ) : (
-        <div className="pj-empty">暂无任务，去「计划」看板新建。</div>
-      )}
+      <Table<WorkItem>
+        className="pj-task-table"
+        rowKey="id"
+        dataSource={filtered}
+        pagination={false}
+        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无任务，去「计划」看板新建" /> }}
+        columns={[
+          { title: '任务', dataIndex: 'title', render: (title, item) => <span className="tt">{title}<span className="wb-card-labels"><LabelBadges labels={item.labels} /></span></span> },
+          { title: '截止日期', dataIndex: 'due_date', width: 110, render: (value) => value ? <Tag className="wb-badge due">📅 {String(value).slice(5)}</Tag> : '—' },
+          { title: '负责人', dataIndex: 'assignee_name', width: 100, render: (name) => name || '—' },
+          { title: '优先级', dataIndex: 'priority', width: 130, render: (value, item) => <PriorityPill value={value} onPick={(priority) => void update(item.id, { priority })} /> },
+          { title: '状态', dataIndex: 'status', width: 130, render: (value, item) => <StatusPill status={value} onPick={(status) => void update(item.id, { status })} /> },
+          { title: '操作', key: 'action', width: 70, render: (_, item) => <WbButton className="del danger-b" onClick={() => void remove(item.id)}>删除</WbButton> },
+        ]}
+      />
     </>
   )
 }

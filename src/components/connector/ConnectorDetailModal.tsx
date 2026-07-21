@@ -9,6 +9,7 @@ import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
 import { WeKnoraConfigForm } from './WeKnoraConfigForm'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { Tag } from 'antd'
 
 // 连接器详情弹窗（套现有 .np-overlay/.np-modal 骨架，天然继承暗色覆盖）。
 // OAuth 连接器（如金山文档）走真实授权流：点「连接」→ 后端 spawn `kdocs-cli auth login`
@@ -123,14 +124,14 @@ export function ConnectorDetailModal(
   // 头部状态标签：oauth 连接器显示实时连接态；其它连接器显示静态 statusLabel。
   const statusTag = isOAuth
     ? conn === 'connected'
-      ? <span className="conn-tag rdy">● 已连接</span>
+      ? <Tag className="conn-tag rdy">● 已连接</Tag>
       : conn === 'not_installed'
-        ? <span className="conn-tag tok">未安装 CLI</span>
-        : <span className="conn-tag tok">{conn === 'connecting' ? '连接中…' : '需连接'}</span>
+        ? <Tag className="conn-tag tok">未安装 CLI</Tag>
+        : <Tag className="conn-tag tok">{conn === 'connecting' ? '连接中…' : '需连接'}</Tag>
     : isForm
       ? (formOk
-          ? <span className="conn-tag rdy">● 已连接</span>
-          : <span className="conn-tag tok">{meta?.statusLabel ?? '需连接'}</span>)
+          ? <Tag className="conn-tag rdy">● 已连接</Tag>
+          : <Tag className="conn-tag tok">{meta?.statusLabel ?? '需连接'}</Tag>)
       : meta
         ? <span className={`conn-tag ${meta.status}`}>{meta.statusLabel}</span>
         : null

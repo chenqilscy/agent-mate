@@ -1,4 +1,4 @@
-import { WbButton, WbInput } from '../components/ui/Primitives'
+import { WbButton } from '../components/ui/Primitives'
 import { useEffect, useState } from 'react'
 import { toast } from '../stores/toastStore'
 import { useProjectStore } from '../stores/projectStore'
@@ -6,6 +6,8 @@ import { useUIStore } from '../stores/uiStore'
 import { NewProjectModal } from '../components/project/NewProjectModal'
 import { useCatalog } from '../stores/catalogStore'
 import type { ProjectInfo } from '../lib/types'
+import { Dropdown, Empty, Input, List, Tag } from 'antd'
+import { ProCard } from '@ant-design/pro-components'
 
 // A shared project (M7 C2) carries the caller's role; owned projects show no badge.
 const ROLE_LABEL: Record<string, string> = { Admin: '管理员', Member: '成员', Viewer: '只读' }
@@ -16,6 +18,7 @@ export function ProjectsView() {
   const setActive = useProjectStore((s) => s.setActive)
   const setView = useUIStore((s) => s.setView)
   const [modalOpen, setModalOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const { PROJ_TPL } = useCatalog()
 
   useEffect(() => { load() }, [load])
@@ -25,6 +28,7 @@ export function ProjectsView() {
     setActive(p)
     setView('project', { projectId: p.id })
   }
+  const shownProjects = projects.filter((project) => project.name.toLowerCase().includes(query.trim().toLowerCase()))
 
   return (
     <section className="view active" data-view="projects">
@@ -49,43 +53,39 @@ export function ProjectsView() {
 
         <div className="sec-row">
           <div className="sec-title">我的项目</div>
-          <div className="search-box">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-            <WbInput placeholder="搜索项目" />
-          </div>
+          <Input.Search className="search-box" allowClear placeholder="搜索项目" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-        <div id="myProjList">
-          {projects.length === 0 && (
-            <div className="my-proj" style={{ cursor: 'default', color: 'var(--text-3)' }}>
-              <span className="t-ic" style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--brand-soft)', display: 'grid', placeItems: 'center', color: 'var(--brand-600)' }}>🧭</span>
-              <div><div style={{ fontSize: 13.5, fontWeight: 700 }}>还没有项目</div><div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>点击「新建项目」开始</div></div>
-            </div>
-          )}
-          {projects.map((p) => (
-            <div className="my-proj" key={p.id} onClick={() => openProject(p)}>
+        <List
+          id="myProjList"
+          dataSource={shownProjects}
+          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? '没有匹配的项目' : '还没有项目'}><WbButton className="btn-line" onClick={() => setModalOpen(true)}>新建项目</WbButton></Empty> }}
+          renderItem={(p) => (
+            <List.Item className="my-proj" key={p.id} onClick={() => openProject(p)}>
               <span className="t-ic" style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--brand-soft)', display: 'grid', placeItems: 'center', color: 'var(--brand-600)' }}>🤖</span>
               <div>
                 <div style={{ fontSize: 13.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
                   {p.name}
-                  {p.role && p.role !== 'Owner' && <span className="pj-rolebadge sm">协作 · {ROLE_LABEL[p.role] || p.role}</span>}
+                  {p.role && p.role !== 'Owner' && <Tag className="pj-rolebadge sm">协作 · {ROLE_LABEL[p.role] || p.role}</Tag>}
                 </div>
                 <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>添加于 {p.ago}</div>
               </div>
-              <span className="mp-more" onClick={(e) => { e.stopPropagation(); toast('项目菜单') }}>⋮</span>
-            </div>
-          ))}
-        </div>
+              <Dropdown menu={{ items: [{ key: 'open', label: '打开项目' }, { key: 'members', label: '成员管理' }], onClick: ({ key, domEvent }) => { domEvent.stopPropagation(); if (key === 'open') openProject(p); else toast('请在项目内管理成员') } }} trigger={['click']}>
+                <WbButton className="mp-more" aria-label={`${p.name} 项目菜单`} onClick={(e) => e.stopPropagation()}>⋯</WbButton>
+              </Dropdown>
+            </List.Item>
+          )}
+        />
 
         <div className="sec-title">从模版创建</div>
         <div className="card-grid g4">
           {PROJ_TPL.map(([ic, n, d]) => (
-            <div className="tpl" key={n} onClick={() => setModalOpen(true)}>
+            <ProCard className="tpl" key={n} hoverable onClick={() => setModalOpen(true)} styles={{ body: { display: 'contents' } }}>
               <span className="t-ic">{ic}</span>
               <div>
                 <div className="t-n">{n}</div>
                 <div className="t-d">{d}</div>
               </div>
-            </div>
+            </ProCard>
           ))}
         </div>
       </div>

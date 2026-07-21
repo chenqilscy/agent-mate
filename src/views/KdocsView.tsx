@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import type { KdocsFile } from '../lib/types'
 import { toast } from '../stores/toastStore'
+import { Breadcrumb, Empty, List, Result, Spin, Tabs } from 'antd'
 
 // 侧栏「更多 → 金山文档」面板（WB-140）：直接浏览/搜索/打开自己的金山云文档。
 // 两种模式（对齐金山文档网页版）：「最近」= 最近访问的扁平列表 + 全局搜索；
@@ -180,43 +181,30 @@ export function KdocsView() {
           )}
 
         {/* ── 连接态引导（未安装 / 未授权 / 连接中）───────────────────── */}
-        {conn === 'loading' && <div className="mf-empty">正在加载…</div>}
+        {conn === 'loading' && <Spin className="mf-empty" tip="正在加载…" />}
 
         {conn === 'not_installed' && (
-          <div className="mf-empty" style={{ flexDirection: 'column', gap: 10, textAlign: 'center', lineHeight: 1.7 }}>
-            <div>未检测到金山文档命令行工具 <b>kdocs-cli</b>。</div>
-            <div style={{ fontSize: 12, color: 'var(--text-2)' }}>请先在本机安装 kdocs-cli，再回到这里连接。</div>
-          </div>
+          <Result className="mf-empty" status="warning" title="未检测到 kdocs-cli" subTitle="请先在本机安装金山文档命令行工具，再回到这里连接。" />
         )}
 
         {(conn === 'need_auth' || conn === 'connecting') && (
-          <div className="mf-empty" style={{ flexDirection: 'column', gap: 12, textAlign: 'center', lineHeight: 1.7 }}>
-            <div>尚未连接金山文档。连接后即可浏览你的云文档，凭据仅存本机、不进前端。</div>
+          <Result className="mf-empty" status="info" title="尚未连接金山文档" subTitle="连接后即可浏览你的云文档，凭据仅存本机、不进前端。" extra={
             <WbButton className="cap-act" onClick={doConnect} disabled={conn === 'connecting'}>
               {conn === 'connecting' ? '连接中…' : '连接金山文档'}
             </WbButton>
+          }>
             {authUrl && conn === 'connecting' && (
               <a href={authUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--brand)' }}>
                 没有自动打开？点此手动打开授权页
               </a>
             )}
-          </div>
+          </Result>
         )}
 
         {/* ── 已连接：最近 / 我的云文档 两个模式 ─────────────────────── */}
         {conn === 'ready' && (
           <>
-            <div className="mf-tabs">
-              <div className={`mf-tab ${mode === 'recent' ? 'active' : ''}`.trim()} onClick={() => switchMode('recent')}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>最近
-              </div>
-              <div className={`mf-tab ${mode === 'star' ? 'active' : ''}`.trim()} onClick={() => switchMode('star')}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.8l6.5-.9z" /></svg>星标
-              </div>
-              <div className={`mf-tab ${mode === 'folder' ? 'active' : ''}`.trim()} onClick={() => switchMode('folder')}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>我的云文档
-              </div>
-            </div>
+            <Tabs className="mf-tabs" activeKey={mode} onChange={(key) => switchMode(key as Mode)} items={[{ key: 'recent', label: '最近' }, { key: 'star', label: '星标' }, { key: 'folder', label: '我的云文档' }]} />
 
             {mode === 'recent' && (
               <div className="mf-filter" style={{ marginTop: 14 }}>
@@ -235,15 +223,7 @@ export function KdocsView() {
 
             {mode === 'folder' && (
               <div className="mf-filter" style={{ marginTop: 14 }}>
-                <div className="kd-crumb">
-                  {crumbs.map((c, i) => (
-                    <span key={c.id + i}>
-                      {i > 0 && <i className="kd-sep">/</i>}
-                      <span className={`kd-cr ${i === crumbs.length - 1 ? 'cur' : ''}`.trim()}
-                        onClick={() => gotoCrumb(i)}>{c.name}</span>
-                    </span>
-                  ))}
-                </div>
+                <Breadcrumb className="kd-crumb" items={crumbs.map((c, i) => ({ title: <span className={`kd-cr ${i === crumbs.length - 1 ? 'cur' : ''}`.trim()} onClick={() => gotoCrumb(i)}>{c.name}</span> }))} />
                 <span style={{ flex: 1 }} />
                 <WbButton className="cap-act" onClick={refresh} disabled={loading} title="刷新">刷新</WbButton>
               </div>
@@ -257,17 +237,13 @@ export function KdocsView() {
             </div>
 
             {files.length === 0 && !loading && (
-              <div className="mf-empty">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M14 3v5h5M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" /></svg>
-                {mode === 'recent' ? (active ? '没有匹配的文档' : '暂无最近文档') : '空文件夹'}
-              </div>
+              <Empty className="mf-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={mode === 'recent' ? (active ? '没有匹配的文档' : '暂无最近文档') : '空文件夹'} />
             )}
 
-            <div className="kd-list">
-              {files.map((f) => {
+            <List className="kd-list" dataSource={files} renderItem={(f) => {
                 if (f.is_folder) {
                   return (
-                    <div key={f.file_id} className="kd-item" onClick={() => enterFolder(f)} role="button" tabIndex={0}
+                    <List.Item key={f.file_id} className="kd-item" onClick={() => enterFolder(f)} role="button" tabIndex={0}
                       onKeyDown={(e) => { if (e.key === 'Enter') enterFolder(f) }}>
                       <span className="kd-ic">{f.is_kb ? '📚' : '📁'}</span>
                       <div className="kd-main">
@@ -275,12 +251,12 @@ export function KdocsView() {
                         <div className="kd-meta">{f.is_kb ? '知识库' : '文件夹'}{f.mtime ? ` · ${fmtTime(f.mtime)}` : ''}</div>
                       </div>
                       <svg className="kd-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 6l6 6-6 6" /></svg>
-                    </div>
+                    </List.Item>
                   )
                 }
                 const [icon, kind] = kindOf(f.ext)
                 return (
-                  <div key={f.file_id || f.name} className={`kd-item ${viewing?.file_id === f.file_id ? 'active' : ''}`.trim()} onClick={() => openFile(f)} role="button" tabIndex={0}
+                  <List.Item key={f.file_id || f.name} className={`kd-item ${viewing?.file_id === f.file_id ? 'active' : ''}`.trim()} onClick={() => openFile(f)} role="button" tabIndex={0}
                     onKeyDown={(e) => { if (e.key === 'Enter') openFile(f) }}>
                     <span className="kd-ic">{icon}</span>
                     <div className="kd-main">
@@ -290,10 +266,9 @@ export function KdocsView() {
                       </div>
                     </div>
                     <svg className="kd-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 5h5v5M19 5l-8 8M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" /></svg>
-                  </div>
+                  </List.Item>
                 )
-              })}
-            </div>
+              }} />
           </>
         )}
         </div>

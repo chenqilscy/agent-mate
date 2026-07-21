@@ -8,6 +8,7 @@ import { api } from '../../lib/api'
 import { useServerStore } from '../../stores/serverStore'
 import { toast } from '../../stores/toastStore'
 import { ServerConnectModal } from './ServerConnectModal'
+import { Avatar, Badge, Empty, List, Result, Tag } from 'antd'
 
 type Comment = { id: string; author_name: string; body: string; created_at: number }
 type Presence = { account_id: string; name: string; role: string; online: boolean; last_seen: number }
@@ -66,15 +67,12 @@ export function ServerCommentsPanel({ projectId }: { projectId: string }) {
   const onKey = (e: React.KeyboardEvent) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }
 
   if (!enabled) {
-    return <div className="pj-empty">本地模式：未接入 Server。讨论、@提及、在线状态需要连接中心服务（后端配置 AGENTMATE_SERVER_URL）。</div>
+    return <Result className="pj-empty" status="info" title="当前为本地模式" subTitle="讨论、@提及、在线状态需要连接 AgentMate Server。" />
   }
   if (!linked) {
     return (
       <>
-        <div className="pj-empty">连接 AgentMate Server 账号后，即可在此与项目成员讨论、@提及、看谁在线。</div>
-        <div style={{ textAlign: 'center', marginTop: 12 }}>
-          <WbButton className="btn-dark" onClick={() => setConnectOpen(true)}>连接 AgentMate Server</WbButton>
-        </div>
+        <Result className="pj-empty" status="info" title="尚未连接 AgentMate Server" subTitle="连接账号后，即可与项目成员讨论、@提及并查看在线状态。" extra={<WbButton className="btn-dark" onClick={() => setConnectOpen(true)}>连接 AgentMate Server</WbButton>} />
         {connectOpen && <ServerConnectModal onClose={() => { setConnectOpen(false); void refreshStatus() }} />}
       </>
     )
@@ -90,11 +88,7 @@ export function ServerCommentsPanel({ projectId }: { projectId: string }) {
       {presence.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
           {presence.map((m) => (
-            <span key={m.account_id} title={m.online ? '在线' : m.last_seen ? `最后活跃 ${ago(m.last_seen)}` : '从未上线'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, border: '1px solid var(--border)', fontSize: 12.5, opacity: m.online ? 1 : 0.6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.online ? '#2FBE6E' : 'var(--text-3)' }} />
-              {m.name}
-            </span>
+            <Tag key={m.account_id} title={m.online ? '在线' : m.last_seen ? `最后活跃 ${ago(m.last_seen)}` : '从未上线'}><Badge status={m.online ? 'success' : 'default'} />{m.name}</Tag>
           ))}
         </div>
       )}
@@ -106,17 +100,17 @@ export function ServerCommentsPanel({ projectId }: { projectId: string }) {
       </div>
 
       {comments.length === 0 ? (
-        <div className="pj-empty">还没有评论。说点什么，开启这个项目的讨论。</div>
+        <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有评论。说点什么，开启这个项目的讨论。" />
       ) : (
-        comments.map((c) => (
-          <div className="msg-row" key={c.id}>
-            <span className="msg-ic">{(c.author_name || '?').slice(0, 1)}</span>
+        <List dataSource={comments} renderItem={(c) => (
+          <List.Item className="msg-row" key={c.id}>
+            <Avatar className="msg-ic">{(c.author_name || '?').slice(0, 1)}</Avatar>
             <div className="msg-main">
               <div className="msg-title">{c.author_name}<span style={{ fontWeight: 400, color: 'var(--text-3)', marginLeft: 6 }}>· {ago(c.created_at)}</span></div>
               <div className="msg-sub" style={{ whiteSpace: 'pre-wrap' }}>{c.body}</div>
             </div>
-          </div>
-        ))
+          </List.Item>
+        )} />
       )}
 
       {connectOpen && <ServerConnectModal onClose={() => { setConnectOpen(false); void refreshStatus() }} />}

@@ -12,6 +12,7 @@ import { useLoadoutStore } from '../../stores/loadoutStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
+import { Empty, Spin } from 'antd'
 
 // 详情入口：已安装用 key；AgentMate 自有目录用 catalog+slug；第三方未安装项必须带商店卡元数据。
 export type SkillTarget = { key?: string; slug?: string; name?: string; catalog?: boolean; card?: SkillCard }
@@ -113,9 +114,9 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
       </div>
 
       {loading && !data ? (
-        <div className="cap-blank">加载中…</div>
+        <Spin className="cap-blank" tip="加载中…" />
       ) : !data && !marketCard ? (
-        <div className="cap-blank">未找到该技能</div>
+        <Empty className="cap-blank" image={Empty.PRESENTED_IMAGE_SIMPLE} description="未找到该技能" />
       ) : (
         <>
           <div className="skd-top">

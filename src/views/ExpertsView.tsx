@@ -1,4 +1,4 @@
-import { WbButton, WbInput } from '../components/ui/Primitives'
+import { WbButton } from '../components/ui/Primitives'
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react'
 import { toast } from '../stores/toastStore'
 import { useChatStore } from '../stores/chatStore'
@@ -16,6 +16,8 @@ import type { InstalledSkill, SkillCard } from '../lib/types'
 import { type ExpertTeam } from '../data/catalog'
 import { useCatalog, useCatalogStore } from '../stores/catalogStore'
 import { AntModalBridge } from '../components/ui/AntModalBridge'
+import { Empty, Input, Spin, Tabs, Tag } from 'antd'
+import { ProCard } from '@ant-design/pro-components'
 
 type CapabilityKind = 'experts' | 'skills' | 'connectors'
 
@@ -101,7 +103,7 @@ function ExpertsPane() {
       {sub === '专家' ? (
         <div className="card-grid g4">
           {experts.map((expert) => (
-            <div className="ecard" key={expert.slug} onClick={() => setDetail({ type: 'expert', icon: expert.avatar, name: expert.name, subtitle: expert.subtitle, badge: expert.badge, category: expert.category, intro: expert.intro, strengths: expert.tags })}>
+            <ProCard className="ecard" hoverable styles={{ body: { display: 'contents' } }} key={expert.slug} onClick={() => setDetail({ type: 'expert', icon: expert.avatar, name: expert.name, subtitle: expert.subtitle, badge: expert.badge, category: expert.category, intro: expert.intro, strengths: expert.tags })}>
               <div className="ec-h">
                 <div className="ec-av">{expert.avatar}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -110,14 +112,14 @@ function ExpertsPane() {
                 </div>
               </div>
               <div className="ec-d">{expert.intro}</div>
-              <div className="ec-tags">{expert.tags.map((t) => <span className="ec-tag" key={t}>{t}</span>)}</div>
-            </div>
+              <div className="ec-tags">{expert.tags.map((t) => <Tag className="ec-tag" key={t}>{t}</Tag>)}</div>
+            </ProCard>
           ))}
         </div>
       ) : (
         <div className="card-grid g4">
           {teams.map((t) => (
-            <div className="ecard" key={t.name} onClick={() => setDetail({ type: 'team', team: t })}>
+            <ProCard className="ecard" hoverable styles={{ body: { display: 'contents' } }} key={t.name} onClick={() => setDetail({ type: 'team', team: t })}>
               <div className="ec-h">
                 <div className="ec-av">{t.icon}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -126,12 +128,12 @@ function ExpertsPane() {
                 </div>
               </div>
               <div className="ec-d">{t.intro}</div>
-              <div className="ec-tags">{t.tags.map((x) => <span className="ec-tag" key={x}>{x}</span>)}</div>
-            </div>
+              <div className="ec-tags">{t.tags.map((x) => <Tag className="ec-tag" key={x}>{x}</Tag>)}</div>
+            </ProCard>
           ))}
         </div>
       )}
-      {empty && <div className="cap-blank">该分类下暂无{sub}</div>}
+      {empty && <Empty className="cap-blank" image={Empty.PRESENTED_IMAGE_SIMPLE} description={`该分类下暂无${sub}`} />}
 
       {detail && <ExpertDetailModal detail={detail} onClose={() => setDetail(null)} />}
     </div>
@@ -301,7 +303,7 @@ function MirrorSkillCard({ card, onOpenDetail }: { card: SkillCard; onOpenDetail
   const inst = useSkillStore((s) => matchSkill(s.installed, card.slug || card.name))
   const target: SkillTarget = inst ? { key: inst.key } : { card }
   return (
-    <div className="hcard clickable" onClick={() => onOpenDetail(target)}>
+    <ProCard className="hcard clickable" hoverable styles={{ body: { display: 'contents' } }} onClick={() => onOpenDetail(target)}>
       <div className="hc-h">
         <span className="hc-ic" style={card.iconUrl ? { background: 'transparent', padding: 0, overflow: 'hidden' } : { background: '#6B7280' }}>
           {card.iconUrl
@@ -316,7 +318,7 @@ function MirrorSkillCard({ card, onOpenDetail }: { card: SkillCard; onOpenDetail
         <span className="hc-stat"><IcDl />{fmtNum(card.downloads)}</span>
         <span className="hc-stat"><IcStar />{card.stars ?? 0}</span>
       </div>
-    </div>
+    </ProCard>
   )
 }
 
@@ -341,9 +343,9 @@ function SkillSearchResults({ q, onOpenDetail }: { q: string; onOpenDetail: (tar
     <>
       <div className="sec-title" style={{ marginTop: 2 }}>搜索「{q.trim()}」</div>
       {loading && results.length === 0
-        ? <div className="cap-blank">搜索中…</div>
+        ? <Spin className="cap-blank" tip="搜索中…" />
         : results.length === 0
-          ? <div className="cap-blank">没有找到相关技能</div>
+          ? <Empty className="cap-blank" image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有找到相关技能" />
           : (
             <div className="card-grid g4">
               {results.map((c) => <MirrorSkillCard key={c.slug || c.name} card={c} onOpenDetail={onOpenDetail} />)}
@@ -385,7 +387,7 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
         <div className="card-grid g4">
           {list.map((c) => <MirrorSkillCard key={c.slug} card={c} onOpenDetail={onOpenDetail} />)}
         </div>
-        {list.length === 0 && <div className="cap-blank">该分类下暂无技能</div>}
+        {list.length === 0 && <Empty className="cap-blank" image={Empty.PRESENTED_IMAGE_SIMPLE} description="该分类下暂无技能" />}
       </>
     )
   }
@@ -393,7 +395,7 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
   return (
     <>
       {cathead(['全部'])}
-      <div className="cap-blank">当前无法获取 SkillHub 目录，请检查本地网络或稍后重试</div>
+      <Empty className="cap-blank" image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前无法获取 SkillHub 目录，请检查本地网络或稍后重试" />
     </>
   )
 }
@@ -414,17 +416,17 @@ function RecoView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) => voi
             ? { slug: s.slug, name: s.name, catalog: true }
             : { card: { slug: s.slug, name: s.name, description: s.description, category: s.category, source: 'SkillHub' } }
           return (
-            <div className="scard clickable" key={`${s.provider}:${s.slug}`} onClick={() => onOpenDetail(target)}>
+            <ProCard className="scard clickable" hoverable styles={{ body: { display: 'contents' } }} key={`${s.provider}:${s.slug}`} onClick={() => onOpenDetail(target)}>
               <div className="sc-ic">{s.icon}</div>
               <div className="sc-info"><div className="sc-n">{s.name}</div><div className="sc-d">{s.description}</div></div>
               {s.provider === 'agentmate'
                 ? <RecoBtn skillKey={s.slug} displayName={s.name} />
                 : <SkillHubRecoBtn skillKey={s.slug} displayName={s.name} />}
-            </div>
+            </ProCard>
           )
         })}
       </div>
-      {visible.length === 0 && <div className="cap-blank">该分类下暂无技能</div>}
+      {visible.length === 0 && <Empty className="cap-blank" image={Empty.PRESENTED_IMAGE_SIMPLE} description="该分类下暂无技能" />}
     </>
   )
 }
@@ -464,12 +466,9 @@ function InstalledPane({ onBack, onOpenDetail }: { onBack: () => void; onOpenDet
         <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>共 {installed.length} 个技能</span>
       </div>
       {installed.length === 0 ? (
-        <div className="auto-empty">
-          <div className="auto-empty-ic">🧩</div>
-          <div className="auto-empty-t">{loading ? '加载中…' : '还没有安装任何技能'}</div>
-          <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: -6 }}>去 SkillHub 商店挑选并安装你需要的技能</div>
+        <Empty className="auto-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={loading ? '加载中…' : '还没有安装任何技能'}>
           <WbButton className="btn-dark auto-empty-add" onClick={onBack}>去技能市场</WbButton>
-        </div>
+        </Empty>
       ) : (
         <div className="card-grid g4" style={{ marginTop: 14 }}>
           {installed.map((skill) => <InstalledCard key={skill.key} skill={skill} onOpenDetail={onOpenDetail} onEdit={setEditing} />)}
@@ -484,7 +483,7 @@ function InstalledCard({ skill, onOpenDetail, onEdit }: { skill: InstalledSkill;
   const tile = skillTile(skill.name)
   const [menu, setMenu] = useState(false)
   return (
-    <div className={`inst-card clickable ${skill.disabled ? 'off' : ''}`.trim()} onClick={() => onOpenDetail({ key: skill.key })}>
+    <ProCard className={`inst-card clickable ${skill.disabled ? 'off' : ''}`.trim()} hoverable styles={{ body: { display: 'contents' } }} onClick={() => onOpenDetail({ key: skill.key })}>
       <span className="inst-ic" style={{ background: tile.color }}>{tile.icon}</span>
       <div style={{ minWidth: 0 }}>
         <div className="inst-n">{skill.name}{skill.disabled && <span className="hc-off" style={{ marginLeft: 6 }}>已关闭</span>}</div>
@@ -494,7 +493,7 @@ function InstalledCard({ skill, onOpenDetail, onEdit }: { skill: InstalledSkill;
         <span className="inst-more" onClick={(e) => { e.stopPropagation(); setMenu((v) => !v) }}>⋯</span>
         {menu && <SkillMenu skill={skill} onClose={() => setMenu(false)} onEdit={onEdit} />}
       </div>
-    </div>
+    </ProCard>
   )
 }
 
@@ -539,13 +538,13 @@ function ConnectorsPane() {
           // oauth / 表单型连接器显示实时连接态；其它显示静态标签。
           const badge = meta ? ((meta.oauth || meta.configKind)
             ? (authed[n]
-                ? <span className="conn-tag rdy">● 已连接</span>
-                : <span className="conn-tag tok">{meta.statusLabel}</span>)
-            : <span className={`conn-tag ${meta.status}`}>{meta.statusLabel}</span>)
-            : <span className={`conn-tag ${status}`}>{status === 'rdy' ? '内置即用' : '需连接'}</span>
+                ? <Tag className="conn-tag rdy">● 已连接</Tag>
+                : <Tag className="conn-tag tok">{meta.statusLabel}</Tag>)
+            : <Tag className={`conn-tag ${meta.status}`}>{meta.statusLabel}</Tag>)
+            : <Tag className={`conn-tag ${status}`}>{status === 'rdy' ? '内置即用' : '需连接'}</Tag>
           return (
-            <div
-              className="conn" key={n} role="button" tabIndex={0} onClick={open}
+            <ProCard
+              className="conn" key={n} hoverable styles={{ body: { display: 'contents' } }} role="button" tabIndex={0} onClick={open}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() } }}
             >
               <div className="c-ic">{ic}</div>
@@ -565,7 +564,7 @@ function ConnectorsPane() {
                   }
                 }}
               />
-            </div>
+            </ProCard>
           )
         })}
       </div>
@@ -597,16 +596,13 @@ function MyExpertsPane({ onBack }: { onBack: () => void }) {
       </div>
 
       {experts.length === 0 ? (
-        <div className="auto-empty">
-          <div className="auto-empty-ic">🎓</div>
-          <div className="auto-empty-t">还没有创建任何专家</div>
-          <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: -6 }}>创建属于你的专家，分享专业知识</div>
+        <Empty className="auto-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有创建任何专家">
           <WbButton className="btn-dark auto-empty-add" onClick={() => setCreateOpen(true)}>＋ 创建专家</WbButton>
-        </div>
+        </Empty>
       ) : (
         <div className="card-grid g4" style={{ marginTop: 14 }}>
           {experts.map((e) => (
-            <div className="ecard" key={e.id}>
+            <ProCard className="ecard" key={e.id} styles={{ body: { display: 'contents' } }}>
               <div className="ec-h">
                 <div className="ec-av">{e.avatar}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -615,12 +611,12 @@ function MyExpertsPane({ onBack }: { onBack: () => void }) {
                 </div>
               </div>
               <div className="ec-d">{e.intro || e.persona}</div>
-              <div className="ec-tags">{e.tags.map((t) => <span className="ec-tag" key={t}>{t}</span>)}</div>
+              <div className="ec-tags">{e.tags.map((t) => <Tag className="ec-tag" key={t}>{t}</Tag>)}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                 <WbButton className="btn-dark" style={{ flex: 1, justifyContent: 'center' }} onClick={() => summon([e.name], e.name)}>召唤</WbButton>
                 <WbButton className="btn-ghost" onClick={() => { void remove(e.id); toast('已删除 · ' + e.name) }}>删除</WbButton>
               </div>
-            </div>
+            </ProCard>
           ))}
         </div>
       )}
@@ -644,6 +640,7 @@ function CapabilityView({ kind }: { kind: CapabilityKind }) {
   const [detailTarget, setDetailTarget] = useState<SkillTarget | null>(null)
   // 顶栏搜索框输入（WB-070）：目前用于技能 tab 的 SkillHub 搜索；切 tab 清空。
   const [query, setQuery] = useState('')
+  const setView = useUIStore((s) => s.setView)
   const installedCount = useSkillStore((s) => s.installed.length)
   const loadSkills = useSkillStore((s) => s.load)
   const placeholder = { experts: '搜索专家职称或描述', skills: '搜索技能', connectors: '搜索连接器' }[kind]
@@ -653,7 +650,6 @@ function CapabilityView({ kind }: { kind: CapabilityKind }) {
   useEffect(() => { void loadSkills() }, [loadSkills])
 
   const onAct = () => { if (kind === 'experts') setMyExperts(true) }
-  const currentTab = TABS.find((tab) => tab.id === kind)!
   const createSkill = () => {
     setDetailTarget(null)
     setMyInstalled(false)
@@ -667,14 +663,9 @@ function CapabilityView({ kind }: { kind: CapabilityKind }) {
   return (
     <section className="view active" data-view={kind}>
       <div className="cap-top">
-        <div className="cap-tab active" aria-current="page">
-          {currentTab.icon}{currentTab.label}
-        </div>
+        <Tabs className="cap-tabs" activeKey={kind} onChange={(key) => setView(key as CapabilityKind)} items={TABS.map((item) => ({ key: item.id, label: <span className="cap-tab">{item.icon}{item.label}</span> }))} />
         <div className="sp" />
-        <div className="search-box" style={{ margin: 0, width: 260 }}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-          <WbInput placeholder={placeholder} value={query} onChange={(e) => setQuery(e.target.value)} />
-        </div>
+        <Input.Search className="search-box" allowClear style={{ margin: 0, width: 260 }} placeholder={placeholder} value={query} onChange={(e) => setQuery(e.target.value)} />
         {kind === 'skills' ? (
           <>
             <WbButton className={`cap-act ${myInstalled ? 'on' : ''}`.trim()} onClick={() => { setDetailTarget(null); setMyInstalled((v) => !v) }}>

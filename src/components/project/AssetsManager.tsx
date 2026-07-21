@@ -5,6 +5,7 @@ import type { FileScope } from '../panel/FileTree'
 import { FileViewer } from '../panel/FileViewer'
 import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
+import { Breadcrumb, Dropdown, Empty, Input, Progress, Table } from 'antd'
 
 // 资产 = the project's cloud drive (§11 阶段 C): a real file manager over the
 // project workspace — upload / download / rename / delete / new folder + quota.
@@ -53,7 +54,6 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
   const [usage, setUsage] = useState<{ used: number; quota: number }>({ used: 0, quota: 0 })
   const [cwd, setCwd] = useState('')
   const [q, setQ] = useState('')
-  const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
@@ -93,7 +93,6 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
     reload()
   }
   const doDelete = async (e: FileEntry) => {
-    setMenuFor(null)
     await api.deleteFile(e.path, scope).catch(() => toast('删除失败'))
     toast('已删除 · ' + e.name)
     reload()
@@ -110,38 +109,28 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
   const pct = usage.quota ? (usage.used / usage.quota) * 100 : 0
 
   return (
-    <div onClick={() => setMenuFor(null)}>
+    <div>
       <div className="as-toolbar">
         <WbButton className="cap-act" onClick={newFolder}>新建文件夹</WbButton>
         <WbButton className="cap-act" onClick={() => fileInput.current?.click()}>上传文件</WbButton>
         <WbInput ref={fileInput} type="file" multiple hidden onChange={(e) => onUpload(e.target.files)} />
-        <span className="as-quota">存储空间已用 {fmtSize(usage.used)} / {fmtSize(usage.quota)} <i>({pct.toFixed(2)}%)</i></span>
+        <span className="as-quota">存储空间已用 {fmtSize(usage.used)} / {fmtSize(usage.quota)} <Progress percent={Number(pct.toFixed(2))} size="small" showInfo={false} /></span>
         <span style={{ flex: 1 }} />
-        <div className="search-box" style={{ margin: 0, width: 220 }}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-          <WbInput placeholder="搜索文件或文件夹" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
+        <Input.Search className="search-box" allowClear style={{ margin: 0, width: 220 }} placeholder="搜索文件或文件夹" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
-      <div className="as-crumb">
-        <span onClick={() => setCwd('')}>项目云盘</span>
-        {cwd.split('/').filter(Boolean).map((seg, i, arr) => (
-          <span key={i}>/ <span onClick={() => setCwd(arr.slice(0, i + 1).join('/'))}><b>{seg}</b></span></span>
-        ))}
-      </div>
+      <Breadcrumb className="as-crumb" items={[{ title: <span onClick={() => setCwd('')}>项目云盘</span> }, ...cwd.split('/').filter(Boolean).map((seg, i, arr) => ({ title: <span onClick={() => setCwd(arr.slice(0, i + 1).join('/'))}>{seg}</span> }))]} />
 
-      {rows.length === 0 ? (
-        <div className="as-empty">暂无文件，点「上传文件」或让 Agent 在本项目里生成产物。</div>
-      ) : (
-        <table className="as-table">
-          <thead>
-            <tr><th>名称</th><th style={{ width: 90 }}>类型</th><th style={{ width: 110 }}>更新时间</th><th style={{ width: 90 }}>大小</th><th style={{ width: 40 }} /></tr>
-          </thead>
-          <tbody>
-            {rows.map((e) => (
-              <tr className="as-row" key={e.path}>
-                <td>
-                  {renaming === e.path ? (
+      <Table<FileEntry>
+        className="as-table"
+        rowKey="path"
+        dataSource={rows}
+        pagination={false}
+        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无文件，点「上传文件」或让 Agent 在本项目里生成产物" /> }}
+        onRow={() => ({ className: 'as-row' })}
+        columns={[
+          { title: '名称', dataIndex: 'name', render: (_, e) => (
+                  renaming === e.path ? (
                     <WbInput
                       className="pj-kadd" autoFocus aria-label="重命名" placeholder="新名称" style={{ marginBottom: 0 }} value={renameDraft}
                       onChange={(ev) => setRenameDraft(ev.target.value)}
@@ -152,28 +141,14 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
                     <span className="as-name" onClick={() => (e.type === 'd' ? setCwd(e.path) : openFile(e.path))}>
                       <span className="ic">{iconFor(e)}</span>{e.name}
                     </span>
-                  )}
-                </td>
-                <td className="as-col-t">{typeLabel(e)}</td>
-                <td className="as-col-s">{fmtTime(e.mtime)}</td>
-                <td className="as-col-s">{fmtSize(e.size)}</td>
-                <td style={{ position: 'relative', textAlign: 'right' }}>
-                  <span className="as-more" onClick={(ev) => { ev.stopPropagation(); setMenuFor(menuFor === e.path ? null : e.path) }}>⋯</span>
-                  {menuFor === e.path && (
-                    <div className="pop open" style={{ position: 'absolute', right: 8, top: 30, minWidth: 120 }} onClick={(ev) => ev.stopPropagation()}>
-                      {e.type === 'f' && (
-                        <div className="pop-item" onClick={() => { setMenuFor(null); void api.downloadFile(e.path, e.name, scope) }}>下载</div>
-                      )}
-                      <div className="pop-item" onClick={() => { setMenuFor(null); setRenaming(e.path); setRenameDraft(e.name) }}>重命名</div>
-                      <div className="pop-item" style={{ color: '#E5484D' }} onClick={() => doDelete(e)}>删除</div>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+                  )
+                ) },
+          { title: '类型', key: 'type', width: 90, className: 'as-col-t', render: (_, e) => typeLabel(e) },
+          { title: '更新时间', dataIndex: 'mtime', width: 110, className: 'as-col-s', render: (value) => fmtTime(value) },
+          { title: '大小', dataIndex: 'size', width: 90, className: 'as-col-s', render: (value) => fmtSize(value) },
+          { title: '', key: 'actions', width: 50, render: (_, e) => <Dropdown trigger={['click']} menu={{ items: [...(e.type === 'f' ? [{ key: 'download', label: '下载' }] : []), { key: 'rename', label: '重命名' }, { key: 'delete', label: '删除', danger: true }], onClick: ({ key, domEvent }) => { domEvent.stopPropagation(); if (key === 'download') void api.downloadFile(e.path, e.name, scope); else if (key === 'rename') { setRenaming(e.path); setRenameDraft(e.name) } else void doDelete(e) } }}><WbButton className="as-more" onClick={(event) => event.stopPropagation()}>⋯</WbButton></Dropdown> },
+        ]}
+      />
     </div>
   )
 }

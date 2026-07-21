@@ -57,3 +57,21 @@ P1。App 是主要用户端，手写控件规模继续增长会提高主题、�
   工作空间 Ant Popover 支持 Escape；明暗主题均实看；860×720 下侧栏抽屉与内容布局正常。浏览器发现的
   Modal 旧属性提示已改为 Ant Design 6 的 `mask.closable` 新 API，并经 TypeScript 与回归构建复核。
 - commit：本提交（WB-241）
+
+## 继续处理（2026-07-21）
+
+- 复核：首阶段完成了依赖、根主题、页面边界与基础控件适配，但主侧栏、页面 Tabs、业务卡片/列表、
+  筛选区、表格、空态和加载态仍主要是手写结构，尚未达到本 issue「页面级专业组件统一」的验收口径。
+- 范围：继续迁移上述页面结构到 Ant Design / Pro Components，同时保留 WorkBuddy class 与设计 token，
+  不改变业务路由、状态和真实 API 数据流。
+
+## 二阶段处理记录（2026-07-21）
+
+- 改动：主侧栏迁移到 Ant Menu/Collapse/List/Dropdown/Badge；设置中心导航迁移到 Ant Menu；首页、项目、
+  自动化、助理、专家/技能/连接器、知识库、金山文档、我的文件和项目工作台统一使用 ProCard、Tabs、
+  List、Table、Empty、Spin、Result、Upload.Dragger、Statistic、Segmented、Select、Switch、Tag、Breadcrumb
+  等页面级组件；保留原 WorkBuddy class 与主题 token，并补齐 Ant 语义 DOM 的明暗/响应式兼容样式。
+- 验证：`pnpm build` 通过（App + Console）；`pnpm test:regression` 52/52 通过；本机 Edge 实测首页、
+  项目、自动化、技能、助理、知识库、我的文件，明暗主题均正常；860×720 项目页侧栏抽屉与两列模板
+  布局正常；源码审计无原生 button/select/textarea/table，唯一原生 input 是浏览器文件选择边界。
+- commit：本提交（WB-241）

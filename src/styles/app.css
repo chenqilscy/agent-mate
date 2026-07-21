@@ -1499,3 +1499,108 @@ body.dark .wb-date { color-scheme: dark; }
 .asst-addchip { font-size: 12px; color: var(--brand-600); background: transparent; border: 1px dashed var(--border); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
 .asst-addchip.danger { color: #E5484D; border-style: solid; }
 .asst-ch { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px; }
+
+/* ---- Ant Design / Pro Components page-level compatibility (WB-241 phase 2) ----
+   Keep the WorkBuddy class/token contract while allowing Ant's semantic DOM to
+   own keyboard interaction, focus, empty/loading feedback, menus and tables. */
+.sidebar .ant-menu,
+.set-nav .ant-menu { background: transparent; border-inline-end: 0 !important; }
+.sidebar .ant-menu-item-group-title,
+.set-nav .ant-menu-item-group-title { padding: 9px 10px 4px !important; color: var(--text-3) !important; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; }
+.nav .ant-menu-item { width: 100%; height: 36px; line-height: 36px; margin: 1px 0; padding-inline: 10px !important; border-radius: 9px; color: var(--text); }
+.nav .ant-menu-item-selected { background: var(--chip); color: var(--text); font-weight: 600; }
+.nav .ant-menu-item .ant-menu-item-icon { width: 18px; height: 18px; display: grid; place-items: center; }
+.nav > .nav-group { margin-top: 5px; }
+.nav > .nav-group .nav-item.ant-btn { width: 100%; height: 36px; justify-content: flex-start; padding: 8px 10px; }
+.sb-scroll.ant-collapse { padding: 0 4px; background: transparent; }
+.sb-scroll .ant-collapse-item { border: 0; }
+.sb-scroll .ant-collapse-header { min-height: 30px; padding: 8px 6px 4px !important; color: var(--text-3) !important; font-size: 10.5px; font-weight: 700; }
+.sb-scroll .ant-collapse-content-box { padding: 0 !important; }
+.sb-list.ant-list .ant-list-empty-text { padding: 8px 10px; color: var(--text-3); font-size: 12px; text-align: left; }
+.sb-list .sb-task.ant-list-item { min-height: 32px; padding: 7px 10px; border-block-end: 0; }
+.sb-list .ant-badge-count { background: var(--chip); color: var(--text-2); box-shadow: none; }
+
+.auto-tabs.ant-tabs,
+.mf-tabs.ant-tabs,
+.pjh-tabs.ant-tabs,
+.cap-tabs.ant-tabs { display: block; background: transparent; border-radius: 0; padding: 0; }
+.auto-tabs .ant-tabs-nav,
+.mf-tabs .ant-tabs-nav,
+.pjh-tabs .ant-tabs-nav,
+.cap-tabs .ant-tabs-nav { margin: 0; }
+.auto-tabs .ant-tabs-nav::before,
+.cap-tabs .ant-tabs-nav::before { border: 0; }
+.auto-tabs .ant-tabs-tab { padding: 7px 14px; border-radius: 7px; }
+.auto-tabs .ant-tabs-tab-active { background: var(--card); box-shadow: var(--shadow-sm); }
+.mf-tabs .ant-tabs-tab,
+.pjh-tabs .ant-tabs-tab { padding: 10px 2px; }
+.mf-tabs .ant-tabs-content-holder,
+.pjh-tabs .ant-tabs-content-holder,
+.cap-tabs .ant-tabs-content-holder { display: none; }
+.mf-tab { display: inline-flex; align-items: center; gap: 7px; }
+.mf-tab svg, .cap-tab svg { width: 16px; height: 16px; }
+.cap-tabs { min-width: 250px; }
+.cap-tabs .ant-tabs-tab { padding: 14px 12px; }
+.cap-tab { display: inline-flex; align-items: center; gap: 7px; }
+.asst-tabs > .ant-tabs { flex: 1; min-width: 0; }
+.asst-tabs .ant-tabs-nav { margin: 0; }
+.asst-tabs .ant-tabs-content-holder { display: none; }
+
+.set-nav-menu .ant-menu-item { width: 100%; height: 38px; line-height: 38px; margin: 1px 0; padding-inline: 10px !important; border-radius: 9px; color: var(--text-2); font-weight: 600; }
+.set-nav-menu .ant-menu-item-selected { background: var(--card); color: var(--text); box-shadow: var(--shadow-sm); }
+.set-nav-menu .ant-menu-item-icon { min-width: 18px; }
+
+.tpl.ant-pro-card,
+.ecard.ant-pro-card,
+.scard.ant-pro-card,
+.conn.ant-pro-card,
+.inst-card.ant-pro-card,
+.pj-card.ant-pro-card { background: var(--card); }
+.home-console.ant-pro-card { background: var(--card); }
+.home-console > .ant-pro-card-body { display: contents; }
+.home-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.home-metric.ant-pro-card { padding: 9px 10px; }
+.home-metric .ant-pro-card-body { padding: 0; }
+.home-metric .ant-statistic { display: flex; align-items: center; gap: 8px; }
+.home-metric .ant-statistic-content { order: -1; color: var(--brand-600); font-size: 18px; line-height: 1; }
+.home-metric.danger .ant-statistic-content { color: #E5484D; }
+.home-metric .ant-statistic-title { margin: 0; color: var(--text-2); font-size: 11.5px; }
+.home-run-group .ant-list-item.home-run-item { padding: 0; border: 0; }
+.home-run-group .ant-list { width: 100%; }
+
+.ant-empty-description,
+.ant-result-title,
+.ant-result-subtitle,
+.ant-spin-text { color: var(--text-2) !important; }
+.mf-empty.ant-empty,
+.pj-empty.ant-empty,
+.home-empty.ant-empty,
+.auto-empty.ant-empty { justify-content: center; }
+.mf-empty.ant-result,
+.pj-empty.ant-result { padding-block: 60px; }
+.mf-empty.ant-upload-wrapper .ant-upload-drag { background: var(--card); border-color: var(--border); }
+.mf-empty.ant-upload-wrapper .ant-upload { padding: 38px 16px; }
+
+.as-table .ant-table,
+.pj-task-table .ant-table { background: transparent; color: var(--text); }
+.as-table .ant-table-thead > tr > th,
+.pj-task-table .ant-table-thead > tr > th { background: var(--border-2); color: var(--text-2); border-color: var(--border); font-size: 12px; }
+.as-table .ant-table-tbody > tr > td,
+.pj-task-table .ant-table-tbody > tr > td { background: var(--card); color: var(--text); border-color: var(--border-2); }
+.as-table .ant-table-tbody > tr:hover > td,
+.pj-task-table .ant-table-tbody > tr:hover > td { background: var(--chip) !important; }
+.pj-task-table .wb-card-labels { display: inline-flex; gap: 4px; margin-left: 8px; }
+.wb-pill.ant-select { min-width: 105px; }
+.wb-pill .ant-select-selector,
+.mf-type.ant-select .ant-select-selector { background: var(--card) !important; border-color: var(--border) !important; color: var(--text) !important; }
+.mf-type.ant-select { min-width: 132px; }
+
+@media (max-width: 760px) {
+  .home-metrics { grid-template-columns: 1fr; }
+  .cap-tabs { min-width: 0; width: 100%; }
+}
+
+body.dark .home-console.ant-pro-card,
+body.dark .home-console.ant-pro-card > .ant-pro-card-body,
+body.dark .home-metric.ant-pro-card,
+body.dark .hcard.ant-pro-card { background: #22272D; }

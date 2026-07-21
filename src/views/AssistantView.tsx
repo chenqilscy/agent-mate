@@ -6,6 +6,7 @@ import { AssistantChannels } from '../components/channel/AssistantChannels'
 import { api, type Assistant } from '../lib/api'
 import type { ChatMessage } from '../lib/types'
 import { toast } from '../stores/toastStore'
+import { Avatar, Badge, Empty, List, Tabs } from 'antd'
 
 // 助理（多助理 · 多渠道）主从视图 —— WB-088。左侧助理列表 + 新建，右侧选中助理的
 // 对话 / 设置 / 渠道 三 tab。后端 /api/assistants*（WB-087）。
@@ -108,32 +109,22 @@ export function AssistantView() {
             <b>助理</b>
             <WbButton className="asst-new" onClick={onCreate}>＋ 新建</WbButton>
           </div>
-          <div className="asst-list">
-            {assistants.length === 0 && <div className="asst-empty" style={{ padding: '14px 10px' }}>还没有助理</div>}
-            {assistants.map((a) => (
-              <div key={a.id} className={`asst-item ${a.id === selectedId ? 'on' : ''}`.trim()} onClick={() => select(a.id)}>
-                <span className="asst-av">{a.avatar || '🤖'}</span>
+          <List className="asst-list" dataSource={assistants} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有助理" /> }} renderItem={(a) => (
+              <List.Item key={a.id} className={`asst-item ${a.id === selectedId ? 'on' : ''}`.trim()} onClick={() => select(a.id)}>
+                <Avatar className="asst-av">{a.avatar || '🤖'}</Avatar>
                 <span className="asst-nm">{a.name}</span>
-                <span className="asst-dot" style={{ background: statusDot(a) }} title={a.channels.length ? '' : '未配渠道'} />
-              </div>
-            ))}
-          </div>
+                <Badge color={statusDot(a)} title={a.channels.length ? '' : '未配渠道'} />
+              </List.Item>
+            )} />
         </div>
 
         <div className="asst-main">
           {!detail ? (
-            <div className="ov-center" style={{ paddingTop: 140 }}>
-              <span style={{ fontSize: 34 }}>🤖</span>
-              {assistants.length === 0 ? '还没有助理' : '选择一个助理'}
-              <small>{assistants.length === 0 ? '点左上「＋ 新建」创建你的第一个助理' : '在左侧选择，或新建一个'}</small>
-            </div>
+            <Empty className="ov-center" image={Empty.PRESENTED_IMAGE_SIMPLE} description={assistants.length === 0 ? '还没有助理' : '选择一个助理'}>{assistants.length === 0 && <WbButton onClick={onCreate}>新建助理</WbButton>}</Empty>
           ) : (
             <>
               <div className="asst-tabs">
-                <div className={`asst-tab ${tab === 'chat' ? 'on' : ''}`.trim()} onClick={() => setTab('chat')}>对话</div>
-                <div className={`asst-tab ${tab === 'settings' ? 'on' : ''}`.trim()} onClick={() => setTab('settings')}>设置</div>
-                <div className={`asst-tab ${tab === 'channels' ? 'on' : ''}`.trim()} onClick={() => setTab('channels')}>渠道</div>
-                <div style={{ flex: 1 }} />
+                <Tabs activeKey={tab} onChange={(key) => setTab(key as Tab)} items={[{ key: 'chat', label: '对话' }, { key: 'settings', label: '设置' }, { key: 'channels', label: '渠道' }]} />
                 <WbButton className="asst-del" onClick={onDelete} title="删除助理">删除</WbButton>
               </div>
               {tab === 'chat' ? (

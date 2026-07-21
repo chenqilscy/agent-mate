@@ -1,4 +1,4 @@
-import { WbButton, WbInput } from '../ui/Primitives'
+import { WbButton } from '../ui/Primitives'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useUIStore } from '../../stores/uiStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -15,6 +15,8 @@ import { ServerConnectModal } from '../server/ServerConnectModal'
 import { SettingsModal } from '../settings/SettingsModal'
 import { useServerStore } from '../../stores/serverStore'
 import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
+import { Badge, Button, Collapse, Dropdown, Input, List, Menu, Tooltip } from 'antd'
+import type { InputRef } from 'antd'
 
 type NavItem = { id: ViewId; label: string; icon: ReactNode; cls?: string }
 type NavGroup = { label: string; items: NavItem[] }
@@ -89,33 +91,17 @@ export function Sidebar() {
 
   const [moreOpen, setMoreOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [tasksOpen, setTasksOpen] = useState(true)
-  const [spacesOpen, setSpacesOpen] = useState(true)
-  const [autoOpen, setAutoOpen] = useState(true)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const footRef = useRef<HTMLDivElement>(null)
 
   // Header tools (WB-024): task/space search box + status filter menu.
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [filterOpen, setFilterOpen] = useState(false)
   const [filter, setFilter] = useState<'all' | 'running'>('all')
-  const searchRef = useRef<HTMLInputElement>(null)
+  const searchRef = useRef<InputRef>(null)
 
   const act = activeNav(view)
 
   useEffect(() => { if (searchOpen) searchRef.current?.focus() }, [searchOpen])
-
-  useEffect(() => {
-    if (!filterOpen) return
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as HTMLElement
-      if (t.closest?.('.sb-fmenu') || t.closest?.('[data-filter-toggle]')) return
-      setFilterOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [filterOpen])
 
   // Live filtering of the 任务 / 空间 lists. Search matches titles/names; the
   // status filter keeps only running sessions. A project survives when it has a
@@ -177,20 +163,7 @@ export function Sidebar() {
   const openProject = (p: ProjectInfo) => {
     setActiveProject(p)
     setView('project', { projectId: p.id })
-    setExpanded((prev) => new Set(prev).add(p.id))
   }
-  const toggleExpand = (id: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
-
-  const chevron = (open: boolean) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transition: 'transform .15s', transform: open ? 'none' : 'rotate(-90deg)' }}>
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  )
 
   return (
     <aside className="sidebar">
@@ -206,44 +179,24 @@ export function Sidebar() {
           <small>v1.0.0</small>
         </div>
         <div className="sb-icos">
-          <div className="sb-ico" aria-label="收起侧栏" onClick={() => setSidebarCollapsed(true)} {...activate(() => setSidebarCollapsed(true))}>
+          <Tooltip title="收起侧栏"><Button type="text" className="sb-ico" aria-label="收起侧栏" onClick={() => setSidebarCollapsed(true)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
-          </div>
-          <div className={`sb-ico ${searchOpen || q ? 'on' : ''}`.trim()} aria-label="搜索" aria-pressed={searchOpen} onClick={toggleSearch} {...activate(toggleSearch)}>
+          </Button></Tooltip>
+          <Tooltip title="搜索任务和空间"><Button type="text" className={`sb-ico ${searchOpen || q ? 'on' : ''}`.trim()} aria-label="搜索" aria-pressed={searchOpen} onClick={toggleSearch}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-          </div>
-          <div
-            className={`sb-ico ${filter !== 'all' ? 'on' : ''}`.trim()}
-            data-filter-toggle
-            aria-label="筛选"
-            aria-haspopup="menu"
-            aria-expanded={filterOpen}
-            onClick={() => setFilterOpen((v) => !v)}
-            {...activate(() => setFilterOpen((v) => !v))}
-          >
+          </Button></Tooltip>
+          <Dropdown trigger={['click']} menu={{ selectedKeys: [filter], selectable: true, items: [{ key: 'all', label: '全部' }, { key: 'running', label: '进行中' }], onClick: ({ key }) => setFilter(key as 'all' | 'running') }}>
+          <Button type="text" className={`sb-ico ${filter !== 'all' ? 'on' : ''}`.trim()} aria-label="筛选">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 5h18l-7 8v6l-4-2v-4z" /></svg>
-          </div>
-          {filterOpen && (
-            <div className="sb-fmenu">
-              {([['all', '全部'], ['running', '进行中']] as const).map(([v, label]) => (
-                <WbButton
-                  key={v}
-                  type="button"
-                  className={`more-item ${filter === v ? 'sel' : ''}`.trim()}
-                  onClick={() => { setFilter(v); setFilterOpen(false) }}
-                >
-                  {label}
-                </WbButton>
-              ))}
-            </div>
-          )}
+          </Button>
+          </Dropdown>
         </div>
       </div>
 
       {searchOpen && (
         <div className="sb-search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-          <WbInput
+          <Input
             ref={searchRef}
             value={query}
             placeholder="搜索任务 / 空间"
@@ -260,153 +213,51 @@ export function Sidebar() {
       )}
 
       <nav className="nav">
-        {NAV_GROUPS.map((group) => (
-          <section className="nav-group" aria-label={group.label} key={group.label}>
-            <div className="nav-group-label">{group.label}</div>
-            {group.items.map((n) => (
-              <div
-                key={n.id}
-                className={`nav-item ${n.cls ?? ''} ${act === n.id ? 'active' : ''}`.trim()}
-                onClick={() => { if (n.id === 'home') newTask(); setView(n.id) }}
-                {...activate(() => { if (n.id === 'home') newTask(); setView(n.id) })}
-              >
-                <span className="n-ic">{n.icon}</span>
-                {n.label}
-              </div>
-            ))}
-          </section>
-        ))}
+        <Menu
+          mode="inline"
+          selectedKeys={[String(act)]}
+          onClick={({ key }) => { const target = key as ViewId; if (target === 'home') newTask(); setView(target) }}
+          items={NAV_GROUPS.map((group) => ({
+            type: 'group' as const,
+            label: group.label,
+            children: group.items.map((item) => ({ key: item.id, icon: <span className="n-ic">{item.icon}</span>, label: item.label, className: `nav-item ${item.cls ?? ''}`.trim() })),
+          }))}
+        />
         {/* Wrap the trigger + flyout so the menu anchors to the button (WB-042),
             instead of the old hard-coded left:250px; bottom:118px that flung it
             to the sidebar's bottom-right corner. */}
         <section className="nav-group" aria-label="资源">
           <div className="nav-group-label">资源</div>
-          <div className="more-wrap">
-          <div
-            className={`nav-item ${act === 'more' ? 'active' : ''}`.trim()}
-            onClick={() => setMoreOpen((v) => !v)}
-            {...activate(() => setMoreOpen((v) => !v))}
-          >
+          <Dropdown trigger={['click']} open={moreOpen} onOpenChange={setMoreOpen} menu={{ items: [
+            { type: 'group', label: '文件与文档', children: [
+              { key: 'myfiles', icon: <IcFolder />, label: '我的文件' },
+              { key: 'kdocs', label: '金山文档' },
+              { key: 'knowledge', label: '知识库' },
+            ] },
+            { type: 'group', label: '发现', children: [{ key: 'inspire', label: '灵感' }] },
+          ], onClick: ({ key }) => { setView(key as ViewId); setMoreOpen(false) } }}>
+          <Button type="text" className={`nav-item ${act === 'more' ? 'active' : ''}`.trim()}>
             <span className="n-ic">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></svg>
             </span>
             文件与知识<span className="sub">更多</span>
-          </div>
-          {moreOpen && (
-            <div className="more-menu open">
-              <div className="more-group-label">文件与文档</div>
-              <div className="more-item" onClick={() => { setView('myfiles'); setMoreOpen(false) }}>
-                <IcFolder />我的文件
-              </div>
-              <div className="more-item" onClick={() => { setView('kdocs'); setMoreOpen(false) }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>金山文档
-              </div>
-              <div className="more-item" onClick={() => { setView('knowledge'); setMoreOpen(false) }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 5a2 2 0 012-2h9v16H6a2 2 0 00-2 2z" /><path d="M15 3h3a1 1 0 011 1v15" /><path d="M8 7h4M8 11h4" /></svg>知识库
-              </div>
-              <div className="more-group-label split">发现</div>
-              <div className="more-item" onClick={() => { setView('inspire'); setMoreOpen(false) }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" /></svg>灵感
-              </div>
-            </div>
-          )}
-          </div>
+          </Button>
+          </Dropdown>
         </section>
       </nav>
 
       {/* 任务 + 空间 share one scroll region so long session/project lists stay
           reachable; head/nav above and foot below stay pinned (WB-032). */}
-      <div className="sb-scroll">
-      <div className="sb-sec" onClick={() => setTasksOpen((v) => !v)} {...activate(() => setTasksOpen((v) => !v))}>
-        任务 ({adhocShown.length}) {chevron(tasksOpen)}
-      </div>
-      {tasksOpen && (
-        <div className="sb-list">
-          {adhocShown.length === 0 && (
-            <div className="sb-task" style={{ color: 'var(--text-3)', cursor: 'default' }}>
-              <span className="tt">{filtering ? '无匹配任务' : '暂无任务'}</span>
-            </div>
-          )}
-          {adhocShown.map((s) => (
-            <div className="sb-task" key={s.id} onClick={() => openTask(s.id)} {...activate(() => openTask(s.id))}>
-              <span className="tt">{s.title}</span>
-              {s.status === 'running' ? <span className="dot" /> : <span className="ago">{s.ago}</span>}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="sb-sec" onClick={() => setSpacesOpen((v) => !v)} {...activate(() => setSpacesOpen((v) => !v))}>
-        空间 ({projRows.length}) {chevron(spacesOpen)}
-      </div>
-      {spacesOpen && (
-        <div className="sb-list">
-          {projRows.length === 0 && (
-            <div className="sb-task" style={{ color: 'var(--text-3)', cursor: 'default' }}>
-              <span className="tt">{filtering ? '无匹配空间' : '暂无项目'}</span>
-            </div>
-          )}
-          {projRows.map(({ p, kids, kidsShown }) => {
-            // While filtering, auto-reveal matching children; otherwise honour the
-            // manual expand toggle.
-            const open = filtering ? kidsShown.length > 0 : expanded.has(p.id)
-            return (
-              <div key={p.id}>
-                <div className="sb-task" onClick={() => openProject(p)} {...activate(() => openProject(p))}>
-                  <IcFolder />
-                  <span className="tt">{p.name}</span>
-                  <span
-                    className="sb-chev"
-                    aria-label={open ? '收起' : '展开'}
-                    onClick={(e) => { e.stopPropagation(); toggleExpand(p.id) }}
-                    {...activate((e) => { e?.stopPropagation(); toggleExpand(p.id) })}
-                  >
-                    {chevron(open)}
-                  </span>
-                </div>
-                {open && kidsShown.map((s) => (
-                  <div className="sb-task sb-sub" key={s.id} onClick={() => openTask(s.id, 'projexec')} {...activate(() => openTask(s.id, 'projexec'))}>
-                    <span className="tt">{s.title}</span>
-                    {s.status === 'running' ? <span className="dot" /> : <span className="ago">{s.ago}</span>}
-                  </div>
-                ))}
-                {open && !filtering && kids.length === 0 && (
-                  <div className="sb-task sb-sub" style={{ color: 'var(--text-3)', cursor: 'default' }}>
-                    <span className="tt">暂无执行</span>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Automation runs (WB-041): reachable in one place regardless of workspace,
-          capped to the recent few so a frequent schedule can't flood the sidebar. */}
-      <div className="sb-sec" onClick={() => setAutoOpen((v) => !v)} {...activate(() => setAutoOpen((v) => !v))}>
-        自动化 ({autoMatched.length}) {chevron(autoOpen)}
-      </div>
-      {autoOpen && (
-        <div className="sb-list">
-          {autoShown.length === 0 && (
-            <div className="sb-task" style={{ color: 'var(--text-3)', cursor: 'default' }}>
-              <span className="tt">{filtering ? '无匹配运行' : '暂无自动化运行'}</span>
-            </div>
-          )}
-          {autoShown.map((s) => (
-            <div className="sb-task" key={s.id} onClick={() => openTask(s.id)} {...activate(() => openTask(s.id))}>
-              <span className="tt">{s.title}</span>
-              {s.status === 'running' ? <span className="dot" /> : <span className="ago">{s.ago}</span>}
-            </div>
-          ))}
-          {autoMatched.length > autoShown.length && (
-            <div className="sb-task" style={{ color: 'var(--text-3)' }} onClick={() => setView('automation')} {...activate(() => setView('automation'))}>
-              <span className="tt">…更多 {autoMatched.length - autoShown.length} 条 · 见自动化页</span>
-            </div>
-          )}
-        </div>
-      )}
-      </div>
+      <Collapse
+        ghost
+        className="sb-scroll"
+        defaultActiveKey={['tasks', 'spaces', 'automation']}
+        items={[
+          { key: 'tasks', label: `任务 (${adhocShown.length})`, children: <List className="sb-list" dataSource={adhocShown} locale={{ emptyText: filtering ? '无匹配任务' : '暂无任务' }} renderItem={(s) => <List.Item className="sb-task" onClick={() => openTask(s.id)}><span className="tt">{s.title}</span>{s.status === 'running' ? <Badge status="processing" /> : <span className="ago">{s.ago}</span>}</List.Item>} /> },
+          { key: 'spaces', label: `空间 (${projRows.length})`, children: <List className="sb-list" dataSource={projRows} locale={{ emptyText: filtering ? '无匹配空间' : '暂无项目' }} renderItem={({ p, kidsShown }) => <List.Item className="sb-task sb-space" onClick={() => openProject(p)}><IcFolder /><span className="tt">{p.name}</span>{kidsShown.length > 0 && <Badge count={kidsShown.length} />}</List.Item>} /> },
+          { key: 'automation', label: `自动化 (${autoMatched.length})`, children: <List className="sb-list" dataSource={autoShown} locale={{ emptyText: filtering ? '无匹配运行' : '暂无自动化运行' }} renderItem={(s) => <List.Item className="sb-task" onClick={() => openTask(s.id)}><span className="tt">{s.title}</span>{s.status === 'running' ? <Badge status="processing" /> : <span className="ago">{s.ago}</span>}</List.Item>} /> },
+        ]}
+      />
 
       <div className="sb-foot" ref={footRef} onClick={(e) => {
         if ((e.target as HTMLElement).closest('.fic')) return
@@ -421,8 +272,7 @@ export function Sidebar() {
         </svg>
         <span className="name">{me?.name ?? '奇'}</span>
         <div className="fic" aria-label="通知" style={{ position: 'relative' }} onClick={(e) => { e.stopPropagation(); setMsgOpen(true) }} {...activate((e) => { e?.stopPropagation(); setMsgOpen(true) })}>
-          {unread > 0 && <span className="bell-dot" />}
-          <IcBell />
+          <Badge count={unread} size="small"><IcBell /></Badge>
         </div>
         <div className="fic" aria-label="发现" onClick={(e) => { e.stopPropagation(); toast('发现') }} {...activate((e) => { e?.stopPropagation(); toast('发现') })}>
           <IcCompass />

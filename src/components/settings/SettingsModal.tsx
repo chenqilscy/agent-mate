@@ -11,6 +11,7 @@ import { api } from '../../lib/api'
 import type { AgentSettings, AuditEntry, DataSummary, MemoryItem, MemorySearchHit, MemoryStats, MemoryTrace, StylePreset, SystemSettings } from '../../lib/types'
 import { useSystemSettingsStore } from '../../stores/systemSettingsStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { Card, Empty, Menu, Segmented, Spin, Switch } from 'antd'
 
 type Tab = { id: SettingsTab; label: string; icon: ReactNode }
 type TabGroup = { label: string; items: Tab[] }
@@ -92,10 +93,7 @@ function PersonalizePanel() {
           <div className="set-fname">外观</div>
           <div className="set-fsub">切换浅色 / 深色主题。</div>
         </div>
-        <span className="seg2">
-          <b className={theme === 'light' ? 'on' : ''} onClick={() => setTheme('light')}>浅色</b>
-          <b className={theme === 'dark' ? 'on' : ''} onClick={() => setTheme('dark')}>深色</b>
-        </span>
+        <Segmented className="seg2" value={theme} onChange={(value) => setTheme(value as 'light' | 'dark')} options={[{ value: 'light', label: '浅色' }, { value: 'dark', label: '深色' }]} />
       </div>
 
       <div className="set-flabel">基本风格和语调<span className="set-fsub2">设置 AI 助手回复你的风格和语调。这不会影响 AI 助手的功能。</span></div>
@@ -201,9 +199,7 @@ function SystemPanel() {
           <div className="set-fname">减少动态效果</div>
           <div className="set-fsub">关闭过渡和动画，降低视觉干扰。</div>
         </div>
-        <WbButton className={`set-switch ${draft.reduce_motion ? 'on' : ''}`.trim()} aria-pressed={draft.reduce_motion} onClick={() => change('reduce_motion', !draft.reduce_motion)}>
-          <span className="set-switch-dot" />
-        </WbButton>
+        <Switch className="set-switch" checked={draft.reduce_motion} onChange={(checked) => change('reduce_motion', checked)} />
       </div>
 
       <div className="set-field">
@@ -343,9 +339,7 @@ function MemoryPanel() {
           <div className="set-fname">生成对话记忆</div>
           <div className="set-fsub">开启后，AgentMate 会从对话中提取并记住相关事实，供未来对话按相关性注入。</div>
         </div>
-        <WbButton className={`set-switch ${enabled ? 'on' : ''}`.trim()} onClick={toggle} role="switch" aria-checked={enabled} aria-label="生成对话记忆">
-          <span className="set-switch-dot" />
-        </WbButton>
+        <Switch className="set-switch" checked={enabled} onChange={() => void toggle()} aria-label="生成对话记忆" />
       </div>
 
       <div className="set-field">
@@ -382,7 +376,7 @@ function MemoryPanel() {
       {hits && (
         <div style={{ marginBottom: 14 }}>
           <div className="set-pdesc" style={{ margin: '0 0 6px' }}>{hitsSemantic ? '语义检索（按 相似度×强度 排序）' : '关键词匹配（未启用语义检索）'}</div>
-          {hits.length === 0 && <div className="set-mem-empty">无匹配记忆。</div>}
+          {hits.length === 0 && <Empty className="set-mem-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="无匹配记忆" />}
           {hits.map((h) => (
             <div className="set-mhit" key={h.id}>
               <span className="set-mhit-c">{h.content}</span>
@@ -411,8 +405,8 @@ function MemoryPanel() {
       )}
 
       <div className="set-memlist">
-        {!loaded && <div className="set-pdesc">加载中…</div>}
-        {loaded && items.length === 0 && <div className="set-mem-empty">{emptyHint}</div>}
+        {!loaded && <Spin className="set-pdesc" tip="加载中…" />}
+        {loaded && items.length === 0 && <Empty className="set-mem-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyHint} />}
         {items.map((m) => (
           editingId === m.id ? (
             <div className="set-mem" key={m.id}>
@@ -553,7 +547,7 @@ function AgentPanel() {
     } catch { toast('保存失败') } finally { setSaving(false) }
   }
 
-  if (!s) return <div className="set-body"><div className="set-ptitle">智能体设置</div><div className="set-pdesc">加载中…</div></div>
+  if (!s) return <div className="set-body"><div className="set-ptitle">智能体设置</div><Spin className="set-pdesc" tip="加载中…" /></div>
   const [rMin, rMax] = s.limits.max_rounds
   const [tMin, tMax] = s.limits.temperature
   return (
@@ -668,24 +662,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         <div className="set-layout">
           <aside className="set-nav">
             <div className="set-nav-title">设置中心</div>
-            {TAB_GROUPS.map((group) => (
-              <section className="set-nav-group" aria-label={group.label} key={group.label}>
-                <div className="set-nav-group-label">{group.label}</div>
-                {group.items.map((t) => (
-                  <div
-                    key={t.id}
-                    className={`set-nav-item ${tab === t.id ? 'active' : ''}`.trim()}
-                    onClick={() => setTab(t.id)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(t.id) } }}
-                  >
-                    <span className="set-nav-ic"><Icon>{t.icon}</Icon></span>
-                    {t.label}
-                  </div>
-                ))}
-              </section>
-            ))}
+            <Menu
+              className="set-nav-menu"
+              mode="inline"
+              selectedKeys={[tab]}
+              onClick={({ key }) => setTab(key as SettingsTab)}
+              items={TAB_GROUPS.map((group) => ({ type: 'group' as const, label: group.label, children: group.items.map((item) => ({ key: item.id, className: 'set-nav-item', icon: <span className="set-nav-ic"><Icon>{item.icon}</Icon></span>, label: item.label })) }))}
+            />
           </aside>
 
           <div className="set-panel">
@@ -694,7 +677,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             {tab === 'account' && (
               <div className="set-body">
                 <div className="set-ptitle">账户管理</div>
-                <div className="set-card">
+                <Card className="set-card" variant="borderless">
                   <div className="set-row">
                     <span className="set-k">用户名</span>
                     <span className="set-v">{me?.name ?? '奇'}</span>
@@ -711,7 +694,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                     <span className="set-k">模型凭据</span>
                     <span className="set-v">{me?.llm_configured ? '已配置' : '未配置'}</span>
                   </div>
-                </div>
+                </Card>
                 <div className="set-actions">
                   {loggedIn
                     ? <WbButton className="btn-ghost danger-b" onClick={() => { onClose(); void logout() }}>退出登录</WbButton>

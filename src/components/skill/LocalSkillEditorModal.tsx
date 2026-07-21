@@ -5,6 +5,7 @@ import type { InstalledSkill } from '../../lib/types'
 import { useSkillStore } from '../../stores/skillStore'
 import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { Spin } from 'antd'
 
 export function LocalSkillEditorModal({ skill, onClose }: { skill: InstalledSkill; onClose: () => void }) {
   const [name, setName] = useState('')
@@ -69,7 +70,7 @@ export function LocalSkillEditorModal({ skill, onClose }: { skill: InstalledSkil
       <div className="np-modal skill-local-edit-modal" role="dialog" aria-modal="true" aria-label={`编辑技能 ${skill.name}`}>
         <div className="np-h">编辑技能<WbButton className="np-x" aria-label="关闭" onClick={requestClose}>×</WbButton></div>
         <div className="np-body">
-          {loading ? <div className="cap-blank">读取技能中…</div> : (
+          {loading ? <Spin className="cap-blank" tip="读取技能中…" /> : (
             <>
               <label className="np-lbl" htmlFor="local-skill-name">名称 <span className="np-required">必填</span></label>
               <WbInput id="local-skill-name" className="np-input" maxLength={120} value={name} onChange={(e) => setName(e.target.value)} autoFocus />

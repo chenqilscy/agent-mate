@@ -11,6 +11,8 @@ import { Popover } from '../components/ui/Popover'
 import { PermPopover } from '../components/composer/PermPopover'
 import { api, type RawMessage } from '../lib/api'
 import type { SessionInfo } from '../lib/types'
+import { Empty, List, Segmented, Spin, Statistic } from 'antd'
+import { ProCard } from '@ant-design/pro-components'
 
 const SCENES: [string, string, string][] = [
   ['day', '🔥', '日常办公'],
@@ -145,13 +147,12 @@ export function HomeView() {
             AgentMate<br />
             <span className="g">你的职场超能力</span>
           </h1>
-          <div className="scenes">
-            {SCENES.map(([id, ic, label]) => (
-              <div key={id} className={`scene ${scene === id ? 'active' : ''}`.trim()} onClick={() => setScene(id)}>
-                <span className="si">{ic}</span>{label}
-              </div>
-            ))}
-          </div>
+          <Segmented
+            className="scenes"
+            value={scene}
+            onChange={(value) => setScene(String(value))}
+            options={SCENES.map(([value, icon, label]) => ({ value, label: <span className="scene"><span className="si">{icon}</span>{label}</span> }))}
+          />
           <div className="quick">
             {QUICK[scene].map(([ic, label]) => (
               <div
@@ -221,7 +222,7 @@ export function HomeView() {
             </Popover>
           </div>
 
-          <section className="home-console" aria-label="任务进展">
+          <ProCard className="home-console" aria-label="任务进展" styles={{ body: { display: 'contents' } }}>
             <div className="home-console-head">
               <div>
                 <b>任务进展</b>
@@ -230,26 +231,17 @@ export function HomeView() {
               <WbButton onClick={() => setView('projects')}>查看项目</WbButton>
             </div>
             <div className="home-metrics">
-              <div className="home-metric">
-                <strong>{activeRuns.length}</strong>
-                <span>执行中 / 等待输入</span>
-              </div>
-              <div className="home-metric danger">
-                <strong>{recentFailures.length}</strong>
-                <span>7 天内自动化失败</span>
-              </div>
-              <div className="home-metric">
-                <strong>{deliveries.length}</strong>
-                <span>最近文件交付</span>
-              </div>
+              <ProCard className="home-metric"><Statistic value={activeRuns.length} title="执行中 / 等待输入" /></ProCard>
+              <ProCard className="home-metric danger"><Statistic value={recentFailures.length} title="7 天内自动化失败" /></ProCard>
+              <ProCard className="home-metric"><Statistic value={deliveries.length} title="最近文件交付" /></ProCard>
             </div>
             <div className="home-console-grid">
               <div className="home-run-group">
                 <h2>需要关注</h2>
-                {attentionRuns.length > 0 ? attentionRuns.map((session) => {
+                {attentionRuns.length > 0 ? <List dataSource={attentionRuns} renderItem={(session) => {
                   const state = runState(session)
-                  return (
-                    <WbButton className="home-run" key={session.id} onClick={() => void openRun(session)}>
+                  return <List.Item className="home-run-item">
+                    <WbButton className="home-run" onClick={() => void openRun(session)}>
                       <span className={`home-run-dot ${state.tone}`} />
                       <span className="home-run-body">
                         <b>{session.title}</b>
@@ -257,13 +249,13 @@ export function HomeView() {
                       </span>
                       <span className="home-run-arrow">›</span>
                     </WbButton>
-                  )
-                }) : <div className="home-empty">当前没有执行中、等待输入或近期失败的任务</div>}
+                  </List.Item>
+                }} /> : <Empty className="home-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有需要关注的任务" />}
               </div>
               <div className="home-run-group">
                 <h2>最近交付</h2>
-                {deliveriesLoading ? <div className="home-empty">正在核对最近会话的真实文件变更…</div> : deliveries.length > 0 ? deliveries.map(({ session, files }) => (
-                  <WbButton className="home-run" key={session.id} onClick={() => void openRun(session)}>
+                {deliveriesLoading ? <Spin className="home-empty" tip="正在核对最近会话的真实文件变更…" /> : deliveries.length > 0 ? <List dataSource={deliveries} renderItem={({ session, files }) => <List.Item className="home-run-item">
+                  <WbButton className="home-run" onClick={() => void openRun(session)}>
                     <span className="home-file-icon">📄</span>
                     <span className="home-run-body">
                       <b>{session.title}</b>
@@ -271,10 +263,10 @@ export function HomeView() {
                     </span>
                     <span className="home-run-arrow">›</span>
                   </WbButton>
-                )) : <div className="home-empty">最近完成的会话还没有产生文件交付</div>}
+                </List.Item>} /> : <Empty className="home-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="最近完成的会话还没有产生文件交付" />}
               </div>
             </div>
-          </section>
+          </ProCard>
         </div>
       </div>
     </section>

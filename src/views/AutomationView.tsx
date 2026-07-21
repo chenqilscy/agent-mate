@@ -13,6 +13,8 @@ import { toast } from '../stores/toastStore'
 import { Popover } from '../components/ui/Popover'
 import type { Automation, CreateAutomationInput, SessionInfo, TriggerKind } from '../lib/types'
 import { AntModalBridge } from '../components/ui/AntModalBridge'
+import { Empty, List, Spin, Switch, Tabs, Tag } from 'antd'
+import { ProCard } from '@ant-design/pro-components'
 
 const IC_ADD = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
@@ -111,10 +113,10 @@ export function AutomationView() {
   const templateGrid = (
     <div className="card-grid g3 auto-template-grid">
       {AUTO.map(([ic, n, d]) => (
-        <div className="tpl" key={n} {...activate(() => pickTemplate(n, d))} onClick={() => pickTemplate(n, d)}>
+        <ProCard className="tpl" key={n} hoverable styles={{ body: { display: 'contents' } }} onClick={() => pickTemplate(n, d)}>
           <span className="t-ic">{ic}</span>
           <div><div className="t-n">{n}</div><div className="t-d">{d}</div></div>
-        </div>
+        </ProCard>
       ))}
     </div>
   )
@@ -156,10 +158,7 @@ export function AutomationView() {
     <section className="view active" data-view="automation">
       <div className="page-scroll">
         <div className="auto-hd">
-          <div className="auto-tabs">
-            <WbButton className={`auto-tab ${tab === 'schedule' ? 'on' : ''}`.trim()} onClick={() => setTab('schedule')}>定时任务</WbButton>
-            <WbButton className={`auto-tab ${tab === 'runs' ? 'on' : ''}`.trim()} onClick={() => setTab('runs')}>运行记录</WbButton>
-          </div>
+          <Tabs className="auto-tabs" activeKey={tab} onChange={(key) => setTab(key as 'schedule' | 'runs')} items={[{ key: 'schedule', label: '定时任务' }, { key: 'runs', label: '运行记录' }]} />
           {items.length > 0 && <div className="auto-tools">
             <div className="auto-search">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
@@ -174,24 +173,15 @@ export function AutomationView() {
           <>
             {items.length === 0 ? (
               <div className="auto-empty-stage">
-                <div className="auto-empty">
-                  <div className="auto-empty-ic" aria-hidden="true">
-                    <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="32" cy="34" r="18" />
-                      <path d="M20 12l-7 7M44 12l7 7M22 53l-4 6M42 53l4 6M23 34l6 6 13-14" />
-                    </svg>
-                  </div>
-                  <div className="auto-empty-t">开启你的第一个自动化任务吧</div>
+                <Empty className="auto-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="开启你的第一个自动化任务吧">
                   <WbButton className="btn-dark auto-empty-add" onClick={() => setEditing({})}>{IC_ADD}添加自动化</WbButton>
-                </div>
+                </Empty>
               </div>
             ) : (
               <>
                 <div className="sec-title">当前</div>
-                <div className="auto-list">
-                  {shownItems.length === 0 && <div className="auto-row-empty">无匹配自动化</div>}
-                  {shownItems.map((a) => (
-                <div className="auto-row" key={a.id} {...activate(() => setEditing({ auto: a }))} onClick={() => setEditing({ auto: a })}>
+                <List className="auto-list" dataSource={shownItems} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无匹配自动化" /> }} renderItem={(a) => (
+                <List.Item className="auto-row" key={a.id} onClick={() => setEditing({ auto: a })}>
                   <span className="t-ic">{iconOf(a.name)}</span>
                   <div className="auto-row-main">
                     <div className="auto-row-n">{a.name}</div>
@@ -202,14 +192,10 @@ export function AutomationView() {
                   </div>
                   <div className="auto-row-right" onClick={(e) => e.stopPropagation()}>
                     {a.last_status === 'running'
-                      ? <span className="auto-chip run"><i className="run-ic" />运行中</span>
+                      ? <Tag className="auto-chip run" icon={<i className="run-ic" />}>运行中</Tag>
                       : a.enabled ? <span className="auto-next">{a.next_run_label}执行</span>
                         : <span className="auto-next off">已停用</span>}
-                    <span
-                      className={`sw ${a.enabled ? 'on' : ''}`.trim()}
-                      role="switch" aria-checked={a.enabled ? 'true' : 'false'} aria-label={a.enabled ? '停用' : '启用'}
-                      onClick={() => toggle(a.id, !a.enabled)}
-                    />
+                    <Switch className="sw" checked={a.enabled} aria-label={a.enabled ? '停用' : '启用'} onChange={(checked) => toggle(a.id, checked)} />
                     <WbButton
                       className="auto-more" aria-label="更多"
                       onClick={(e) => { menuAnchor.current = e.currentTarget; setMenuId(menuId === a.id ? null : a.id) }}
@@ -235,9 +221,8 @@ export function AutomationView() {
                       </div>
                     ))}
                   </Popover>
-                </div>
-                  ))}
-                </div>
+                </List.Item>
+                  )} />
               </>
             )}
             <div className="auto-template-section">
@@ -293,13 +278,13 @@ function RunsTab({ query, onOpenDetail }: { query: string; onOpenDetail: (r: Ses
 
   return (
     <div className="auto-runs">
-      {loading && runs.length === 0 && <div className="auto-row-empty">加载中…</div>}
-      {!loading && shown.length === 0 && <div className="auto-row-empty">{query ? '无匹配运行记录' : '还没有运行记录'}</div>}
+      {loading && runs.length === 0 && <Spin className="auto-row-empty" tip="加载中…" />}
+      {!loading && shown.length === 0 && <Empty className="auto-row-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? '无匹配运行记录' : '还没有运行记录'} />}
       {groups.map((g) => (
         <div key={g.label}>
           <div className="auto-day">{g.label}</div>
-          {g.runs.map((r) => (
-            <div className="auto-run" key={r.id} {...activate(() => onOpenDetail(r))} onClick={() => onOpenDetail(r)}>
+          <List dataSource={g.runs} renderItem={(r) => (
+            <List.Item className="auto-run" key={r.id} onClick={() => onOpenDetail(r)}>
               <div className="auto-run-main">
                 <span className="auto-run-n">{r.title}</span>
                 <span className="auto-run-lb">{runLabel(r)}</span>
@@ -308,8 +293,8 @@ function RunsTab({ query, onOpenDetail }: { query: string; onOpenDetail: (r: Ses
                 <span className="auto-run-time">{hhmm(r.created_at)}</span>
                 <RunStatusIcon status={r.run_status} />
               </div>
-            </div>
-          ))}
+            </List.Item>
+          )} />
         </div>
       ))}
     </div>

@@ -17,6 +17,8 @@ import { useWorkItemStore } from '../stores/workItemStore'
 import { useCatalogStore } from '../stores/catalogStore'
 import { useKnowledgeStore } from '../stores/knowledgeStore'
 import { skillDisplayName, useSkillStore } from '../stores/skillStore'
+import { Avatar, Breadcrumb, Empty, List, Tabs, Tag, Tooltip } from 'antd'
+import { ProCard } from '@ant-design/pro-components'
 
 type Tab = '动态' | '计划' | '任务' | '负载' | '甘特' | '资产' | '讨论'
 type Kind = 'conn' | 'exp' | 'skill' | 'kb'
@@ -129,19 +131,19 @@ export function ProjectHomeView() {
       ? (kbs.find((kb) => kb.id === name)?.name ?? '已删除知识库')
       : k === 'skill' ? skillDisplayName(name) : name
     return (
-      <div className="pjcfg-sec">
+      <ProCard className="pjcfg-sec" styles={{ body: { display: 'contents' } }}>
         <div className="pjcfg-h">
           {label}<span className="n">{items.length}</span>
           {canManage && <span className="add" onClick={() => openPicker(k)}>{IC_ADD}</span>}
         </div>
         {items.length ? (
-          <div className="pjcfg-icons">
-            {items.map((n) => <span className="pjcfg-ic" key={n} title={labelOf(n)}>{iconOf(k, n)}</span>)}
-          </div>
+          <Avatar.Group className="pjcfg-icons">
+            {items.map((n) => <Tooltip title={labelOf(n)} key={n}><Avatar className="pjcfg-ic">{iconOf(k, n)}</Avatar></Tooltip>)}
+          </Avatar.Group>
         ) : (
           <div className="pjcfg-sub">未配置，点 ＋ 添加</div>
         )}
-      </div>
+      </ProCard>
     )
   }
 
@@ -149,10 +151,8 @@ export function ProjectHomeView() {
     <section className="view active" data-view="project">
       <div className="chat-head">
         <div className="pe-crumb">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
-          <span style={{ cursor: 'pointer' }} onClick={() => setView('projects')}>项目</span>
-          <span className="ps">/</span><b>{project.name}</b>
-          {isShared && <span className="pj-rolebadge" title={`你在本项目的角色：${ROLE_LABEL[project.role!] || project.role}`}>协作 · {ROLE_LABEL[project.role!] || project.role}</span>}
+          <Breadcrumb items={[{ title: <span onClick={() => setView('projects')}>项目</span> }, { title: project.name }]} />
+          {isShared && <Tag className="pj-rolebadge">协作 · {ROLE_LABEL[project.role!] || project.role}</Tag>}
         </div>
         <div style={{ marginLeft: 'auto' }}>
           <WbButton className="btn-dark" style={{ height: 32 }} onClick={() => setMembersOpen(true)}>{canManage ? '邀请' : '成员'}</WbButton>
@@ -161,24 +161,25 @@ export function ProjectHomeView() {
 
       <div className="pjh">
         <div className="pjh-main">
-          <div className="pjh-tabs">
-            {(['动态', '计划', '任务', '负载', '甘特', '资产', '讨论'] as Tab[]).map((t) => (
-              <div key={t} className={`pjh-tab ${tab === t ? 'active' : ''}`.trim()} onClick={() => setTab(t)}>{t}</div>
-            ))}
-          </div>
+          <Tabs
+            className="pjh-tabs"
+            activeKey={tab}
+            onChange={(key) => setTab(key as Tab)}
+            items={(['动态', '计划', '任务', '负载', '甘特', '资产', '讨论'] as Tab[]).map((key) => ({ key, label: key }))}
+          />
 
           <div className="pjh-body">
             {tab === '动态' && (
               sessions.length ? (
-                sessions.map((s) => (
-                  <div className="pj-feed-row" key={s.id} onClick={() => openExec(s.id)}>
+                <List dataSource={sessions} renderItem={(s) => (
+                  <List.Item className="pj-feed-row" key={s.id} onClick={() => openExec(s.id)}>
                     <span className="fi"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16v12H5.2L4 17.2z" /></svg></span>
                     <span className="ft">{s.title}</span>
                     <span className="fa">{s.owner_name ? `${s.owner_name} · ` : ''}{s.status === 'running' ? '执行中' : s.ago}</span>
-                  </div>
-                ))
+                  </List.Item>
+                )} />
               ) : (
-                <div className="pj-empty">还没有执行记录。在下方描述任务，开始项目的第一次执行。</div>
+                <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有执行记录。在下方描述任务，开始项目的第一次执行。" />
               )
             )}
 
@@ -201,7 +202,7 @@ export function ProjectHomeView() {
           </div>
         </div>
 
-        <aside className="pjcfg">
+        <ProCard className="pjcfg" styles={{ body: { display: 'contents' } }}>
           <h3>项目配置</h3>
           <div className="pjcfg-sec">
             <div className="pjcfg-h">
@@ -240,7 +241,7 @@ export function ProjectHomeView() {
             <div className="pjcfg-h">自动化</div>
             <div className="pjcfg-sub">让 AI 按计划自动执行任务（阶段 B）</div>
           </div>
-        </aside>
+        </ProCard>
       </div>
 
       {membersOpen && <MembersModal project={project} onClose={() => setMembersOpen(false)} onLeft={onLeft} />}

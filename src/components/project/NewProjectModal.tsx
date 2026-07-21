@@ -8,6 +8,7 @@ import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
 import type { ProjectInfo } from '../../lib/types'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { Tag } from 'antd'
 
 type Kind = 'conn' | 'exp' | 'skill' | 'kb'
 
@@ -273,7 +274,7 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
                         <div className="sc-ic">{s.icon}</div>
                         {/* tag 内联在 .sc-n 内 —— 同连接器 picker 的 .pn 用法；.conn-tag 是
                             margin-left + vertical-align 的内联样式，当 flex 子项会被挤成竖排。 */}
-                        <div className="sc-n" title={s.name}>{s.name}<span className="conn-tag rdy">{s.tag}</span></div>
+                        <div className="sc-n" title={s.name}>{s.name}<Tag className="conn-tag rdy">{s.tag}</Tag></div>
                       </div>
                       <div className="sc-d" style={{ marginTop: 9 }}>{s.desc}</div>
                     </div>

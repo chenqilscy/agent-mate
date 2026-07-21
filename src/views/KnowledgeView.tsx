@@ -9,6 +9,8 @@ import type { KbTemplate } from '../data/catalog'
 import { toast } from '../stores/toastStore'
 import { WeKnoraConfigForm } from '../components/connector/WeKnoraConfigForm'
 import { AntModalBridge } from '../components/ui/AntModalBridge'
+import { Empty, List, Spin, Tag, Upload } from 'antd'
+import { ProCard } from '@ant-design/pro-components'
 
 // 知识库（自托管 WeKnora RAG · WB-173/174）：建库 / 传档 / 解析状态，并可「挂载到对话」，
 // 让 agent 用 knowledge_retrieve 真检索作答。真调 WeKnora（经本地 backend，API Key 只在后端）。
@@ -89,7 +91,7 @@ export function KnowledgeView() {
 
   const closeDetail = () => { stopPoll(); setOpenId(null); setDocs([]) }
 
-  const doUpload = async (files: FileList | null) => {
+  const doUpload = async (files: FileList | File[] | null) => {
     if (!files || !files.length || !openId) return
     setUploading(true)
     let ok = 0
@@ -154,17 +156,17 @@ export function KnowledgeView() {
             <div className="sec-title" style={{ marginTop: 18 }}>从模板新建</div>
             <div className="card-grid g4" style={{ marginTop: 10 }}>
               {KB_TPLS.map((t) => (
-                <div key={t.key} className="scard clickable" style={{ cursor: 'pointer' }}
-                  onClick={() => { setPrefill(t); setShowCreate(true) }}>
+                 <ProCard key={t.key} className="scard clickable" hoverable styles={{ body: { display: 'contents' } }}
+                   onClick={() => { setPrefill(t); setShowCreate(true) }}>
                   <span className="sc-ic" style={{ fontSize: 22 }}>{t.icon || '📚'}</span>
                   <div className="sc-info" style={{ minWidth: 0 }}>
                     <div className="sc-n" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       {t.name}
-                      {!!t.contextual && <span className="ec-tag" style={{ fontSize: 10 }}>增强</span>}
+                      {!!t.contextual && <Tag className="ec-tag">增强</Tag>}
                     </div>
                     <div className="sc-d">{t.desc}</div>
                   </div>
-                </div>
+                </ProCard>
               ))}
             </div>
           </>
@@ -174,26 +176,21 @@ export function KnowledgeView() {
         {!openKb && configured && (
           <>
             <div className="sec-title" style={{ marginTop: 18 }}>我的知识库</div>
-            {!loaded && <div className="mf-empty">正在加载…</div>}
+            {!loaded && <Spin className="mf-empty" tip="正在加载…" />}
             {loaded && kbs.length === 0 && configured && (
-              <div className="mf-empty" style={{ flexDirection: 'column', gap: 8, textAlign: 'center', lineHeight: 1.7 }}>
-                <div>还没有知识库。</div>
-                <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
-                  点右上「新建知识库」创建一个，再上传文档。
-                </div>
-              </div>
+              <Empty className="mf-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有知识库。点右上「新建知识库」创建一个，再上传文档。" />
             )}
             {kbs.length > 0 && (
               <div className="card-grid g2" style={{ marginTop: 16 }}>
                 {kbs.map((k) => {
                   const mounted = knowledgeIds.includes(k.id)
                   return (
-                    <div key={k.id} className="scard" style={{ alignItems: 'flex-start' }}>
+                    <ProCard key={k.id} className="scard" styles={{ body: { display: 'contents' } }}>
                       <span className="sc-ic" style={{ fontSize: 22 }}>{ICON_EMOJI[k.icon || 'book'] || '📚'}</span>
                       <div className="sc-info" style={{ minWidth: 0, flex: 1 }}>
                         <div className="sc-n" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           {k.name}
-                          {mounted && <span className="ec-tag" style={{ fontSize: 10, background: 'var(--brand)', color: '#fff' }}>已挂载</span>}
+                          {mounted && <Tag color="success" className="ec-tag">已挂载</Tag>}
                         </div>
                         <div className="sc-d">{k.description || '（无描述）'}</div>
                         <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
@@ -207,7 +204,7 @@ export function KnowledgeView() {
                           <WbButton className="btn-ghost" onClick={() => onDelKb(k.id, k.name)}>删除</WbButton>
                         </div>
                       </div>
-                    </div>
+                    </ProCard>
                   )
                 })}
               </div>
@@ -235,28 +232,30 @@ export function KnowledgeView() {
               支持 pdf / doc(x) / ppt(x) / xls(x) / txt / md / html / csv / 图片，单文件 ≤ 50MB。上传后由 WeKnora 解析向量化，完成才可被检索。
             </div>
 
-            {/* 拖拽上传区 */}
-            <div
-              onDragOver={(e) => { e.preventDefault() }}
-              onDrop={(e) => { e.preventDefault(); void doUpload(e.dataTransfer.files) }}
+            {/* Ant Upload.Dragger 统一拖拽、键盘和文件选择交互；上传仍走本地真实 API。 */}
+            <Upload.Dragger
               className="mf-empty"
-              style={{ marginTop: 14, border: '1.5px dashed rgba(127,127,127,.35)', borderRadius: 10, cursor: 'pointer' }}
-              onClick={() => fileInput.current?.click()}
+              multiple
+              showUploadList={false}
+              disabled={uploading}
+              beforeUpload={(file, fileList) => {
+                if (file === fileList[0]) void doUpload(fileList)
+                return Upload.LIST_IGNORE
+              }}
             >
-              {uploading ? '上传中…' : '拖拽文件到此，或点击选择文件上传'}
-            </div>
+              {uploading ? <Spin tip="上传中…" /> : <p>拖拽文件到此，或点击选择文件上传</p>}
+            </Upload.Dragger>
 
             <div style={{ fontSize: 12, color: 'var(--text-2)', margin: '14px 2px 8px' }}>
               {docsLoading ? '加载中…' : `共 ${docs.length} 个文档`}
             </div>
             {docs.length === 0 && !docsLoading && (
-              <div className="mf-empty">此知识库还没有文档，上传一个开始。</div>
+              <Empty className="mf-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="此知识库还没有文档，上传一个开始。" />
             )}
-            <div className="kd-list">
-              {docs.map((d) => {
-                const st = docStatus(d)
-                return (
-                  <div key={d.id} className="kd-item" style={{ cursor: 'default' }}>
+            <List className="kd-list" dataSource={docs} renderItem={(d) => {
+                 const st = docStatus(d)
+                 return (
+                  <List.Item key={d.id} className="kd-item" style={{ cursor: 'default' }}>
                     <span className="kd-ic">📄</span>
                     <div className="kd-main">
                       <div className="kd-name">{d.name}</div>
@@ -266,10 +265,9 @@ export function KnowledgeView() {
                       </div>
                     </div>
                     <WbButton className="btn-ghost" onClick={() => onDelDoc(d)}>删除</WbButton>
-                  </div>
+                  </List.Item>
                 )
-              })}
-            </div>
+              }} />
           </div>
         )}
       </div>
