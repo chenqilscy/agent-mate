@@ -696,6 +696,7 @@ def release_snapshot(key: str) -> dict[str, Any] | None:
         )
         return {
             **verified,
+            "package_key": d.name,
             "name": str(info.get("name") or verified["slug"]),
             "source": "agentmate",
             "legacy": False,
@@ -719,8 +720,19 @@ def release_snapshot(key: str) -> dict[str, Any] | None:
         "permissions": [],
         "files": [{"path": SKILL_MD, "sha256": digest, "size": len(markdown)}],
         "source": "agentmate",
+        "package_key": d.name,
         "legacy": True,
     }
+
+
+def package_dir(key: str) -> Path | None:
+    """Resolve an installed package key without exposing path traversal."""
+    return _safe_dir(key)
+
+
+def safe_package_path(raw: str) -> PurePosixPath:
+    """Validate and normalize a package-relative path for runtime consumers."""
+    return _safe_import_path(raw)
 
 
 def _frontmatter_markdown(frontmatter: dict[str, Any], body: str) -> str:

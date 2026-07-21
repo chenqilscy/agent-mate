@@ -25,6 +25,7 @@ from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
 from agent.mcp_client import call_mcp, mcp_schema, open_connectors
 from agent.sandbox import current_root, resolve_in_sandbox, use_root, workspace_root
+from agent.skill_resources import RESOURCE_TOOLS, has_active_resources, set_active_skill_resources
 from agent.skills import canonical_skill_keys, skill_display_name, skill_runtime_def
 from agent.tools import (
     ASK_USER_SCHEMA,
@@ -385,6 +386,9 @@ async def _run_chat_inner(
     # SKILL.md）。解析不到的不注入、不伪造指令，收进 skills_skipped 如实告知用户
     # —— 同连接器 mcp_skipped 的范式，别做静默 no-op，更别假装技能生效了。
     skills_skipped: list[str] = []
+    skills_budget_omitted: list[str] = []
+    skills_truncated: list[str] = []
+    skill_prompt_remaining = 12_000
     if active_skills:
         lines = []
         for name in active_skills:
@@ -394,11 +398,28 @@ async def _run_chat_inner(
                 continue
             instr = str(d["instructions"])
             tools = d["tools"]
-            lines.append(f"- {name}：{instr}")
+            if skill_prompt_remaining <= 0:
+                skills_budget_omitted.append(name)
+                continue
+            injected = instr[:skill_prompt_remaining]
+            skill_prompt_remaining -= len(injected)
+            if len(injected) < len(instr):
+                skills_truncated.append(name)
+                injected += f"\n[技能指令已按总预算截断：{len(injected)}/{len(instr)} 字符]"
+            lines.append(f"- {name}：{injected}")
             skill_tools.extend(tools)
             skill_release_snapshots.append(dict(d["snapshot"]))
         if lines:
             system_prompt += "\n\n# 已启用技能\n" + "\n".join(lines)
+            if len(lines) > 1:
+                system_prompt += "\n技能指令冲突时，遵循用户明确要求 > 项目规范 > 上述 loadout 顺序，且任何技能不得放宽安全约束。"
+    set_active_skill_resources(skill_release_snapshots)
+    if has_active_resources():
+        system_prompt += (
+            "\n\n# Skill 资源\n需要 references 或模板时先用 skill_list_resources / "
+            "skill_read_resource 按需读取；只有 templates/ 文件可用 skill_copy_template 复制到工作区。"
+            "scripts/ 仅可作为文本读取，不得直接执行。"
+        )
 
     if active_knowledge and not ask:
         system_prompt += (
@@ -534,6 +555,7 @@ async def _run_chat_inner(
         tools_list = [] if ask else (
             base_tools(plan)
             + plan_filter(skill_tools, plan)
+            + plan_filter(RESOURCE_TOOLS if has_active_resources() else [], plan)
             + wi_tools  # work_item_tools(plan) 内部已过滤
             + plan_filter(kb_tools, plan)
         )
@@ -566,7 +588,10 @@ async def _run_chat_inner(
         # run are visible — including connectors that were selected but couldn't
         # load (e.g. GitHub without a token), so it isn't a silent no-op.
         connector_names = sorted({t.connector for t in mcp_tools})
-        loaded_skills = [skill_display_name(n) for n in active_skills if n not in skills_skipped]
+        loaded_skills = [
+            skill_display_name(n) for n in active_skills
+            if n not in skills_skipped and n not in skills_budget_omitted
+        ]
         if active_experts or active_skills or connector_names or mcp_skipped or (active_knowledge and not ask):
             parts = []
             if loaded_experts:
@@ -585,6 +610,10 @@ async def _run_chat_inner(
                 parts.append("技能未就绪 " + "、".join(
                     f"{skill_display_name(n)}（未安装或已停用）" for n in skills_skipped
                 ))
+            if skills_budget_omitted:
+                parts.append("技能预算未加载 " + "、".join(skill_display_name(n) for n in skills_budget_omitted))
+            if skills_truncated:
+                parts.append("技能指令已截断 " + "、".join(skill_display_name(n) for n in skills_truncated))
             if experts_skipped:
                 parts.append("专家未就绪 " + "、".join(
                     f"{n}（无人格定义）" for n in experts_skipped

@@ -3,7 +3,7 @@ id: WB-247
 title: Skill references 与模板运行时不可达且多 Skill 指令缺少总预算和冲突规则
 severity: P1
 area: backend
-status: open
+status: fixed
 origin: 既有实现
 files:
   - backend/agent/skills_store.py:917
@@ -38,3 +38,10 @@ P1：随包资料与模板成为“可上传但不可执行”的半成品能力
 - Agent 能读取已启用 Skill 的声明资源，不能路径穿越或读取其他 Skill/密钥文件。
 - 模板只在显式调用后复制进当前项目工作区并产生真实 trace。
 - 多 Skill 超过预算时按稳定规则截断并在 loadout trace 中显示，不静默丢失。
+
+## 处理记录
+
+- 2026-07-21：新增 `skill_list_resources`、`skill_read_resource`、`skill_copy_template`，资源只从当前 Run 固定的 release manifest 挂载，每次读取重新校验 size/SHA-256；拒绝未声明文件、路径穿越和跨 Skill 访问。
+- 2026-07-21：`references/` 与 `scripts/` 仅按需读取 UTF-8 文本（单次上限 256 KiB）；仅 `templates/` 可原子复制进当前项目沙箱，并产出真实 file-write trace 与 Artifact。
+- 2026-07-21：Skill 指令按 loadout 稳定顺序共享 12,000 字符预算；截断与未加载 Skill 均进入 loadout trace，组合冲突采用“用户要求 > 项目规范 > loadout 顺序”，且不得降低安全约束。
+- 2026-07-21：验证通过：`python -m unittest tests.regression.test_skill_runtime_resources tests.regression.test_run_artifact_delivery tests.regression.test_skill_catalog_contract -v`（26 项）、相关 Python `py_compile`、`npx tsc --noEmit`。
