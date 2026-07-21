@@ -51,9 +51,9 @@ P0：当前 Windows 安装包安装成功后仍完全无法启动，所有桌面
   `target/release/WebView2Loader.dll` 映射到安装资源根目录；新增安装完整性/可选真启动校验脚本，
   并在桌面构建文档中区分 WebView2 Runtime 与 Loader DLL。
 - 验证：`npx tsc --noEmit`、`npx vite build`、`cargo check --manifest-path
-  src-tauri/Cargo.toml` 均通过；Tauri release 编译和 NSIS bundle 成功（因本机未注入生产 updater
-  私钥，签名阶段按安全门禁返回非零）；静默安装新包后主程序、sidecar、Loader 三项校验通过，
-  `WebView2Loader.dll` SHA-256 为
-  `8427b1fc58ec707813e5c0a51eb5d69397bb333250a7b891be4d3b123f1e0f1c`；从安装目录真实启动后
-  `AgentMate` 窗口标题和有效窗口句柄均已建立，不再出现 DLL 系统错误。
-- commit：本提交（WB-270）
+  src-tauri/Cargo.toml` 均通过；Tauri release 编译和 NSIS bundle 成功（本机安装验证显式关闭 updater
+  artifact 生成，不改变正式签名配置）。静默安装退出码 0，安装目录的主程序、sidecar、Loader 完整，
+  均输出 SHA-256；主程序和 Loader PE 架构均为 `x86_64`，缺失 Loader 及替换为 arm64 Loader 的负例
+  均 fail closed。`-LaunchSmoke` 从安装目录真实启动后得到 `AgentMate` 窗口标题、有效窗口句柄、
+  `agentmate-backend` 进程及健康接口 `ok=true`，不再出现 DLL 系统错误。
+- commit：`d1b58e0`（安装包修复）；架构门禁见后续 WB-270 提交。

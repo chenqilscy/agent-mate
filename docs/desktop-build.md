@@ -42,6 +42,8 @@ powershell -ExecutionPolicy Bypass -File scripts/validate-windows-tauri-install.
 # 可选真启动 smoke；成功后应用保持运行，验收结束后从托盘正常退出
 powershell -ExecutionPolicy Bypass -File scripts/validate-windows-tauri-install.ps1 -LaunchSmoke
 ```
+校验脚本还会解析 PE header，要求 `agentmate.exe` 与 `WebView2Loader.dll` 架构一致；缺文件或
+x86_64/arm64 混装都会 fail closed。`-LaunchSmoke` 同时等待真实窗口句柄和 sidecar 健康接口。
 产物在 `src-tauri/target/release/bundle/`：
 - `msi/AgentMate_<ver>_x64_en-US.msi`（WiX）
 - `nsis/AgentMate_<ver>_x64-setup.exe`（NSIS）

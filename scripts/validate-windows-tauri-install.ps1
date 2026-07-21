@@ -25,9 +25,46 @@ if ($missingFiles.Count -gt 0) {
     throw "AgentMate install is incomplete; missing: $($missingFiles -join ', ')"
 }
 
+function Get-PeArchitecture {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    $reader = [System.IO.BinaryReader]::new($stream)
+    try {
+        if ($stream.Length -lt 64) {
+            throw "PE file is too small: $Path"
+        }
+        $stream.Position = 0x3c
+        $peOffset = $reader.ReadInt32()
+        if ($peOffset -lt 0 -or $peOffset + 6 -gt $stream.Length) {
+            throw "invalid PE header offset: $Path"
+        }
+        $stream.Position = $peOffset
+        if ($reader.ReadUInt32() -ne 0x00004550) {
+            throw "invalid PE signature: $Path"
+        }
+        switch ($reader.ReadUInt16()) {
+            0x014c { return 'x86' }
+            0x8664 { return 'x86_64' }
+            0xaa64 { return 'arm64' }
+            default { throw "unsupported PE machine: $Path" }
+        }
+    }
+    finally {
+        $reader.Dispose()
+    }
+}
+
+$appArchitecture = Get-PeArchitecture (Join-Path $resolvedInstallDir 'agentmate.exe')
+$loaderArchitecture = Get-PeArchitecture (Join-Path $resolvedInstallDir 'WebView2Loader.dll')
+if ($appArchitecture -ne $loaderArchitecture) {
+    throw "WebView2Loader architecture mismatch: app=$appArchitecture loader=$loaderArchitecture"
+}
+
 $result = [ordered]@{
     ok = $true
     install_dir = $resolvedInstallDir
+    architecture = $appArchitecture
     files = [ordered]@{}
 }
 foreach ($name in $requiredFiles) {
