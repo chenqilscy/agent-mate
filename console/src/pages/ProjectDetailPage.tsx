@@ -1,34 +1,28 @@
 import {
   App, Avatar, Button, Card, Col, Descriptions, Drawer, Empty, Form, Input, InputNumber,
-  Modal, Popconfirm, Progress, Row, Select, Space, Statistic, Switch, Tabs, Tag,
+  Modal, Popconfirm, Row, Select, Space, Switch, Tabs, Tag,
   Timeline, Typography, Upload,
 } from "antd";
 import { CompatList as List } from "../components/CompatList";
 import {
-  ArrowLeftOutlined, CloudUploadOutlined, DeleteOutlined, EditOutlined, FileTextOutlined,
+  ArrowLeftOutlined, CloudUploadOutlined, FileTextOutlined,
   PlusOutlined, ProjectOutlined, TeamOutlined,
 } from "@ant-design/icons";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { consoleApi } from "../api";
+import {
+  ProjectGantt, ProjectOverview, ProjectPlan, ProjectTasks, ProjectWorkload,
+  ProjectWorkProvider,
+} from "../components/project/ProjectWorkspace";
 import { navigate } from "../router";
 import type {
-  Activity, CatalogData, CatalogItem, CommentRecord, KnowledgeBase, KnowledgeDocument,
-  Member, Milestone, Project, TimelineEvent, WorkItem,
+  CatalogData, CatalogItem, CommentRecord, KnowledgeBase, KnowledgeDocument,
+  Member, Project, TimelineEvent,
 } from "../types";
 
 const ROLE_OPTIONS = ["Admin", "Member", "Viewer"].map((value) => ({ value, label: value }));
-const STATUS_OPTIONS = [
-  { value: "todo", label: "待办" }, { value: "doing", label: "进行中" },
-  { value: "paused", label: "暂停" }, { value: "done", label: "完成" },
-];
-const PRIORITY_OPTIONS = [
-  { value: "", label: "无" }, { value: "low", label: "低" }, { value: "medium", label: "中" },
-  { value: "high", label: "高" }, { value: "urgent", label: "紧急" },
-];
-const PRIORITY_COLORS: Record<string, string> = { low: "default", medium: "blue", high: "orange", urgent: "red" };
-
 function errorText(reason: unknown, fallback: string): string { return reason instanceof Error ? reason.message : fallback; }
 function canWrite(project: Project): boolean { return project.role !== "Viewer"; }
 function canManage(project: Project): boolean { return project.role === "Owner" || project.role === "Admin"; }
@@ -49,69 +43,31 @@ export default function ProjectDetailPage({ projectId }: { projectId: string }) 
       extra={<Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/projects")}>返回项目</Button>}
       header={{ breadcrumb: { items: [{ title: "工作区" }, { title: "项目", onClick: () => navigate("/projects") }, { title: project?.name || projectId }] } }}
     >
-      {project ? <><Card className="project-hero"><Space size={16}><Avatar shape="square" size={52} icon={<ProjectOutlined />} /><div><Typography.Title level={4}>{project.name}</Typography.Title><Typography.Text type="secondary">{project.instruction || "未设置项目指令"}</Typography.Text></div></Space></Card><Tabs activeKey={tab} onChange={setTab} items={[{ key: "overview", label: "概览", children: <ProjectOverview project={project} /> }, { key: "tasks", label: "任务", children: <TasksTab project={project} /> }, { key: "knowledge", label: "知识库", children: <KnowledgeTab project={project} /> }, { key: "collab", label: "协作", children: <CollaborationTab project={project} /> }, { key: "config", label: "配置", children: <ConfigTab project={project} onSaved={load} /> }]} /></> : !loading && <Empty description="项目不存在或无权访问" />}
+      {project ? <ProjectWorkProvider project={project}>
+        <Card className="project-hero">
+          <Space size={16}>
+            <Avatar shape="square" size={52} icon={<ProjectOutlined />} />
+            <div><Typography.Title level={4}>{project.name}</Typography.Title><Typography.Text type="secondary">{project.instruction || "未设置项目指令"}</Typography.Text></div>
+          </Space>
+        </Card>
+        <Tabs
+          className="project-workspace-tabs"
+          activeKey={tab}
+          onChange={setTab}
+          items={[
+            { key: "overview", label: "概览", children: <ProjectOverview /> },
+            { key: "plan", label: "计划", children: <ProjectPlan /> },
+            { key: "tasks", label: "任务", children: <ProjectTasks /> },
+            { key: "workload", label: "负载", children: <ProjectWorkload /> },
+            { key: "gantt", label: "甘特", children: <ProjectGantt /> },
+            { key: "knowledge", label: "知识库", children: <KnowledgeTab project={project} /> },
+            { key: "collab", label: "协作", children: <CollaborationTab project={project} /> },
+            { key: "config", label: "配置", children: <ConfigTab project={project} onSaved={load} /> },
+          ]}
+        />
+      </ProjectWorkProvider> : !loading && <Empty description="项目不存在或无权访问" />}
     </PageContainer>
   );
-}
-
-function ProjectOverview({ project }: { project: Project }) {
-  const { message } = App.useApp();
-  const [items, setItems] = useState<WorkItem[]>([]);
-  const [milestones, setMilestones] = useState<Milestone[]>([]);
-  const [activity, setActivity] = useState<Activity[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [milestoneOpen, setMilestoneOpen] = useState(false);
-  const [form] = Form.useForm<{ name: string; due_date: string }>();
-  async function load() { setLoading(true); try { const [work, miles, acts] = await Promise.all([consoleApi.workItems(project.id), consoleApi.milestones(project.id), consoleApi.activity(project.id)]); setItems(work.items.filter((item) => !item.parent_id)); setMilestones(miles.milestones || []); setActivity(acts.activity || []); } catch (reason) { message.error(errorText(reason, "项目概览加载失败")); } finally { setLoading(false); } }
-  useEffect(() => { void load(); }, [project.id]);
-  const done = items.filter((item) => item.status === "done").length;
-  const doing = items.filter((item) => item.status === "doing").length;
-  const overdue = items.filter((item) => item.due_date && item.due_date < new Date().toISOString().slice(0, 10) && item.status !== "done").length;
-  const percent = items.length ? Math.round(done / items.length * 100) : 0;
-  return <div className="tab-stack">
-    <Row gutter={[16, 16]}>{[["任务总数", items.length], ["进行中", doing], ["已完成", done], ["已逾期", overdue]].map(([title, value]) => <Col xs={12} lg={6} key={String(title)}><Card loading={loading}><Statistic title={title} value={value} /></Card></Col>)}</Row>
-    <Card title="整体进度"><Progress percent={percent} status={percent === 100 ? "success" : "active"} /></Card>
-    <Row gutter={[16, 16]}><Col xs={24} lg={12}><Card title="里程碑" extra={canWrite(project) && <Button type="link" icon={<PlusOutlined />} onClick={() => setMilestoneOpen(true)}>新增</Button>}>{milestones.length ? <List dataSource={milestones} renderItem={(milestone) => { const related = items.filter((item) => item.milestone_id === milestone.id); const completed = related.filter((item) => item.status === "done").length; return <List.Item><List.Item.Meta title={<Space>{milestone.name}{milestone.status === "closed" && <Tag color="green">已关闭</Tag>}</Space>} description={<Progress size="small" percent={related.length ? Math.round(completed / related.length * 100) : 0} />} /></List.Item>; }} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有里程碑" />}</Card></Col><Col xs={24} lg={12}><Card title="近期活动">{activity.length ? <Timeline items={activity.slice(0, 12).map((item) => ({ children: <><Typography.Text strong>{item.actor || "系统"}</Typography.Text> {item.detail || item.kind}<div><Typography.Text type="secondary">{item.created_at ? new Date(item.created_at * 1000).toLocaleString() : ""}</Typography.Text></div></> }))} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无任务活动" />}</Card></Col></Row>
-    <Modal title="新增里程碑" open={milestoneOpen} onCancel={() => setMilestoneOpen(false)} onOk={() => form.submit()} destroyOnHidden><Form form={form} layout="vertical" onFinish={async (values) => { try { await consoleApi.createMilestone(project.id, values); message.success("里程碑已创建"); setMilestoneOpen(false); form.resetFields(); await load(); } catch (reason) { message.error(errorText(reason, "创建失败")); } }}><Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item><Form.Item name="due_date" label="截止日期"><Input type="date" /></Form.Item></Form></Modal>
-  </div>;
-}
-
-function TasksTab({ project }: { project: Project }) {
-  const { message } = App.useApp();
-  const [items, setItems] = useState<WorkItem[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [milestones, setMilestones] = useState<Milestone[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<WorkItem | null | undefined>(undefined);
-  const [form] = Form.useForm<Partial<WorkItem> & { title: string }>();
-  async function load() { setLoading(true); try { const [work, memberResult, milestoneResult] = await Promise.all([consoleApi.workItems(project.id), consoleApi.projectMembers(project.id), consoleApi.milestones(project.id)]); setItems(work.items || []); setMembers(memberResult.members || []); setMilestones(milestoneResult.milestones || []); } catch (reason) { message.error(errorText(reason, "任务加载失败")); } finally { setLoading(false); } }
-  useEffect(() => { void load(); }, [project.id]);
-  function open(item: WorkItem | null) { setEditing(item); form.setFieldsValue(item || { title: "", status: "todo", priority: "", assignee: "", estimate_h: 0, spent_h: 0, labels: [] }); }
-  async function quickPatch(item: WorkItem, patch: Partial<WorkItem>) { try { await consoleApi.updateWorkItem(project.id, item.id, patch); await load(); } catch (reason) { message.error(errorText(reason, "任务更新失败")); } }
-  const topLevel = items.filter((item) => !item.parent_id);
-  const columns: ProColumns<WorkItem>[] = [
-    { title: "任务", dataIndex: "title", width: 300, render: (_value, item) => <div><Typography.Text strong>{item.title}</Typography.Text>{item.description && <div><Typography.Text type="secondary" ellipsis>{item.description}</Typography.Text></div>}</div> },
-    { title: "状态", dataIndex: "status", width: 130, render: (_value, item) => <Select size="small" value={item.status} disabled={!canWrite(project)} options={STATUS_OPTIONS} onChange={(status) => void quickPatch(item, { status })} /> },
-    { title: "优先级", dataIndex: "priority", width: 100, render: (value) => value ? <Tag color={PRIORITY_COLORS[String(value)]}>{PRIORITY_OPTIONS.find((option) => option.value === value)?.label}</Tag> : "-" },
-    { title: "负责人", dataIndex: "assignee_name", width: 130, render: (value) => value || "未指派" },
-    { title: "截止", dataIndex: "due_date", width: 120, valueType: "date" },
-    { title: "工时", width: 100, render: (_value, item) => `${item.spent_h || 0}/${item.estimate_h || 0}h` },
-    { title: "操作", valueType: "option", width: 140, render: (_value, item) => <Space><Button type="link" size="small" icon={<EditOutlined />} onClick={() => open(item)}>详情</Button>{canWrite(project) && <Popconfirm title="删除此任务？" onConfirm={() => void (async () => { try { await consoleApi.deleteWorkItem(project.id, item.id); message.success("任务已删除"); await load(); } catch (reason) { message.error(errorText(reason, "删除失败")); } })()}><Button type="link" danger size="small" icon={<DeleteOutlined />}>删除</Button></Popconfirm>}</Space> },
-  ];
-  return <>
-    <ProTable<WorkItem> rowKey="id" columns={columns} dataSource={topLevel} loading={loading} search={{ labelWidth: "auto" }} pagination={{ pageSize: 15 }} scroll={{ x: 1000 }} options={{ reload: () => void load(), density: true, setting: true }} toolBarRender={() => canWrite(project) ? [<Button key="new" type="primary" icon={<PlusOutlined />} onClick={() => open(null)}>新建任务</Button>] : []} />
-    <Drawer width={620} open={editing !== undefined} title={editing ? `任务 · ${editing.title}` : "新建任务"} onClose={() => setEditing(undefined)} destroyOnHidden extra={canWrite(project) && <Button type="primary" onClick={() => form.submit()}>保存</Button>}>
-      <Form form={form} layout="vertical" disabled={!canWrite(project)} onFinish={async (values) => { try { const body = { ...values, labels: Array.isArray(values.labels) ? values.labels : [] }; if (editing) await consoleApi.updateWorkItem(project.id, editing.id, body); else await consoleApi.createWorkItem(project.id, body); message.success("任务已保存"); setEditing(undefined); await load(); } catch (reason) { message.error(errorText(reason, "保存失败")); } }}>
-        <Form.Item name="title" label="标题" rules={[{ required: true, whitespace: true }]}><Input maxLength={300} /></Form.Item>
-        <Form.Item name="description" label="描述"><Input.TextArea rows={5} /></Form.Item>
-        <Row gutter={12}><Col span={12}><Form.Item name="status" label="状态"><Select options={STATUS_OPTIONS} /></Form.Item></Col><Col span={12}><Form.Item name="priority" label="优先级"><Select options={PRIORITY_OPTIONS} /></Form.Item></Col></Row>
-        <Row gutter={12}><Col span={12}><Form.Item name="assignee" label="负责人"><Select allowClear options={members.map((member) => ({ value: member.account_id, label: member.name }))} /></Form.Item></Col><Col span={12}><Form.Item name="milestone_id" label="里程碑"><Select allowClear options={milestones.map((milestone) => ({ value: milestone.id, label: milestone.name }))} /></Form.Item></Col></Row>
-        <Row gutter={12}><Col span={12}><Form.Item name="start_date" label="开始日期"><Input type="date" /></Form.Item></Col><Col span={12}><Form.Item name="due_date" label="截止日期"><Input type="date" /></Form.Item></Col></Row>
-        <Row gutter={12}><Col span={12}><Form.Item name="estimate_h" label="预估工时"><InputNumber min={0} className="full-width" addonAfter="h" /></Form.Item></Col><Col span={12}><Form.Item name="spent_h" label="投入工时"><InputNumber min={0} className="full-width" addonAfter="h" /></Form.Item></Col></Row>
-        <Form.Item name="labels" label="标签"><Select mode="tags" tokenSeparators={[","]} /></Form.Item>
-      </Form>
-    </Drawer>
-  </>;
 }
 
 function KnowledgeTab({ project }: { project: Project }) {

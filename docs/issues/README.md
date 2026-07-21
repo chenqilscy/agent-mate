@@ -279,6 +279,7 @@
 | [WB-260](WB-260-wbbutton-hover-border-jitter.md) | ✅ | P1 | ui | WbButton 无边框控件悬浮时被 Ant 补边框导致内容抖动 |
 | [WB-261](WB-261-app-console-typography-unification.md) | ✅ | P1 | ui | AgentMate App 与 Console 字体体系和基础排版密度不一致 |
 | [WB-262](WB-262-antd6-spin-tip-deprecation.md) | ✅ | P2 | frontend | App 与 Console 仍使用 Ant Design 6 已弃用的 Spin tip 属性 |
+| [WB-263](WB-263-console-project-workspace-parity.md) | ✅ | P1 | frontend | Console React 迁移后项目工作台缩水并与 App 项目模型失配 |
 
 ## 来源
 
