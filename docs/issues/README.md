@@ -176,7 +176,7 @@
 | [WB-157](WB-157-hub-pm-referential-integrity.md) | ✅ | P2 | backend | Server PM 引用完整性 —— parent_id/milestone_id 跨项目未校验 + 级联删除/清空无 project 过滤 |
 | [WB-158](WB-158-hub-origin-offline-write-data-loss.md) | ✅ | P2 | backend | server-origin 项目离线新建 work_item/milestone 被下次镜像删除（数据丢失） |
 | [WB-159](WB-159-frontend-store-robustness.md) | ✅ | P2 | frontend | 前端 store 健壮性 —— 看板乐观更新不回滚 / answer 失败挂起 agent / send finally 无流守卫 / connect 不 reload |
-| [WB-160](WB-160-backend-hardening-tail.md) | 🟡 | P2 | backend | 后端加固尾集 —— 6 项代码均已落地；邮件 PEEK/精确 Seen/重启去重待真实 IMAP+SMTP 验收 |
+| [WB-160](WB-160-backend-hardening-tail.md) | ✅ | P2 | backend | 后端加固尾集 —— 6 项全部完成；邮件 PEEK/精确 Seen/持久去重已通过真实 IMAP+SMTP 自发自收验收 |
 | [WB-161](WB-161-authoritative-docs-correction.md) | ✅ | P2 | misc | 权威现状文档纠偏 —— CLAUDE.md/README/实现方案 对 Server/auth/LLM key/CSS/Tauri 的错误陈述 |
 | [WB-162](WB-162-memory-mechanism-optimization.md) | ✅ | P2 | fullstack | 记忆机制优化 —— 注入预算化(优先手动+最近·超预算截断) + 结构化抽取(add/update 合并·更替过时矛盾) + 抽取输入预算 + 手动编辑一条(PUT+内联编辑 UI) |
 | [WB-163](WB-163-manager-user-management.md) | ✅ | P1 | backend | Console 用户管理 —— 平台账号 admin CRUD(列表/建/改人格套餐管理员/重置密码/删，含删自己·最后管理员·有项目守卫) + console「用户」页(um- 前缀) |

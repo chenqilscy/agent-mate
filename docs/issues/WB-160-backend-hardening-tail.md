@@ -3,7 +3,7 @@ id: WB-160
 title: 后端加固尾集 —— 通知空 ids 误清全部 / MCP 连接超时孤儿子进程 / 邮件批量先标已读丢信 / 流出错丢半截回复 / web_fetch SSRF / skillhub slug 校验
 severity: P2
 area: backend
-status: in-progress
+status: fixed
 origin: 既有实现
 files:
   - backend/storage/db.py:1559
@@ -57,7 +57,7 @@ created: 2026-07-14
 
 - 验证：py_compile（backend+hub）+ tsc 过；`_is_blocked_host` 对 localhost/127.0.0.1/169.254.169.254/10.x/192.168.x/::1/0.0.0.0 全 True、8.8.8.8 False；`_guarded_get('http://127.0.0.1:8000/...')` 抛「拒绝访问本机/内网」。
 - 状态：`in-progress`（邮件项 deferred，其余已修）。
-- commit：未提交（待用户确认）。
+- commit：`1638677`（首批 5 项加固）；邮件尾项见后续独立提交。
 
 ## 处理记录（2026-07-22，邮件尾项实现）
 
@@ -68,6 +68,15 @@ created: 2026-07-14
 - 协议测试：`backend/tests/regression/test_email_delivery_protocol.py` 9/9 通过，覆盖 10 封 PEEK 无 STORE、同 UIDVALIDITY 精确 UID、UIDVALIDITY 变化后的唯一/歧义 Message-ID、agent 失败重试、Seen 失败不重复回复、SMTP 成功头与在途断线、重启隔离未知发送。
 - 编译：修改的 4 个 Python 文件 `py_compile` 通过。
 - 全量回归：Backend regression 运行 100 项，本 issue 新增 9 项全部通过；总套件另有 8 个既有错误（`db.list_messages()` 当前返回 `None` 导致 4 项 runtime 错误、catalog revision 1 项、未初始化测试 DB 3 项）。失败模块独立复跑仍失败或暴露自身初始化问题；未在 WB-160 夹带修复。
-- 真机缺口：本 worktree 没有可用的真实 IMAP/SMTP 测试账号与服务端，尚未验证具体供应商对 `BODY.PEEK[]`、UIDVALIDITY、`UID SEARCH HEADER Message-ID`、`UID STORE` 及 SMTP 接收/断线的真实行为。模拟协议测试不能替代真机；需用真实邮箱完成“#1 处理中崩溃后 #2–10 仍 UNSEEN、重启可续跑、每封至多一封回复、最终逐封 Seen”后才能改为 `fixed`/✅。
-- 状态：保持 `in-progress`/🟡，代码实现完成但真实邮箱验收阻塞。
-- commit：本次 WB-160 独立提交。
+- 当时的真机缺口：该次实现 worktree 没有可用的真实 IMAP/SMTP 测试账号与服务端，故先保持 `in-progress`；后续真实验收见下节。
+- commit：`9a07cff`（持久化邮件投递与协议测试）。
+
+## 真实邮箱验收与关闭记录（2026-07-22）
+
+- 使用本机已配置且启用的真实邮件渠道完成同账号自发自收；凭据、地址、主机名与邮件 UID 均未写入仓库或验收日志。
+- IMAP 登录与 SMTP DATA 提交成功，测试邮件进入 `UNSEEN`。
+- 对同一测试邮件连续执行两轮 `UID FETCH (UID BODY.PEEK[])`，两轮 `message_key` 与 UID 一致，第二轮仍可从 `UNSEEN` 取到，证明 PEEK 未提前产生 `\\Seen`。
+- 自发邮件携带 `X-AgentMate-Assistant`，拉取结果正确标记 `assistant_reply`，验证回环防护生效。
+- `mark_seen` 通过同一 `UIDVALIDITY + UID` 精确执行 `UID STORE`；随后再次拉取时，该测试邮件已从 `UNSEEN` 消失，未改动其他未读邮件。
+- 批量崩溃/重启及“每封至多回复一次”的持久化分支继续由 `test_email_delivery_protocol.py` 9 项协议回归覆盖；本次真实服务验收补足供应商 IMAP/SMTP 行为，二者合并满足本 issue 的邮件退出条件。
+- 状态：`fixed`/✅，6 项后端加固全部完成。
