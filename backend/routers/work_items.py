@@ -1,7 +1,9 @@
 """Work items — kanban / task list (§11 阶段 B). 计划 and 任务 share this source."""
 from __future__ import annotations
 
+import asyncio
 import time
+import uuid
 
 from typing import Any
 
@@ -9,6 +11,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 import server_client
+from agent import work_item_runner
 from auth.deps import current_user
 from storage import db
 from storage.models import Role
@@ -79,6 +82,15 @@ class UpdateWorkItemBody(BaseModel):
     milestone_id: str | None = None
     estimate_h: float | None = None
     spent_h: float | None = None
+
+
+class ExecuteWorkItemBody(BaseModel):
+    idempotency_key: str | None = None
+    model: str | None = None
+
+
+class AcceptWorkItemDeliveryBody(BaseModel):
+    run_id: str
 
 
 def _ago(ts: float) -> str:
@@ -291,3 +303,105 @@ def delete_item(item_id: str, authorization: str = Header(default="")) -> dict:
         raise HTTPException(503, "Server 暂不可达，未删除，请稍后重试")
     db.delete_work_item(item_id)
     return {"ok": True}
+
+
+@router.get("/work-items/{item_id}/delivery")
+def get_item_delivery(item_id: str) -> dict:
+    user = current_user()
+    item = db.get_work_item(item_id)
+    if not item or db.project_access_role(item.project_id, user.id) is None:
+        raise HTTPException(404, "work item not found")
+    role = db.project_access_role(item.project_id, user.id)
+    runs = db.list_runs(user.id, work_item_id=item.id, limit=100)
+    return {
+        "work_item": _view(item, user),
+        "can_write": role != Role.VIEWER,
+        "launches": db.list_work_item_launches(item.id, user.id),
+        "runs": [
+            {
+                **run.to_dict(),
+                "artifacts": [artifact.to_dict() for artifact in db.list_artifacts(run.id)],
+            }
+            for run in runs
+        ],
+    }
+
+
+@router.post("/work-items/{item_id}/execute")
+async def execute_item(
+    item_id: str, body: ExecuteWorkItemBody, authorization: str = Header(default=""),
+) -> dict:
+    user = current_user()
+    item = db.get_work_item(item_id)
+    if not item:
+        raise HTTPException(404, "work item not found")
+    _require_project_write(item.project_id, user.id)
+    tok = _server_token(item.project_id, authorization)
+    if tok:
+        updated = await asyncio.to_thread(
+            server_client.update_work_item, tok, item.project_id, item.id, {"status": "doing"}
+        )
+        if not updated:
+            raise HTTPException(503, "Server 暂不可达，工作项未开始执行")
+    key = (body.idempotency_key or str(uuid.uuid4())).strip()[:120]
+    try:
+        launch, created = await work_item_runner.start(
+            item, user, key, model=body.model, server_token=tok,
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "created": created, "launch": launch}
+
+
+@router.post("/work-items/{item_id}/accept")
+async def accept_item_delivery(
+    item_id: str, body: AcceptWorkItemDeliveryBody,
+    authorization: str = Header(default=""),
+) -> dict:
+    user = current_user()
+    item = db.get_work_item(item_id)
+    if not item:
+        raise HTTPException(404, "work item not found")
+    _require_project_write(item.project_id, user.id)
+    run = db.get_run_for(body.run_id, user.id)
+    if not run or run.work_item_id != item.id:
+        raise HTTPException(404, "run not found")
+    from routers import runs as runs_router
+    artifacts = [runs_router._artifact_view(value) for value in db.list_artifacts(run.id)]
+    if not artifacts:
+        raise HTTPException(409, "run has no artifacts")
+    if any(
+        value["validation_status"] != "passed"
+        or not value["verification"]["exists"]
+        or not value["verification"]["hash_matches"]
+        for value in artifacts
+    ):
+        raise HTTPException(409, "artifact integrity verification failed")
+    tok = _server_token(item.project_id, authorization)
+    if tok:
+        updated = await asyncio.to_thread(
+            server_client.update_work_item, tok, item.project_id, item.id, {"status": "done"}
+        )
+        if not updated:
+            raise HTTPException(503, "Server 暂不可达，交付未验收")
+    try:
+        accepted_item, accepted_run, accepted_artifacts = db.accept_work_item_delivery(
+            item.id, run.id, user.id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    for member in db.list_project_members(item.project_id):
+        if member["user_id"] == user.id:
+            continue
+        db.create_notification(
+            user_id=member["user_id"], kind="work_item_delivery",
+            title=f"工作项已验收：{item.title}",
+            body=f"{user.name} 验收了 {len(accepted_artifacts)} 个交付物。",
+            project_id=item.project_id, actor_name=user.name,
+        )
+    return {
+        "ok": True, "work_item": _view(accepted_item, user),
+        "run": {**accepted_run.to_dict(), "artifacts": [a.to_dict() for a in accepted_artifacts]},
+    }

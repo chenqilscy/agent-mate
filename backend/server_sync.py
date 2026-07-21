@@ -84,6 +84,33 @@ def enqueue_timeline_event(*, session, actor_id: str, actor_name: str = "") -> b
     return True
 
 
+def enqueue_work_item_event(
+    *, project_id: str, work_item_id: str, launch_id: str, actor_id: str,
+    status: str, artifact_count: int,
+) -> bool:
+    """Upload only collaboration-safe delivery metadata, never task/file text."""
+    if not settings.server_enabled or not settings.AGENTMATE_SERVER_TIMELINE_UPLOAD:
+        return False
+    project = db.get_project(project_id)
+    if not project or project.origin != "server":
+        return False
+    labels = {
+        "completed": "工作项执行已完成，等待验收",
+        "failed": "工作项执行失败",
+        "cancelled": "工作项执行已取消",
+    }
+    db.enqueue_outbox(
+        kind="timeline", actor_id=actor_id, project_id=project_id,
+        payload={
+            "kind": "work_item_run",
+            "title": f"{labels.get(status, '工作项执行更新')} · {max(0, artifact_count)} 个产物",
+            "summary": "",
+            "ext_id": f"work-item:{work_item_id}:launch:{launch_id}",
+        },
+    )
+    return True
+
+
 def flush_outbox(limit: int = 50) -> dict:
     """后台补推：把 pending outbox 推给 Server（用各 actor 缓存的 Server token）。成功标 synced，
     失败留待下轮（断线/离线自动补推）。未接 Server → 直接返回。"""

@@ -296,6 +296,26 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_work_items_project
             ON work_items(project_id, created_at);
 
+        CREATE TABLE IF NOT EXISTS work_item_launches (
+            id TEXT PRIMARY KEY,
+            work_item_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            session_id TEXT,
+            run_id TEXT,
+            status TEXT NOT NULL DEFAULT 'queued',
+            error_code TEXT,
+            error_message TEXT,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            finished_at REAL,
+            FOREIGN KEY (work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_work_item_launches_key
+            ON work_item_launches(owner_id, idempotency_key);
+        CREATE INDEX IF NOT EXISTS idx_work_item_launches_item
+            ON work_item_launches(work_item_id, created_at DESC);
+
         CREATE TABLE IF NOT EXISTS milestones (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
@@ -2877,6 +2897,139 @@ def list_messages(session_id: str) -> list[Message]:
         "SELECT * FROM messages WHERE session_id=? ORDER BY created_at ASC",
         (session_id,),
     ).fetchall()
+def create_work_item_launch(
+    *, work_item_id: str, owner_id: str, idempotency_key: str,
+) -> tuple[dict, bool]:
+    item = get_work_item(work_item_id)
+    if not item or project_access_role(item.project_id, owner_id) in {None, Role.VIEWER}:
+        raise ValueError("work item launch scope mismatch")
+    key = idempotency_key.strip()[:200]
+    if not key:
+        raise ValueError("idempotency_key is required")
+    launch_id = new_uuid(); now = time.time()
+    conn = get_conn()
+    try:
+        conn.execute(
+            """INSERT INTO work_item_launches
+               (id,work_item_id,owner_id,idempotency_key,status,created_at,updated_at)
+               VALUES (?,?,?,?,'queued',?,?)""",
+            (launch_id, work_item_id, owner_id, key, now, now),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        row = conn.execute(
+            "SELECT * FROM work_item_launches WHERE owner_id=? AND idempotency_key=?",
+            (owner_id, key),
+        ).fetchone()
+        if row:
+            return dict(row), False
+        raise
+    return get_work_item_launch(launch_id), True  # type: ignore[return-value]
+
+
+def get_work_item_launch(launch_id: str, owner_id: Optional[str] = None) -> Optional[dict]:
+    if owner_id is None:
+        row = get_conn().execute(
+            "SELECT * FROM work_item_launches WHERE id=?", (launch_id,)
+        ).fetchone()
+    else:
+        row = get_conn().execute(
+            "SELECT * FROM work_item_launches WHERE id=? AND owner_id=?", (launch_id, owner_id)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_work_item_launches(work_item_id: str, user_id: str) -> list[dict]:
+    item = get_work_item(work_item_id)
+    if not item or project_access_role(item.project_id, user_id) is None:
+        return []
+    rows = get_conn().execute(
+        "SELECT * FROM work_item_launches WHERE work_item_id=? ORDER BY created_at DESC LIMIT 100",
+        (work_item_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def attach_work_item_launch_session(launch_id: str, session_id: str) -> dict:
+    launch = get_work_item_launch(launch_id)
+    session = get_session(session_id)
+    if not launch or not session or session.owner_id != launch["owner_id"]:
+        raise ValueError("work item launch session scope mismatch")
+    get_conn().execute(
+        "UPDATE work_item_launches SET session_id=?,status='running',updated_at=? WHERE id=?",
+        (session_id, time.time(), launch_id),
+    )
+    get_conn().commit()
+    return get_work_item_launch(launch_id)  # type: ignore[return-value]
+
+
+def finish_work_item_launch(
+    launch_id: str, *, status: str, run_id: Optional[str] = None,
+    error_code: Optional[str] = None, error_message: Optional[str] = None,
+) -> dict:
+    if status not in {"completed", "failed", "cancelled"}:
+        raise ValueError("invalid work item launch status")
+    now = time.time()
+    get_conn().execute(
+        """UPDATE work_item_launches SET status=?,run_id=?,error_code=?,error_message=?,
+           finished_at=?,updated_at=? WHERE id=?""",
+        (status, run_id, error_code, (error_message or "")[:500] or None, now, now, launch_id),
+    )
+    get_conn().commit()
+    launch = get_work_item_launch(launch_id)
+    if not launch:
+        raise KeyError(launch_id)
+    return launch
+
+
+def accept_work_item_delivery(
+    work_item_id: str, run_id: str, actor_id: str,
+) -> tuple[WorkItem, Run, list[Artifact]]:
+    """Atomically accept every artifact, the Run and its WorkItem (local plane)."""
+    conn = get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        item_row = conn.execute("SELECT * FROM work_items WHERE id=?", (work_item_id,)).fetchone()
+        run_row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+        if not item_row or not run_row:
+            raise KeyError("work item or run not found")
+        item = _row_to_work_item(item_row); run = _row_to_run(run_row)
+        role = project_access_role(item.project_id, actor_id)
+        if role in {None, Role.VIEWER} or run.project_id != item.project_id or run.work_item_id != item.id:
+            raise PermissionError("work item delivery scope mismatch")
+        if run.status not in {"completed", "accepted"}:
+            raise ValueError("only completed runs can be accepted")
+        rows = conn.execute("SELECT * FROM artifacts WHERE run_id=?", (run.id,)).fetchall()
+        if not rows:
+            raise ValueError("run has no artifacts")
+        if any(row["validation_status"] != "passed" for row in rows):
+            raise ValueError("run has invalid artifacts")
+        now = time.time()
+        conn.execute(
+            """UPDATE artifacts SET acceptance_status='accepted',accepted_by=?,accepted_at=?,updated_at=?
+               WHERE run_id=?""",
+            (actor_id, now, now, run.id),
+        )
+        if run.status == "completed":
+            conn.execute(
+                "UPDATE runs SET status='accepted',ended_at=COALESCE(ended_at,?),updated_at=? WHERE id=?",
+                (now, now, run.id),
+            )
+        conn.execute(
+            "UPDATE work_items SET status='done',updated_at=? WHERE id=?", (now, item.id)
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    accepted_item = get_work_item(work_item_id)
+    accepted_run = get_run(run_id)
+    if not accepted_item or not accepted_run:
+        raise RuntimeError("accepted delivery disappeared")
+    return accepted_item, accepted_run, list_artifacts(run_id)
+
+
     out: list[Message] = []
     for r in rows:
         out.append(
