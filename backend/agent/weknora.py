@@ -16,7 +16,9 @@ api_key 只在后端用，绝不回前端（铁律#4）。
 """
 from __future__ import annotations
 
+import re
 from typing import Any, NamedTuple, Optional
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -24,6 +26,11 @@ from config import settings
 
 # 建库/检索快；传文件走 docreader 异步解析，上传本身也应很快返回（parse_status=pending）。
 _TIMEOUT = 60.0
+
+# WeKnora <=0.2.11 的 URL 入库曾存在重定向 SSRF 绕过。AgentMate 无法从调用侧
+# 约束远端 WeKnora 最终怎样下载，故每次 URL 入库都从服务本身读取版本并 fail-closed。
+# 不缓存：若管理员把服务降级，下一次调用必须立即停止。
+MIN_SAFE_URL_IMPORT_VERSION = (0, 2, 12)
 
 # 未接入的统一文案（WB-188）：引导去 UI 表单，而不是让用户改配置文件。
 NOT_CONFIGURED = (
@@ -197,6 +204,91 @@ def upload_file(owner_id: Optional[str], kb_id: str, *, filename: str, content: 
         owner_id, "POST", f"/knowledge-bases/{kb_id}/knowledge/file",
         files={"file": (filename, content, content_type)},
     )
+    return d if isinstance(d, dict) else {"id": d}
+
+
+def system_info(owner_id: Optional[str]) -> dict:
+    """读取 WeKnora 自报的构建信息；URL 入库用其中 version 做安全门禁。"""
+    d = _request(owner_id, "GET", "/system/info")
+    return d if isinstance(d, dict) else {}
+
+
+def _stable_version(raw: Any) -> tuple[int, int, int] | None:
+    """只接受明确的稳定 semver；未知/预发布版本不能作为安全证明。"""
+    m = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:\+[0-9A-Za-z.-]+)?", str(raw or "").strip())
+    return tuple(map(int, m.groups())) if m else None
+
+
+def require_safe_url_import(owner_id: Optional[str]) -> str:
+    """确认 WeKnora URL 下载端已包含重定向 SSRF 修复；无法证明时保守拒绝。"""
+    minimum = ".".join(map(str, MIN_SAFE_URL_IMPORT_VERSION))
+    try:
+        info = system_info(owner_id)
+    except WeKnoraError as e:
+        raise WeKnoraError(
+            "为安全起见未执行 URL 入库：无法通过 WeKnora /api/v1/system/info 确认服务版本。"
+            f"请升级到稳定版 >= {minimum} 并确保租户 API Key 可读取 system/info；工作区 path 文件入库仍可用。"
+            f"原始错误：{e}"
+        ) from e
+    raw = str(info.get("version") or "").strip()
+    parsed = _stable_version(raw)
+    if parsed is None:
+        shown = raw or "未返回"
+        raise WeKnoraError(
+            f"为安全起见未执行 URL 入库：WeKnora 版本无法可靠识别（{shown}）。"
+            f"需要稳定版 >= {minimum}；工作区 path 文件入库仍可用。"
+        )
+    if parsed < MIN_SAFE_URL_IMPORT_VERSION:
+        raise WeKnoraError(
+            f"为安全起见未执行 URL 入库：当前 WeKnora {raw} 低于安全最低版本 {minimum}，"
+            "存在 URL 重定向 SSRF 风险。请先升级；工作区 path 文件入库仍可用。"
+        )
+    return raw
+
+
+def validate_import_url(raw: str) -> str:
+    url = str(raw or "").strip()
+    if not url or len(url) > 2048:
+        raise WeKnoraError("URL 格式非法：请提供不超过 2048 字符的 http(s) URL。")
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port  # 触发非法端口校验
+    except ValueError as e:
+        raise WeKnoraError(f"URL 格式非法：{e}") from e
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
+        raise WeKnoraError("URL 格式非法：仅支持包含主机名的 http(s) URL。")
+    if parsed.username is not None or parsed.password is not None:
+        raise WeKnoraError("URL 格式非法：不允许在 URL 中携带用户名或密码。")
+    _ = port
+    return url
+
+
+def _looks_like_ssrf_rejection(message: str) -> bool:
+    text = message.lower()
+    return any(marker in text for marker in (
+        "ssrf", "whitelist", "private", "loopback", "link-local",
+        "白名单", "内网", "回环", "invalid url", "unsafe url",
+    ))
+
+
+def create_from_url(owner_id: Optional[str], kb_id: str, *, url: str) -> dict:
+    """从网页/远程文件 URL 创建知识；仅允许已证明包含 SSRF 修复的 WeKnora。"""
+    target = validate_import_url(url)
+    require_safe_url_import(owner_id)
+    try:
+        d = _request(
+            owner_id, "POST", f"/knowledge-bases/{kb_id}/knowledge/url",
+            json={"url": target},
+        )
+    except WeKnoraError as e:
+        if _looks_like_ssrf_rejection(str(e)):
+            raise WeKnoraError(
+                "WeKnora 拒绝该 URL（SSRF 安全策略）。请在 WeKnora 管理端「系统设置 → SSRF 白名单」"
+                "只添加确实可信的目标域名；旧版部署可设置 SSRF_WHITELIST_EXTRA 后重启。"
+                "不要为不受信任的域名或整段私网放宽规则。"
+                f"原始错误：{e}"
+            ) from e
+        raise
     return d if isinstance(d, dict) else {"id": d}
 
 

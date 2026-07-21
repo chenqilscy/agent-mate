@@ -39,6 +39,7 @@ from agent.tools import (
     plan_filter,
     set_knowledge_context,
     set_work_context,
+    Tool,
     ToolOutcome,
     work_item_tools,
 )
@@ -50,6 +51,17 @@ from storage.models import Session, User
 
 class RuntimeBudgetExceeded(RuntimeError):
     """Raised before another tool/LLM round once the configured token cap is reached."""
+
+
+def _knowledge_tools(owner_id: str, active_knowledge: list[str], *, ask: bool) -> list[Tool]:
+    """按 owner 的真实 WeKnora 配置组装工具；不能只看进程级 .env（WB-188/193）。"""
+    if ask:
+        return []
+    out = [knowledge_retrieve] if active_knowledge else []
+    if weknora.configured(owner_id):
+        out.append(knowledge_add)
+    return out
+
 
 SYSTEM_PROMPT = (
     "你是 AgentMate，一个运行在用户本机的智能工作伙伴。\n"
@@ -483,11 +495,11 @@ async def _run_chat_inner(
             f"\n\n# 已挂载知识库（{len(active_knowledge)} 个）\n"
             "遇到需要事实性/资料性依据的问题，先用 knowledge_retrieve 检索知识库，"
             "再基于命中内容作答并注明来源；检索不到再用你自己的知识回答。"
-            "需要把工作区里的文件沉淀进知识库（用户说「加入/上传/添加到知识库」）时，用 knowledge_add。"
+            "需要把工作区里的文件或网页 URL 沉淀进知识库（用户说「加入/上传/添加到知识库」）时，用 knowledge_add。"
         )
     elif weknora.configured(user.id) and not ask:
         system_prompt += (
-            "\n\n# 知识库\n本机已接入知识库。用户要把工作区文件「加入/上传/添加到知识库」时，"
+            "\n\n# 知识库\n本机已接入知识库。用户要把工作区文件或网页 URL「加入/上传/添加到知识库」时，"
             "直接用 knowledge_add（无需先挂载；只有一个库时自动选，多个库用 knowledge_id 或 kb_name 指定）。"
         )
 
@@ -600,12 +612,7 @@ async def _run_chat_inner(
         wi_tools = work_item_tools(plan) if (session.project_id and not ask) else []
         # 知识库工具（ask 模式无工具）：检索按会话挂载的库（active_knowledge）给；
         # 加入文件只要后端接了 WeKnora（配了 key）就给——不要求先挂载（WB-175）。
-        kb_tools = []
-        if not ask:
-            if active_knowledge:
-                kb_tools.append(knowledge_retrieve)
-            if settings.WEKNORA_API_KEY:
-                kb_tools.append(knowledge_add)
+        kb_tools = _knowledge_tools(user.id, active_knowledge, ask=ask)
         # WB-186：skill_tools / kb_tools 从前**完全绕过 plan 过滤**（只有 base_tools 和
         # wi_tools 认 plan）。技能侧当时恰好 3 个工具全只读所以没暴雷；知识库侧却是真漏：
         # knowledge_add 是写（灌文件进库 + 解析/切片/向量化），计划模式下 agent 真能调它。

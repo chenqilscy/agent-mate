@@ -641,12 +641,13 @@ knowledge_retrieve = Tool(
 )
 
 
-# ---- knowledge_add（把工作区文件加入知识库）— WB-175 -----------------------
+# ---- knowledge_add（把工作区文件或 URL 加入知识库）— WB-175/193 ------------
 #
-# 会话内把工作区文件沉淀进 WeKnora 知识库（原来只能检索、不能加，功能不完整）。
+# 会话内把工作区文件或 URL 沉淀进 WeKnora 知识库。
 # **不要求先把库挂载到对话**：只要后端接了 WeKnora（配了 key）就可用——目标库按
 # knowledge_id / kb_name / 挂载库 / 唯一现存库 依次解析，都定不了才让用户澄清。
-# 复用沙箱读文件 + weknora.upload_file（异步解析，parse_status pending→completed 后可被检索）。
+# path 复用沙箱读文件 + upload_file；url 走 create_from_url，后者先对 WeKnora 版本做
+# fail-closed SSRF 安全门禁。二者都异步解析（parse_status pending→completed 后可检索）。
 
 def _fmt_kbs(kbs: dict[str, str]) -> str:
     return "；".join(f"{n or '(无名)'}={i}" for i, n in kbs.items()) or "（无）"
@@ -694,20 +695,29 @@ def _knowledge_add_run(args: dict[str, Any]) -> ToolOutcome:
     if not weknora.configured(owner):
         return ToolOutcome(text=weknora.NOT_CONFIGURED)
     path = str(args.get("path") or "").strip()
-    if not path:
-        return ToolOutcome(text="请提供 path：要加入知识库的工作区文件（相对工作区路径）。")
-    try:
-        target = resolve_in_sandbox(path)
-    except SandboxError as e:
-        return ToolOutcome(text=f"路径不合法：{e}")
-    if not target.exists() or not target.is_file():
-        return ToolOutcome(text=f"文件不存在：{path}")
-    ext = target.suffix.lstrip(".").lower()
-    if ext and ext not in weknora.SUPPORTED_EXTS:
-        return ToolOutcome(text=f"知识库不支持的文件类型：.{ext}（支持 {', '.join(sorted(weknora.SUPPORTED_EXTS))}）。")
-    size = target.stat().st_size
-    if size > KB_MAX_UPLOAD:
-        return ToolOutcome(text=f"文件超过 50MB 上限（约 {size // (1024 * 1024)}MB），无法加入知识库。")
+    url = str(args.get("url") or "").strip()
+    if bool(path) == bool(url):
+        return ToolOutcome(text="请在 path 与 url 中恰好提供一个：path 用于工作区文件，url 用于网页或远程文件。")
+
+    target = None
+    if path:
+        try:
+            target = resolve_in_sandbox(path)
+        except SandboxError as e:
+            return ToolOutcome(text=f"路径不合法：{e}")
+        if not target.exists() or not target.is_file():
+            return ToolOutcome(text=f"文件不存在：{path}")
+        ext = target.suffix.lstrip(".").lower()
+        if ext and ext not in weknora.SUPPORTED_EXTS:
+            return ToolOutcome(text=f"知识库不支持的文件类型：.{ext}（支持 {', '.join(sorted(weknora.SUPPORTED_EXTS))}）。")
+        size = target.stat().st_size
+        if size > KB_MAX_UPLOAD:
+            return ToolOutcome(text=f"文件超过 50MB 上限（约 {size // (1024 * 1024)}MB），无法加入知识库。")
+    else:
+        try:
+            url = weknora.validate_import_url(url)
+        except weknora.WeKnoraError as e:
+            return ToolOutcome(text=str(e))
 
     mounted = (_kb_ctx.get() or {}).get("knowledge_ids") or []
     try:
@@ -717,36 +727,44 @@ def _knowledge_add_run(args: dict[str, Any]) -> ToolOutcome:
     if kb_id is None:
         return ToolOutcome(text=note)  # 需用户指定 / 知识库为空
 
-    content = target.read_bytes()
-    ct = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
     try:
-        weknora.upload_file(owner, kb_id, filename=target.name, content=content, content_type=ct)
+        if target is not None:
+            content = target.read_bytes()
+            ct = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+            weknora.upload_file(owner, kb_id, filename=target.name, content=content, content_type=ct)
+        else:
+            weknora.create_from_url(owner, kb_id, url=url)
     except weknora.WeKnoraError as e:
         return ToolOutcome(text=f"加入知识库失败：{e}")
     tail = "" if (kb_id in mounted) else "（该库未挂载到本会话；如需在对话中检索它，去「知识库」页点『挂载到对话』）"
+    source = f"「{target.name}」" if target is not None else f"URL「{url[:120]}」"
     return ToolOutcome(
-        text=f"已把「{target.name}」加入知识库{note}（正在后台解析并向量化，稍后即可用 knowledge_retrieve 检索到）。{tail}"
+        text=f"已把{source}加入知识库{note}（正在后台解析并向量化，稍后即可用 knowledge_retrieve 检索到）。{tail}"
     )
 
 
 knowledge_add = Tool(
     name="knowledge_add",
     description=(
-        "把工作区里的一个文件加入知识库（WeKnora 会解析/切片/向量化，之后可被 knowledge_retrieve 检索）。"
-        "当用户要求把某个文档「加入/上传/添加/沉淀到知识库」时用——无需先挂载知识库。"
+        "把工作区里的一个文件或 http(s) URL 加入知识库（path/url 恰好二选一）。"
+        "WeKnora 会解析/切片/向量化，之后可被 knowledge_retrieve 检索。"
+        "当用户要求把文档或网页「加入/上传/添加/沉淀到知识库」时用——无需先挂载知识库。"
         "目标库：只有一个库时自动选；多个库时用 knowledge_id 或 kb_name 指定。"
-        "支持 pdf/doc(x)/ppt(x)/xls(x)/txt/md/html/csv/图片，单文件≤50MB。"
+        "path 支持 pdf/doc(x)/ppt(x)/xls(x)/txt/md/html/csv/图片，单文件≤50MB；url 需 WeKnora 安全版本及其 SSRF 白名单允许。"
     ),
     parameters={
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "要加入知识库的工作区文件（相对工作区路径）"},
+            "url": {"type": "string", "description": "要加入知识库的 http(s) 网页或远程文件 URL（与 path 恰好二选一）"},
             "knowledge_id": {"type": "string", "description": "目标知识库 id（多库时二选一：id 或 kb_name）"},
             "kb_name": {"type": "string", "description": "目标知识库名称（多库时二选一：id 或 kb_name）"},
         },
-        "required": ["path"],
     },
-    pre=lambda a: {"kind": "step", "tool": "knowledge_add", "label": f"加入知识库 {str(a.get('path', ''))[:60]}"},
+    pre=lambda a: {
+        "kind": "step", "tool": "knowledge_add",
+        "label": f"加入知识库 {str(a.get('path') or a.get('url') or '')[:60]}",
+    },
     run=_knowledge_add_run,
     permissions=("workspace.read", "knowledge.write", "network.write"),
     timeout_seconds=120,

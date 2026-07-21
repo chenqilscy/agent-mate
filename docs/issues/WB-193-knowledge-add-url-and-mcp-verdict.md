@@ -3,11 +3,13 @@ id: WB-193
 title: knowledge_add 只能加工作区文件，不能从 URL/文本入库 —— 承接 WB-175「留后续」；并记录「不接官方 WeKnora MCP server」的评估结论
 severity: P3
 area: backend
-status: open
+status: deferred
 origin: 既有实现（能力缺口）+ 选型评估
 files:
-  - backend/agent/tools.py:495
-  - backend/agent/weknora.py:193
+  - backend/agent/tools.py:690
+  - backend/agent/weknora.py:210
+  - backend/agent/runtime.py:54
+  - backend/tests/regression/test_weknora_knowledge_add_url.py:1
   - backend/agent/mcp_client.py:97
 created: 2026-07-17
 ---
@@ -78,3 +80,29 @@ WeKnora 官方有 `mcp-server/`（`pip install weknora-mcp-server`，stdio，`WE
 - happy：白名单内的 URL → 入库 → 轮询 `parse_status` 到 `completed` → `knowledge_retrieve` 能检索到该网页内容。
 - 错误路径：白名单外的 URL（确认提示文案真的可操作）、`path`/`url` 都缺、`url` 格式非法、未接入 WeKnora。
 - 回归：只传 `path` 的老路径（工作区文件）行为不变。
+
+## 处理记录（2026-07-22）
+
+- 改动：沿用现有 owner 级 REST 客户端，不引入 WeKnora MCP server。`knowledge_add` 现支持 `path` / `url`
+  恰好二选一，目标库解析与旧 path 共用；运行时工具注册改为读取 `weknora.configured(user.id)`，不再只看进程级
+  `.env`。URL 入库前每次读取 `/api/v1/system/info`，只接受可识别的稳定版 WeKnora `>=0.2.12`；版本
+  未知、预发布、过旧或端点不可读一律 fail-closed，旧 path 不受影响。SSRF 拒绝会给出管理端白名单 /
+  `SSRF_WHITELIST_EXTRA` 的可执行提示与最小放行警告。
+- 未做：`manual` 文本入库仍不做。现有证据只能证明其创建后可能处于 `draft/disabled`，尚无可靠的自动转为
+  `parse_status=completed` 并可检索契约；不把“创建出一条记录”冒充“知识已可用”。
+- 自动化验证：改动 Python 文件 `py_compile` 通过；新增 WB-193 regression 10/10 通过，覆盖版本门禁、owner
+  凭据、path/url 二选一、非法 URL、未配置、可操作 SSRF 错误和旧 path 回归。按仓库命令在本独立 worktree
+  执行完整 backend regression：101 项中 93 通过、8 项基线错误；其中 4 项与下述 `list_messages` 阻塞同根，
+  其余为本分支尚未包含的 Server gate / 测试 DB 与安全上下文隔离修复，不涉及本次文件。协调确认目标集成分支已含
+  WB-277/WB-279/WB-280，完整 Backend 118/118；本 backend-only issue 不以 worktree 缺少 `node_modules` 为阻塞。
+- 真实 WeKnora：运行容器镜像 `v0.6.3` 健康，`system/info` 自报 `0.6.2` / commit `974ca35`。
+  `https://open.bigmodel.cn/` URL 临时库实测 `pending → processing → finalizing → completed`，检索命中 1 条；
+  旧 `path` 文件实测 `completed` 且检索命中 1 条；`host.docker.internal` 被真实 SSRF 策略拒绝且 AgentMate
+  返回可操作提示。所有临时知识库与本地临时目录均已删除。
+- 状态与前置条件：**deferred，不虚假关闭**。本分支基于的 master 中，`backend/storage/db.py:list_messages()` 在查询后
+  缺少 `return`，而构造 `Message` 的返回块错位到了另一函数之后，导致未打补丁的任何 `runtime.run_chat`
+  都在 LLM 前报 `TypeError: 'NoneType' object is not iterable`。在一次性验收进程里临时恢复该明显错位逻辑后，
+  真实 LLM/SSE 会话产生 `knowledge_add` step（81 个事件、0 error），URL 文档 `completed` 且检索命中 1 条；
+  但这不等于本分支原样通过。目标集成分支已由 `a121dff`（WB-277）恢复该返回逻辑且 Backend 118/118；
+  可执行前置条件是把本提交集成到该目标树后，用**无 workaround**真会话复验，确认后将本条改为 `fixed`。
+- commit：本提交（未 merge、未 push）。
