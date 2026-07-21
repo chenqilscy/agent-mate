@@ -206,7 +206,7 @@
 | [WB-190](WB-190-skills-tencent-docs-cleanup.md) | ✅ | P3 | frontend | 技能侧「腾讯文档」清理 —— SK_GRID(17→16,DB 供给三层同步)/SK_RECO(死代码)/SKILLHUB_GRID(不入库,仅静态层) 与连接器侧下架不一致；后端本无该技能定义(零能力卡)；配 WB-177/189；⚠️只清掉「我们自己的目录」那半 —— SkillHub 段是上游商店镜像、不受影响，另见 WB-191 |
 | [WB-191](WB-191-skillhub-mirror-no-delisting.md) | ⏸ | P3 | fullstack | SkillHub 上游真镜像的本地下架策略（全局名单或本机过滤）待产品决策；不影响技能安装/运行链路 |
 | [WB-192](WB-192-run-command-inherits-secrets.md) | ✅ | P1 | backend | run_command 子进程继承后端全部密钥 —— 模型一句  即可读走并上传给 LLM 厂商；WB-011 只把连接器那条路收成无密钥白名单，run_command 从未收口(WB-014 以「如实标注」结案)；实证子进程读到 LLM_API_KEY(35 字符) |
-| [WB-193](WB-193-knowledge-add-url-and-mcp-verdict.md) | ⏸ | P3 | backend | knowledge_add 已实现 path/url 二选一与 WeKnora >=0.2.12 fail-closed 门禁；真实 URL/path/SSRF/临时恢复后的 LLM 会话通过，但当前 master 的 db.list_messages 返回块错位使原样真会话在 LLM 前失败，待该独立阻塞修复后无 workaround 复验再关闭；manual 仍不做；继续维持**不接官方 WeKnora MCP server** |
+| [WB-193](WB-193-knowledge-add-url-and-mcp-verdict.md) | ✅ | P3 | backend | knowledge_add 支持 path/url 二选一、WeKnora >=0.2.12 fail-closed、owner REST 凭据与可操作 SSRF 错误；真实 URL/path/SSRF、无 workaround LLM 会话及检索闭环通过；manual 暂不做；继续维持**不接官方 WeKnora MCP server** |
 
 | [WB-194](WB-194-connector-card-add-lost-on-navigate.md) | ✅ | P2 | frontend | 连接器卡「添加到本会话」改走 summon 范式：挂载连接器后直接进入新草稿，避免导航时被会话 reset 清空；目录卡与详情弹窗行为统一 |
 | [WB-195](WB-195-reco-category-chips-cannot-filter.md) | ✅ | P3 | frontend | 推荐分类由 catalog_skills.category 动态生成并真实过滤；浏览器验证开发编程 6→2 张，明暗主题与窄屏通过 |

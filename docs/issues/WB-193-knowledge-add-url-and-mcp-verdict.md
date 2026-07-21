@@ -3,7 +3,7 @@ id: WB-193
 title: knowledge_add 只能加工作区文件，不能从 URL/文本入库 —— 承接 WB-175「留后续」；并记录「不接官方 WeKnora MCP server」的评估结论
 severity: P3
 area: backend
-status: deferred
+status: fixed
 origin: 既有实现（能力缺口）+ 选型评估
 files:
   - backend/agent/tools.py:690
@@ -99,10 +99,11 @@ WeKnora 官方有 `mcp-server/`（`pip install weknora-mcp-server`，stdio，`WE
   `https://open.bigmodel.cn/` URL 临时库实测 `pending → processing → finalizing → completed`，检索命中 1 条；
   旧 `path` 文件实测 `completed` 且检索命中 1 条；`host.docker.internal` 被真实 SSRF 策略拒绝且 AgentMate
   返回可操作提示。所有临时知识库与本地临时目录均已删除。
-- 状态与前置条件：**deferred，不虚假关闭**。本分支基于的 master 中，`backend/storage/db.py:list_messages()` 在查询后
-  缺少 `return`，而构造 `Message` 的返回块错位到了另一函数之后，导致未打补丁的任何 `runtime.run_chat`
-  都在 LLM 前报 `TypeError: 'NoneType' object is not iterable`。在一次性验收进程里临时恢复该明显错位逻辑后，
-  真实 LLM/SSE 会话产生 `knowledge_add` step（81 个事件、0 error），URL 文档 `completed` 且检索命中 1 条；
-  但这不等于本分支原样通过。目标集成分支已由 `a121dff`（WB-277）恢复该返回逻辑且 Backend 118/118；
-  可执行前置条件是把本提交集成到该目标树后，用**无 workaround**真会话复验，确认后将本条改为 `fixed`。
-- commit：本提交（未 merge、未 push）。
+- 集成收口：此前 `deferred` 的前置阻塞已由 `a121dff`（WB-277）恢复
+  `backend/storage/db.py:list_messages()` 返回逻辑。WB-193 以 `c017327` 集成后，在目标树中**不注入 workaround**
+  运行真实 LLM/SSE 会话：模型自主产生 1 个 `knowledge_add` step，共 85 个 SSE 事件、0 error；WeKnora 文档
+  `processing → finalizing → completed`，随后检索命中同一文档 ID，Run 正常完成。临时知识库与本地临时目录均已
+  删除，匹配临时库剩余 0 个。
+- 最终验证：集成树 Backend 全量回归 128/128、Server 全量回归 41/41、前端与 Console 生产构建、Tauri
+  `cargo check` 均通过；因此状态由 `deferred` 更新为 `fixed`。
+- commit：原始实现 `7ff22f0`；集成实现 `c017327`；本记录随集成收口提交。
