@@ -4,6 +4,7 @@ import { useExpertStore } from '../../stores/expertStore'
 import { toast } from '../../stores/toastStore'
 import type { CustomExpert } from '../../lib/types'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { IconPicker } from '../ui/IconPicker'
 
 
 // 创建自定义专家（我的专家 · WB-049）。套现有 .np-* 弹窗/表单类，天然继承暗色覆盖。
@@ -56,7 +57,7 @@ export function CreateExpertModal({ open, onClose, onCreated }: {
         <div className="np-body">
           <div className="np-lbl">头像与名称</div>
           <div style={{ display: 'flex', gap: 10 }}>
-            <WbInput className="np-input" style={{ width: 60, textAlign: 'center', flexShrink: 0 }} value={avatar} onChange={(e) => setAvatar(e.target.value)} maxLength={4} aria-label="头像 emoji" />
+            <IconPicker compact value={avatar} onChange={setAvatar} ariaLabel="选择专家头像" />
             <WbInput className="np-input" style={{ flex: 1 }} placeholder="专家名称，如「运营增长顾问」" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
           </div>
 

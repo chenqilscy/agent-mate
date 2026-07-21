@@ -6,6 +6,7 @@ import { PickerOverlay } from '../project/NewProjectModal'
 import { toast } from '../../stores/toastStore'
 import { skillDisplayName, useSkillStore } from '../../stores/skillStore'
 import { clickable } from '../../lib/a11y'
+import { IconPicker } from '../ui/IconPicker'
 
 // 助理设置表单（WB-088）。权限映射 run_chat 三态；工作空间 default/dedicated/project:<id>。
 // 专家/技能/连接器 复用 PickerOverlay。套 .np-* 表单类，天然暗色。
@@ -76,7 +77,7 @@ export function AssistantSettingsForm({ assistant, onSaved }: {
     <div className="asst-form">
       <div className="np-lbl">头像与名字</div>
       <div style={{ display: 'flex', gap: 10 }}>
-        <WbInput className="np-input" style={{ width: 60, textAlign: 'center', flexShrink: 0 }} value={avatar} onChange={(e) => setAvatar(e.target.value)} maxLength={4} aria-label="头像 emoji" />
+        <IconPicker compact value={avatar} onChange={setAvatar} ariaLabel="选择助理头像" />
         <WbInput className="np-input" style={{ flex: 1 }} value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="助理名字" />
       </div>
 

@@ -16,6 +16,7 @@ import {
   Typography,
 } from "antd";
 import { CompatList as List } from "./components/CompatList";
+import { IconPicker } from "../../src/components/ui/IconPicker";
 import {
   DeleteOutlined,
   FileAddOutlined,
@@ -303,7 +304,7 @@ export default function SkillEditor({ open, item, tools, initialTab, onClose, on
           </Col>
         </Row>
         <Row gutter={16}>
-          <Col xs={24} md={8}><Form.Item name="icon" label="图标"><Input maxLength={16} placeholder="🧩" /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="icon" label="图标"><IconPicker ariaLabel="选择技能图标" /></Form.Item></Col>
           <Col xs={24} md={10}><Form.Item name="category" label="分类"><Input maxLength={80} placeholder="办公效率" /></Form.Item></Col>
           <Col xs={24} md={6}><Form.Item name="sort" label="排序"><InputNumber min={0} precision={0} className="full-width" /></Form.Item></Col>
         </Row>

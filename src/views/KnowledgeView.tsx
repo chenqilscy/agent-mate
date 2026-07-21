@@ -13,6 +13,7 @@ import { App as AntApp, Empty, Spin, Tag, Upload } from 'antd'
 import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
+import { IconPicker, type IconPickerOption } from '../components/ui/IconPicker'
 
 // 知识库（自托管 WeKnora RAG · WB-173/174）：建库 / 传档 / 解析状态，并可「挂载到对话」，
 // 让 agent 用 knowledge_retrieve 真检索作答。真调 WeKnora（经本地 backend，API Key 只在后端）。
@@ -23,6 +24,15 @@ const ICONS = ['book', 'question', 'seal', 'wrench', 'tag', 'horn', 'house'] as 
 const ICON_EMOJI: Record<string, string> = {
   book: '📚', question: '❓', seal: '🔖', wrench: '🔧', tag: '🏷️', horn: '📣', house: '🏠',
 }
+const ICON_LABEL: Record<string, string> = {
+  book: '知识资料', question: '问答帮助', seal: '书签资料', wrench: '技术工具', tag: '标签分类', horn: '公告推广', house: '家庭空间',
+}
+const KB_ICON_OPTIONS: readonly IconPickerOption[] = ICONS.map((value) => ({
+  value,
+  glyph: ICON_EMOJI[value],
+  label: ICON_LABEL[value],
+  category: '知识库',
+}))
 
 // embedding_stat：1 成功 · 2 失败 · 其它（0/空）处理中。
 function docStatus(d: KbDocument): { label: string; color: string; done: boolean } {
@@ -350,13 +360,8 @@ function CreateKbModal(props: {
           </label>
           <div style={{ fontSize: 13, fontWeight: 600 }}>
             图标
-            <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-              {ICONS.map((ic) => (
-                <WbButton key={ic} type="button"
-                  className={icon === ic ? 'btn-dark' : 'btn-ghost'}
-                  style={{ fontSize: 18, padding: '4px 8px' }}
-                  onClick={() => setIcon(ic)}>{ICON_EMOJI[ic]}</WbButton>
-              ))}
+            <div style={{ marginTop: 6 }}>
+              <IconPicker value={icon} onChange={setIcon} options={KB_ICON_OPTIONS} ariaLabel="选择知识库图标" />
             </div>
           </div>
         </div>

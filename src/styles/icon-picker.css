@@ -1,0 +1,101 @@
+.icon-picker-trigger.ant-btn {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 8px;
+  text-align: left;
+}
+
+.icon-picker-trigger.compact.ant-btn {
+  width: 60px;
+  min-width: 60px;
+  padding-inline: 9px;
+  justify-content: center;
+}
+
+.icon-picker-current {
+  font-size: 19px;
+  line-height: 1;
+}
+
+.icon-picker-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon-picker-chevron {
+  margin-left: auto;
+  color: currentColor;
+  opacity: .55;
+  font-size: 10px;
+}
+
+.icon-picker-trigger.compact .icon-picker-chevron {
+  margin-left: 0;
+}
+
+.icon-picker-panel {
+  width: min(336px, calc(100vw - 40px));
+}
+
+.icon-picker-scroll {
+  max-height: min(420px, calc(100vh - 190px));
+  overflow: auto;
+  margin: 10px -4px -4px;
+  padding: 0 4px 4px;
+}
+
+.icon-picker-group + .icon-picker-group {
+  margin-top: 12px;
+}
+
+.icon-picker-group-title {
+  margin-bottom: 6px;
+  color: currentColor;
+  opacity: .58;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.icon-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.icon-picker-option {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font: inherit;
+  font-size: 20px;
+  transition: background-color .15s ease, border-color .15s ease, transform .15s ease;
+}
+
+.icon-picker-option:hover,
+.icon-picker-option:focus-visible {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  border-color: color-mix(in srgb, currentColor 18%, transparent);
+  outline: none;
+}
+
+.icon-picker-option:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, #16b37a 42%, transparent);
+}
+
+.icon-picker-option.selected {
+  background: color-mix(in srgb, #16b37a 14%, transparent);
+  border-color: #16b37a;
+}
+
+@media (max-width: 520px) {
+  .icon-picker-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+}

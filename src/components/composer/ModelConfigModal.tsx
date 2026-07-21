@@ -7,6 +7,7 @@ import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
 import { clickable } from '../../lib/a11y'
 import { App as AntApp } from 'antd'
+import { IconPicker } from '../ui/IconPicker'
 
 // 模型管理（WB-128/129/132）。内置厂商渠道（填一次 Key 即启用，Base URL 可改、可在线拉取真实模型）
 // + 自定义模型兜底；每个模型可记「能力(模态/工具/推理)+成本」为 Auto 铺路。Key 只写不回读（铁律#4）。
@@ -368,7 +369,7 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
           {showForm && (
             <div className="mc-form">
               <div className="mc-frow">
-                <WbInput className="np-input" style={{ width: 56, textAlign: 'center', flexShrink: 0 }} value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} maxLength={4} aria-label="图标 emoji" />
+                <IconPicker compact value={form.icon} onChange={(icon) => setForm({ ...form, icon })} ariaLabel="选择模型图标" />
                 <WbInput className="np-input" style={{ flex: 1 }} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={80} placeholder="显示名，如 我的自建 Llama" />
               </div>
               <WbInput className="np-input" style={{ marginTop: 8 }} value={form.model_id} onChange={(e) => setForm({ ...form, model_id: e.target.value })} maxLength={120} placeholder="模型 id" />
