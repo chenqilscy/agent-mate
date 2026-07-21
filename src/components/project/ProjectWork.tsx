@@ -30,7 +30,6 @@ const STATUS_OPTS: { key: WorkStatus; label: string }[] = [
   { key: 'paused', label: '已暂停' },
   { key: 'done', label: '已完成' },
 ]
-const LABEL: Record<WorkStatus, string> = { todo: '待开始', doing: '进行中', paused: '暂停', done: '完成' }
 const DOT: Record<WorkStatus, string> = { todo: '#9AA0A6', doing: '#3D6BFF', paused: '#F0A020', done: '#16B37A' }
 
 // 添加数据源 (WB-028): honest placeholder — the picker UI is real, but wiring a live

@@ -3,7 +3,7 @@ id: WB-237
 title: AgentMate App 生产构建被现有 TypeScript 错误阻断
 severity: P1
 area: frontend
-status: open
+status: fixed
 origin: 🆕 近期改动
 files:
   - src/components/layout/Sidebar.tsx:211
@@ -40,3 +40,9 @@ P1：生产构建门禁红灯，不能可靠生成完整 AgentMate App 发布产
 
 - `pnpm build` 完整通过 App 的 `tsc -b`、Vite build 以及 `pnpm build:console`。
 - Automation、专家页、侧栏和项目工作区浏览器回归无功能退化。
+
+## 处理记录（2026-07-21）
+
+- 改动：移除侧栏重复 `role`、清理未使用声明；自动化编辑器的间隔 state 不再遮蔽全局 `setInterval`，模型选择改为保存权威 `ModelOption.key` 并显示友好名称；统一回归脚本改用 `tsc -b --pretty false`。
+- 验证：`pnpm build` 完整通过 App 与 Console 生产构建；`pnpm test:regression` 35 项通过且执行真实 `tsc -b`；浏览器实测侧栏、自动化模型选择、专家页、项目工作台及明暗主题，控制台 0 error。
+- commit：本提交

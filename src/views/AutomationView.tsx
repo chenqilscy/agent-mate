@@ -382,7 +382,7 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
   // silently pins a null-model automation to a model (WB-038).
   const [model, setModel] = useState<string | null>(auto ? auto.model : (prefill?.model ?? defaultModel))
   const [kind, setKind] = useState<TriggerKind>(auto?.trigger_kind ?? prefill?.trigger_kind ?? 'interval')
-  const [interval, setInterval] = useState(auto?.interval_min ?? prefill?.interval_min ?? 60)
+  const [intervalMinutes, setIntervalMinutes] = useState(auto?.interval_min ?? prefill?.interval_min ?? 60)
   const [atTime, setAtTime] = useState(auto?.at_time ?? prefill?.at_time ?? '09:00')
   const [busy, setBusy] = useState(false)
 
@@ -419,7 +419,7 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
       name: name.trim(),
       prompt: prompt.trim(),
       trigger_kind: kind,
-      interval_min: Math.max(1, interval),
+      interval_min: Math.max(1, intervalMinutes),
       at_time: atTime,
       project_id: projectId,
       model,
@@ -496,7 +496,7 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
           <div className="auto-ed-tb">
             <button className="ctool model" onClick={(e) => { modelAnchor.current = e.currentTarget; setModelOpen(true) }}>
               <span className="mk">🐋</span>
-              <span className="model-lb">{model ?? '跟随默认模型'}</span>
+              <span className="model-lb">{models.find((m) => m.key === model)?.name ?? model ?? '跟随默认模型'}</span>
               <IcChevronDown style={{ width: 10, height: 10 }} />
             </button>
           </div>
@@ -510,7 +510,7 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
             {kind === 'interval' ? (
               <div className="auto-trig-in">
                 每
-                <input type="number" min={1} aria-label="间隔分钟" value={interval} onChange={(e) => setInterval(Number(e.target.value) || 1)} />
+                <input type="number" min={1} aria-label="间隔分钟" value={intervalMinutes} onChange={(e) => setIntervalMinutes(Number(e.target.value) || 1)} />
                 分钟运行一次
               </div>
             ) : (
@@ -556,11 +556,10 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
           {model === null && <span className="chk">✓</span>}
         </div>
         {models.map((m) => (
-          <div className="mrow" key={m.name} onClick={() => { setModel(m.name); setModelOpen(false) }}>
+          <div className="mrow" key={m.key} onClick={() => { setModel(m.key); setModelOpen(false) }}>
             <span className="mi" style={m.color ? { background: m.color, color: '#fff' } : undefined}>{m.icon}</span>
             <span className="mname">{m.name}</span>
-            <span className="mult">{m.mult}</span>
-            {m.name === model && <span className="chk">✓</span>}
+            {m.key === model && <span className="chk">✓</span>}
           </div>
         ))}
       </Popover>

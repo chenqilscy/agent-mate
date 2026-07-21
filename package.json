@@ -8,7 +8,7 @@
     "dev:console": "vite --config vite.console.config.ts",
     "build": "tsc -b && vite build && pnpm build:console",
     "build:console": "tsc -p tsconfig.console.json --noEmit && vite build --config vite.console.config.ts",
-    "test:regression": "backend\\.venv\\Scripts\\python.exe -m unittest discover -s backend/tests/regression -p \"test_*.py\" && tsc --noEmit",
+    "test:regression": "backend\\.venv\\Scripts\\python.exe -m unittest discover -s backend/tests/regression -p \"test_*.py\" && tsc -b --pretty false",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

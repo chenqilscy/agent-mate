@@ -208,11 +208,10 @@ export function Sidebar() {
           <div className="sb-ico" aria-label="收起侧栏" onClick={() => setSidebarCollapsed(true)} {...activate(() => setSidebarCollapsed(true))}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
           </div>
-          <div role="button" className={`sb-ico ${searchOpen || q ? 'on' : ''}`.trim()} aria-label="搜索" aria-pressed={searchOpen} onClick={toggleSearch} {...activate(toggleSearch)}>
+          <div className={`sb-ico ${searchOpen || q ? 'on' : ''}`.trim()} aria-label="搜索" aria-pressed={searchOpen} onClick={toggleSearch} {...activate(toggleSearch)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
           </div>
           <div
-            role="button"
             className={`sb-ico ${filter !== 'all' ? 'on' : ''}`.trim()}
             data-filter-toggle
             aria-label="筛选"
