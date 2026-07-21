@@ -199,6 +199,60 @@ export interface AgentRun {
   artifacts?: ArtifactManifest[]
 }
 
+export type OrchestrationStatus = 'planning' | 'running' | 'reviewing' | 'completed' | 'failed' | 'cancelled'
+
+export interface OrchestrationAttempt {
+  id: string
+  attempt: number
+  session_id: string
+  run_id?: string | null
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  error: string
+  prompt_tokens: number
+  completion_tokens: number
+  created_at: number
+  ended_at?: number | null
+}
+
+export interface OrchestrationNode {
+  id: string
+  node_key: string
+  title: string
+  role: string
+  expert_slug: string
+  instruction: string
+  depends_on: string[]
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'cancelled'
+  session_id?: string | null
+  run_id?: string | null
+  output: string
+  error: string
+  prompt_tokens: number
+  completion_tokens: number
+  attempts: OrchestrationAttempt[]
+}
+
+export interface Orchestration {
+  id: string
+  project_id?: string | null
+  team_name: string
+  goal: string
+  status: OrchestrationStatus
+  max_nodes: number
+  max_parallel: number
+  max_total_tokens: number
+  prompt_tokens: number
+  completion_tokens: number
+  artifact_id?: string | null
+  error: string
+  cancel_requested: boolean
+  created_at: number
+  updated_at: number
+  ended_at?: number | null
+  nodes: OrchestrationNode[]
+  artifact?: ArtifactManifest | null
+}
+
 export interface WorkItemLaunch {
   id: string
   work_item_id: string

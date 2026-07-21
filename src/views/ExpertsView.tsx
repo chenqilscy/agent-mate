@@ -19,6 +19,7 @@ import { AntModalBridge } from '../components/ui/AntModalBridge'
 import { Empty, Input, Spin, Tabs, Tag } from 'antd'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
+import { TeamOrchestrationPanel } from '../components/expert/TeamOrchestrationPanel'
 
 type CapabilityKind = 'experts' | 'skills' | 'connectors'
 
@@ -178,7 +179,7 @@ function ExpertDetailModal({ detail, onClose }: { detail: Detail; onClose: () =>
 
   return (
     <AntModalBridge onClose={onClose}>
-      <div className="np-modal" style={{ width: 460 }} role="dialog" aria-modal="true" aria-label={name}>
+      <div className="np-modal" style={{ width: detail.type === 'team' ? 640 : 460 }} role="dialog" aria-modal="true" aria-label={name}>
         <div className="np-h">
           <div className="ec-av" style={{ width: 50, height: 50, fontSize: 26 }}>{icon}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -223,6 +224,10 @@ function ExpertDetailModal({ detail, onClose }: { detail: Detail; onClose: () =>
                 </div>
               ))}
             </>
+          )}
+
+          {detail.type === 'team' && (
+            <TeamOrchestrationPanel teamName={detail.team.name} suggestedGoal={prompts[0]} />
           )}
         </div>
         <div className="np-foot">

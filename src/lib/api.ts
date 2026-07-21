@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, Orchestration, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -180,6 +180,14 @@ export const api = {
     send<ArtifactManifest>('POST', `/artifacts/${id}/review`, { status }),
   retryRun: (id: string, idempotencyKey?: string) =>
     send<{ run: AgentRun; created: boolean }>('POST', `/runs/${id}/retry`, { idempotency_key: idempotencyKey }),
+
+  createOrchestration: (body: {
+    team_name: string; goal: string; project_id?: string | null; idempotency_key: string
+    max_nodes?: number; max_parallel?: number; max_total_tokens?: number
+  }) => send<{ orchestration: Orchestration; created: boolean }>('POST', '/orchestrations', body),
+  getOrchestration: (id: string) => get<{ orchestration: Orchestration }>(`/orchestrations/${id}`),
+  listOrchestrations: () => get<{ orchestrations: Orchestration[] }>('/orchestrations'),
+  cancelOrchestration: (id: string) => send<{ cancelled: boolean }>('POST', `/orchestrations/${id}/cancel`),
 
   renameSession: (id: string, title: string) =>
     send<{ ok: boolean }>('PATCH', `/sessions/${id}`, { title }),
