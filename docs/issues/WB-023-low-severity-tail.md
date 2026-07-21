@@ -3,7 +3,7 @@ id: WB-023
 title: 低危备忘集合（13 项）
 severity: P3
 area: misc
-status: in-progress
+status: fixed
 origin: mixed
 files:
   - 见各条
@@ -20,7 +20,7 @@ created: 2026-07-06
 - [x] **plan + ask 叠加产生自相矛盾的系统提示** — 已拆分并修复为 WB-272；前端互斥，后端对冲突请求按 Ask 优先归一。
 - [x] **plan 模式静默丢弃连接器且横幅不显示** — 已拆分并修复为 WB-273；仍保守禁用外部 MCP，但轨迹逐项说明连接器因计划模式未加载。
 - [x] **resolve_model 用 rsplit(":",1)** — 已拆分并修复为 WB-274；旧显示标签只切首个冒号，裸 `vendor/model:free` 整体保留。
-- [ ] **session 事件到达前点停止，后端任务不被停** — `chatStore.ts:225` `api.stopChat` 受 `if(activeId)` 保护；新草稿在 `session` 事件回来前 `activeId` 为 null，此时停止只 abort 客户端连接。拿到 session 后补发 stop，或依赖断开让后端感知。
+- [x] **session 事件到达前点停止，后端任务不被停** — 已被后续 WB-012 修复：`session` 是 runtime 前的首帧；runtime 未开始则无任务，已开始时客户端 abort/断流会触发 `finally`，暂停/取消 Run、复位 session 并解除注册。
 - [x] **files usage 每次全量 rglob** — 已拆分并修复为 WB-275；按工作区短时缓存，上传/删除立即失效，外部写入由短 TTL 收敛。
 - [x] **files.py `root` 死参** — `files.py:76` 的 `root` 参数永远被 `current_root()` 覆盖，属死代码，清理。
 - [x] **mcp_stack 在 try 之外打开** — `runtime.py:226` 连接器已 spawn 后、进入 try（`:260`）前有 `yield`（loadout `:258`）；若此窗口内断开或 `mcp_schema` 抛错，`finally` 不执行 → 连接器进程泄漏。纳入同一 try 或用独立 `async with`。
@@ -39,3 +39,12 @@ created: 2026-07-06
 ## 处理记录（2026-07-06，追加）
 - 新增第 13 项并同日勾除：首页「更多」快捷入口 chip 文案由 `更多快捷入口` 改为 `更多快捷入口，敬请期待`，明确其为未实现占位（用户确认「保持占位」，最小改动）。改动：`src/views/HomeView.tsx:50`。同屏其余占位 toast（打开成长计划/选择工作空间/默认权限）与原型 `tencent-agentmate-reference.html:1423` 未动。
 - 验证：`npx tsc --noEmit` 通过；纯 toast 文案改动，无 CSS/token 变更，不涉主题翻转。
+
+## 处理记录（2026-07-22，完整审计）
+- 后续改动已修复并补证据：session 首帧前停止/断流由 WB-012 的 runtime `finally` 覆盖；新增回归模拟客户端在首个 text 后 `aclose`，确认上游 stream 关闭、Run paused/cancelled、stop 注册清除。原先已勾除的 root 死参、mcp_stack 清理、畸形 ask_user 和“更多”占位文案继续成立。
+- 拆分并完成：WB-270 跨节点搜索、WB-271 重名附件反馈与身份、WB-272 Plan/Ask 互斥、WB-273 Plan 连接器透明提示、WB-274 含冒号模型 ID、WB-275 usage 扫描缓存、WB-276 LLM 流立即关闭。
+- wontfix：WB-278 `--text-3` 对比度问题属实，但当前参考原型保真铁律优先；需产品授权全局无障碍视觉调整后重开。
+- 审计中另发现并独立修复：WB-277 `list_messages` 丢失返回体的 P1 全局回归。
+- 全量门禁对照：本分支 103 项中 99 通过、4 项为起始提交同样存在的测试隔离/契约门禁错误；另行登记 WB-279、WB-280 后继续收敛，不把它们伪报为本 issue 通过项。
+- deferred：无。
+- commit：本提交用于关闭 WB-023；各拆分项见各自独立提交。

@@ -40,7 +40,7 @@
 | [WB-020](WB-020-sse-last-frame-flush.md) | ✅ | P2 | frontend | SSE 末帧无空行不冲刷、末尾多字节可能丢失 |
 | [WB-021](WB-021-navopen-resize-residual.md) | ✅ | P2 | frontend | navOpen 跨 resize 残留（窄→宽→窄抽屉自开） |
 | [WB-022](WB-022-context-window-zero-div.md) | ✅ | P2 | backend | `CONTEXT_WINDOW=0` 触发 usage 除零 |
-| [WB-023](WB-023-low-severity-tail.md) | 🟡 | P3 | misc | 低危备忘集合（13 项，见文件内清单） |
+| [WB-023](WB-023-low-severity-tail.md) | ✅ | P3 | misc | 低危备忘集合（13 项，已完成审计） |
 | [WB-024](WB-024-sidebar-header-icons-stub.md) | ✅ | P2 | frontend | 侧栏头部三个图标按钮（收起/搜索/筛选）仅弹 toast、未实现 |
 | [WB-025](WB-025-attach-file-size-limit-too-small.md) | ✅ | P2 | frontend | ＋菜单「添加文件」上限 200KB 过小（且被后端 8000 字符截断掩盖） |
 | [WB-026](WB-026-plan-todo-detail-and-create-modals.md) | ✅ | P2 | frontend | 计划 · 待办详情弹窗 + 新建待办弹窗 + WorkItem 数据模型扩展 |
