@@ -14,13 +14,21 @@ from agent.skill_resources import (
     skill_list_resources,
     skill_read_resource,
 )
+from storage import db
 
 
 class SkillRuntimeResourcesTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.old_skills_dir = settings.SKILLS_DIR
+        self.old_db = settings.DB_PATH
+        conn = getattr(db._local, "conn", None)
+        if conn is not None:
+            conn.close()
+        db._local = __import__("threading").local()
+        settings.DB_PATH = Path(self.tmp.name) / "test.db"
         settings.SKILLS_DIR = Path(self.tmp.name) / "skills"
+        db.init_db()
         self.workspace = Path(self.tmp.name) / "workspace"
         use_root(self.workspace)
         skills_store.install_catalog_skill(
@@ -37,6 +45,11 @@ class SkillRuntimeResourcesTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         set_active_skill_resources([])
+        conn = getattr(db._local, "conn", None)
+        if conn is not None:
+            conn.close()
+        db._local = __import__("threading").local()
+        settings.DB_PATH = self.old_db
         settings.SKILLS_DIR = self.old_skills_dir
         self.tmp.cleanup()
 

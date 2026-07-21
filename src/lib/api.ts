@@ -276,6 +276,7 @@ export const api = {
     return r.json() as Promise<{ ok: boolean; skill: InstalledSkill }>
   },
   uninstallSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/uninstall`),
+  restoreSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/restore`),
   toggleSkill: (key: string, disabled: boolean) =>
     send<{ ok: boolean; disabled: boolean }>('POST', `/skills/${encodeURIComponent(key)}/toggle`, { disabled }),
   revealSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/reveal`),

@@ -254,7 +254,8 @@ class SkillCatalogContractTest(unittest.TestCase):
         )
         self.assertTrue(result["ok"])
         root = settings.SKILLS_DIR / "versioned-skill"
-        self.assertTrue((root / ".disabled").is_file())
+        from storage.models import LOCAL_USER_ID
+        self.assertFalse(db.skill_installation(LOCAL_USER_ID, "versioned-skill")["enabled"])
         self.assertEqual("v2\n", (root / "references" / "version.txt").read_text(encoding="utf-8"))
         self.assertIn("执行 v2 指令", (root / "SKILL.md").read_text(encoding="utf-8"))
         self.assertFalse(catalog_detail("versioned-skill")["update_available"])

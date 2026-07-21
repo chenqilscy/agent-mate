@@ -1,7 +1,7 @@
 """SkillHub 已安装技能 —— 真实安装 / 发现 / 管理（WB-055）。
 
-技能是**每机器**的磁盘资源（~/.agentmate/skills/），不按 owner 隔离；安装走真实
-skillhub CLI 下载解压（agent/skills_store.py）。清单/详情来自真实文件，非模拟。
+技能包是**每机器共享**的磁盘资源（~/.agentmate/skills/），owner 的安装/启停/卸载状态独立入库；
+安装走真实 skillhub CLI 下载解压（agent/skills_store.py）。清单/详情来自真实文件与持久状态，非模拟。
 """
 from __future__ import annotations
 
@@ -9,8 +9,15 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from agent import skills, skills_store
+from auth.deps import current_user
 
 router = APIRouter(prefix="/api", tags=["skills"])
+
+
+def _scope_owner() -> str:
+    owner = current_user().id
+    skills_store.set_owner(owner)
+    return owner
 
 
 class InstallBody(BaseModel):
@@ -43,6 +50,7 @@ class ImportDirectoryBody(BaseModel):
 
 @router.get("/skills")
 def list_installed() -> dict:
+    _scope_owner()
     return {"skills": skills_store.scan(), "cli": skills_store.cli_available()}
 
 
@@ -52,12 +60,14 @@ def list_builtin() -> dict:
 
     路由顺序：必须定义在 `/skills/{key}` 之前，否则会被它当成 key="builtin" 吃掉。
     """
+    _scope_owner()
     return {"skills": skills.builtin_list()}
 
 
 @router.get("/skills/search")
 def search_skills(q: str = "", limit: int = 8) -> dict:
     """由本地 App 直接查询第三方 SkillHub；Server 不参与市场数据流（WB-215）。"""
+    _scope_owner()
     return {"results": skills_store.search(q, limit), "source": "app"}
 
 
@@ -66,12 +76,14 @@ def skills_rankings(
     type: str = "featured", category: str = "", limit: int = 0
 ) -> dict:
     """由本地 App 直接读取第三方榜单；Server 登录状态不影响浏览（WB-215）。"""
+    _scope_owner()
     return {"type": type, "skills": skills_store.rankings(type, category, limit), "source": "app"}
 
 
 @router.get("/skills/catalog/{key}")
 def catalog_skill_detail(key: str) -> dict:
     """AgentMate 推荐目录定义；与同 slug 的 SkillHub 商品显式隔离（WB-214）。"""
+    _scope_owner()
     d = skills.catalog_detail(key)
     if not d:
         raise HTTPException(404, "catalog skill not found")
@@ -82,6 +94,7 @@ def catalog_skill_detail(key: str) -> dict:
 def install_catalog_skill(key: str) -> dict:
     """Install an AgentMate recommended definition into the local skill directory."""
     from storage import db
+    _scope_owner()
 
     state = db.skill_catalog_state(key)
     if state.get("withdrawn"):
@@ -114,6 +127,7 @@ def install_catalog_skill(key: str) -> dict:
 def upgrade_catalog_skill(key: str, body: UpgradeCatalogBody | None = None) -> dict:
     """把已安装的 AgentMate 目录技能原子升级到当前 Server 定义。"""
     from storage import db
+    _scope_owner()
 
     state = db.skill_catalog_state(key)
     if state.get("withdrawn"):
@@ -153,6 +167,7 @@ def upgrade_catalog_skill(key: str, body: UpgradeCatalogBody | None = None) -> d
 
 @router.get("/skills/{key}")
 def get_detail(key: str) -> dict:
+    _scope_owner()
     d = skills_store.detail(key)
     if not d:
         raise HTTPException(404, "skill not found")
@@ -165,6 +180,7 @@ def get_detail(key: str) -> dict:
 
 @router.patch("/skills/{key}")
 def update_skill(key: str, body: UpdateSkillBody) -> dict:
+    _scope_owner()
     try:
         return skills_store.update_skill(key, body.name, body.description, body.instructions)
     except skills_store.SkillImportError as exc:
@@ -173,6 +189,7 @@ def update_skill(key: str, body: UpdateSkillBody) -> dict:
 
 @router.post("/skills/install")
 def install_skill(body: InstallBody) -> dict:
+    _scope_owner()
     if not skills_store.cli_available():
         raise HTTPException(503, "SkillHub CLI 未安装（~/.skillhub/skills_store_cli.py）")
     slug = body.slug.strip()
@@ -191,6 +208,7 @@ def install_skill(body: InstallBody) -> dict:
 
 @router.post("/skills/import")
 async def import_skill(request: Request, filename: str = "") -> dict:
+    _scope_owner()
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > skills_store.MAX_IMPORT_BYTES:
         raise HTTPException(413, "技能包过大（最多 20MB）")
@@ -207,6 +225,7 @@ async def import_skill(request: Request, filename: str = "") -> dict:
 
 @router.post("/skills/import-directory")
 def import_skill_directory(body: ImportDirectoryBody) -> dict:
+    _scope_owner()
     try:
         return skills_store.import_skill_directory([item.model_dump() for item in body.files])
     except skills_store.SkillImportError as exc:
@@ -215,13 +234,23 @@ def import_skill_directory(body: ImportDirectoryBody) -> dict:
 
 @router.post("/skills/{key}/uninstall")
 def uninstall_skill(key: str) -> dict:
+    _scope_owner()
     if not skills_store.uninstall(key):
         raise HTTPException(404, "skill not found")
     return {"ok": True}
 
 
+@router.post("/skills/{key}/restore")
+def restore_skill(key: str) -> dict:
+    _scope_owner()
+    if not skills_store.restore(key):
+        raise HTTPException(404, "recoverable skill installation not found")
+    return {"ok": True}
+
+
 @router.post("/skills/{key}/toggle")
 def toggle_skill(key: str, body: ToggleBody) -> dict:
+    _scope_owner()
     if not skills_store.set_disabled(key, body.disabled):
         raise HTTPException(404, "skill not found")
     return {"ok": True, "disabled": body.disabled}
@@ -229,6 +258,7 @@ def toggle_skill(key: str, body: ToggleBody) -> dict:
 
 @router.post("/skills/{key}/reveal")
 def reveal_skill(key: str) -> dict:
+    _scope_owner()
     if not skills_store.reveal(key):
         raise HTTPException(400, "无法打开该技能目录")
     return {"ok": True}

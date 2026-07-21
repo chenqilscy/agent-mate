@@ -4,14 +4,16 @@
 references/），和出货版 AgentMate 及 skillhub CLI 的落盘约定一致。这里做的是**真实**的：
 - scan()      扫描目录，解析 SKILL.md front-matter 得到已安装技能清单；
 - install()   用后端自己的 Python 直接跑 skillhub CLI 真正下载解压进 SKILLS_DIR；
-- uninstall() 删目录；set_disabled() 写/删 .disabled 标记；reveal() 打开资源管理器；
+- uninstall() 软删 owner 安装并在无引用时移入可恢复 trash；set_disabled() 写 owner 状态；
 - instructions_for() 供 runtime 在技能进 loadout 时注入其 SKILL.md 正文（真生效）。
 
-不模拟：清单来自磁盘真实文件，安装来自真实 CLI 下载，注入的是真实 SKILL.md。
+物理包在机器上共享且由 content hash/release manifest 标识；owner 的安装、启停、卸载状态入 SQLite。
+不模拟：清单来自磁盘真实文件与持久状态，安装来自真实 CLI，注入的是真实 SKILL.md。
 """
 from __future__ import annotations
 
 import base64
+import contextvars
 import hashlib
 import io
 import json
@@ -21,13 +23,16 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
 
 from config import settings
+from storage.models import LOCAL_USER_ID
 
 SKILL_MD = "SKILL.md"
 SKILLHUB_META = "_skillhub_meta.json"
@@ -43,6 +48,69 @@ MAX_SKILL_MD_BYTES = 512 * 1024
 # SKILLS_DIR/<slug> 与临时预览目录路径、并作为 `skillhub install <slug>` 的子进程
 # 参数（路径穿越 / CLI 参数注入面）。第三方 SkillHub 只由本地 App 访问（WB-215）。
 _SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_DEFAULT_OWNER = LOCAL_USER_ID
+_owner_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("skill_owner", default=_DEFAULT_OWNER)
+_slug_locks_guard = threading.Lock()
+_slug_locks: dict[str, threading.RLock] = {}
+_last_trash_purge = 0.0
+_TRASH_RETENTION_SECONDS = 7 * 24 * 60 * 60
+
+
+def set_owner(owner_id: str | None) -> None:
+    _owner_ctx.set((owner_id or _DEFAULT_OWNER).strip() or _DEFAULT_OWNER)
+
+
+def current_owner() -> str:
+    return _owner_ctx.get()
+
+
+@contextmanager
+def _slug_lock(slug: str, timeout: float = 15.0):
+    """Serialize one slug in-process and across App processes on the same device."""
+    with _slug_locks_guard:
+        local_lock = _slug_locks.setdefault(slug, threading.RLock())
+    if not local_lock.acquire(timeout=timeout):
+        raise SkillImportError(f"技能「{slug}」正在被其他操作占用", 423)
+    handle = None
+    locked = False
+    try:
+        lock_dir = skills_dir() / ".locks"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        handle = (lock_dir / f"{slug}.lock").open("a+b")
+        if handle.seek(0, os.SEEK_END) == 0:
+            handle.write(b"0")
+            handle.flush()
+        deadline = time.monotonic() + timeout
+        while not locked:
+            try:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locked = True
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise SkillImportError(f"技能「{slug}」跨进程锁超时", 423)
+                time.sleep(0.05)
+        yield
+    finally:
+        if handle is not None:
+            if locked:
+                try:
+                    handle.seek(0)
+                    if os.name == "nt":
+                        import msvcrt
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            handle.close()
+        local_lock.release()
 
 
 def valid_slug(slug: str) -> bool:
@@ -147,7 +215,8 @@ def _verified_release(d: Path) -> dict[str, Any] | None:
     manifest = _read_json(d / RELEASE_MANIFEST)
     if not manifest or int(manifest.get("schema_version") or 0) != 1:
         return None
-    expected_slug = d.name.replace("__skillhub", "")
+    info = _info_from_dir(d)
+    expected_slug = str(info.get("slug") or "") if info else d.name.replace("__skillhub", "")
     if str(manifest.get("slug") or "") != expected_slug:
         return None
     files = manifest.get("files")
@@ -291,22 +360,88 @@ def _info_from_dir(d: Path) -> dict[str, Any] | None:
         "version": version,
         "source": source,
         "release_id": str(release.get("release_id") or ""),
-        "content_hash": str(release.get("content_hash") or ""),
+        "content_hash": str(release.get("content_hash") or sh.get("contentHash") or ""),
         "disabled": (d / DISABLED_MARKER).exists(),
     }
 
 
-def scan() -> list[dict[str, Any]]:
-    """已安装技能清单（按名字排序）。"""
+def _physical_packages() -> list[dict[str, Any]]:
     root = skills_dir()
     out: list[dict[str, Any]] = []
     for d in sorted(root.iterdir(), key=lambda p: p.name.lower()):
-        if not d.is_dir():
+        if not d.is_dir() or d.name in {".locks", ".trash"}:
             continue
         info = _info_from_dir(d)
         if info:
             out.append(info)
     return out
+
+
+def _purge_expired_trash() -> None:
+    global _last_trash_purge
+    now = time.time()
+    if now - _last_trash_purge < 3600:
+        return
+    _last_trash_purge = now
+    trash_root = skills_dir() / ".trash"
+    if not trash_root.is_dir():
+        return
+    from storage import db
+    for path in trash_root.iterdir():
+        if not path.is_dir():
+            continue
+        try:
+            expired = now - path.stat().st_mtime >= _TRASH_RETENTION_SECONDS
+        except OSError:
+            continue
+        if expired:
+            shutil.rmtree(path, ignore_errors=True)
+            if not path.exists():
+                db.forget_skill_trash(path.name)
+
+
+def scan(owner_id: str | None = None) -> list[dict[str, Any]]:
+    """Owner-visible installations backed by shared machine-level packages."""
+    from storage import db
+
+    owner = owner_id or current_owner()
+    _purge_expired_trash()
+    packages = {str(item["key"]): item for item in _physical_packages()}
+    all_states = {str(item["slug"]): item for item in db.skill_installations(owner, include_deleted=True)}
+    states = {slug: item for slug, item in all_states.items() if item.get("deleted_at") is None}
+    # One-time compatibility adoption for the historical single-user installation layout.
+    if owner == _DEFAULT_OWNER:
+        for package in packages.values():
+            slug = str(package["slug"])
+            if slug not in all_states:
+                state = db.upsert_skill_installation(
+                    owner, slug, str(package["key"]),
+                    release_id=str(package.get("release_id") or ""),
+                    content_hash=str(package.get("content_hash") or ""),
+                    enabled=not bool(package.get("disabled")),
+                )
+                states[slug] = state
+    out: list[dict[str, Any]] = []
+    for state in states.values():
+        package = packages.get(str(state["package_key"]))
+        if not package:
+            continue
+        out.append({
+            **package,
+            "disabled": not bool(state["enabled"]),
+            "owner_id": owner,
+            "release_id": str(state.get("release_id") or package.get("release_id") or ""),
+            "content_hash": str(state.get("content_hash") or package.get("content_hash") or ""),
+        })
+    return sorted(out, key=lambda item: str(item["name"]).lower())
+
+
+def _owned_dir(key: str, owner_id: str | None = None) -> Path | None:
+    value = (key or "").strip()
+    for item in scan(owner_id):
+        if value in {str(item.get("key") or ""), str(item.get("slug") or ""), str(item.get("name") or "")}:
+            return _safe_dir(str(item["key"]))
+    return None
 
 
 class SkillImportError(ValueError):
@@ -342,7 +477,7 @@ def _import_slug(frontmatter: dict[str, Any], root_hint: str, source_name: str, 
     return "local-" + hashlib.sha256(skill_md).hexdigest()[:12]
 
 
-def _install_import_files(
+def _install_import_files_unlocked(
     files: list[tuple[str, bytes]], source_name: str, *, installed_source: str = "local",
     replace_existing: bool = False,
 ) -> dict[str, Any]:
@@ -390,17 +525,44 @@ def _install_import_files(
     package_root = manifest.parent
     root_hint = "" if package_root == PurePosixPath(".") else package_root.name
     slug = _import_slug(frontmatter, root_hint, source_name, skill_md)
+    from storage import db
+    owner = current_owner()
+    release_raw = normalized.get(package_root / RELEASE_MANIFEST, b"")
+    try:
+        release = json.loads(release_raw.decode("utf-8")) if release_raw else {}
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        release = {}
+    if not isinstance(release, dict):
+        release = {}
+    content_hash = str(release.get("content_hash") or "") or hashlib.sha256(
+        b"".join(
+            path.as_posix().encode("utf-8") + b"\0" + data
+            for path, data in sorted(normalized.items(), key=lambda item: item[0].as_posix())
+        )
+    ).hexdigest()
+    for package in _physical_packages():
+        if package.get("slug") == slug and package.get("content_hash") == content_hash:
+            db.upsert_skill_installation(
+                owner, slug, str(package["key"]),
+                release_id=str(package.get("release_id") or release.get("release_id") or ""),
+                content_hash=content_hash, enabled=True,
+            )
+            _invalidate_cache()
+            return {"ok": True, "skill": {**package, "disabled": False}, "reused": True}
     root = skills_dir()
-    target = root / slug
+    state = db.skill_installation(owner, slug)
+    target = root / str(state.get("package_key") or slug) if state else root / slug
     existing_meta: dict[str, Any] = {}
-    was_disabled = False
+    was_disabled = bool(state and not state.get("enabled"))
     if target.exists():
         if not replace_existing:
             raise SkillImportError(f"技能「{slug}」已存在，请先卸载或更换 slug", 409)
         existing_meta = _read_json(target / SKILLHUB_META)
         if existing_meta.get("source") != "agentmate" or installed_source != "agentmate":
             raise SkillImportError("只能升级由 AgentMate 目录安装的技能", 409)
-        was_disabled = (target / DISABLED_MARKER).exists()
+        if db.skill_package_ref_count(target.name) > 1:
+            target = root / f"{slug}--{content_hash[:12]}"
+            existing_meta = {}
 
     staging_root = Path(tempfile.mkdtemp(prefix=".skill-import-", dir=root))
     staging = staging_root / "package"
@@ -430,9 +592,7 @@ def _install_import_files(
         (staging / SKILLHUB_META).write_text(
             json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-        if was_disabled:
-            (staging / DISABLED_MARKER).write_text("", encoding="utf-8")
-        if replace_existing:
+        if replace_existing and target.exists():
             previous = staging_root / "previous"
             os.replace(target, previous)
             try:
@@ -452,7 +612,29 @@ def _install_import_files(
     if not skill:
         shutil.rmtree(target, ignore_errors=True)
         raise SkillImportError("导入后的技能无法读取", 500)
-    return {"ok": True, "skill": skill}
+    db.upsert_skill_installation(
+        owner, slug, target.name,
+        release_id=str(release.get("release_id") or ""),
+        content_hash=content_hash, enabled=not was_disabled,
+    )
+    return {"ok": True, "skill": {**skill, "disabled": was_disabled}}
+
+
+def _install_import_files(
+    files: list[tuple[str, bytes]], source_name: str, *, installed_source: str = "local",
+    replace_existing: bool = False,
+) -> dict[str, Any]:
+    skill_file = next((data for path, data in files if PurePosixPath(path.replace("\\", "/")).name.casefold() == SKILL_MD.casefold()), b"")
+    try:
+        frontmatter, _ = parse_frontmatter(skill_file.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError):
+        frontmatter = {}
+    root_hint = next((PurePosixPath(path.replace("\\", "/")).parent.name for path, _ in files if PurePosixPath(path.replace("\\", "/")).name.casefold() == SKILL_MD.casefold()), "")
+    slug = _import_slug(frontmatter, root_hint, source_name, skill_file)
+    with _slug_lock(slug):
+        return _install_import_files_unlocked(
+            files, source_name, installed_source=installed_source, replace_existing=replace_existing,
+        )
 
 
 def import_skill_file(filename: str, data: bytes) -> dict[str, Any]:
@@ -673,7 +855,7 @@ def _build_detail(d: Path, installed: bool, name_override: str = "") -> dict[str
 
 
 def detail(key: str) -> dict[str, Any] | None:
-    d = _safe_dir(key)
+    d = _owned_dir(key)
     return _build_detail(d, installed=True) if d else None
 
 
@@ -684,7 +866,7 @@ def release_snapshot(key: str) -> dict[str, Any] | None:
     intentionally refuses to infer tools from the live catalog: doing so would recreate the
     old-instructions/new-tools privilege expansion fixed by WB-245.
     """
-    d = _safe_dir(key)
+    d = _owned_dir(key)
     if not d:
         return None
     info = _info_from_dir(d)
@@ -732,7 +914,7 @@ def release_snapshot(key: str) -> dict[str, Any] | None:
 
 def package_dir(key: str) -> Path | None:
     """Resolve an installed package key without exposing path traversal."""
-    return _safe_dir(key)
+    return _owned_dir(key)
 
 
 def safe_package_path(raw: str) -> PurePosixPath:
@@ -753,7 +935,7 @@ def _frontmatter_markdown(frontmatter: dict[str, Any], body: str) -> str:
 
 def update_skill(key: str, name: str, description: str, instructions: str) -> dict[str, Any]:
     """原子更新一个本地/SkillHub 技能的 SKILL.md，保留 references/scripts 与元数据。"""
-    d = _safe_dir(key)
+    d = _owned_dir(key)
     if not d:
         raise SkillImportError("技能不存在", 404)
     info = _info_from_dir(d)
@@ -761,6 +943,9 @@ def update_skill(key: str, name: str, description: str, instructions: str) -> di
         raise SkillImportError("技能无法读取", 422)
     if info.get("source") == "agentmate":
         raise SkillImportError("AgentMate 目录技能请通过版本升级更新", 409)
+    from storage import db
+    if db.skill_package_ref_count(d.name) > 1:
+        raise SkillImportError("共享技能包正被多个用户引用，请复制为新 slug 后再编辑", 409)
     name = (name or "").strip()
     description = (description or "").strip()
     instructions = (instructions or "").strip()
@@ -787,14 +972,22 @@ def update_skill(key: str, name: str, description: str, instructions: str) -> di
             pass
         raise SkillImportError(f"写入技能失败：{exc}", 500) from exc
     meta = _read_json(d / SKILLHUB_META)
+    content_hash = _directory_content_hash(d)
     if meta:
         meta["name"] = name
+        meta["contentHash"] = content_hash
         try:
             (d / SKILLHUB_META).write_text(
                 json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
             )
         except OSError:
             pass  # SKILL.md 是权威；元数据展示名写失败不回滚正文。
+    state = db.skill_installation(current_owner(), str(info["slug"]))
+    db.upsert_skill_installation(
+        current_owner(), str(info["slug"]), d.name,
+        release_id=str((state or {}).get("release_id") or ""), content_hash=content_hash,
+        enabled=bool((state or {}).get("enabled", True)),
+    )
     _invalidate_cache()
     updated = detail(key)
     if not updated:
@@ -955,16 +1148,39 @@ def decorate_cards(
     return out[:limit] if limit and limit > 0 else out
 
 
-def install(slug: str, display_name: str = "") -> dict[str, Any]:
+def _directory_content_hash(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted((item for item in root.rglob("*") if item.is_file()), key=lambda item: item.as_posix()):
+        if path.name in {DISABLED_MARKER, SKILLHUB_META}:
+            continue
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _install_unlocked(slug: str, display_name: str = "") -> dict[str, Any]:
     """真正安装：跑 CLI 下载解压进 SKILLS_DIR/<slug>/。成功返回 {ok, skill}。"""
     slug = (slug or "").strip()
     if not slug:
         return {"ok": False, "error": "empty slug"}
     if not valid_slug(slug):  # WB-185：挡路径穿越 / CLI 参数注入
         return {"ok": False, "error": f"非法 slug：{slug[:80]}"}
+    root = skills_dir()
+    dest = root / slug
+    if dest.is_dir() and (dest / SKILL_MD).is_file():
+        from storage import db
+        info = _info_from_dir(dest)
+        if info:
+            content_hash = str(info.get("content_hash") or "") or _directory_content_hash(dest)
+            db.upsert_skill_installation(
+                current_owner(), str(info["slug"]), dest.name,
+                release_id=str(info.get("release_id") or ""), content_hash=content_hash, enabled=True,
+            )
+            _invalidate_cache()
+            return {"ok": True, "skill": {**info, "disabled": False}, "reused": True}
     if not cli_available():
         return {"ok": False, "error": "SkillHub CLI 未安装（~/.skillhub/skills_store_cli.py）"}
-    root = skills_dir()
     try:
         cp = _run_cli(["install", slug, "--dir", str(root), "--json", "--force"], timeout=180)
     except subprocess.TimeoutExpired:
@@ -972,7 +1188,6 @@ def install(slug: str, display_name: str = "") -> dict[str, Any]:
     except OSError as e:
         return {"ok": False, "error": f"启动 CLI 失败：{e}"}
 
-    dest = (root / slug)
     ok = dest.is_dir() and (dest / SKILL_MD).is_file()
     if not ok:
         # 解析 CLI 的 JSON 报错（stdout 或 stderr）
@@ -1003,51 +1218,119 @@ def install(slug: str, display_name: str = "") -> dict[str, Any]:
         except OSError:
             pass
 
+    from storage import db
+    info = _info_from_dir(dest)
+    content_hash = _directory_content_hash(dest)
+    db.upsert_skill_installation(
+        current_owner(), str((info or {}).get("slug") or slug), dest.name,
+        release_id=str((info or {}).get("release_id") or ""), content_hash=content_hash, enabled=True,
+    )
     _invalidate_cache()
-    return {"ok": True, "skill": _info_from_dir(dest)}
+    return {"ok": True, "skill": {**(info or {}), "disabled": False}}
+
+
+def install(slug: str, display_name: str = "") -> dict[str, Any]:
+    """Install or reuse one shared SkillHub package for the active owner."""
+    slug = (slug or "").strip()
+    if not valid_slug(slug):
+        return {"ok": False, "error": f"非法 slug：{slug[:80]}"}
+    try:
+        with _slug_lock(slug):
+            return _install_unlocked(slug, display_name)
+    except SkillImportError as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 def uninstall(key: str) -> bool:
-    d = _safe_dir(key)
-    if not d:
+    from storage import db
+    owner = current_owner()
+    item = next(
+        (value for value in scan(owner) if key in {value["key"], value["slug"], value["name"]}), None,
+    )
+    if not item:
         return False
-    try:
-        shutil.rmtree(d)
-    except OSError:
+    slug = str(item["slug"])
+    package_key = str(item["key"])
+    with _slug_lock(slug):
+        if not db.delete_skill_installation(owner, slug):
+            return False
+        d = _safe_dir(package_key)
+        if (
+            d and db.skill_package_active_ref_count(package_key) == 0
+            and not db.skill_has_project_references(slug)
+        ):
+            trash_root = skills_dir() / ".trash"
+            trash_root.mkdir(parents=True, exist_ok=True)
+            trash = trash_root / f"{int(time.time())}-{package_key}"
+            try:
+                os.replace(d, trash)
+                db.set_skill_package_trash(package_key, trash.name)
+            except OSError:
+                # State is still recoverable because the package remains in place.
+                pass
+        # Only remove the CLI lock entry after the last active owner releases it.
+        lock = skills_dir() / ".skills_store_lock.json"
+        raw = _read_json(lock)
+        if db.skill_package_active_ref_count(package_key) == 0 and isinstance(raw.get("skills"), dict) and slug in raw["skills"]:
+            raw["skills"].pop(slug, None)
+            try:
+                lock.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            except OSError:
+                pass
+    _invalidate_cache()
+    return True
+
+
+def restore(key: str) -> bool:
+    from storage import db
+    owner = current_owner()
+    state = next(
+        (
+            item for item in db.skill_installations(owner, include_deleted=True)
+            if key in {str(item.get("slug") or ""), str(item.get("package_key") or "")}
+            and item.get("deleted_at") is not None
+        ),
+        None,
+    )
+    if not state:
         return False
-    # 顺手清 CLI 锁文件里的条目（若有）
-    lock = skills_dir() / ".skills_store_lock.json"
-    raw = _read_json(lock)
-    slug = key.replace("__skillhub", "")
-    if isinstance(raw.get("skills"), dict) and slug in raw["skills"]:
-        raw["skills"].pop(slug, None)
-        try:
-            lock.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        except OSError:
-            pass
+    slug = str(state["slug"])
+    package_key = str(state["package_key"])
+    with _slug_lock(slug):
+        target = skills_dir() / package_key
+        if not target.is_dir():
+            trash_name = str(state.get("trash_path") or "")
+            trash = skills_dir() / ".trash" / trash_name
+            if not trash.is_dir() or target.exists():
+                return False
+            try:
+                os.replace(trash, target)
+            except OSError:
+                return False
+        if not db.restore_skill_installation(owner, slug):
+            return False
     _invalidate_cache()
     return True
 
 
 def set_disabled(key: str, disabled: bool) -> bool:
-    d = _safe_dir(key)
-    if not d:
+    from storage import db
+    owner = current_owner()
+    item = next(
+        (value for value in scan(owner) if key in {value["key"], value["slug"], value["name"]}), None,
+    )
+    if not item:
         return False
-    marker = d / DISABLED_MARKER
-    try:
-        if disabled:
-            marker.write_text("", encoding="utf-8")
-        elif marker.exists():
-            marker.unlink()
-    except OSError:
-        return False
-    _invalidate_cache()
-    return True
+    with _slug_lock(str(item["slug"])):
+        changed = db.set_skill_installation_enabled(owner, str(item["slug"]), not disabled)
+    if changed:
+        _invalidate_cache()
+    return changed
 
 
 def reveal(key: str) -> bool:
     """在系统文件管理器里打开该技能目录。"""
-    d = _safe_dir(key)
+    d = _owned_dir(key)
     if not d:
         return False
     try:
@@ -1063,22 +1346,22 @@ def reveal(key: str) -> bool:
 
 
 # ── runtime 注入（技能进 loadout → 注入其 SKILL.md 正文）────────────────────
-_cache: dict[str, dict[str, Any]] | None = None
+_cache: dict[str, dict[str, dict[str, Any]]] = {}
 
 
 def _invalidate_cache() -> None:
-    global _cache
-    _cache = None
+    _cache.clear()
 
 
 def _index() -> dict[str, dict[str, Any]]:
     """name/slug/folder/frontmatter-name → 该 skill 的目录信息 + 正文（缓存）。"""
-    global _cache
-    if _cache is not None:
-        return _cache
+    owner = current_owner()
+    if owner in _cache:
+        return _cache[owner]
     idx: dict[str, dict[str, Any]] = {}
-    for d in skills_dir().iterdir() if skills_dir().exists() else []:
-        if not d.is_dir() or not (d / SKILL_MD).is_file():
+    for info in scan(owner):
+        d = _safe_dir(str(info["key"]))
+        if not d or not (d / SKILL_MD).is_file():
             continue
         try:
             raw = (d / SKILL_MD).read_text(encoding="utf-8", errors="ignore")
@@ -1086,7 +1369,7 @@ def _index() -> dict[str, dict[str, Any]]:
             continue
         fm, body = parse_frontmatter(raw)
         sh = _read_json(d / SKILLHUB_META)
-        disabled = (d / DISABLED_MARKER).exists()
+        disabled = bool(info.get("disabled"))
         entry = {"body": body.strip(), "disabled": disabled}
         keys = {
             d.name, d.name.replace("__skillhub", ""),
@@ -1096,7 +1379,7 @@ def _index() -> dict[str, dict[str, Any]]:
             k = k.strip()
             if k:
                 idx[k] = entry
-    _cache = idx
+    _cache[owner] = idx
     return idx
 
 

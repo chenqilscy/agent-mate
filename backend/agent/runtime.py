@@ -19,7 +19,7 @@ import time
 from typing import Any, AsyncIterator
 
 from agent import events
-from agent import agent_settings, memory, security, telemetry, weknora
+from agent import agent_settings, memory, security, skills_store, telemetry, weknora
 from agent.experts import expert_for
 from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
@@ -329,6 +329,8 @@ async def _run_chat_inner(
     set_work_context(session.project_id, user.id)
     # 安全中心（WB-152）：本 owner 作为工具执行归属，run_command 据此查黑名单 + 记审计。
     security.set_security_context(user.id)
+    # Skill package is machine-shared, while installation/enabled state is owner-scoped (WB-249).
+    skills_store.set_owner(user.id)
 
     def _dedup(seq: list[str]) -> list[str]:
         return list(dict.fromkeys(seq))

@@ -14,6 +14,7 @@ sys.path.insert(0, str(BACKEND))
 
 from agent import skills_store  # noqa: E402
 from config import settings  # noqa: E402
+from storage import db  # noqa: E402
 
 
 def skill_md(name: str = "本地测试技能", slug: str = "local-test", newline: str = "\n") -> bytes:
@@ -34,11 +35,23 @@ class SkillImportTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.old_dir = settings.SKILLS_DIR
+        self.old_db = settings.DB_PATH
+        conn = getattr(db._local, "conn", None)
+        if conn is not None:
+            conn.close()
+        db._local = __import__("threading").local()
+        settings.DB_PATH = Path(self.tmp.name) / "test.db"
         settings.SKILLS_DIR = Path(self.tmp.name) / "skills"
+        db.init_db()
         skills_store._invalidate_cache()
 
     def tearDown(self) -> None:
         settings.SKILLS_DIR = self.old_dir
+        conn = getattr(db._local, "conn", None)
+        if conn is not None:
+            conn.close()
+        db._local = __import__("threading").local()
+        settings.DB_PATH = self.old_db
         skills_store._invalidate_cache()
         self.tmp.cleanup()
 

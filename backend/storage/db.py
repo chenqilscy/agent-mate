@@ -484,6 +484,24 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_catalog_skills_slug ON catalog_skills(slug);
         CREATE INDEX IF NOT EXISTS idx_catalog_skills_name ON catalog_skills(name);
 
+        -- WB-249：机器级只读包与 owner 级安装/启停状态分离。package_key 指向共享物理包；
+        -- 同一包可被多个 owner 引用，删除只软删本行，最后一个引用才允许进入可恢复 trash。
+        CREATE TABLE IF NOT EXISTS skill_installations (
+            owner_id TEXT NOT NULL,
+            slug TEXT NOT NULL,
+            package_key TEXT NOT NULL,
+            release_id TEXT NOT NULL DEFAULT '',
+            content_hash TEXT NOT NULL DEFAULT '',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            deleted_at REAL,
+            trash_path TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (owner_id, slug)
+        );
+        CREATE INDEX IF NOT EXISTS idx_skill_installations_package
+            ON skill_installations(package_key, deleted_at);
+
         -- 橱窗目录（WB-060）：catalog.ts 的静态商品卡迁到此表，前端改从 /api/catalog 取（静态兜底仍在）。
         -- 通用承载：数组类导出每元素一行（可按行上/下架 enabled、改 sort）；对象类导出（QUICK/CONN_META）
         -- is_scalar=1 单行整存。data = 该元素/对象的 JSON，逐字对齐迁移前。功能定义(专家人格/连接器 spec)
@@ -2247,6 +2265,122 @@ def skill_spec_for(key: str) -> Optional[dict[str, Any]]:
         if s["slug"] == k or s["name"] == k:
             return s
     return None
+
+
+def skill_installations(owner_id: str, *, include_deleted: bool = False) -> list[dict[str, Any]]:
+    where = "owner_id=?" if include_deleted else "owner_id=? AND deleted_at IS NULL"
+    rows = get_conn().execute(
+        f"SELECT * FROM skill_installations WHERE {where} ORDER BY slug", (owner_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def skill_installation(owner_id: str, slug: str) -> Optional[dict[str, Any]]:
+    row = get_conn().execute(
+        "SELECT * FROM skill_installations WHERE owner_id=? AND slug=?", (owner_id, slug),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_skill_installation(
+    owner_id: str, slug: str, package_key: str, *, release_id: str = "",
+    content_hash: str = "", enabled: bool = True,
+) -> dict[str, Any]:
+    now = time.time()
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO skill_installations
+               (owner_id,slug,package_key,release_id,content_hash,enabled,deleted_at,trash_path,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,NULL,'',?,?)
+               ON CONFLICT(owner_id,slug) DO UPDATE SET
+                 package_key=excluded.package_key,release_id=excluded.release_id,
+                 content_hash=excluded.content_hash,enabled=excluded.enabled,
+                 deleted_at=NULL,trash_path='',updated_at=excluded.updated_at""",
+            (owner_id, slug, package_key, release_id, content_hash, 1 if enabled else 0, now, now),
+        )
+    return skill_installation(owner_id, slug) or {}
+
+
+def set_skill_installation_enabled(owner_id: str, slug: str, enabled: bool) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE skill_installations SET enabled=?,updated_at=? "
+            "WHERE owner_id=? AND slug=? AND deleted_at IS NULL",
+            (1 if enabled else 0, time.time(), owner_id, slug),
+        )
+    return cur.rowcount > 0
+
+
+def delete_skill_installation(owner_id: str, slug: str, *, trash_path: str = "") -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE skill_installations SET enabled=0,deleted_at=?,trash_path=?,updated_at=? "
+            "WHERE owner_id=? AND slug=? AND deleted_at IS NULL",
+            (time.time(), trash_path, time.time(), owner_id, slug),
+        )
+    return cur.rowcount > 0
+
+
+def set_skill_installation_trash(owner_id: str, slug: str, trash_path: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE skill_installations SET trash_path=?,updated_at=? WHERE owner_id=? AND slug=?",
+            (trash_path, time.time(), owner_id, slug),
+        )
+
+
+def set_skill_package_trash(package_key: str, trash_path: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE skill_installations SET trash_path=?,updated_at=? "
+            "WHERE package_key=? AND deleted_at IS NOT NULL",
+            (trash_path, time.time(), package_key),
+        )
+
+
+def skill_package_ref_count(package_key: str) -> int:
+    row = get_conn().execute(
+        "SELECT COUNT(*) AS n FROM skill_installations WHERE package_key=?",
+        (package_key,),
+    ).fetchone()
+    return int(row["n"] if row else 0)
+
+
+def skill_package_active_ref_count(package_key: str) -> int:
+    row = get_conn().execute(
+        "SELECT COUNT(*) AS n FROM skill_installations WHERE package_key=? AND deleted_at IS NULL",
+        (package_key,),
+    ).fetchone()
+    return int(row["n"] if row else 0)
+
+
+def skill_has_project_references(slug: str) -> bool:
+    for row in get_conn().execute("SELECT skills FROM projects").fetchall():
+        try:
+            values = json.loads(row["skills"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            values = []
+        if isinstance(values, list) and slug in values:
+            return True
+    return False
+
+
+def restore_skill_installation(owner_id: str, slug: str) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE skill_installations SET enabled=1,deleted_at=NULL,trash_path='',updated_at=? "
+            "WHERE owner_id=? AND slug=? AND deleted_at IS NOT NULL",
+            (time.time(), owner_id, slug),
+        )
+    return cur.rowcount > 0
+
+
+def forget_skill_trash(trash_path: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM skill_installations WHERE trash_path=? AND deleted_at IS NOT NULL",
+            (trash_path,),
+        )
 
 
 def skill_catalog_state(key: str) -> dict[str, Any]:
