@@ -3,7 +3,7 @@ id: WB-259
 title: Ant Design 依赖声明与精确版本门禁漂移，完整回归持续失败
 severity: P2
 area: frontend
-status: open
+status: fixed
 files:
   - package.json:25
   - pnpm-lock.yaml:27
@@ -34,3 +34,9 @@ P2：发布门禁无法全绿；caret 范围还允许后续安装静默升级到
 - `test_app_ant_design_migration` 全部通过；
 - `pnpm install --lockfile-only --frozen-lockfile` 不产生差异；
 - `npx tsc --noEmit` 与 `npx vite build` 通过。
+
+## 处理记录（2026-07-21）
+
+- 改动：`package.json` 与 `pnpm-lock.yaml` 的 Ant Design specifier 统一恢复为精确 `6.5.1`，已安装版本不变。
+- 验证：`pnpm install --lockfile-only --frozen-lockfile` 无差异；Ant Design 4 项定向回归、TypeScript 检查与 Vite 生产构建通过。
+- 提交：登记提交 `8bd8e75`；修复提交见本次 WB-259 交付。
