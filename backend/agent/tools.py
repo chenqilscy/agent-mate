@@ -20,7 +20,7 @@ import json
 import mimetypes
 import subprocess
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from agent import browser, office, security
 from agent.sandbox import SandboxError, current_root, relpath, resolve_in_sandbox
@@ -63,6 +63,10 @@ class Tool:
     # 工具恰好都只读（web_fetch/html_to_markdown 是 HTTP GET、analyze_csv 是本地读）所以没暴雷，
     # 但技能定义已可运营（WB-183），一个会写的技能工具就会静默地在 plan 模式下跑起来。
     plan_safe: bool = False
+    # Machine-readable authority used by Skill releases, upgrade diffs and Run snapshots.
+    permissions: tuple[str, ...] = ()
+    timeout_seconds: float = 30.0
+    isolation: Literal["thread", "subprocess"] = "thread"
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -103,6 +107,7 @@ list_dir = Tool(
     pre=lambda a: {"kind": "step", "tool": "list_dir", "label": f"查看目录 {a.get('path', '.') or '.'}"},
     run=_list_dir_run,
     plan_safe=True,  # 只读
+    permissions=("workspace.read",),
 )
 
 
@@ -128,6 +133,7 @@ read_file = Tool(
     pre=lambda a: {"kind": "file_read", "path": a.get("path", ""), "range": "全文"},
     run=_read_file_run,
     plan_safe=True,  # 只读
+    permissions=("workspace.read",),
 )
 
 
@@ -172,6 +178,7 @@ write_file = Tool(
     },
     pre=lambda a: None,
     run=_write_file_run,
+    permissions=("workspace.write",),
 )
 
 
@@ -222,6 +229,8 @@ create_docx = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "create_docx", "label": f"生成 Word {a.get('path', '')}"},
     run=lambda a: _office_create(a, office.create_docx),
+    permissions=("workspace.write",),
+    timeout_seconds=60,
 )
 
 create_xlsx = Tool(
@@ -253,6 +262,8 @@ create_xlsx = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "create_xlsx", "label": f"生成 Excel {a.get('path', '')}"},
     run=lambda a: _office_create(a, office.create_xlsx),
+    permissions=("workspace.write",),
+    timeout_seconds=60,
 )
 
 create_pptx = Tool(
@@ -271,6 +282,8 @@ create_pptx = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "create_pptx", "label": f"生成 PPT {a.get('path', '')}"},
     run=lambda a: _office_create(a, office.create_pptx),
+    permissions=("workspace.write",),
+    timeout_seconds=60,
 )
 
 create_pdf = Tool(
@@ -288,6 +301,8 @@ create_pdf = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "create_pdf", "label": f"生成 PDF {a.get('path', '')}"},
     run=lambda a: _office_create(a, office.create_pdf),
+    permissions=("workspace.write",),
+    timeout_seconds=60,
 )
 
 
@@ -307,6 +322,8 @@ inspect_office_file = Tool(
     pre=lambda a: {"kind": "step", "tool": "inspect_office_file", "label": f"检查办公文件 {a.get('path', '')}"},
     run=_inspect_office,
     plan_safe=True,
+    permissions=("workspace.read",),
+    timeout_seconds=60,
 )
 
 
@@ -336,6 +353,8 @@ browser_navigate = Tool(
     pre=lambda a: {"kind": "step", "tool": "browser_navigate", "label": f"打开网页 {str(a.get('url', ''))[:100]}"},
     run=lambda a: _browser_outcome(browser.navigate(a)),
     plan_safe=True,
+    permissions=("network.read", "browser.state"),
+    timeout_seconds=45,
 )
 
 browser_read = Tool(
@@ -345,6 +364,8 @@ browser_read = Tool(
     pre=lambda a: {"kind": "step", "tool": "browser_read", "label": "读取浏览器页面"},
     run=lambda a: _browser_outcome(browser.read(a)),
     plan_safe=True,
+    permissions=("network.read", "browser.state"),
+    timeout_seconds=45,
 )
 
 browser_interact = Tool(
@@ -363,6 +384,8 @@ browser_interact = Tool(
     }, "required": ["actions"]},
     pre=lambda a: {"kind": "step", "tool": "browser_interact", "label": f"浏览器交互 {len(a.get('actions') or [])} 步"},
     run=lambda a: _browser_outcome(browser.interact(a)),
+    permissions=("network.read", "browser.state", "workspace.write"),
+    timeout_seconds=60,
 )
 
 
@@ -414,6 +437,9 @@ run_command = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "run_command", "label": f"运行命令 {a.get('command', '')[:80]}"},
     run=_run_command_run,
+    permissions=("workspace.read", "workspace.write", "process.execute", "host.unrestricted", "network.unrestricted"),
+    timeout_seconds=CMD_TIMEOUT,
+    isolation="subprocess",
 )
 
 
@@ -438,6 +464,7 @@ update_plan = Tool(
     pre=lambda a: None,
     run=_update_plan_run,
     plan_safe=True,  # 写的是待办清单本身 —— 正是计划模式要产出的东西，不是「执行」
+    permissions=("run.plan.write",),
 )
 
 
@@ -482,6 +509,7 @@ list_work_items = Tool(
     parameters={"type": "object", "properties": {}},
     pre=lambda a: {"kind": "step", "tool": "list_work_items", "label": "查看项目计划项"},
     run=_list_work_items_run,
+    permissions=("project.read",),
 )
 
 
@@ -524,6 +552,7 @@ set_work_item_status = Tool(
     },
     pre=lambda a: None,
     run=_set_work_item_status_run,
+    permissions=("project.write",),
 )
 
 
@@ -607,6 +636,8 @@ knowledge_retrieve = Tool(
     pre=lambda a: {"kind": "step", "tool": "knowledge_retrieve", "label": f"检索知识库 {str(a.get('query', ''))[:60]}"},
     run=_knowledge_retrieve_run,
     plan_safe=True,  # 检索 = 读；规划时查资料正当（WB-186）
+    permissions=("knowledge.read", "network.read"),
+    timeout_seconds=45,
 )
 
 
@@ -717,6 +748,8 @@ knowledge_add = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "knowledge_add", "label": f"加入知识库 {str(a.get('path', ''))[:60]}"},
     run=_knowledge_add_run,
+    permissions=("workspace.read", "knowledge.write", "network.write"),
+    timeout_seconds=120,
     # plan_safe 保持默认 False（WB-186）：这是**写**——把文件灌进知识库并触发解析/切片/向量化。
     # 此前 kb_tools 完全绕过 plan 过滤，计划模式下 agent 真能调它改知识库，违反「plan, don't execute」。
 )

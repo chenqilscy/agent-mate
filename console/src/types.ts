@@ -27,6 +27,7 @@ export interface SkillData {
   description: string;
   instructions: string;
   tools: string[];
+  permissions?: string[];
   files: SkillFile[];
   source: string;
 }
@@ -47,6 +48,7 @@ export interface SkillTool {
   name: string;
   label?: string;
   description?: string;
+  permissions?: string[];
   min_app_version?: string;
 }
 

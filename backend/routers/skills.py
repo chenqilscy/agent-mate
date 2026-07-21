@@ -22,6 +22,10 @@ class ToggleBody(BaseModel):
     disabled: bool
 
 
+class UpgradeCatalogBody(BaseModel):
+    accept_permissions: list[str] = []
+
+
 class UpdateSkillBody(BaseModel):
     name: str
     description: str
@@ -88,6 +92,9 @@ def install_catalog_skill(key: str) -> dict:
     if not spec.get("compatible", True):
         raise HTTPException(409, spec.get("compatibility_error") or "current App is incompatible with this skill")
     try:
+        required_permissions = skills.tool_permissions(
+            spec.get("tools") if isinstance(spec.get("tools"), list) else []
+        )
         return skills_store.install_catalog_skill(
             str(spec["slug"]),
             str(spec["name"]),
@@ -96,7 +103,7 @@ def install_catalog_skill(key: str) -> dict:
             str(spec.get("version") or ""),
             spec.get("files") if isinstance(spec.get("files"), list) else [],
             spec.get("tools") if isinstance(spec.get("tools"), list) else [],
-            spec.get("permissions") if isinstance(spec.get("permissions"), list) else [],
+            required_permissions,
             str(spec.get("tool_contract_version") or "1"),
         )
     except skills_store.SkillImportError as exc:
@@ -104,7 +111,7 @@ def install_catalog_skill(key: str) -> dict:
 
 
 @router.post("/skills/catalog/{key}/upgrade")
-def upgrade_catalog_skill(key: str) -> dict:
+def upgrade_catalog_skill(key: str, body: UpgradeCatalogBody | None = None) -> dict:
     """把已安装的 AgentMate 目录技能原子升级到当前 Server 定义。"""
     from storage import db
 
@@ -116,13 +123,28 @@ def upgrade_catalog_skill(key: str) -> dict:
         raise HTTPException(404, "catalog skill not found")
     if not spec.get("compatible", True):
         raise HTTPException(409, spec.get("compatibility_error") or "current App is incompatible with this skill")
+    required_permissions = skills.tool_permissions(
+        spec.get("tools") if isinstance(spec.get("tools"), list) else []
+    )
+    installed = next(
+        (item for item in skills_store.scan() if item.get("slug") == spec["slug"]), None,
+    )
+    snapshot = skills_store.release_snapshot(str(installed["key"])) if installed else None
+    current_permissions = set(snapshot.get("permissions") or []) if snapshot else set()
+    added_permissions = sorted(set(required_permissions) - current_permissions)
+    accepted = set(body.accept_permissions if body else [])
+    if added_permissions and not set(added_permissions).issubset(accepted):
+        raise HTTPException(409, {
+            "code": "permission_confirmation_required",
+            "added_permissions": added_permissions,
+        })
     try:
         return skills_store.upgrade_catalog_skill(
             str(spec["slug"]), str(spec["name"]), str(spec.get("description") or ""),
             str(spec["instructions"]), str(spec.get("version") or ""),
             spec.get("files") if isinstance(spec.get("files"), list) else [],
             spec.get("tools") if isinstance(spec.get("tools"), list) else [],
-            spec.get("permissions") if isinstance(spec.get("permissions"), list) else [],
+            required_permissions,
             str(spec.get("tool_contract_version") or "1"),
         )
     except skills_store.SkillImportError as exc:

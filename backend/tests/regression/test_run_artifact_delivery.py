@@ -178,6 +178,11 @@ class RunArtifactDeliveryTest(unittest.TestCase):
         runs = db.list_runs(LOCAL_USER_ID, session_id=self.session.id)
         self.assertEqual(1, len(runs))
         self.assertEqual("completed", runs[0].status)
+        self.assertIn("workspace.write", runs[0].permission_snapshot["permissions"])
+        self.assertEqual(
+            {"permissions": ["workspace.write"], "timeout_seconds": 30.0, "isolation": "thread"},
+            runs[0].permission_snapshot["tool_policies"]["write_file"],
+        )
         artifacts = db.list_artifacts(runs[0].id)
         self.assertEqual(["deliverable.md"], [item.path for item in artifacts])
         self.assertTrue((root / "deliverable.md").is_file())

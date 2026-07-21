@@ -594,4 +594,7 @@ export interface SkillDetail extends InstalledSkill {
   release_id?: string
   content_hash?: string
   integrity_valid?: boolean
+  permissions?: string[]
+  catalog_permissions?: string[]
+  added_permissions?: string[]
 }

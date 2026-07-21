@@ -33,6 +33,10 @@ _SKILL_TOOL_CATALOG = json.loads(_SKILL_TOOL_CATALOG_PATH.read_text(encoding="ut
 _SKILL_TOOL_NAMES = {
     str(item.get("name", "")) for item in _SKILL_TOOL_CATALOG if isinstance(item, dict)
 }
+_SKILL_TOOL_PERMISSIONS = {
+    str(item.get("name", "")): tuple(str(value) for value in item.get("permissions", []) if str(value))
+    for item in _SKILL_TOOL_CATALOG if isinstance(item, dict)
+}
 
 
 def _require_admin(account: Account) -> None:
@@ -64,7 +68,10 @@ def _version_tuple(value: str) -> tuple[int, ...]:
 
 
 def _catalog_revision(items: list[dict[str, Any]]) -> str:
-    raw = json.dumps(items, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    raw = json.dumps(
+        {"items": items, "skill_tools": _SKILL_TOOL_CATALOG},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -144,6 +151,7 @@ def pull_catalog(body: CatalogPullBody, account: Account = CurrentAccount) -> di
     for item in items:
         row = dict(item)
         if row.get("category") == "APP_SKILLS" and isinstance(row.get("data"), dict):
+            row["data"] = _normalize_app_skill(row["data"])
             withdrawn = not bool(row.get("enabled", True))
             compatibility = _skill_compatibility(row["data"], body) if not withdrawn else {
                 "compatible": False, "compatibility_error": "withdrawn",
@@ -170,6 +178,13 @@ def _normalize_app_skill(data: Any) -> Any:
         normalized[key] = str(normalized.get(key, "")).strip()
     tools = normalized.get("tools", [])
     normalized["tools"] = list(dict.fromkeys(str(tool).strip() for tool in tools)) if isinstance(tools, list) else tools
+    if isinstance(normalized["tools"], list):
+        normalized["permissions"] = sorted({
+            permission
+            for tool in normalized["tools"]
+            for permission in _SKILL_TOOL_PERMISSIONS.get(tool, ())
+        })
+        normalized["tool_contract_version"] = "1"
     normalized["source"] = "Server"
     return normalized
 

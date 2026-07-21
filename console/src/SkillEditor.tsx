@@ -317,6 +317,9 @@ export default function SkillEditor({ open, item, tools, initialTab, onClose, on
               <Checkbox value={tool.name} key={tool.name} className="tool-choice">
                 <span><strong>{tool.label || tool.name}</strong><code>{tool.name}</code></span>
                 <Typography.Text type="secondary">{tool.description || "AgentMate 内置工具"}</Typography.Text>
+                <Space size={4} wrap>
+                  {(tool.permissions || []).map((permission) => <Tag key={permission}>{permission}</Tag>)}
+                </Space>
               </Checkbox>
             ))}
           </Checkbox.Group>

@@ -83,6 +83,10 @@ class SkillCatalogContractTest(unittest.TestCase):
 
         contract = json.loads((BACKEND.parent / "shared" / "skill-tools.json").read_text(encoding="utf-8"))
         self.assertEqual(set(_TOOL_REGISTRY), {item["name"] for item in contract})
+        for item in contract:
+            self.assertEqual(
+                sorted(_TOOL_REGISTRY[item["name"]].permissions), sorted(item["permissions"]),
+            )
 
     def test_incomplete_server_skill_is_rejected_before_downlink_insert(self) -> None:
         result = db.replace_server_skill_catalog([
@@ -289,6 +293,36 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertEqual(["analyze_csv"], [tool.name for tool in v2["tools"]])
         self.assertEqual("2", v2["snapshot"]["version"])
         self.assertNotEqual(v1["snapshot"]["content_hash"], v2["snapshot"]["content_hash"])
+
+    def test_catalog_upgrade_requires_explicit_new_permission_confirmation(self) -> None:
+        from agent import skills_store
+        from routers.skills import UpgradeCatalogBody, install_catalog_skill, upgrade_catalog_skill
+
+        db.replace_server_skill_catalog([{
+            "slug": "permission-skill", "name": "权限技能", "description": "权限升级测试",
+            "instructions": "分析 CSV。", "version": "1", "tools": ["analyze_csv"],
+            "permissions": ["workspace.read"],
+        }])
+        install_catalog_skill("permission-skill")
+        first = skills_store.release_snapshot("permission-skill")
+        self.assertEqual(["workspace.read"], first["permissions"])
+
+        db.replace_server_skill_catalog([{
+            "slug": "permission-skill", "name": "权限技能", "description": "权限升级测试",
+            "instructions": "抓取网页。", "version": "2", "tools": ["web_fetch"],
+            "permissions": ["network.read"],
+        }])
+        with self.assertRaises(HTTPException) as required:
+            upgrade_catalog_skill("permission-skill")
+        self.assertEqual(409, required.exception.status_code)
+        self.assertEqual("permission_confirmation_required", required.exception.detail["code"])
+        self.assertEqual(["network.read"], required.exception.detail["added_permissions"])
+
+        upgraded = upgrade_catalog_skill(
+            "permission-skill", UpgradeCatalogBody(accept_permissions=["network.read"]),
+        )
+        self.assertTrue(upgraded["ok"])
+        self.assertEqual(["network.read"], skills_store.release_snapshot("permission-skill")["permissions"])
 
     def test_tampered_catalog_release_is_rejected(self) -> None:
         from agent import skills_store

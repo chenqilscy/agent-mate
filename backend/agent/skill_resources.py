@@ -95,6 +95,7 @@ skill_list_resources = Tool(
     pre=lambda args: {"kind": "step", "tool": "skill_list_resources", "label": f"查看技能资源 {args.get('skill', '')}"},
     run=_list_resources_run,
     plan_safe=True,
+    permissions=("skill.resource.read",),
 )
 
 
@@ -131,6 +132,7 @@ skill_read_resource = Tool(
     pre=lambda args: {"kind": "step", "tool": "skill_read_resource", "label": f"读取技能资源 {args.get('path', '')}"},
     run=_read_resource_run,
     plan_safe=True,
+    permissions=("skill.resource.read",),
 )
 
 
@@ -179,6 +181,7 @@ skill_copy_template = Tool(
     },
     pre=lambda args: {"kind": "step", "tool": "skill_copy_template", "label": f"复制技能模板 {args.get('path', '')}"},
     run=_copy_template_run,
+    permissions=("skill.resource.read", "workspace.write"),
 )
 
 

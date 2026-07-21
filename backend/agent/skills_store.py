@@ -118,6 +118,11 @@ def _build_release_manifest(
     permissions: list[str] | None,
     tool_contract_version: str,
 ) -> dict[str, Any]:
+    # The App's signed tool registry is authoritative.  Catalog data may declare
+    # additional conservative permissions, but can never omit authority a bound
+    # tool actually needs.
+    from agent.skills import tool_permissions
+    effective_permissions = sorted(set(permissions or []) | set(tool_permissions(tools or [])))
     entries = [
         {"path": path, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
         for path, data in package_files
@@ -128,7 +133,7 @@ def _build_release_manifest(
         "version": version,
         "tool_contract_version": str(tool_contract_version or "1"),
         "tools": list(dict.fromkeys(str(item).strip() for item in (tools or []) if str(item).strip())),
-        "permissions": list(dict.fromkeys(str(item).strip() for item in (permissions or []) if str(item).strip())),
+        "permissions": effective_permissions,
         "files": entries,
     }
     content_hash = hashlib.sha256(_canonical_json(_release_payload(manifest))).hexdigest()

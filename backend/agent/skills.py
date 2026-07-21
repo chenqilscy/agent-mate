@@ -95,6 +95,8 @@ web_fetch = Tool(
     # HTTP GET = 读，不改任何状态 → 计划模式可用（WB-186）。plan 的契约是「plan, don't
     # execute / no write_file、run_command」，查资料正是规划该做的事，滤掉反而让规划变差。
     plan_safe=True,
+    permissions=("network.read",),
+    timeout_seconds=20,
 )
 
 
@@ -148,6 +150,7 @@ analyze_csv = Tool(
     pre=lambda a: {"kind": "step", "tool": "analyze_csv", "label": f"分析 CSV {a.get('path', '')[:60]}"},
     run=_analyze_csv_run,
     plan_safe=True,  # 沙箱内只读 CSV（WB-186）
+    permissions=("workspace.read",),
 )
 
 
@@ -245,6 +248,8 @@ html_to_markdown = Tool(
     pre=lambda a: {"kind": "step", "tool": "html_to_markdown", "label": f"转 Markdown {a.get('url', '')[:70]}"},
     run=_html_to_md_run,
     plan_safe=True,  # HTTP GET = 读（WB-186）
+    permissions=("network.read",),
+    timeout_seconds=20,
 )
 
 
@@ -280,6 +285,7 @@ create_local_skill = Tool(
     },
     pre=lambda a: {"kind": "step", "tool": "create_local_skill", "label": f"创建技能 {a.get('name', '')[:60]}"},
     run=_create_local_skill_run,
+    permissions=("skill.manage",),
 )
 
 
@@ -299,6 +305,11 @@ _TOOL_REGISTRY: dict[str, Tool] = {
 def _resolve_tools(names: list[str]) -> list[Tool]:
     """工具名 → Tool；库里写了但代码里没有的名字**跳过**（目录可运营，注册表是代码事实）。"""
     return [_TOOL_REGISTRY[n] for n in names if n in _TOOL_REGISTRY]
+
+
+def tool_permissions(names: list[str]) -> list[str]:
+    """Authoritative permission union for tool names supported by this App build."""
+    return sorted({permission for tool in _resolve_tools(names) for permission in tool.permissions})
 
 
 def builtin_list() -> list[dict[str, Any]]:
@@ -350,6 +361,8 @@ def catalog_detail(key: str) -> dict[str, Any] | None:
             snapshot = skills_store.release_snapshot(str(installed["key"]))
             catalog_version = str(spec.get("version") or "")
             installed_version = str(detail.get("version") or "")
+            required_permissions = tool_permissions(list(spec.get("tools") or []))
+            installed_permissions = list(snapshot.get("permissions") or []) if snapshot else []
             return {
                 **detail,
                 "source": "AgentMate",
@@ -359,6 +372,9 @@ def catalog_detail(key: str) -> dict[str, Any] | None:
                 "release_id": str(snapshot.get("release_id") or "") if snapshot else "",
                 "content_hash": str(snapshot.get("content_hash") or "") if snapshot else "",
                 "integrity_valid": bool(snapshot),
+                "permissions": installed_permissions,
+                "catalog_permissions": required_permissions,
+                "added_permissions": sorted(set(required_permissions) - set(installed_permissions)),
                 "catalog_version": catalog_version,
                 "update_available": bool(catalog_version and installed_version != catalog_version),
                 "compatible": bool(spec.get("compatible", True)),
@@ -393,6 +409,9 @@ def catalog_detail(key: str) -> dict[str, Any] | None:
         "catalog": True,
         "category": str(spec.get("category") or ""),
         "tools": [],
+        "permissions": [],
+        "catalog_permissions": tool_permissions(list(spec.get("tools") or [])),
+        "added_permissions": tool_permissions(list(spec.get("tools") or [])),
     }
 
 
@@ -486,6 +505,9 @@ def skill_runtime_def(name: str) -> dict[str, Any] | None:
                 resolved_tools = _resolve_tools(snapshot["tools"])
                 if {tool.name for tool in resolved_tools} != set(snapshot["tools"]):
                     return None  # installed release requires a tool contract this App cannot satisfy
+                actual_permissions = {permission for tool in resolved_tools for permission in tool.permissions}
+                if not actual_permissions.issubset(set(snapshot.get("permissions") or [])):
+                    return None  # undeclared authority must not become active at runtime
                 return {
                     "instructions": body,
                     "tools": resolved_tools,

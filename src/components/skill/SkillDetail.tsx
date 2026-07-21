@@ -92,8 +92,12 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
   const doUpgrade = async () => {
     const slug = data?.slug || target.slug || ''
     if (!slug) return
+    const addedPermissions = data?.added_permissions ?? []
+    if (addedPermissions.length && !window.confirm(
+      `此升级新增以下权限：\n\n${addedPermissions.map((item) => `• ${item}`).join('\n')}\n\n是否允许并继续升级？`,
+    )) return
     setInstalling(true)
-    await useSkillStore.getState().upgradeCatalog(name, slug)
+    await useSkillStore.getState().upgradeCatalog(name, slug, addedPermissions)
     try {
       const refreshed = await api.skillCatalogDetail(slug)
       setData(refreshed.skill)

@@ -245,8 +245,10 @@ export const api = {
   skillCatalogDetail: (key: string) => get<{ skill: SkillDetail }>(`/skills/catalog/${encodeURIComponent(key)}`),
   installCatalogSkill: (key: string) =>
     send<{ ok: boolean; skill: InstalledSkill }>('POST', `/skills/catalog/${encodeURIComponent(key)}/install`),
-  upgradeCatalogSkill: (key: string) =>
-    send<{ ok: boolean; skill: InstalledSkill }>('POST', `/skills/catalog/${encodeURIComponent(key)}/upgrade`),
+  upgradeCatalogSkill: (key: string, acceptPermissions: string[] = []) =>
+    send<{ ok: boolean; skill: InstalledSkill }>('POST', `/skills/catalog/${encodeURIComponent(key)}/upgrade`, {
+      accept_permissions: acceptPermissions,
+    }),
   updateSkill: (key: string, body: { name: string; description: string; instructions: string }) =>
     send<{ ok: boolean; skill: InstalledSkill }>('PATCH', `/skills/${encodeURIComponent(key)}`, body),
   installSkill: (body: { slug?: string; name?: string }) =>

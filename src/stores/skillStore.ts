@@ -32,7 +32,7 @@ interface SkillState {
   load: (force?: boolean) => Promise<void>
   install: (name: string, slug?: string) => Promise<void>
   installCatalog: (name: string, slug: string) => Promise<void>
-  upgradeCatalog: (name: string, slug: string) => Promise<void>
+  upgradeCatalog: (name: string, slug: string, acceptPermissions?: string[]) => Promise<void>
   uninstall: (key: string) => Promise<void>
   toggle: (key: string, disabled: boolean) => Promise<void>
 }
@@ -103,11 +103,11 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     }
   },
 
-  upgradeCatalog: async (name, slug) => {
+  upgradeCatalog: async (name, slug, acceptPermissions = []) => {
     if (get().installing.includes(slug)) return
     set((s) => ({ installing: [...s.installing, slug] }))
     try {
-      await api.upgradeCatalogSkill(slug)
+      await api.upgradeCatalogSkill(slug, acceptPermissions)
       toast('已升级 · ' + name)
       await get().load(true)
     } catch (error) {

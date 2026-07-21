@@ -87,6 +87,8 @@ class SkillRecommendationContractTest(unittest.TestCase):
         first = pull_catalog(supported, account)
         skill = next(item for item in first["items"] if item["category"] == "APP_SKILLS")
         self.assertTrue(skill["compatible"])
+        self.assertEqual(["network.read"], skill["data"]["permissions"])
+        self.assertEqual("1", skill["data"]["tool_contract_version"])
         same = pull_catalog(CatalogPullBody(
             revision=first["revision"], app_version="1.0.0", supported_tools={"web_fetch": "1"},
         ), account)
@@ -146,6 +148,8 @@ class SkillRecommendationContractTest(unittest.TestCase):
             _validate_app_skill({**complete, "tools": ["web_feth"]}, ignore_id="missing")
         names = {item["name"] for item in list_skill_tools(SimpleNamespace()) ["tools"]}
         self.assertIn("web_fetch", names)
+        web_fetch = next(item for item in list_skill_tools(SimpleNamespace())["tools"] if item["name"] == "web_fetch")
+        self.assertEqual(["network.read"], web_fetch["permissions"])
 
         item = db.list_catalog_items("APP_SKILLS", scope="builtin", include_disabled=True)[0]
         admin = SimpleNamespace(is_platform_admin=True)

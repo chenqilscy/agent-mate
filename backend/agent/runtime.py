@@ -27,28 +27,31 @@ from agent.mcp_client import call_mcp, mcp_schema, open_connectors
 from agent.sandbox import current_root, resolve_in_sandbox, use_root, workspace_root
 from agent.skill_resources import RESOURCE_TOOLS, has_active_resources, set_active_skill_resources
 from agent.skills import canonical_skill_keys, skill_display_name, skill_runtime_def
+from agent.tool_execution import (
+    ToolExecutionCancelled, ToolExecutionTimeout, execute_async_call, execute_tool,
+)
 from agent.tools import (
     ASK_USER_SCHEMA,
     base_tools,
     knowledge_add,
     knowledge_retrieve,
     plan_filter,
-    run_tool,
     set_knowledge_context,
     set_work_context,
+    ToolOutcome,
     work_item_tools,
 )
 from config import settings
 from storage import db, provider_seed
 from storage.models import Session, User
 
-SYSTEM_PROMPT = (
-    "你是 AgentMate，一个运行在用户本机的智能工作伙伴。\n"
-    "你可以使用提供的工具在工作区（沙箱目录）内操作：列目录(list_dir)、读文件(read_file)、"
 
 class RuntimeBudgetExceeded(RuntimeError):
     """Raised before another tool/LLM round once the configured token cap is reached."""
 
+SYSTEM_PROMPT = (
+    "你是 AgentMate，一个运行在用户本机的智能工作伙伴。\n"
+    "你可以使用提供的工具在工作区（沙箱目录）内操作：列目录(list_dir)、读文件(read_file)、"
     "写文件(write_file)、生成并校验 DOCX/XLSX/PPTX/PDF、使用浏览器导航/读取/安全交互、"
     "运行命令(run_command)、更新待办清单(update_plan)；"
     "遇到影响方向的关键决策时用 ask_user 向用户确认。\n"
@@ -249,10 +252,10 @@ async def run_chat(
     workspace: str | None = None,
     idempotency_key: str | None = None,
     retry_of: str | None = None,
+    max_total_tokens: int = 0,
 ) -> AsyncIterator[str]:
     """Trace one user turn, delegating the unchanged SSE loop to the inner runner."""
     mode = "ask" if ask else ("plan" if plan else "exec")
-    max_total_tokens: int = 0,
     with telemetry.chat_observation(
         session_id=session.id,
         user_id=user.id,
@@ -271,10 +274,10 @@ async def run_chat(
             knowledge_ids=knowledge_ids, refs=refs,
             system_extra=system_extra, workspace=workspace,
             idempotency_key=idempotency_key, retry_of=retry_of,
+            max_total_tokens=max_total_tokens,
             chat_trace=chat_trace,
         ):
             yield chunk
-            max_total_tokens=max_total_tokens,
 
 
 async def _run_chat_inner(
@@ -294,10 +297,10 @@ async def _run_chat_inner(
     workspace: str | None = None,
     idempotency_key: str | None = None,
     retry_of: str | None = None,
+    max_total_tokens: int = 0,
     chat_trace: telemetry.Observation,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
-    max_total_tokens: int = 0,
 
     Persists the user turn, runs the tool loop, persists the assistant turn with
     its full trace so history replay reproduces the trace. Plan mode plans only
@@ -509,10 +512,10 @@ async def _run_chat_inner(
     trace_items: list[dict[str, Any]] = []
     assistant_text = ""
     last_prompt = 0
+    total_prompt = 0
     total_completion = 0
     stopped = False
     schemas: list[dict[str, Any]] = []
-    total_prompt = 0
     tool_call_count = 0
     t0 = time.time()
 
@@ -589,6 +592,18 @@ async def _run_chat_inner(
                 **run.permission_snapshot,
                 "tools": sorted(active_tools),
                 "mcp_tools": sorted(mcp_by_name),
+                "permissions": sorted(
+                    {permission for tool in active_tools.values() for permission in tool.permissions}
+                    | ({"connector.call", "external.dynamic"} if mcp_by_name else set())
+                ),
+                "tool_policies": {
+                    name: {
+                        "permissions": list(tool.permissions),
+                        "timeout_seconds": tool.timeout_seconds,
+                        "isolation": tool.isolation,
+                    }
+                    for name, tool in sorted(active_tools.items())
+                },
             },
         )
 
@@ -696,6 +711,12 @@ async def _run_chat_inner(
                     usage_details={"input": round_prompt, "output": round_completion},
                 )
 
+            total_prompt += round_prompt
+            if max_total_tokens > 0 and total_prompt + total_completion > max_total_tokens:
+                raise RuntimeBudgetExceeded(
+                    f"Token budget exceeded: {total_prompt + total_completion} > {max_total_tokens}"
+                )
+
             if stopped:
                 break
 
@@ -711,12 +732,6 @@ async def _run_chat_inner(
                 yield record({"kind": "think", "text": "深度思考"})
 
             calls = []
-            total_prompt += round_prompt
-            if max_total_tokens > 0 and total_prompt + total_completion > max_total_tokens:
-                raise RuntimeBudgetExceeded(
-                    f"Token budget exceeded: {total_prompt + total_completion} > {max_total_tokens}"
-                )
-
             for idx in sorted(tool_acc):
                 acc = tool_acc[idx]
                 calls.append(
@@ -790,9 +805,21 @@ async def _run_chat_inner(
                         name=mt.orig, arguments=args, source="mcp",
                         metadata={"connector": mt.connector, "qualified_name": name},
                     ) as tool_trace:
-                        result = await call_mcp(mt, args)
-                        tool_trace.update(output=result)
+                        try:
+                            result = await execute_async_call(call_mcp(mt, args), stop, 60)
+                            tool_trace.update(output=result)
+                        except ToolExecutionCancelled:
+                            stopped = True
+                            result = "连接器调用已取消。"
+                            yield record({"kind": "step", "tool": name, "label": result, "status": "cancelled"})
+                            tool_trace.update(output={"status": "cancelled"})
+                        except ToolExecutionTimeout:
+                            result = "连接器调用超时（60s）。"
+                            yield record({"kind": "step", "tool": name, "label": result, "status": "timeout"})
+                            tool_trace.update(output={"status": "timeout"})
                     llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": result[:6000]})
+                    if stopped:
+                        break
                     continue
 
                 tool = active_tools.get(name)
@@ -811,8 +838,18 @@ async def _run_chat_inner(
                 with telemetry.tool_observation(
                     name=name, arguments=args, source="builtin",
                 ) as tool_trace:
-                    outcome = await asyncio.to_thread(run_tool, tool, args)
-                    tool_trace.update(output=outcome.text)
+                    try:
+                        outcome = await execute_tool(tool, args, stop)
+                        tool_trace.update(output=outcome.text)
+                    except ToolExecutionCancelled:
+                        stopped = True
+                        outcome = ToolOutcome(text=f"工具 {name} 已取消。")
+                        yield record({"kind": "step", "tool": name, "label": outcome.text, "status": "cancelled"})
+                        tool_trace.update(output={"status": "cancelled"})
+                    except ToolExecutionTimeout:
+                        outcome = ToolOutcome(text=f"工具 {name} 执行超时（{tool.timeout_seconds:g}s）。")
+                        yield record({"kind": "step", "tool": name, "label": outcome.text, "status": "timeout"})
+                        tool_trace.update(output={"status": "timeout"})
                 for it in outcome.trace:
                     yield record(it)
                 for descriptor in outcome.artifacts:
@@ -840,10 +877,30 @@ async def _run_chat_inner(
                 llm_messages.append(
                     {"role": "tool", "tool_call_id": call["id"], "content": outcome.text}
                 )
+                if stopped:
+                    break
             if stopped:
                 break
             # loop again so the model can use the results
         finished_ok = True  # loop completed normally (incl. user-stop)
+    except RuntimeBudgetExceeded as e:
+        chat_trace.update(
+            output={"status": "token_budget_exceeded", "partial_chars": len(assistant_text)},
+            level="ERROR", status_message=str(e),
+        )
+        yield events.error("本次自动化已达到 token 成本上限")
+        mid = _persist_partial()
+        db.update_run_runtime(
+            run_id, prompt_tokens=total_prompt or last_prompt,
+            completion_tokens=total_completion, tool_calls=tool_call_count,
+        )
+        db.set_run_status(
+            run_id, "failed", error_code="token_budget_exceeded", error_message=str(e)
+        )
+        db.touch_session(session_id, status="idle")
+        finished_ok = True
+        yield events.done(mid)
+        return
     except LLMError as e:
         chat_trace.update(
             output={"status": "llm_error", "partial_chars": len(assistant_text)},
@@ -883,24 +940,6 @@ async def _run_chat_inner(
                     db.set_run_status(run_id, "paused", checkpoint={"reason": "stream_disconnected"})
                 except ValueError:
                     db.set_run_status(run_id, "cancelled", error_code="stream_disconnected")
-    except RuntimeBudgetExceeded as e:
-        chat_trace.update(
-            output={"status": "token_budget_exceeded", "partial_chars": len(assistant_text)},
-            level="ERROR", status_message=str(e),
-        )
-        yield events.error("本次自动化已达到 token 成本上限")
-        mid = _persist_partial()
-        db.update_run_runtime(
-            run_id, prompt_tokens=total_prompt or last_prompt,
-            completion_tokens=total_completion, tool_calls=tool_call_count,
-        )
-        db.set_run_status(
-            run_id, "failed", error_code="token_budget_exceeded", error_message=str(e)
-        )
-        db.touch_session(session_id, status="idle")
-        finished_ok = True
-        yield events.done(mid)
-        return
         if mcp_stack is not None:
             try:
                 await mcp_stack.aclose()  # terminate connector MCP servers
