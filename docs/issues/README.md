@@ -298,6 +298,7 @@
 | [WB-279](WB-279-skill-catalog-test-server-gate.md) | ✅ | P2 | test | Skill catalog 同步回归未开启 Server gate |
 | [WB-280](WB-280-regression-test-state-isolation.md) | ✅ | P2 | test | 回归测试泄漏 DB 与安全上下文导致顺序相关失败 |
 | [WB-281](WB-281-chatsearch-cross-node-match.md) | ✅ | P3 | frontend | ChatSearch 无法匹配跨 Markdown 文本节点短语 |
+| [WB-282](WB-282-issue-index-missing-entries.md) | 🟡 | P2 | docs | issue 索引漏列 WB-173～175，文件与台账状态不一致 |
 
 ## 来源
 
