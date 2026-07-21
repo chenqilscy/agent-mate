@@ -35,6 +35,10 @@ class ChatBody(BaseModel):
     knowledge_ids: list[str] = Field(default=[], max_length=20)
     # Attached / referenced files: injected into this turn's context only.
     refs: list[dict] = Field(default=[], max_length=50)
+    # Client-generated key makes reconnect/retry safe: the same owner/key reuses
+    # the original Run without persisting or executing the turn twice (WB-242).
+    idempotency_key: str | None = Field(default=None, max_length=200)
+    retry_of: str | None = None
 
 
 SSE_HEADERS = {
@@ -53,7 +57,33 @@ async def chat(body: ChatBody):
 
     user = current_user()
 
-    if body.session_id:
+    retry_run = None
+    existing_run = (
+        db.get_run_by_idempotency(user.id, body.idempotency_key)
+        if body.idempotency_key and body.idempotency_key.strip() else None
+    )
+    if existing_run:
+        if body.session_id and body.session_id != existing_run.session_id:
+            raise HTTPException(409, "idempotency key belongs to another session")
+        session = db.get_session(existing_run.session_id, owner_id=user.id)
+        if not session:
+            raise HTTPException(409, "idempotent run session no longer exists")
+    elif body.retry_of:
+        original = db.get_run(body.retry_of)
+        if not original or original.owner_id != user.id:
+            raise HTTPException(404, "retry run not found")
+        if original.status not in {"failed", "cancelled", "paused"}:
+            raise HTTPException(409, "only failed, cancelled or paused runs can be retried")
+        if body.session_id and body.session_id != original.session_id:
+            raise HTTPException(409, "retry run belongs to another session")
+        session = db.get_session(original.session_id, owner_id=user.id)
+        if not session:
+            raise HTTPException(409, "retry run session no longer exists")
+        retry_run = original
+
+    if existing_run or retry_run:
+        pass
+    elif body.session_id:
         # owner-scoped so a guessed session id can't be driven by another user (WB-013).
         session = db.get_session(body.session_id, owner_id=user.id)
         if not session:
@@ -79,6 +109,16 @@ async def chat(body: ChatBody):
             project_id=body.project_id,
         )
 
+    # A todo ref is a request to link this execution to a real WorkItem. Validate
+    # before opening the SSE response so a forged/stale item id cannot crash the
+    # generator or attach a Run across project boundaries (WB-242).
+    for ref in body.refs:
+        if ref.get("kind") != "todo" or not ref.get("itemId"):
+            continue
+        item = db.get_work_item(str(ref["itemId"]))
+        if not item or not session.project_id or item.project_id != session.project_id:
+            raise HTTPException(400, "invalid work item reference")
+
     async def event_stream():
         # First frame tells the client which session this stream belongs to
         # (essential when the session was just created).
@@ -89,6 +129,8 @@ async def chat(body: ChatBody):
             experts=body.experts, skills=body.skills, connectors=body.connectors,
             knowledge_ids=body.knowledge_ids,
             refs=body.refs,
+            idempotency_key=body.idempotency_key,
+            retry_of=body.retry_of,
         ):
             yield chunk
         # WB-062 Phase 3: 项目会话完成 → 入 outbox 回传团队时间线（guarded：仅 Server 镜像项目 +

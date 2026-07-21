@@ -59,6 +59,63 @@ class Session:
 
 
 @dataclass
+class Run:
+    """One real execution inside a long-lived Session (WB-242)."""
+    id: str
+    session_id: str
+    owner_id: str
+    project_id: Optional[str]
+    work_item_id: Optional[str]
+    mode: str
+    status: str
+    workspace: str
+    idempotency_key: Optional[str]
+    retry_of: Optional[str]
+    plan: list[dict[str, Any]]
+    permission_snapshot: dict[str, Any]
+    checkpoint: dict[str, Any]
+    error_code: Optional[str]
+    error_message: Optional[str]
+    prompt_tokens: int
+    completion_tokens: int
+    tool_calls: int
+    started_at: Optional[float]
+    ended_at: Optional[float]
+    created_at: float
+    updated_at: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Artifact:
+    """A verifiable file produced by a Run (WB-242)."""
+    id: str
+    run_id: str
+    owner_id: str
+    project_id: Optional[str]
+    kind: str
+    path: str
+    name: str
+    mime_type: str
+    source_tool: str
+    size: int
+    sha256: str
+    validation_status: str
+    validation: dict[str, Any]
+    preview_path: Optional[str]
+    acceptance_status: str
+    accepted_by: Optional[str]
+    accepted_at: Optional[float]
+    created_at: float
+    updated_at: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class Project:
     id: str
     name: str

@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import mimetypes
 import re
 import secrets
 import sqlite3
@@ -35,12 +36,14 @@ from storage.models import (
     LOCAL_USER_ID,
     LOCAL_USER_NAME,
     Automation,
+    Artifact,
     CatalogConnector,
     CatalogExpert,
     Expert,
     Message,
     Project,
     Role,
+    Run,
     Session,
     User,
     WorkItem,
@@ -163,6 +166,64 @@ def init_db() -> None:
             ON messages(session_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_sessions_owner
             ON sessions(owner_id, updated_at DESC);
+
+        -- A Session is conversation context; every real execution is a Run (WB-242).
+        CREATE TABLE IF NOT EXISTS runs (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            project_id TEXT,
+            work_item_id TEXT,
+            mode TEXT NOT NULL,
+            status TEXT NOT NULL,
+            workspace TEXT NOT NULL DEFAULT 'default',
+            idempotency_key TEXT,
+            retry_of TEXT,
+            plan TEXT NOT NULL DEFAULT '[]',
+            permission_snapshot TEXT NOT NULL DEFAULT '{}',
+            checkpoint TEXT NOT NULL DEFAULT '{}',
+            error_code TEXT,
+            error_message TEXT,
+            prompt_tokens INTEGER NOT NULL DEFAULT 0,
+            completion_tokens INTEGER NOT NULL DEFAULT 0,
+            tool_calls INTEGER NOT NULL DEFAULT 0,
+            started_at REAL,
+            ended_at REAL,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_runs_work_item ON runs(work_item_id, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_owner_idempotency
+            ON runs(owner_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS artifacts (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            project_id TEXT,
+            kind TEXT NOT NULL DEFAULT 'file',
+            path TEXT NOT NULL,
+            name TEXT NOT NULL,
+            mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+            source_tool TEXT NOT NULL DEFAULT '',
+            size INTEGER NOT NULL DEFAULT 0,
+            sha256 TEXT NOT NULL,
+            validation_status TEXT NOT NULL DEFAULT 'passed',
+            validation TEXT NOT NULL DEFAULT '{}',
+            preview_path TEXT,
+            acceptance_status TEXT NOT NULL DEFAULT 'pending',
+            accepted_by TEXT,
+            accepted_at REAL,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE,
+            UNIQUE (run_id, path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_artifacts_project ON artifacts(project_id, created_at DESC);
 
         CREATE TABLE IF NOT EXISTS projects (
             id TEXT PRIMARY KEY,
@@ -1230,6 +1291,298 @@ def list_all_automation_runs(owner_id: str, limit: int = 100) -> list[Session]:
         (owner_id, limit),
     ).fetchall()
     return [_row_to_session(r) for r in rows]
+
+
+# ---- runs / artifacts (WB-242) -----------------------------------------
+
+RUN_STATUSES = {
+    "draft", "planning", "waiting_approval", "running", "paused",
+    "failed", "completed", "accepted", "cancelled",
+}
+_RUN_TRANSITIONS = {
+    "draft": {"planning", "running", "cancelled"},
+    "planning": {"waiting_approval", "running", "failed", "completed", "cancelled"},
+    "waiting_approval": {"running", "failed", "cancelled"},
+    "running": {"waiting_approval", "paused", "failed", "completed", "cancelled"},
+    "paused": {"running", "failed", "cancelled"},
+    "failed": set(),
+    "completed": {"accepted"},
+    "accepted": set(),
+    "cancelled": set(),
+}
+
+
+def _load_json(raw: Any, fallback: Any) -> Any:
+    try:
+        return json.loads(raw) if raw else fallback
+    except (json.JSONDecodeError, TypeError):
+        return fallback
+
+
+def _row_to_run(row: sqlite3.Row) -> Run:
+    return Run(
+        id=row["id"], session_id=row["session_id"], owner_id=row["owner_id"],
+        project_id=row["project_id"], work_item_id=row["work_item_id"], mode=row["mode"],
+        status=row["status"], workspace=row["workspace"],
+        idempotency_key=row["idempotency_key"], retry_of=row["retry_of"],
+        plan=_load_json(row["plan"], []),
+        permission_snapshot=_load_json(row["permission_snapshot"], {}),
+        checkpoint=_load_json(row["checkpoint"], {}), error_code=row["error_code"],
+        error_message=row["error_message"], prompt_tokens=int(row["prompt_tokens"] or 0),
+        completion_tokens=int(row["completion_tokens"] or 0), tool_calls=int(row["tool_calls"] or 0),
+        started_at=row["started_at"], ended_at=row["ended_at"],
+        created_at=row["created_at"], updated_at=row["updated_at"],
+    )
+
+
+def _row_to_artifact(row: sqlite3.Row) -> Artifact:
+    return Artifact(
+        id=row["id"], run_id=row["run_id"], owner_id=row["owner_id"],
+        project_id=row["project_id"], kind=row["kind"], path=row["path"], name=row["name"],
+        mime_type=row["mime_type"], source_tool=row["source_tool"], size=int(row["size"] or 0),
+        sha256=row["sha256"], validation_status=row["validation_status"],
+        validation=_load_json(row["validation"], {}), preview_path=row["preview_path"],
+        acceptance_status=row["acceptance_status"], accepted_by=row["accepted_by"],
+        accepted_at=row["accepted_at"], created_at=row["created_at"], updated_at=row["updated_at"],
+    )
+
+
+def create_run(
+    *, session_id: str, owner_id: str, project_id: Optional[str], mode: str,
+    workspace: str = "default", work_item_id: Optional[str] = None,
+    idempotency_key: Optional[str] = None, retry_of: Optional[str] = None,
+    status: Optional[str] = None, permission_snapshot: Optional[dict[str, Any]] = None,
+) -> tuple[Run, bool]:
+    """Create one execution atomically; duplicate owner/idempotency keys reuse it."""
+    session = get_session(session_id)
+    if not session or session.owner_id != owner_id or session.project_id != project_id:
+        raise ValueError("run session scope mismatch")
+    if work_item_id:
+        item = get_work_item(work_item_id)
+        if not item or item.project_id != project_id:
+            raise ValueError("run work item scope mismatch")
+    if retry_of:
+        original = get_run(retry_of)
+        if (
+            not original or original.owner_id != owner_id or original.session_id != session_id
+            or original.status not in {"failed", "cancelled", "paused"}
+        ):
+            raise ValueError("invalid retry source")
+    key = (idempotency_key or "").strip()[:200] or None
+    if key:
+        existing = get_conn().execute(
+            "SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?", (owner_id, key)
+        ).fetchone()
+        if existing:
+            return _row_to_run(existing), False
+    initial = status or ("planning" if mode == "plan" else "running")
+    if initial not in RUN_STATUSES:
+        raise ValueError(f"invalid run status: {initial}")
+    now = time.time()
+    rid = new_uuid()
+    try:
+        get_conn().execute(
+            """INSERT INTO runs
+               (id,session_id,owner_id,project_id,work_item_id,mode,status,workspace,
+                idempotency_key,retry_of,plan,permission_snapshot,checkpoint,started_at,
+                created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (rid, session_id, owner_id, project_id, work_item_id, mode, initial, workspace,
+             key, retry_of, "[]", json.dumps(permission_snapshot or {}, ensure_ascii=False),
+             "{}", now if initial in {"planning", "running"} else None, now, now),
+        )
+        get_conn().commit()
+    except sqlite3.IntegrityError:
+        if key:
+            row = get_conn().execute(
+                "SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?", (owner_id, key)
+            ).fetchone()
+            if row:
+                return _row_to_run(row), False
+        raise
+    return get_run(rid), True  # type: ignore[return-value]
+
+
+def get_run(run_id: str) -> Optional[Run]:
+    row = get_conn().execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+    return _row_to_run(row) if row else None
+
+
+def get_run_by_idempotency(owner_id: str, idempotency_key: str) -> Optional[Run]:
+    row = get_conn().execute(
+        "SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?",
+        (owner_id, idempotency_key.strip()[:200]),
+    ).fetchone()
+    return _row_to_run(row) if row else None
+
+
+def get_run_for(run_id: str, user_id: str) -> Optional[Run]:
+    run = get_run(run_id)
+    if not run:
+        return None
+    if run.owner_id == user_id:
+        return run
+    if run.project_id and project_access_role(run.project_id, user_id) is not None:
+        return run
+    return None
+
+
+def list_runs(
+    user_id: str, *, session_id: Optional[str] = None, project_id: Optional[str] = None,
+    work_item_id: Optional[str] = None, limit: int = 100,
+) -> list[Run]:
+    clauses = ["(owner_id=? OR (project_id IS NOT NULL AND project_id IN "
+               "(SELECT project_id FROM project_members WHERE user_id=?)) OR project_id IN "
+               "(SELECT id FROM projects WHERE owner_id=?))"]
+    values: list[Any] = [user_id, user_id, user_id]
+    for column, value in (("session_id", session_id), ("project_id", project_id), ("work_item_id", work_item_id)):
+        if value:
+            clauses.append(f"{column}=?")
+            values.append(value)
+    values.append(max(1, min(int(limit), 500)))
+    rows = get_conn().execute(
+        f"SELECT * FROM runs WHERE {' AND '.join(clauses)} ORDER BY created_at DESC LIMIT ?", values
+    ).fetchall()
+    return [_row_to_run(row) for row in rows]
+
+
+def set_run_status(
+    run_id: str, status: str, *, error_code: Optional[str] = None,
+    error_message: Optional[str] = None, checkpoint: Optional[dict[str, Any]] = None,
+) -> Run:
+    run = get_run(run_id)
+    if not run:
+        raise KeyError(run_id)
+    if status not in RUN_STATUSES:
+        raise ValueError(f"invalid run status: {status}")
+    if status != run.status and status not in _RUN_TRANSITIONS[run.status]:
+        raise ValueError(f"invalid run transition: {run.status} -> {status}")
+    now = time.time()
+    ended = now if status in {"failed", "completed", "accepted", "cancelled"} else None
+    get_conn().execute(
+        """UPDATE runs SET status=?, error_code=?, error_message=?, checkpoint=?,
+           ended_at=COALESCE(?,ended_at), updated_at=? WHERE id=?""",
+        (status, error_code, error_message,
+         json.dumps(checkpoint if checkpoint is not None else run.checkpoint, ensure_ascii=False),
+         ended, now, run_id),
+    )
+    get_conn().commit()
+    return get_run(run_id)  # type: ignore[return-value]
+
+
+def update_run_runtime(
+    run_id: str, *, permission_snapshot: Optional[dict[str, Any]] = None,
+    plan: Optional[list[dict[str, Any]]] = None, prompt_tokens: Optional[int] = None,
+    completion_tokens: Optional[int] = None, tool_calls: Optional[int] = None,
+) -> Run:
+    run = get_run(run_id)
+    if not run:
+        raise KeyError(run_id)
+    get_conn().execute(
+        """UPDATE runs SET permission_snapshot=?, plan=?, prompt_tokens=?, completion_tokens=?,
+           tool_calls=?, updated_at=? WHERE id=?""",
+        (json.dumps(permission_snapshot if permission_snapshot is not None else run.permission_snapshot, ensure_ascii=False),
+         json.dumps(plan if plan is not None else run.plan, ensure_ascii=False),
+         run.prompt_tokens if prompt_tokens is None else max(0, int(prompt_tokens)),
+         run.completion_tokens if completion_tokens is None else max(0, int(completion_tokens)),
+         run.tool_calls if tool_calls is None else max(0, int(tool_calls)), time.time(), run_id),
+    )
+    get_conn().commit()
+    return get_run(run_id)  # type: ignore[return-value]
+
+
+def create_retry_run(run_id: str, owner_id: str, idempotency_key: Optional[str] = None) -> tuple[Run, bool]:
+    original = get_run(run_id)
+    if not original or original.owner_id != owner_id:
+        raise KeyError(run_id)
+    if original.status not in {"failed", "cancelled", "paused"}:
+        raise ValueError("only failed, cancelled or paused runs can be retried")
+    return create_run(
+        session_id=original.session_id, owner_id=original.owner_id, project_id=original.project_id,
+        work_item_id=original.work_item_id, mode=original.mode, workspace=original.workspace,
+        idempotency_key=idempotency_key, retry_of=original.id, status="paused",
+        permission_snapshot=original.permission_snapshot,
+    )
+
+
+def upsert_artifact(
+    *, run_id: str, path: str, full_path: Path, source_tool: str,
+    kind: str = "file", validation: Optional[dict[str, Any]] = None,
+    preview_path: Optional[str] = None,
+) -> Artifact:
+    run = get_run(run_id)
+    if not run:
+        raise KeyError(run_id)
+    if not full_path.is_file():
+        raise FileNotFoundError(full_path)
+    digest = hashlib.sha256()
+    with full_path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    now = time.time()
+    aid = new_uuid()
+    mime = mimetypes.guess_type(full_path.name)[0] or "application/octet-stream"
+    check = validation or {"exists": True, "sha256": True}
+    get_conn().execute(
+        """INSERT INTO artifacts
+           (id,run_id,owner_id,project_id,kind,path,name,mime_type,source_tool,size,sha256,
+            validation_status,validation,preview_path,acceptance_status,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(run_id,path) DO UPDATE SET
+             kind=excluded.kind,name=excluded.name,mime_type=excluded.mime_type,
+             source_tool=excluded.source_tool,size=excluded.size,sha256=excluded.sha256,
+             validation_status=excluded.validation_status,validation=excluded.validation,
+             preview_path=excluded.preview_path,acceptance_status='pending',accepted_by=NULL,
+             accepted_at=NULL,updated_at=excluded.updated_at""",
+        (aid, run_id, run.owner_id, run.project_id, kind, path, full_path.name, mime,
+         source_tool, full_path.stat().st_size, digest.hexdigest(), "passed",
+         json.dumps(check, ensure_ascii=False), preview_path, "pending", now, now),
+    )
+    get_conn().commit()
+    row = get_conn().execute("SELECT * FROM artifacts WHERE run_id=? AND path=?", (run_id, path)).fetchone()
+    return _row_to_artifact(row)
+
+
+def get_artifact(artifact_id: str) -> Optional[Artifact]:
+    row = get_conn().execute("SELECT * FROM artifacts WHERE id=?", (artifact_id,)).fetchone()
+    return _row_to_artifact(row) if row else None
+
+
+def get_artifact_for(artifact_id: str, user_id: str) -> Optional[Artifact]:
+    artifact = get_artifact(artifact_id)
+    return artifact if artifact and get_run_for(artifact.run_id, user_id) else None
+
+
+def list_artifacts(run_id: str) -> list[Artifact]:
+    rows = get_conn().execute(
+        "SELECT * FROM artifacts WHERE run_id=? ORDER BY created_at DESC", (run_id,)
+    ).fetchall()
+    return [_row_to_artifact(row) for row in rows]
+
+
+def review_artifact(artifact_id: str, status: str, actor_id: str) -> Artifact:
+    if status not in {"accepted", "rejected", "pending"}:
+        raise ValueError("invalid artifact acceptance status")
+    now = time.time()
+    get_conn().execute(
+        """UPDATE artifacts SET acceptance_status=?, accepted_by=?, accepted_at=?, updated_at=?
+           WHERE id=?""",
+        (status, actor_id if status != "pending" else None,
+         now if status != "pending" else None, now, artifact_id),
+    )
+    get_conn().commit()
+    artifact = get_artifact(artifact_id)
+    if not artifact:
+        raise KeyError(artifact_id)
+    if status == "accepted":
+        remaining = get_conn().execute(
+            "SELECT COUNT(*) AS n FROM artifacts WHERE run_id=? AND acceptance_status!='accepted'",
+            (artifact.run_id,),
+        ).fetchone()["n"]
+        run = get_run(artifact.run_id)
+        if remaining == 0 and run and run.status == "completed":
+            set_run_status(run.id, "accepted")
+    return artifact
 
 
 # ---- messages -----------------------------------------------------------

@@ -23,6 +23,8 @@ export interface ChatStreamOptions {
   connectors?: string[]
   knowledgeIds?: string[]
   refs?: { name: string; content: string; kind?: 'file' | 'todo'; itemId?: string }[]
+  idempotencyKey?: string
+  retryOf?: string
   signal?: AbortSignal
   onEvent: (ev: SSEEvent) => void
 }
@@ -53,6 +55,8 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
         connectors: opts.connectors,
         knowledge_ids: opts.knowledgeIds,
         refs: opts.refs,
+        idempotency_key: opts.idempotencyKey,
+        retry_of: opts.retryOf,
       }),
       signal: opts.signal,
     })

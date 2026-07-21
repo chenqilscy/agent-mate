@@ -85,7 +85,18 @@ export interface TodoEvent { text: string }
 export interface TextEvent { md: string }
 export interface AskUserEvent { questions: AskQuestion[] }
 export interface QaSummaryEvent { qa: QaPair[] }
-export interface ArtifactEvent { name: string; size: string; path: string }
+export type RunStatus = 'draft' | 'planning' | 'waiting_approval' | 'running' | 'paused' | 'failed' | 'completed' | 'accepted' | 'cancelled'
+export interface ArtifactEvent {
+  id?: string
+  run_id?: string
+  name: string
+  size: string
+  path: string
+  sha256?: string
+  mime_type?: string
+  acceptance_status?: 'pending' | 'accepted' | 'rejected'
+}
+export interface RunEvent { run: AgentRun }
 export interface WorkItemEvent { item: { id: string; project_id: string; status: WorkStatus; title: string } }
 export interface UsageEvent { pct: number; used: number; detail: Record<string, number> }
 export interface ErrorEvent { message: string }
@@ -98,6 +109,7 @@ export interface QaPair { q: string; a: string }
 export type SSEEvent =
   | { type: 'session'; data: SessionEvent }
   | { type: 'status'; data: StatusEvent }
+  | { type: 'run'; data: RunEvent }
   | { type: 'think'; data: ThinkEvent }
   | { type: 'step'; data: StepEvent }
   | { type: 'file_read'; data: FileReadEvent }
@@ -121,6 +133,7 @@ export type TraceItem =
   | { kind: 'diff'; op: string; file: string; add: number; del: number }
   | { kind: 'todo'; text: string }
   | { kind: 'qa'; qa: QaPair[] }
+  | { kind: 'artifact'; artifact: ArtifactEvent }
 
 // ---- domain ---------------------------------------------------------------
 
@@ -133,6 +146,57 @@ export interface ChatMessage {
   secs?: number
   usage?: { prompt: number; completion: number } | null
   error?: string
+  runId?: string
+  artifacts?: ArtifactEvent[]
+}
+
+export interface ArtifactManifest {
+  id: string
+  run_id: string
+  owner_id: string
+  project_id?: string | null
+  kind: string
+  path: string
+  name: string
+  mime_type: string
+  source_tool: string
+  size: number
+  sha256: string
+  validation_status: string
+  validation: Record<string, unknown>
+  preview_path?: string | null
+  acceptance_status: 'pending' | 'accepted' | 'rejected'
+  accepted_by?: string | null
+  accepted_at?: number | null
+  created_at: number
+  updated_at: number
+  verification?: { exists: boolean; hash_matches: boolean }
+}
+
+export interface AgentRun {
+  id: string
+  session_id: string
+  owner_id: string
+  project_id?: string | null
+  work_item_id?: string | null
+  mode: 'ask' | 'plan' | 'exec'
+  status: RunStatus
+  workspace: string
+  idempotency_key?: string | null
+  retry_of?: string | null
+  plan: { text: string; [key: string]: unknown }[]
+  permission_snapshot: Record<string, unknown>
+  checkpoint: Record<string, unknown>
+  error_code?: string | null
+  error_message?: string | null
+  prompt_tokens: number
+  completion_tokens: number
+  tool_calls: number
+  started_at?: number | null
+  ended_at?: number | null
+  created_at: number
+  updated_at: number
+  artifacts?: ArtifactManifest[]
 }
 
 export interface SessionInfo {

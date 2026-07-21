@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentSettings, AppNotification, AppSettings, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -166,6 +166,20 @@ export const api = {
 
   getMessages: (id: string) =>
     get<{ session: SessionInfo; messages: RawMessage[] }>(`/sessions/${id}/messages`),
+
+  listRuns: (filters?: { sessionId?: string; projectId?: string; workItemId?: string }) => {
+    const query = new URLSearchParams()
+    if (filters?.sessionId) query.set('session_id', filters.sessionId)
+    if (filters?.projectId) query.set('project_id', filters.projectId)
+    if (filters?.workItemId) query.set('work_item_id', filters.workItemId)
+    return get<{ runs: AgentRun[] }>(`/runs${query.size ? `?${query}` : ''}`)
+  },
+  getRun: (id: string) => get<AgentRun>(`/runs/${id}`),
+  listRunArtifacts: (id: string) => get<{ artifacts: ArtifactManifest[] }>(`/runs/${id}/artifacts`),
+  reviewArtifact: (id: string, status: 'accepted' | 'rejected' | 'pending') =>
+    send<ArtifactManifest>('POST', `/artifacts/${id}/review`, { status }),
+  retryRun: (id: string, idempotencyKey?: string) =>
+    send<{ run: AgentRun; created: boolean }>('POST', `/runs/${id}/retry`, { idempotency_key: idempotencyKey }),
 
   renameSession: (id: string, title: string) =>
     send<{ ok: boolean }>('PATCH', `/sessions/${id}`, { title }),

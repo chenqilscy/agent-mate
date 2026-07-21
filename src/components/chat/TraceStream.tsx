@@ -61,6 +61,14 @@ export function TraceStream({ trace, streaming }: { trace: TraceItem[]; streamin
                 </div>
               </div>
             )
+          case 'artifact':
+            return (
+              <div key={i} className={`step ${cur ? 'cur' : ''}`.trim()}>
+                {IC_PEN}<span className="op">交付</span>
+                <a onClick={(e) => { e.preventDefault(); openFile(t.artifact.path) }}>{t.artifact.name}</a>
+                <span className="rng">{t.artifact.acceptance_status === 'accepted' ? '已验收' : '待验收'}</span>
+              </div>
+            )
           default:
             return null
         }

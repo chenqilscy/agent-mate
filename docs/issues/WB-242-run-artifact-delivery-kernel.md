@@ -3,7 +3,7 @@ id: WB-242
 title: Session 执行缺少独立 Run 与可验收 Artifact 交付内核
 severity: P1
 area: fullstack
-status: open
+status: fixed
 origin: WB-239 R1
 files:
   - backend/storage/db.py:134
@@ -46,3 +46,19 @@ P1：WB-239 的任务交付主线没有真实领域对象，办公文件、自�
 - Artifact 可按 accept/reject 验收，Viewer 只读，其他 owner/project 无法读取或修改；
 - Run 失败保存结构化原因并可重试为新 Run，保留 `retry_of` 关系；
 - 后端回归、前端类型检查、生产构建和真 API 请求通过，不依赖伪造 LLM 输出。
+
+## 处理记录（2026-07-21）
+
+- 数据与契约：新增本地权威 `runs` / `artifacts`，落实 Run 生命周期、owner 级幂等键、重试来源、
+  workspace、WorkItem 关联、权限/loadout 快照、计划、checkpoint、错误、token 与工具调用统计；
+  Artifact manifest 持久化 MIME、大小、SHA-256、校验和验收状态。
+- 执行链路：每次真实 `run_chat` 创建独立 Run；等待人工输入、错误、断流、停止和完成均推进结构化状态；
+  `write_file` 的真实输出登记 Artifact，并通过新增 `run` / 扩展 `artifact` SSE 同步到前端 trace。
+- API 与权限：新增 Run 查询、Artifact 校验/验收和失败 Run 重试 API；个人 Run 仅 owner 可见，项目成员可读，
+  Viewer 不可验收；全部 Artifact 接口实时复核文件存在性、大小与哈希。
+- 自动验证：新增 6 项离线回归，覆盖幂等、非法状态迁移、指标、Artifact 更新与验收、重试关系、项目隔离、
+  Viewer 门禁及 mock LLM→真 `write_file`→SSE/DB 全链；全量 regression 45/45、`tsc --noEmit`、
+  Python compile 与 Vite 生产构建通过。
+- 真机验收：硬重启 `:8101` 后，真实 LLM 会话完成且相同 idempotency key 重放保持 1 Run/2 messages；
+  真实 LLM 调用 `write_file` 产生 1 个 Artifact，API 复核 exists/hash_matches 均为 true，验收后
+  Artifact/Run 分别进入 accepted；专用临时会话与文件均已清理。

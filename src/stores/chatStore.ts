@@ -158,6 +158,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
             })
           }
           break
+        case 'run':
+          patchBot((m) => ({ ...m, runId: ev.data.run.id }))
+          break
         case 'text':
           patchBot((m) => ({ ...m, content: m.content + ev.data.md }))
           break
@@ -187,6 +190,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
           break
         case 'todo':
           patchBot((m) => ({ ...m, trace: [...m.trace, { kind: 'todo', text: ev.data.text }] }))
+          break
+        case 'artifact':
+          patchBot((m) => ({
+            ...m,
+            artifacts: [...(m.artifacts ?? []), ev.data],
+            trace: [...m.trace, { kind: 'artifact', artifact: ev.data }],
+          }))
           break
         case 'ask_user':
           set({ pending: { questions: ev.data.questions } })

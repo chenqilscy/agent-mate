@@ -40,7 +40,7 @@ from agent import scheduler, skills as agent_skills, telemetry
 from auth.middleware import AuthMiddleware
 from channels import manager as channel_manager
 from config import FROZEN, settings
-from routers import asr, auth, automations, catalog, channels, chat, data, experts, files, server, kdocs, knowledge, me, memory, milestones, models, notifications, prefs, projects, security, sessions, skills, work_items
+from routers import asr, auth, automations, catalog, channels, chat, data, experts, files, server, kdocs, knowledge, me, memory, milestones, models, notifications, prefs, projects, runs, security, sessions, skills, work_items
 from storage import db
 
 app = FastAPI(title="AgentMate API", version="1.0.0")
@@ -153,6 +153,7 @@ app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(models.router)
 app.include_router(sessions.router)
+app.include_router(runs.router)
 app.include_router(chat.router)
 app.include_router(files.router)
 app.include_router(projects.router)

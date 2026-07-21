@@ -24,7 +24,7 @@ from agent.experts import expert_for
 from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
 from agent.mcp_client import call_mcp, mcp_schema, open_connectors
-from agent.sandbox import current_root, use_root, workspace_root
+from agent.sandbox import current_root, resolve_in_sandbox, use_root, workspace_root
 from agent.skills import canonical_skill_keys, skill_def, skill_display_name
 from agent.tools import (
     ASK_USER_SCHEMA,
@@ -193,6 +193,12 @@ def _trace_to_sse(item: dict[str, Any]) -> str:
         return events.todo(item["text"])
     if k == "qa":
         return events.qa_summary(item["qa"])
+    if k == "artifact":
+        return events.artifact(
+            item["name"], item["size"], item["path"], artifact_id=item["id"],
+            run_id=item["run_id"], sha256=item["sha256"], mime_type=item["mime_type"],
+            acceptance_status=item.get("acceptance_status", "pending"),
+        )
     return ""
 
 
@@ -235,6 +241,8 @@ async def run_chat(
     refs: list[dict] | None = None,
     system_extra: str | None = None,
     workspace: str | None = None,
+    idempotency_key: str | None = None,
+    retry_of: str | None = None,
 ) -> AsyncIterator[str]:
     """Trace one user turn, delegating the unchanged SSE loop to the inner runner."""
     mode = "ask" if ask else ("plan" if plan else "exec")
@@ -255,6 +263,7 @@ async def run_chat(
             experts=experts, skills=skills, connectors=connectors,
             knowledge_ids=knowledge_ids, refs=refs,
             system_extra=system_extra, workspace=workspace,
+            idempotency_key=idempotency_key, retry_of=retry_of,
             chat_trace=chat_trace,
         ):
             yield chunk
@@ -275,6 +284,8 @@ async def _run_chat_inner(
     refs: list[dict] | None = None,
     system_extra: str | None = None,
     workspace: str | None = None,
+    idempotency_key: str | None = None,
+    retry_of: str | None = None,
     chat_trace: telemetry.Observation,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
@@ -431,10 +442,33 @@ async def _run_chat_inner(
         llm_user_text = "\n\n".join(blocks) + "\n\n---\n\n" + user_text
 
     llm_messages = _build_llm_messages(session_id, llm_user_text, system_prompt)
+    work_item_id = next(
+        (str(ref.get("itemId")) for ref in (refs or []) if ref.get("kind") == "todo" and ref.get("itemId")),
+        None,
+    )
+    try:
+        workspace_key = str(current_root().resolve().relative_to(settings.WORKSPACE_ROOT.resolve())).replace("\\", "/")
+    except ValueError:
+        workspace_key = "default"
+    run, created = db.create_run(
+        session_id=session_id, owner_id=user.id, project_id=session.project_id,
+        work_item_id=work_item_id, mode="ask" if ask else ("plan" if plan else "exec"),
+        workspace=workspace_key, idempotency_key=idempotency_key, retry_of=retry_of,
+        permission_snapshot={
+            "mode": "ask" if ask else ("plan" if plan else "exec"),
+            "experts": active_experts, "skills": active_skills,
+            "connectors": active_connectors, "knowledge_ids": active_knowledge,
+        },
+    )
+    run_id = run.id
+    if not created:
+        yield events.run(run.to_dict())
+        yield events.done()
+        return
+
     db.add_message(session_id=session_id, role="user", content=user_text, actor=user.id)
     db.touch_session(session_id, status="running")
 
-    run_id = db.new_uuid()
     stop = asyncio.Event()
     _register_run(session_id, run_id, stop)
     finished_ok = False  # set once the run reaches its normal 'done' (WB-012)
@@ -445,6 +479,7 @@ async def _run_chat_inner(
     total_completion = 0
     stopped = False
     schemas: list[dict[str, Any]] = []
+    tool_call_count = 0
     t0 = time.time()
 
     def record(item: dict[str, Any]) -> str:
@@ -470,6 +505,7 @@ async def _run_chat_inner(
     # MCP servers are closed, never leaked (WB-012, plus the mcp_stack-outside-try
     # leak noted in WB-023).
     try:
+        yield events.run(run.to_dict())
         yield events.status("running")
 
         # Active toolset. Ask mode = no tools (pure Q&A). Otherwise base
@@ -511,6 +547,14 @@ async def _run_chat_inner(
             [t.schema() for t in active_tools.values()]
             + [mcp_schema(t) for t in mcp_tools]
             + ([] if ask else [ASK_USER_SCHEMA])
+        )
+        db.update_run_runtime(
+            run_id,
+            permission_snapshot={
+                **run.permission_snapshot,
+                "tools": sorted(active_tools),
+                "mcp_tools": sorted(mcp_by_name),
+            },
         )
 
         # Show the loadout so the persona / skills / connectors that shaped this
@@ -644,6 +688,7 @@ async def _run_chat_inner(
                     args = {}
 
                 if name == "ask_user":
+                    tool_call_count += 1
                     with telemetry.tool_observation(
                         name="ask_user",
                         arguments={
@@ -667,10 +712,13 @@ async def _run_chat_inner(
                         _answers[run_id] = {"ev": ev, "answers": None}
                         yield events.ask_user(questions)
                         db.touch_session(session_id, status="waiting")
+                        db.set_run_status(run_id, "waiting_approval")
                         await ev.wait()
                         pending = _answers.pop(run_id, None)
                         answers = (pending or {}).get("answers")
                         db.touch_session(session_id, status="running")
+                        if not stop.is_set() and answers is not None:
+                            db.set_run_status(run_id, "running")
                         if stop.is_set() or answers is None:
                             stopped = True
                             tool_trace.update(output={"status": "cancelled"})
@@ -687,6 +735,7 @@ async def _run_chat_inner(
                     continue
 
                 if name in mcp_by_name:
+                    tool_call_count += 1
                     mt = mcp_by_name[name]
                     yield record({"kind": "step", "tool": mt.orig, "label": f"[{mt.connector}] {mt.orig}"})
                     with telemetry.tool_observation(
@@ -706,6 +755,7 @@ async def _run_chat_inner(
                     pre = tool.pre(args)
                     if pre:
                         yield record(pre)
+                tool_call_count += 1
                 # Run the (synchronous) tool off the event loop so a long
                 # subprocess / web_fetch / file IO can't freeze every other SSE
                 # stream or block /stop for its whole timeout (WB-002). to_thread
@@ -717,6 +767,22 @@ async def _run_chat_inner(
                     tool_trace.update(output=outcome.text)
                 for it in outcome.trace:
                     yield record(it)
+                for descriptor in outcome.artifacts:
+                    path = descriptor.get("path", "")
+                    try:
+                        target = resolve_in_sandbox(path)
+                        artifact = db.upsert_artifact(
+                            run_id=run_id, path=path, full_path=target,
+                            source_tool=name, kind=descriptor.get("kind", "file"),
+                        )
+                    except (FileNotFoundError, PermissionError, ValueError):
+                        continue
+                    yield record({
+                        "kind": "artifact", "id": artifact.id, "run_id": run_id,
+                        "name": artifact.name, "size": str(artifact.size), "path": artifact.path,
+                        "sha256": artifact.sha256, "mime_type": artifact.mime_type,
+                        "acceptance_status": artifact.acceptance_status,
+                    })
                 # Transient live events (WB-031: kanban sync) — emitted, not recorded,
                 # so history replay never re-fires a stale state change.
                 for ev in outcome.live:
@@ -735,6 +801,8 @@ async def _run_chat_inner(
         )
         yield events.error(str(e))
         mid = _persist_partial()  # 保留已流式的半截回复（WB-160）
+        db.update_run_runtime(run_id, prompt_tokens=last_prompt, completion_tokens=total_completion, tool_calls=tool_call_count)
+        db.set_run_status(run_id, "failed", error_code="llm_error", error_message=str(e))
         db.touch_session(session_id, status="idle")
         finished_ok = True  # status settled; don't let finally override it
         yield events.done(mid)
@@ -746,6 +814,8 @@ async def _run_chat_inner(
         )
         yield events.error(f"执行出错：{e}")
         mid = _persist_partial()  # 保留已流式的半截回复（WB-160）
+        db.update_run_runtime(run_id, prompt_tokens=last_prompt, completion_tokens=total_completion, tool_calls=tool_call_count)
+        db.set_run_status(run_id, "failed", error_code="runtime_error", error_message=str(e))
         db.touch_session(session_id, status="idle")
         finished_ok = True
         yield events.done(mid)
@@ -757,6 +827,12 @@ async def _run_chat_inner(
         # session 'idle' instead of a phantom 'running'/'waiting' (WB-012).
         if not finished_ok:
             db.touch_session(session_id, status="idle")
+            current_run = db.get_run(run_id)
+            if current_run and current_run.status in {"planning", "running", "waiting_approval"}:
+                try:
+                    db.set_run_status(run_id, "paused", checkpoint={"reason": "stream_disconnected"})
+                except ValueError:
+                    db.set_run_status(run_id, "cancelled", error_code="stream_disconnected")
         if mcp_stack is not None:
             try:
                 await mcp_stack.aclose()  # terminate connector MCP servers
@@ -780,6 +856,13 @@ async def _run_chat_inner(
             usage={"prompt": last_prompt, "completion": total_completion},
         )
         message_id = msg.id
+
+    db.update_run_runtime(
+        run_id,
+        plan=[{"text": item["text"]} for item in trace_items if item.get("kind") == "todo"],
+        prompt_tokens=last_prompt, completion_tokens=total_completion, tool_calls=tool_call_count,
+    )
+    db.set_run_status(run_id, "cancelled" if stopped else "completed")
 
     chat_trace.update(
         output={"content": assistant_text, "stopped": stopped},

@@ -42,6 +42,9 @@ class ToolOutcome:
     text: str
     trace: list[dict[str, Any]] = field(default_factory=list)
     live: list[dict[str, Any]] = field(default_factory=list)
+    # Files truthfully produced by this tool. Runtime turns these descriptors into
+    # hashed Artifact manifests tied to the active Run (WB-242).
+    artifacts: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -151,6 +154,7 @@ def _write_file_run(args: dict[str, Any]) -> ToolOutcome:
     return ToolOutcome(
         text=f"已{op} {relpath(target)}（+{added} -{deleted}）",
         trace=[{"kind": "diff", "op": op, "file": relpath(target), "add": added, "del": deleted}],
+        artifacts=[{"path": relpath(target), "kind": "file"}],
     )
 
 

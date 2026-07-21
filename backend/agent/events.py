@@ -26,6 +26,11 @@ def status(state: str, secs: int | None = None) -> str:
     return sse("status", d)
 
 
+def run(item: dict[str, Any]) -> str:
+    """Stable execution identity/lifecycle, separate from its Session (WB-242)."""
+    return sse("run", {"run": item})
+
+
 def think(text: str = "深度思考") -> str:
     return sse("think", {"text": text})
 
@@ -60,8 +65,18 @@ def qa_summary(qa: list[dict[str, Any]]) -> str:
     return sse("qa_summary", {"qa": qa})
 
 
-def artifact(name: str, size: str, path: str) -> str:
-    return sse("artifact", {"name": name, "size": size, "path": path})
+def artifact(
+    name: str, size: str, path: str, *, artifact_id: str | None = None,
+    run_id: str | None = None, sha256: str | None = None,
+    mime_type: str | None = None, acceptance_status: str = "pending",
+) -> str:
+    data: dict[str, Any] = {"name": name, "size": size, "path": path}
+    if artifact_id:
+        data.update({
+            "id": artifact_id, "run_id": run_id, "sha256": sha256,
+            "mime_type": mime_type, "acceptance_status": acceptance_status,
+        })
+    return sse("artifact", data)
 
 
 def work_item(item: dict[str, Any]) -> str:
