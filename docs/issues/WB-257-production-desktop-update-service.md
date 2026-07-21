@@ -3,7 +3,7 @@ id: WB-257
 title: 桌面更新仍是占位 endpoint，缺少可配置发布服务、灰度回滚和真实入口
 severity: P1
 area: fullstack
-status: open
+status: in-progress
 origin: WB-239 R4
 files:
   - src-tauri/src/lib.rs:1
@@ -45,3 +45,11 @@ P1：二进制能力不能安全运营，Skill/Tool 兼容门禁缺少真实客�
 - 非 HTTPS 自定义 endpoint 被桌面层拒绝，签名错误不能安装；Web 不显示假更新成功；
 - App 可手动检查并显示真实状态，启动自动检查去重且失败不阻塞使用；
 - Server/API、Rust、TypeScript、生产构建及本地签名 manifest 演练通过。
+
+## 处理记录（2026-07-21，进行中）
+
+- 已实现 Server 不可变 release、目标平台产物、stable/beta 通道、稳定设备分桶、最低版本、暂停、显式签名回滚和匿名失败遥测。
+- 已实现 Tauri 受控 HTTPS endpoint、updater 签名校验链、每日自动检查去重，以及设置中心的通道、端点、手工检查、下载安装和真实状态展示；Web 明确不支持桌面更新。
+- 已加入 release manifest 校验脚本与部署文档，私钥和 Windows 代码签名证书只允许由 CI/证书库注入。
+- 本地验证通过：4 个 Server 更新服务测试、`cargo check --manifest-path src-tauri/Cargo.toml`、TypeScript、Vite 生产构建和 release manifest 负向门禁。
+- 尚未关闭：仓库与当前环境没有生产 HTTPS updater artifact、对应 `.sig`/Tauri 私钥、可信 Windows 代码签名证书及上一可安装版本。必须由部署方提供这些外部输入，并在真机完成“旧版安装 → 灰度升级 → 签名错误拒绝 → 暂停/回滚到上一签名版”后才能把本 issue 标为 `fixed`。
