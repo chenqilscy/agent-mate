@@ -138,7 +138,7 @@
 | [WB-115](WB-115-pm-workload-task-comments.md) | ✅ | P2 | fullstack | PM 细化之三 协作联动 —— 按负责人工作量视图(前端聚合) + 任务级评论(Server comments 加 work_item_id + 任务级端点 + 控制台抽屉评论区) |
 | [WB-114](WB-114-pm-task-templates-inline-edit.md) | ✅ | P2 | frontend | PM 细化之二（纯前端）任务模板 + 列表内联编辑(状态/优先级/负责人/里程碑点选即改) + 子任务进度条；依赖/自定义字段/附件需后端另设计 |
 | [WB-113](WB-113-pm-board-view-enhancements.md) | ✅ | P2 | frontend | PM 细化之一 看板/视图增强 —— 泳道分组(按负责人/里程碑) + 列 WIP 上限(超限标红·localStorage) + 保存的筛选视图 + 列表批量操作(改状态/负责人/里程碑/删除)；纯前端 console，续 pm- 前缀 |
-| [WB-112](WB-112-manager-positioning-data-spec.md) | 🟡 | P1 | fullstack | AgentMate Manager（Console 管理端）定位 epic —— a/b/c 已核实；d 动态回读与 e `id+updated_at` 冲突安全镜像已完成；f 已交付任务模板等连续切片，自定义字段、依赖/关键路径、Sprint/燃尽、PM 导出仍待做，保持 in-progress |
+| [WB-112](WB-112-manager-positioning-data-spec.md) | ✅ | P1 | fullstack | AgentMate Manager 定位 epic a～f 全部完成：数据分层、统一身份、写代理、动态回读、冲突安全镜像，以及模板、自定义字段、依赖关键路径、Sprint/燃尽和 PM 导出 |
 | [WB-111](WB-111-portal-pm-workspace-redesign.md) | ✅ | P1 | frontend | BuddyWebMgr 门户项目管理专业化重构 —— 项目详情改标签页工作台(概览/任务/协作/配置) + Linear 风看板/列表/甘特(统计条·进度条·列容器·富卡片·头像·逾期高亮·今天线)；纯前端消费既有 WB-104/105 API，Server :8100 四 tab×三视图 CDP 实测+拖拽真落库，0 报错 |
 | [WB-124](WB-124-model-management-custom-models.md) | ✅ | P2 | fullstack | 模型管理 —— 自定义模型全栈（多厂商 base/key、DB 按用户隔离、内置项可隐藏、切换真生效）：底部模型下拉「配置自定义模型」落地 + resolve 按 owner 路由到各厂商 base/key |
 | [WB-125](WB-125-merge-skillhub-into-skills-tab.md) | ✅ | P2 | frontend | 目录运营中心「SkillHub」顶层 tab 与「技能」tab 冗余 —— 把顶层 SkillHub 降为「技能」的第三子视图（浏览橱窗｜目录管理｜SkillHub 同步），与「连接器」范式对齐，顶层 5→4 tab（console.html 纯前端） |

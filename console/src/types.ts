@@ -174,10 +174,37 @@ export interface WorkItem {
   milestone_id: string;
   estimate_h: number;
   spent_h: number;
+  custom_fields: Record<string, string | number | boolean>;
+  dependency_ids: string[];
+  sprint_id: string;
+  critical_path?: boolean;
   sort?: number;
   created_at?: number;
   updated_at?: number;
 }
+
+export interface ProjectCustomField {
+  id: string;
+  project_id: string;
+  name: string;
+  field_type: "text" | "number" | "date" | "select" | "boolean";
+  options: string[];
+  required: boolean;
+  sort: number;
+}
+
+export interface Sprint {
+  id: string;
+  project_id: string;
+  name: string;
+  goal: string;
+  start_date: string;
+  end_date: string;
+  status: "planned" | "active" | "closed";
+  sort: number;
+}
+
+export interface BurndownPoint { date: string; ideal_remaining: number; actual_remaining: number }
 
 export interface Milestone {
   id: string;

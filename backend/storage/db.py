@@ -297,6 +297,9 @@ def init_db() -> None:
             milestone_id TEXT NOT NULL DEFAULT '',
             estimate_h REAL NOT NULL DEFAULT 0,
             spent_h REAL NOT NULL DEFAULT 0,
+            custom_fields TEXT NOT NULL DEFAULT '{}',
+            dependency_ids TEXT NOT NULL DEFAULT '[]',
+            sprint_id TEXT NOT NULL DEFAULT '',
             server_updated_at REAL NOT NULL DEFAULT 0,
             server_dirty INTEGER NOT NULL DEFAULT 0
         );
@@ -859,6 +862,9 @@ def _migrate_columns() -> None:
         ("milestone_id", "milestone_id TEXT NOT NULL DEFAULT ''"),
         ("estimate_h", "estimate_h REAL NOT NULL DEFAULT 0"),   # WB-117 工时对齐
         ("spent_h", "spent_h REAL NOT NULL DEFAULT 0"),
+        ("custom_fields", "custom_fields TEXT NOT NULL DEFAULT '{}'"),
+        ("dependency_ids", "dependency_ids TEXT NOT NULL DEFAULT '[]'"),
+        ("sprint_id", "sprint_id TEXT NOT NULL DEFAULT ''"),
         ("server_updated_at", "server_updated_at REAL NOT NULL DEFAULT 0"),
         ("server_dirty", "server_dirty INTEGER NOT NULL DEFAULT 0"),
     ):
@@ -3198,6 +3204,14 @@ def _row_to_work_item(r: sqlite3.Row) -> WorkItem:
         labels = json.loads(r["labels"]) if "labels" in keys and r["labels"] else []
     except (json.JSONDecodeError, TypeError):
         labels = []
+    try:
+        custom_fields = json.loads(r["custom_fields"]) if "custom_fields" in keys and r["custom_fields"] else {}
+    except (json.JSONDecodeError, TypeError):
+        custom_fields = {}
+    try:
+        dependency_ids = json.loads(r["dependency_ids"]) if "dependency_ids" in keys and r["dependency_ids"] else []
+    except (json.JSONDecodeError, TypeError):
+        dependency_ids = []
     return WorkItem(
         id=r["id"], project_id=r["project_id"], owner_id=r["owner_id"], title=r["title"],
         status=r["status"], source=r["source"], assignee=r["assignee"],
@@ -3212,6 +3226,9 @@ def _row_to_work_item(r: sqlite3.Row) -> WorkItem:
         milestone_id=r["milestone_id"] if "milestone_id" in keys and r["milestone_id"] else "",
         estimate_h=float(r["estimate_h"]) if "estimate_h" in keys and r["estimate_h"] is not None else 0.0,
         spent_h=float(r["spent_h"]) if "spent_h" in keys and r["spent_h"] is not None else 0.0,
+        custom_fields=custom_fields if isinstance(custom_fields, dict) else {},
+        dependency_ids=dependency_ids if isinstance(dependency_ids, list) else [],
+        sprint_id=r["sprint_id"] if "sprint_id" in keys and r["sprint_id"] else "",
     )
 
 
@@ -3222,6 +3239,8 @@ def create_work_item(
     priority: str = "", start_date: Optional[str] = None,
     labels: Optional[list] = None, parent_id: str = "", milestone_id: str = "",
     estimate_h: float = 0.0, spent_h: float = 0.0,
+    custom_fields: Optional[dict] = None, dependency_ids: Optional[list[str]] = None,
+    sprint_id: str = "",
 ) -> WorkItem:
     now = time.time()
     wi = WorkItem(
@@ -3232,16 +3251,18 @@ def create_work_item(
         priority=priority, start_date=start_date, labels=labels or [],
         parent_id=parent_id, milestone_id=milestone_id,
         estimate_h=estimate_h or 0.0, spent_h=spent_h or 0.0,
+        custom_fields=custom_fields or {}, dependency_ids=dependency_ids or [], sprint_id=sprint_id,
     )
     get_conn().execute(
         """INSERT INTO work_items
            (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at,description,due_date,attachments,
-            priority,start_date,labels,parent_id,milestone_id,estimate_h,spent_h)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            priority,start_date,labels,parent_id,milestone_id,estimate_h,spent_h,custom_fields,dependency_ids,sprint_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (wi.id, wi.project_id, wi.owner_id, wi.title, wi.status, wi.source, wi.assignee,
          wi.created_at, wi.updated_at, wi.description, wi.due_date, json.dumps(wi.attachments, ensure_ascii=False),
          wi.priority, wi.start_date, json.dumps(wi.labels, ensure_ascii=False), wi.parent_id, wi.milestone_id,
-         wi.estimate_h, wi.spent_h),
+         wi.estimate_h, wi.spent_h, json.dumps(wi.custom_fields, ensure_ascii=False),
+         json.dumps(wi.dependency_ids, ensure_ascii=False), wi.sprint_id),
     )
     get_conn().commit()
     return wi
@@ -3273,18 +3294,23 @@ def mirror_server_work_items(project_id: str, items: list[dict]) -> None:
             "labels": labels if isinstance(labels, list) else [], "parent_id": it.get("parent_id", ""),
             "milestone_id": it.get("milestone_id", ""), "estimate_h": float(it.get("estimate_h") or 0),
             "spent_h": float(it.get("spent_h") or 0),
+            "custom_fields": it.get("custom_fields") if isinstance(it.get("custom_fields"), dict) else {},
+            "dependency_ids": it.get("dependency_ids") if isinstance(it.get("dependency_ids"), list) else [],
+            "sprint_id": it.get("sprint_id", ""),
         }
         local = conn.execute("SELECT * FROM work_items WHERE id=?", (item_id,)).fetchone()
         if local is None:
             conn.execute(
                 """INSERT INTO work_items
                    (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at,description,due_date,attachments,
-                    priority,start_date,labels,parent_id,milestone_id,estimate_h,spent_h,server_updated_at,server_dirty)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
+                    priority,start_date,labels,parent_id,milestone_id,estimate_h,spent_h,custom_fields,dependency_ids,sprint_id,server_updated_at,server_dirty)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
                 (item_id, project_id, "", remote["title"], remote["status"], remote["source"], remote["assignee"],
                  float(it.get("created_at") or remote_ts), remote_ts, remote["description"], remote["due_date"], "[]",
                  remote["priority"], remote["start_date"], json.dumps(remote["labels"], ensure_ascii=False),
-                 remote["parent_id"], remote["milestone_id"], remote["estimate_h"], remote["spent_h"], remote_ts),
+                 remote["parent_id"], remote["milestone_id"], remote["estimate_h"], remote["spent_h"],
+                 json.dumps(remote["custom_fields"], ensure_ascii=False),
+                 json.dumps(remote["dependency_ids"], ensure_ascii=False), remote["sprint_id"], remote_ts),
             )
             _clear_server_conflict("work_item", item_id, commit=False)
             continue
@@ -3294,6 +3320,8 @@ def mirror_server_work_items(project_id: str, items: list[dict]) -> None:
             "priority": local["priority"], "start_date": local["start_date"], "labels": _json_list(local["labels"]),
             "parent_id": local["parent_id"], "milestone_id": local["milestone_id"],
             "estimate_h": float(local["estimate_h"] or 0), "spent_h": float(local["spent_h"] or 0),
+            "custom_fields": json.loads(local["custom_fields"] or "{}"),
+            "dependency_ids": _json_list(local["dependency_ids"]), "sprint_id": local["sprint_id"],
         }
         baseline = float(local["server_updated_at"] or 0)
         dirty = bool(local["server_dirty"])
@@ -3309,12 +3337,13 @@ def mirror_server_work_items(project_id: str, items: list[dict]) -> None:
         else:
             conn.execute(
                 """UPDATE work_items SET title=?,status=?,source=?,assignee=?,updated_at=?,description=?,due_date=?,
-                   priority=?,start_date=?,labels=?,parent_id=?,milestone_id=?,estimate_h=?,spent_h=?,
+                   priority=?,start_date=?,labels=?,parent_id=?,milestone_id=?,estimate_h=?,spent_h=?,custom_fields=?,dependency_ids=?,sprint_id=?,
                    server_updated_at=?,server_dirty=0 WHERE id=?""",
                 (remote["title"], remote["status"], remote["source"], remote["assignee"], remote_ts,
                  remote["description"], remote["due_date"], remote["priority"], remote["start_date"],
                  json.dumps(remote["labels"], ensure_ascii=False), remote["parent_id"], remote["milestone_id"],
-                 remote["estimate_h"], remote["spent_h"], remote_ts, item_id),
+                 remote["estimate_h"], remote["spent_h"], json.dumps(remote["custom_fields"], ensure_ascii=False),
+                 json.dumps(remote["dependency_ids"], ensure_ascii=False), remote["sprint_id"], remote_ts, item_id),
             )
             _clear_server_conflict("work_item", item_id, commit=False)
     for local in conn.execute("SELECT * FROM work_items WHERE project_id=?", (project_id,)).fetchall():
@@ -3350,11 +3379,13 @@ def update_work_item(
     clear_start_date: bool = False, labels: Optional[list] = None,
     parent_id: Optional[str] = None, milestone_id: Optional[str] = None,
     estimate_h: Optional[float] = None, spent_h: Optional[float] = None,
+    custom_fields: Optional[dict] = None, dependency_ids: Optional[list[str]] = None,
+    sprint_id: Optional[str] = None,
 ) -> Optional[WorkItem]:
     sets, vals = [], []
     server_fields_changed = any(value is not None for value in (
         title, status, description, due_date, priority, start_date, labels,
-        parent_id, milestone_id, estimate_h, spent_h,
+        parent_id, milestone_id, estimate_h, spent_h, custom_fields, dependency_ids, sprint_id,
     )) or clear_due_date or clear_start_date
     if title is not None:
         sets.append("title=?"); vals.append(title[:200])
@@ -3384,6 +3415,12 @@ def update_work_item(
         sets.append("estimate_h=?"); vals.append(float(estimate_h))
     if spent_h is not None:
         sets.append("spent_h=?"); vals.append(float(spent_h))
+    if custom_fields is not None:
+        sets.append("custom_fields=?"); vals.append(json.dumps(custom_fields, ensure_ascii=False))
+    if dependency_ids is not None:
+        sets.append("dependency_ids=?"); vals.append(json.dumps(dependency_ids, ensure_ascii=False))
+    if sprint_id is not None:
+        sets.append("sprint_id=?"); vals.append(sprint_id)
     if not sets:
         return get_work_item(item_id)
     if server_fields_changed:

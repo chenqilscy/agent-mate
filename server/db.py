@@ -304,11 +304,42 @@ def init_db() -> None:
             milestone_id TEXT NOT NULL DEFAULT '',
             estimate_h REAL NOT NULL DEFAULT 0,
             spent_h REAL NOT NULL DEFAULT 0,
+            custom_fields TEXT NOT NULL DEFAULT '{}',
+            dependency_ids TEXT NOT NULL DEFAULT '[]',
+            sprint_id TEXT NOT NULL DEFAULT '',
             sort INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, status, sort);
+
+        CREATE TABLE IF NOT EXISTS project_custom_fields (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            field_type TEXT NOT NULL DEFAULT 'text',
+            options TEXT NOT NULL DEFAULT '[]',
+            required INTEGER NOT NULL DEFAULT 0,
+            sort INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_custom_fields_project
+            ON project_custom_fields(project_id, sort);
+
+        CREATE TABLE IF NOT EXISTS sprints (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            goal TEXT NOT NULL DEFAULT '',
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'planned',
+            sort INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sprints_project ON sprints(project_id, sort);
 
         CREATE TABLE IF NOT EXISTS milestones (
             id TEXT PRIMARY KEY,
@@ -396,6 +427,9 @@ def init_db() -> None:
         ("milestone_id", "milestone_id TEXT NOT NULL DEFAULT ''"),
         ("estimate_h", "estimate_h REAL NOT NULL DEFAULT 0"),   # 工时预估/投入（WB-116）
         ("spent_h", "spent_h REAL NOT NULL DEFAULT 0"),
+        ("custom_fields", "custom_fields TEXT NOT NULL DEFAULT '{}'"),
+        ("dependency_ids", "dependency_ids TEXT NOT NULL DEFAULT '[]'"),
+        ("sprint_id", "sprint_id TEXT NOT NULL DEFAULT ''"),
     ):
         if _col not in have_wi:
             conn.execute(f"ALTER TABLE work_items ADD COLUMN {_ddl}")
@@ -1462,6 +1496,11 @@ def _row_to_work_item(r: sqlite3.Row) -> dict:
         d["labels"] = json.loads(d.get("labels") or "[]")
     except (json.JSONDecodeError, TypeError):
         d["labels"] = []
+    for key, fallback in (("custom_fields", {}), ("dependency_ids", [])):
+        try:
+            d[key] = json.loads(d.get(key) or json.dumps(fallback))
+        except (json.JSONDecodeError, TypeError):
+            d[key] = fallback
     return d
 
 
@@ -1469,7 +1508,9 @@ def create_work_item(*, project_id: str, title: str, status: str = "todo",
                      source: str = "手动", assignee: str = "", description: str = "",
                      priority: str = "", due_date: str = "", start_date: str = "",
                      labels: Optional[list[str]] = None, parent_id: str = "",
-                     milestone_id: str = "", estimate_h: float = 0.0, spent_h: float = 0.0) -> dict:
+                     milestone_id: str = "", estimate_h: float = 0.0, spent_h: float = 0.0,
+                     custom_fields: Optional[dict[str, Any]] = None,
+                     dependency_ids: Optional[list[str]] = None, sprint_id: str = "") -> dict:
     wid = new_uuid(); now = time.time()
     mx = get_conn().execute(
         "SELECT COALESCE(MAX(sort),0) FROM work_items WHERE project_id=? AND status=?",
@@ -1477,11 +1518,13 @@ def create_work_item(*, project_id: str, title: str, status: str = "todo",
     ).fetchone()[0]
     get_conn().execute(
         "INSERT INTO work_items (id,project_id,title,status,source,assignee,description,"
-        "priority,due_date,start_date,labels,parent_id,milestone_id,estimate_h,spent_h,sort,created_at,updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "priority,due_date,start_date,labels,parent_id,milestone_id,estimate_h,spent_h,custom_fields,dependency_ids,sprint_id,sort,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (wid, project_id, title, status, source, assignee, description,
          priority, due_date, start_date, json.dumps(labels or [], ensure_ascii=False),
-         parent_id, milestone_id, float(estimate_h or 0), float(spent_h or 0), mx + 1, now, now),
+         parent_id, milestone_id, float(estimate_h or 0), float(spent_h or 0),
+         json.dumps(custom_fields or {}, ensure_ascii=False),
+         json.dumps(dependency_ids or [], ensure_ascii=False), sprint_id, mx + 1, now, now),
     )
     get_conn().commit()
     return get_work_item(wid)  # type: ignore[return-value]
@@ -1523,11 +1566,11 @@ def get_work_item(wid: str) -> Optional[dict]:
 def update_work_item(wid: str, **fields: Any) -> Optional[dict]:
     allowed = {"title", "status", "source", "assignee", "description", "sort",
                "priority", "due_date", "start_date", "labels", "parent_id", "milestone_id",
-               "estimate_h", "spent_h"}
+               "estimate_h", "spent_h", "custom_fields", "dependency_ids", "sprint_id"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed and v is not None:
-            if k == "labels":
+            if k in {"labels", "custom_fields", "dependency_ids"}:
                 v = json.dumps(v, ensure_ascii=False)
             sets.append(f"{k}=?"); vals.append(v)
     if not sets:
@@ -1537,6 +1580,104 @@ def update_work_item(wid: str, **fields: Any) -> Optional[dict]:
     cur = get_conn().execute(f"UPDATE work_items SET {', '.join(sets)} WHERE id=?", vals)
     get_conn().commit()
     return get_work_item(wid) if cur.rowcount else None
+
+
+def list_project_custom_fields(project_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM project_custom_fields WHERE project_id=? ORDER BY sort,created_at", (project_id,),
+    ).fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["options"] = json.loads(item.get("options") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            item["options"] = []
+        item["required"] = bool(item.get("required"))
+        result.append(item)
+    return result
+
+
+def create_project_custom_field(*, project_id: str, name: str, field_type: str,
+                                options: list[str], required: bool = False) -> dict:
+    field_id = new_uuid(); now = time.time()
+    sort = get_conn().execute(
+        "SELECT COALESCE(MAX(sort),0)+1 FROM project_custom_fields WHERE project_id=?", (project_id,),
+    ).fetchone()[0]
+    get_conn().execute(
+        "INSERT INTO project_custom_fields (id,project_id,name,field_type,options,required,sort,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (field_id, project_id, name, field_type, json.dumps(options, ensure_ascii=False), int(required), sort, now, now),
+    )
+    get_conn().commit()
+    return next(item for item in list_project_custom_fields(project_id) if item["id"] == field_id)
+
+
+def delete_project_custom_field(field_id: str, project_id: str) -> bool:
+    conn = get_conn()
+    cur = conn.execute("DELETE FROM project_custom_fields WHERE id=? AND project_id=?", (field_id, project_id))
+    if cur.rowcount:
+        rows = conn.execute("SELECT id,custom_fields FROM work_items WHERE project_id=?", (project_id,)).fetchall()
+        for row in rows:
+            try:
+                values = json.loads(row["custom_fields"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                values = {}
+            if field_id in values:
+                values.pop(field_id, None)
+                conn.execute("UPDATE work_items SET custom_fields=?,updated_at=? WHERE id=?",
+                             (json.dumps(values, ensure_ascii=False), time.time(), row["id"]))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def list_sprints(project_id: str) -> list[dict]:
+    return [dict(row) for row in get_conn().execute(
+        "SELECT * FROM sprints WHERE project_id=? ORDER BY sort,created_at", (project_id,),
+    ).fetchall()]
+
+
+def get_sprint(sprint_id: str) -> Optional[dict]:
+    row = get_conn().execute("SELECT * FROM sprints WHERE id=?", (sprint_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def create_sprint(*, project_id: str, name: str, goal: str, start_date: str,
+                  end_date: str, status: str = "planned") -> dict:
+    sprint_id = new_uuid(); now = time.time()
+    sort = get_conn().execute(
+        "SELECT COALESCE(MAX(sort),0)+1 FROM sprints WHERE project_id=?", (project_id,),
+    ).fetchone()[0]
+    get_conn().execute(
+        "INSERT INTO sprints (id,project_id,name,goal,start_date,end_date,status,sort,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (sprint_id, project_id, name, goal, start_date, end_date, status, sort, now, now),
+    )
+    get_conn().commit()
+    return get_sprint(sprint_id)  # type: ignore[return-value]
+
+
+def update_sprint(sprint_id: str, **fields: Any) -> Optional[dict]:
+    allowed = {"name", "goal", "start_date", "end_date", "status", "sort"}
+    sets, values = [], []
+    for key, value in fields.items():
+        if key in allowed and value is not None:
+            sets.append(f"{key}=?"); values.append(value)
+    if not sets:
+        return get_sprint(sprint_id)
+    sets.append("updated_at=?"); values.extend([time.time(), sprint_id])
+    cur = get_conn().execute(f"UPDATE sprints SET {', '.join(sets)} WHERE id=?", values)
+    get_conn().commit()
+    return get_sprint(sprint_id) if cur.rowcount else None
+
+
+def delete_sprint(sprint_id: str, project_id: str) -> bool:
+    conn = get_conn()
+    conn.execute("UPDATE work_items SET sprint_id='',updated_at=? WHERE sprint_id=? AND project_id=?",
+                 (time.time(), sprint_id, project_id))
+    cur = conn.execute("DELETE FROM sprints WHERE id=? AND project_id=?", (sprint_id, project_id))
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def delete_work_item(wid: str) -> bool:

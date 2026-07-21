@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api", tags=["work-items"])
 _STATUSES = {"todo", "doing", "paused", "done"}
 _PRIORITIES = {"", "low", "medium", "high", "urgent"}
 # 记入活动流的关键字段（值变化时逐条留痕，来自真实操作）。
-_TRACKED = ("status", "assignee", "priority", "due_date", "milestone_id")
+_TRACKED = ("status", "assignee", "priority", "due_date", "milestone_id", "sprint_id")
 
 
 def _access(project_id: str, account: Account) -> Role:
@@ -65,13 +65,68 @@ def _sanitize_refs(project_id: str, self_id: str | None, changes: dict) -> None:
         mid = (changes.get("milestone_id") or "").strip()
         m = db.get_milestone(mid) if mid else None
         changes["milestone_id"] = mid if (m and m["project_id"] == project_id) else ""
+    if "sprint_id" in changes:
+        sid = (changes.get("sprint_id") or "").strip()
+        sprint = db.get_sprint(sid) if sid else None
+        changes["sprint_id"] = sid if (sprint and sprint["project_id"] == project_id) else ""
+    if "dependency_ids" in changes:
+        deps: list[str] = []
+        for raw in changes.get("dependency_ids") or []:
+            dep_id = str(raw).strip()
+            dep = db.get_work_item(dep_id) if dep_id and dep_id != self_id else None
+            if dep and dep["project_id"] == project_id and dep_id not in deps:
+                deps.append(dep_id)
+        changes["dependency_ids"] = deps
+        if self_id:
+            graph = {item["id"]: list(item.get("dependency_ids") or []) for item in db.list_work_items(project_id)}
+            graph[self_id] = deps
+            def reaches_self(node: str, seen: set[str]) -> bool:
+                if node == self_id:
+                    return True
+                if node in seen:
+                    return False
+                return any(reaches_self(child, seen | {node}) for child in graph.get(node, []))
+            if any(reaches_self(dep, set()) for dep in deps):
+                raise HTTPException(409, "work item dependency cycle")
+    if "custom_fields" in changes:
+        raw = changes.get("custom_fields")
+        definitions = {item["id"]: item for item in db.list_project_custom_fields(project_id)}
+        values = raw if isinstance(raw, dict) else {}
+        if len(values) > 50:
+            raise HTTPException(400, "too many custom field values")
+        changes["custom_fields"] = {
+            str(key): value for key, value in values.items()
+            if str(key) in definitions and isinstance(value, (str, int, float, bool))
+        }
+
+
+def _critical_path_ids(items: list[dict]) -> set[str]:
+    """Return one deterministic longest dependency chain using estimate hours as duration."""
+    by_id = {item["id"]: item for item in items}
+    memo: dict[str, tuple[float, list[str]]] = {}
+    def visit(item_id: str, visiting: set[str]) -> tuple[float, list[str]]:
+        if item_id in memo:
+            return memo[item_id]
+        if item_id in visiting:
+            return (0.0, [])
+        item = by_id[item_id]
+        candidates = [visit(dep, visiting | {item_id}) for dep in item.get("dependency_ids", []) if dep in by_id]
+        previous = max(candidates, key=lambda value: (value[0], value[1]), default=(0.0, []))
+        result = (previous[0] + max(1.0, float(item.get("estimate_h") or 0)), [*previous[1], item_id])
+        memo[item_id] = result
+        return result
+    if not items:
+        return set()
+    return set(max((visit(item_id, set()) for item_id in sorted(by_id)), key=lambda value: (value[0], value[1]))[1])
 
 
 @router.get("/projects/{project_id}/work-items")
 def list_items(project_id: str, account: Account = CurrentAccount) -> dict:
     _access(project_id, account)
     by_id, _ = _members_maps(project_id)
-    return {"items": [_decorate(it, by_id) for it in db.list_work_items(project_id)]}
+    items = db.list_work_items(project_id)
+    critical = _critical_path_ids(items)
+    return {"items": [{**_decorate(it, by_id), "critical_path": it["id"] in critical} for it in items]}
 
 
 class CreateBody(BaseModel):
@@ -88,6 +143,9 @@ class CreateBody(BaseModel):
     milestone_id: str = ""
     estimate_h: float = 0.0       # 工时预估/投入（WB-117）
     spent_h: float = 0.0
+    custom_fields: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    dependency_ids: list[str] = Field(default_factory=list, max_length=100)
+    sprint_id: str = ""
 
 
 @router.post("/projects/{project_id}/work-items")
@@ -96,7 +154,9 @@ def create_item(project_id: str, body: CreateBody, account: Account = CurrentAcc
     status = body.status if body.status in _STATUSES else "todo"
     priority = body.priority if body.priority in _PRIORITIES else ""
     by_id, by_name = _members_maps(project_id)
-    refs = {"parent_id": body.parent_id, "milestone_id": body.milestone_id}
+    refs = {"parent_id": body.parent_id, "milestone_id": body.milestone_id,
+            "custom_fields": body.custom_fields, "dependency_ids": body.dependency_ids,
+            "sprint_id": body.sprint_id}
     _sanitize_refs(project_id, None, refs)
     item = db.create_work_item(
         project_id=project_id, title=body.title.strip(), status=status,
@@ -105,6 +165,7 @@ def create_item(project_id: str, body: CreateBody, account: Account = CurrentAcc
         priority=priority, due_date=body.due_date, start_date=body.start_date,
         labels=body.labels, parent_id=refs["parent_id"], milestone_id=refs["milestone_id"],
         estimate_h=body.estimate_h, spent_h=body.spent_h,
+        custom_fields=refs["custom_fields"], dependency_ids=refs["dependency_ids"], sprint_id=refs["sprint_id"],
     )
     db.log_work_item_activity(project_id=project_id, work_item_id=item["id"],
                               actor=account.name, kind="created", detail=item["title"])
@@ -126,6 +187,9 @@ class UpdateBody(BaseModel):
     milestone_id: str | None = None
     estimate_h: float | None = None    # 工时预估/投入（WB-116）
     spent_h: float | None = None
+    custom_fields: dict[str, str | int | float | bool] | None = None
+    dependency_ids: list[str] | None = Field(default=None, max_length=100)
+    sprint_id: str | None = None
 
 
 @router.patch("/projects/{project_id}/work-items/{wid}")

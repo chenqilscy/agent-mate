@@ -227,6 +227,9 @@ class WorkItem:
     milestone_id: str = ""          # → milestones.id
     estimate_h: float = 0.0         # 工时预估/投入（WB-117，与 Server 对齐）
     spent_h: float = 0.0
+    custom_fields: dict[str, Any] = field(default_factory=dict)
+    dependency_ids: list[str] = field(default_factory=list)
+    sprint_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

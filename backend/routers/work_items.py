@@ -67,6 +67,9 @@ class CreateWorkItemBody(BaseModel):
     milestone_id: str = ""
     estimate_h: float = 0.0
     spent_h: float = 0.0
+    custom_fields: dict[str, str | int | float | bool] = {}
+    dependency_ids: list[str] = []
+    sprint_id: str = ""
 
 
 class UpdateWorkItemBody(BaseModel):
@@ -82,6 +85,9 @@ class UpdateWorkItemBody(BaseModel):
     milestone_id: str | None = None
     estimate_h: float | None = None
     spent_h: float | None = None
+    custom_fields: dict[str, str | int | float | bool] | None = None
+    dependency_ids: list[str] | None = None
+    sprint_id: str | None = None
 
 
 class ExecuteWorkItemBody(BaseModel):
@@ -160,6 +166,9 @@ def _server_view(it: dict) -> dict:
         "labels": labels if isinstance(labels, list) else [],
         "parent_id": it.get("parent_id", ""), "milestone_id": it.get("milestone_id", ""),
         "estimate_h": float(it.get("estimate_h") or 0), "spent_h": float(it.get("spent_h") or 0),
+        "custom_fields": it.get("custom_fields") if isinstance(it.get("custom_fields"), dict) else {},
+        "dependency_ids": it.get("dependency_ids") if isinstance(it.get("dependency_ids"), list) else [],
+        "sprint_id": it.get("sprint_id", ""), "critical_path": bool(it.get("critical_path", False)),
         "created_at": ca, "updated_at": it.get("updated_at") or ca,
         # Server 已按成员名解析 assignee_name（WB-112c-B）；缺失时用原值兜底。
         "ago": _ago(ca), "assignee_name": it.get("assignee_name") or (it.get("assignee", "") or ""),
@@ -211,7 +220,9 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
              "priority": priority, "due_date": body.due_date or "",
              "start_date": body.start_date or "", "labels": labels,
              "parent_id": body.parent_id or "", "milestone_id": body.milestone_id or "",
-             "estimate_h": body.estimate_h or 0, "spent_h": body.spent_h or 0},
+             "estimate_h": body.estimate_h or 0, "spent_h": body.spent_h or 0,
+             "custom_fields": body.custom_fields, "dependency_ids": body.dependency_ids,
+             "sprint_id": body.sprint_id or ""},
         )
         if created:
             items = server_client.list_work_items(tok, body.project_id)
@@ -228,6 +239,7 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
         priority=priority, start_date=(body.start_date or None), labels=labels,
         parent_id=(body.parent_id or ""), milestone_id=(body.milestone_id or ""),
         estimate_h=body.estimate_h or 0, spent_h=body.spent_h or 0,
+        custom_fields=body.custom_fields, dependency_ids=body.dependency_ids, sprint_id=body.sprint_id,
     )
     return _view(wi, user)
 
@@ -247,7 +259,8 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
     if tok:
         fs = body.model_fields_set
         keys = ("title", "status", "description", "priority", "due_date",
-                "start_date", "labels", "parent_id", "milestone_id", "estimate_h", "spent_h")
+                "start_date", "labels", "parent_id", "milestone_id", "estimate_h", "spent_h",
+                "custom_fields", "dependency_ids", "sprint_id")
         patch = {k: getattr(body, k) for k in keys if k in fs and getattr(body, k) is not None}
         if "priority" in patch and patch["priority"] not in PRIORITIES:
             patch["priority"] = ""
@@ -281,6 +294,9 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
         milestone_id=body.milestone_id,
         estimate_h=body.estimate_h,
         spent_h=body.spent_h,
+        custom_fields=body.custom_fields,
+        dependency_ids=body.dependency_ids,
+        sprint_id=body.sprint_id,
     )
     if not wi:
         raise HTTPException(404, "work item not found")

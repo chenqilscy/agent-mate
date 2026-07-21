@@ -1,7 +1,7 @@
 import type {
   Account, Activity, AuthResponse, CatalogData, CatalogItem, CommentRecord,
   KnowledgeBase, KnowledgeDocument, Member, Milestone, NotificationRecord,
-  Organization, Project, SkillData, SkillRelease, SkillTool, TimelineEvent, ToolCatalogAudit, WorkItem,
+  Organization, Project, ProjectCustomField, SkillData, SkillRelease, SkillTool, Sprint, TimelineEvent, ToolCatalogAudit, WorkItem, BurndownPoint,
 } from "./types";
 
 const TOKEN_KEY = "agentmate.console.token";
@@ -78,6 +78,16 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
   return data as T;
 }
 
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  const token = getToken();
+  const response = await fetch(`/api${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!response.ok) throw new ApiError(`HTTP ${response.status}`, response.status);
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url; anchor.download = filename; anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export const consoleApi = {
   me: () => apiRequest<{ account: Account }>("GET", "/me"),
   login: (name: string, password: string) =>
@@ -127,6 +137,15 @@ export const consoleApi = {
   milestones: (id: string) => apiRequest<{ milestones: Milestone[] }>("GET", `/projects/${encodeURIComponent(id)}/milestones`),
   createMilestone: (id: string, body: { name: string; due_date?: string }) => apiRequest<Milestone>("POST", `/projects/${encodeURIComponent(id)}/milestones`, body),
   activity: (id: string) => apiRequest<{ activity: Activity[] }>("GET", `/projects/${encodeURIComponent(id)}/activity`),
+  customFields: (id: string) => apiRequest<{ fields: ProjectCustomField[] }>("GET", `/projects/${encodeURIComponent(id)}/custom-fields`),
+  createCustomField: (id: string, body: Pick<ProjectCustomField, "name" | "field_type" | "options" | "required">) => apiRequest<ProjectCustomField>("POST", `/projects/${encodeURIComponent(id)}/custom-fields`, body),
+  deleteCustomField: (id: string, fieldId: string) => apiRequest<{ ok: boolean }>("DELETE", `/projects/${encodeURIComponent(id)}/custom-fields/${encodeURIComponent(fieldId)}`),
+  sprints: (id: string) => apiRequest<{ sprints: Sprint[] }>("GET", `/projects/${encodeURIComponent(id)}/sprints`),
+  createSprint: (id: string, body: Pick<Sprint, "name" | "goal" | "start_date" | "end_date" | "status">) => apiRequest<Sprint>("POST", `/projects/${encodeURIComponent(id)}/sprints`, body),
+  updateSprint: (id: string, sprintId: string, body: Partial<Sprint>) => apiRequest<Sprint>("PATCH", `/projects/${encodeURIComponent(id)}/sprints/${encodeURIComponent(sprintId)}`, body),
+  deleteSprint: (id: string, sprintId: string) => apiRequest<{ ok: boolean }>("DELETE", `/projects/${encodeURIComponent(id)}/sprints/${encodeURIComponent(sprintId)}`),
+  sprintBurndown: (id: string, sprintId: string) => apiRequest<{ total: number; points: BurndownPoint[] }>("GET", `/projects/${encodeURIComponent(id)}/sprints/${encodeURIComponent(sprintId)}/burndown`),
+  exportPmCsv: (id: string) => apiDownload(`/projects/${encodeURIComponent(id)}/pm-export.csv`, `project-${id}-pm.csv`),
   comments: (id: string) => apiRequest<{ comments: CommentRecord[] }>("GET", `/projects/${encodeURIComponent(id)}/comments`),
   createComment: (id: string, body: string) => apiRequest<CommentRecord>("POST", `/projects/${encodeURIComponent(id)}/comments`, { body }),
   timeline: (id: string) => apiRequest<{ events: TimelineEvent[] }>("GET", `/projects/${encodeURIComponent(id)}/timeline`),

@@ -3,7 +3,7 @@ id: WB-112
 title: AgentMate Manager 管理端定位 —— 改名 + 数据分层规范 + 统一用户 + 协作打通 + PM 细化（epic）
 severity: P1
 area: fullstack
-status: in-progress
+status: fixed
 origin: 2026-07-10 用户方向设定（Hub 改名 AgentMate Manager、定位管理端、要数据上云/本地规范、统一用户、PM 细化）
 files:
   - docs/agentmate-数据分层与同步规范.md
@@ -35,7 +35,7 @@ created: 2026-07-10
 - **WB-112c｜P1 协作写代理 + 身份强映射（done）**：当前 Server 架构下，server-origin 项目的成员/配置写代理与 assignee `account_id` 归一已经落地；Server 不可达时保留 local-first 回退。
 - **WB-112d｜动态回读（done）**：`server_client.list_timeline` + App scoped readback API；在线增量缓存 last-known-good，Server 不可达回退缓存；App「动态」合并团队时间线和本机 session，其他成员的远端事件不提供本机会话跳转。
 - **WB-112e｜镜像增量合并（done）**：项目/成员/work item/milestone 按 `id+updated_at` 合并，不再整表删插；本地离线协作改动以 dirty/tombstone 保留，分叉进入可查询冲突台账并在 App 显示数量。owner/成员角色/项目访问仍以 Server 权限为准，远端撤权会收敛本地访问。
-- **WB-112f｜PM 细化丰富（in progress，连续切片）**：既有切片已覆盖看板 WIP/分组/泳道、批量操作、保存视图/筛选、工时/预估、甘特与协作时间线；本次恢复 React Console 的项目级任务模板（从现有任务保存、套用后仍经 Server `createWorkItem` 创建）。**仍未完成、不得视为本 epic 已验收**：自定义字段、任务依赖/关键路径、Sprint/周期与燃尽、PM 导出。
+- **WB-112f｜PM 细化丰富（done）**：看板 WIP/分组/泳道、批量操作、保存视图/筛选、工时/预估、甘特、协作时间线、项目级任务模板、自定义字段、任务依赖/关键路径、Sprint/周期与燃尽、PM CSV 导出均已完成。
 
 ## 验证（各子任务分别）
 
@@ -69,4 +69,14 @@ created: 2026-07-10
 - **e 冲突安全镜像**：为项目/成员/任务/里程碑维护 `server_updated_at/server_dirty`；成员删除用 tombstone；冲突保存本地/远端快照并提供 scoped 查询。Server owner、角色及项目列表作为权限权威，远端角色回写、撤权后本地入口移除，防止离线 dirty 扩权。
 - **f 任务模板切片**：React Console 恢复项目级任务模板的保存/套用/删除；模板是本机偏好，套用后的任务只能通过既有 Server API 与权限门禁创建。其余未完成 PM 能力仍列在 112f，不标完成。
 - 验证：Server 全量 `41/41`；WB-112 增量/隔离回归 `6/6`（含成员子请求失败时保留 last-known-good）；隔离 Server+Backend 双账号、双临时 DB 的真实 HTTP 场景 `1/1`（在线回读→Server 停止缓存回退→离线本地改→Server 恢复并发改→本地保留且冲突 API 可见）；PM 模板契约 `1/1`；`npx tsc --noEmit`、`pnpm build`（App + Console）通过。
-- 已知基线：Backend regression 全量 discover 97 项仍有 8 个与本次无关的既存失败（`list_messages` 返回 None、部分测试未初始化表、skill catalog revision 契约）；相关模块单跑与本 issue changed-path 回归均通过。WB-112f 尚有明确剩余范围，故 status 保持 `in-progress`，不虚假标 fixed。
+- 当时基线：该独立切片曾观察到 Backend regression 97 项中的 8 个既存失败；这些失败已在后续 WB-277/WB-279/WB-280 集成修复，本次最终全量回归为 131/131。
+
+2026-07-22（f 最终收口）：
+- **自定义字段**：Server 新增项目级定义表与权限 API，支持文本、数字、日期、单选和布尔类型；任务仅接受本项目已定义字段，删除定义会清理任务值。Console 提供可视化管理和动态任务表单。
+- **依赖与关键路径**：任务保存 `dependency_ids`，服务端只接受同项目引用并拒绝依赖环；列表按预估工时计算确定性的最长依赖链并标记关键路径。
+- **Sprint 与燃尽**：Server 新增 Sprint 权威表和 CRUD，任务关联 Sprint；燃尽按 Sprint 日期、真实任务工时和完成活动计算理想/实际剩余，Console 提供周期管理与燃尽明细。
+- **PM 导出**：Server 生成带 UTF-8 BOM 的权限受控 CSV，包含基础字段、Sprint、依赖标题及动态自定义字段列；Console 直接下载，不在前端拼接假数据。
+- **同步与文档**：App 本地 work item 镜像补齐三组字段，Server-origin 增量同步不会丢值；同步规范与功能规划删除了整表覆盖、自由文本负责人、动态未回读和 WB-257 未验收等过时描述。
+- **验证**：WB-112 PM 新增 Server 2/2、Backend 镜像 1/1；双服务真实 HTTP 集成 1/1；Server 全量 45/45、Backend 全量 131/131；TypeScript、App 与 Console 生产构建通过。
+- **状态**：a～f 全部完成，epic 更新为 `fixed`。
+- **commit**：随本提交。

@@ -546,6 +546,10 @@ export interface WorkItem {
   milestone_id: string
   estimate_h: number   // 工时预估/投入（WB-117）
   spent_h: number
+  custom_fields: Record<string, string | number | boolean>
+  dependency_ids: string[]
+  sprint_id: string
+  critical_path?: boolean
   ago?: string
   created_at?: number
   updated_at?: number

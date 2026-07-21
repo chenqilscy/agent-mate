@@ -15,6 +15,9 @@ export interface NewWorkItem {
   labels?: string[]
   parent_id?: string
   milestone_id?: string
+  custom_fields?: Record<string, string | number | boolean>
+  dependency_ids?: string[]
+  sprint_id?: string
 }
 
 export interface WorkItemPatch {
@@ -29,6 +32,9 @@ export interface WorkItemPatch {
   milestone_id?: string
   estimate_h?: number
   spent_h?: number
+  custom_fields?: Record<string, string | number | boolean>
+  dependency_ids?: string[]
+  sprint_id?: string
 }
 
 interface WorkItemState {
@@ -102,6 +108,9 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
         labels: input.labels,
         parent_id: input.parent_id,
         milestone_id: input.milestone_id,
+        custom_fields: input.custom_fields,
+        dependency_ids: input.dependency_ids,
+        sprint_id: input.sprint_id,
       })
       // 只在仍停留在同一项目时才落到当前看板，防迟到响应写错项目（WB-159）。
       if (get().projectId === pid) set({ items: [...get().items, wi] })

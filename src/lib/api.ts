@@ -320,6 +320,7 @@ export const api = {
     description?: string; due_date?: string | null; attachments?: WorkAttachment[]
     priority?: WorkPriority; start_date?: string | null; labels?: string[]
     parent_id?: string; milestone_id?: string; estimate_h?: number; spent_h?: number
+    custom_fields?: Record<string, string | number | boolean>; dependency_ids?: string[]; sprint_id?: string
   }) => send<WorkItem>('POST', '/work-items', body),
 
   updateWorkItem: (id: string, patch: {
@@ -327,6 +328,7 @@ export const api = {
     description?: string; due_date?: string | null; attachments?: WorkAttachment[]
     priority?: WorkPriority; start_date?: string | null; labels?: string[]
     parent_id?: string; milestone_id?: string; estimate_h?: number; spent_h?: number
+    custom_fields?: Record<string, string | number | boolean>; dependency_ids?: string[]; sprint_id?: string
   }) => send<WorkItem>('PATCH', `/work-items/${id}`, patch),
 
   deleteWorkItem: (id: string) => send<{ ok: boolean }>('DELETE', `/work-items/${id}`),

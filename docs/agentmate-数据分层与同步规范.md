@@ -27,12 +27,13 @@
 |---|---|---|---|---|---|
 | 账号 accounts | **Server** | ✅ | Server→App 镜像 | 回退本地匿名 `LOCAL_USER` | ✅ 已打通 |
 | 组织 orgs / 成员 | **Server** | ✅ | Server→App 镜像 | 只读缓存 | ✅ |
-| 项目 projects（元信息/角色） | **Server**（server-origin） | ✅ | 双向 | 本地原生项目纯本地 | ⚠️ 成员/配置写未回传（WB-112 修） |
-| 项目邀请 invites | **Server** | ✅ | Server 权威 | 无 | ✅（App UI 未接，WB-112） |
-| **任务 work_items（计划/任务）** | **Server**（server-origin） | ✅ | 双向：读镜像+写代理 | Server 不可达回退本地 | ✅ 已打通 |
+| 项目 projects（元信息/角色） | **Server**（server-origin） | ✅ | 双向：增量镜像+写代理 | 本地原生项目纯本地 | ✅ 成员/配置写已代理 |
+| 项目邀请 invites | **Server** | ✅ | Server 权威 | 无 | ✅ |
+| **任务 work_items（含自定义字段/依赖/Sprint）** | **Server**（server-origin） | ✅ | 双向：增量镜像+写代理 | 读 last-known-good；写失败显式报错 | ✅ 已打通 |
 | **里程碑 milestones** | **Server**（server-origin） | ✅ | 双向 | 同上 | ✅ |
-| 任务活动流 work_item_activity | **Server** | ✅ | Server 逐条留痕 | 无 | ⚠️ App 未回读（WB-112） |
-| 团队动态 timeline_events | **Server** | ✅（仅元数据） | App→Server 上行 push | 本地 sessions 兜底显示 | ⚠️ 未回读，队友动态互不可见（WB-112） |
+| 项目自定义字段 project_custom_fields / Sprint | **Server** | ✅ | Console 管理；任务引用随 work_items 同步 | 读缓存 | ✅ |
+| 任务活动流 work_item_activity | **Server** | ✅ | Server 逐条留痕、Console 回读 | 无 | ✅ |
+| 团队动态 timeline_events | **Server** | ✅（仅元数据） | App↔Server；增量缓存 | last-known-good + 本机 sessions | ✅ |
 | 讨论 comments / @提及 | **Server** | ✅ | Server 代理 | 无离线态 | ✅（设计取舍） |
 | 在线状态 presence | **Server** | ✅ | Server | 无 | ✅ |
 | 目录 catalog（人格/连接器/技能/推荐位） | **Server** | ✅ | Server→App 带 revision 条件下发 | 首次用 builtin；离线保留最后可用快照 | ✅ Skill tombstone、能力报告与兼容门禁已完成；实时失效推送待补 |
@@ -47,11 +48,11 @@
 以 `work_items` 为**唯一样板**，所有"上云协作实体"都应遵循同一模式（见 [backend/routers/work_items.py](../backend/routers/work_items.py)）：
 
 1. **归属判定**：仅当 ①Server 已启用（`AGENTMATE_SERVER_URL` 非空）②请求带 Bearer token ③项目 `origin=="server"` 三者同时成立，才走云端；否则纯本地。
-2. **读 = 代理 + 镜像**：从 Server 拉取 → 覆盖本地镜像（离线兜底 + 让后续按 id 定位）→ 返回云端视图。Server 不可达 → 读本地镜像。
-3. **写 = 代理 + 刷新**：先校验角色（Viewer 只读）→ 代理到 Server → 成功后重拉刷新镜像。Server 不可达 → 回退本地写（离线优先，红线不适用于协作元数据）。
-4. **镜像合并**：**目标**是按 `id + updated_at` 增量合并、冲突可见（last-write-wins by timestamp）。**现状**是"整表删插"（离线并发会丢改动），列为 WB-112 待修项。
+2. **读 = 代理 + 镜像**：从 Server 拉取 → 按 `id + updated_at` 增量合并 → 返回本地一致视图。Server 不可达 → 读 last-known-good 镜像。
+3. **写 = 代理 + 刷新**：先校验角色（Viewer 只读）→ 代理到 Server → 成功后重拉刷新镜像。server-origin 写不可达时显式失败，不能写一条下次 pull 会消失的本地假成功。
+4. **镜像合并**：项目/成员/work item/milestone 均保留 `server_updated_at/server_dirty`；本地与远端并发修改进入可查询冲突台账，不静默覆盖。远端撤权仍以 Server 为准。
 
-> 铁律：**协作实体的写，凡 server-origin 项目，必须代理到 Server**。只写本地 = 下次 pull 被覆盖 = 静默丢数据。当前 `projects`/`members` 违反此条，须补齐。
+> 铁律：**协作实体的写，凡 server-origin 项目，必须代理到 Server**。只写本地 = 下次 pull 被覆盖 = 静默丢数据。项目、成员、任务与里程碑已统一遵循此约束。
 
 ### 3.1 目录与 Skill 的专用同步契约
 
@@ -77,7 +78,7 @@
 - **单一账号权威**：Server 是**唯一**账号系统。App 登录即用 Server 账号身份，**app token == Server token**；本地 `users` 表用 **Server account id 作本地 id** 镜像（`upsert_external_user`）。全端一个用户体系。
 - **本地匿名映射**：未登录 Server 时用本机 `LOCAL_USER`（`0000…0001`）。首次登录/导入时 `set_server_link` 记录 `LOCAL_USER ↔ Server account`，存量本地数据归到该云账号。
 - **人归属必须强映射**：任务负责人、动态 actor 等“谁”字段，**权威值一律是 Server `account_id`**，显示名由成员表解析。
-  - **现状缺陷**：`work_items.assignee` 是自由文本、Server 表无 `owner_id` 列 → 协作下“谁负责”对不准、无法按人过滤/统计。**WB-112 P1 修**：`assignee` 升级为 account_id 外键 + 存量迁移。
+  - `work_items.assignee` 已采用“写时名字/id 归一为 account_id、读时解析显示名、无法解析的历史文本不丢失”的兼容迁移。
 - **角色权威**：Owner/Admin/Member/Viewer 由 Server 定义，App 镜像后本地访问控制（`project_access_role`）自动生效；写操作按角色 gate，Viewer 只读。
 
 ## 5. 新增实体的归层决策流程

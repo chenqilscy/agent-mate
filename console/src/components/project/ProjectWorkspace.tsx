@@ -1,11 +1,11 @@
 import {
   App, Avatar, Badge, Button, Card, Checkbox, Col, Drawer, Empty, Form, Input,
-  InputNumber, Modal, Progress, Row, Select, Space, Statistic, Table, Tag, Timeline,
+  InputNumber, Modal, Popconfirm, Progress, Row, Select, Space, Statistic, Table, Tag, Timeline,
   Typography,
 } from "antd";
 import {
   CalendarOutlined, CheckCircleOutlined, ClockCircleOutlined, EditOutlined,
-  DeleteOutlined, FlagOutlined, PlusOutlined, SaveOutlined, TeamOutlined,
+  DeleteOutlined, DownloadOutlined, FlagOutlined, PlusOutlined, SaveOutlined, TeamOutlined,
 } from "@ant-design/icons";
 import { ProTable } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
@@ -13,7 +13,7 @@ import {
   createContext, type ReactNode, useContext, useEffect, useMemo, useState,
 } from "react";
 import { consoleApi } from "../../api";
-import type { Activity, Member, Milestone, Project, WorkItem } from "../../types";
+import type { Activity, BurndownPoint, Member, Milestone, Project, ProjectCustomField, Sprint, WorkItem } from "../../types";
 import { CompatList as List } from "../CompatList";
 
 const STATUS_OPTIONS = [
@@ -52,6 +52,8 @@ interface ProjectWorkContextValue {
   roots: WorkItem[];
   members: Member[];
   milestones: Milestone[];
+  customFields: ProjectCustomField[];
+  sprints: Sprint[];
   activity: Activity[];
   loading: boolean;
   selected: string[];
@@ -88,6 +90,8 @@ export function ProjectWorkProvider({ project, children }: { project: Project; c
   const [members, setMembers] = useState<Member[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
+  const [customFields, setCustomFields] = useState<ProjectCustomField[]>([]);
+  const [sprints, setSprints] = useState<Sprint[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string[]>([]);
   const [editing, setEditing] = useState<WorkItem | null | undefined>(undefined);
@@ -101,16 +105,20 @@ export function ProjectWorkProvider({ project, children }: { project: Project; c
   async function reload() {
     setLoading(true);
     try {
-      const [work, memberResult, milestoneResult, activityResult] = await Promise.all([
+      const [work, memberResult, milestoneResult, activityResult, fieldResult, sprintResult] = await Promise.all([
         consoleApi.workItems(project.id),
         consoleApi.projectMembers(project.id),
         consoleApi.milestones(project.id),
         consoleApi.activity(project.id),
+        consoleApi.customFields(project.id),
+        consoleApi.sprints(project.id),
       ]);
       setItems(work.items || []);
       setMembers(memberResult.members || []);
       setMilestones(milestoneResult.milestones || []);
       setActivity(activityResult.activity || []);
+      setCustomFields(fieldResult.fields || []);
+      setSprints(sprintResult.sprints || []);
       setSelected((current) => current.filter((id) => work.items.some((item) => item.id === id)));
     } catch (reason) {
       message.error(errorText(reason, "项目工作台加载失败"));
@@ -128,6 +136,7 @@ export function ProjectWorkProvider({ project, children }: { project: Project; c
       title: "", description: "", status: "todo", priority: "", source: "console",
       assignee: "", milestone_id: "", start_date: "", due_date: "", estimate_h: 0,
       spent_h: 0, labels: [], parent_id: "",
+      custom_fields: {}, dependency_ids: [], sprint_id: "",
     });
   }
 
@@ -139,7 +148,8 @@ export function ProjectWorkProvider({ project, children }: { project: Project; c
     form.setFieldsValue({
       title: "", description: "", status: "todo", priority: "", source: "console",
       assignee: "", milestone_id: "", start_date: "", due_date: "", estimate_h: 0,
-      spent_h: 0, labels: [], parent_id: "", ...template.fields,
+      spent_h: 0, labels: [], parent_id: "",
+      custom_fields: {}, dependency_ids: [], sprint_id: "", ...template.fields,
     });
   }
 
@@ -215,9 +225,9 @@ export function ProjectWorkProvider({ project, children }: { project: Project; c
 
   const roots = useMemo(() => items.filter((item) => !item.parent_id), [items]);
   const value = useMemo<ProjectWorkContextValue>(() => ({
-    project, items, roots, members, milestones, activity, loading, selected, setSelected,
+    project, items, roots, members, milestones, customFields, sprints, activity, loading, selected, setSelected,
     reload, openTask, patchTask, deleteTask, batchPatch, templates, openTemplate, deleteTemplate,
-  }), [project, items, roots, members, milestones, activity, loading, selected, templates]);
+  }), [project, items, roots, members, milestones, customFields, sprints, activity, loading, selected, templates]);
 
   return <ProjectWorkContext.Provider value={value}>
     {children}
@@ -255,6 +265,16 @@ export function ProjectWorkProvider({ project, children }: { project: Project; c
         </Row>
         <Form.Item name="source" label="来源"><Input maxLength={80} /></Form.Item>
         <Form.Item name="labels" label="标签"><Select mode="tags" tokenSeparators={[","]} /></Form.Item>
+        <Row gutter={12}>
+          <Col xs={24} sm={12}><Form.Item name="sprint_id" label="Sprint / 周期"><Select allowClear options={sprints.map((sprint) => ({ value: sprint.id, label: sprint.name }))} /></Form.Item></Col>
+          <Col xs={24} sm={12}><Form.Item name="dependency_ids" label="前置依赖"><Select mode="multiple" allowClear options={items.filter((item) => item.id !== editing?.id).map((item) => ({ value: item.id, label: item.title }))} /></Form.Item></Col>
+        </Row>
+        {customFields.map((field) => <Form.Item key={field.id} name={["custom_fields", field.id]} label={field.name} rules={field.required ? [{ required: true }] : undefined}>
+          {field.field_type === "number" ? <InputNumber className="full-width" />
+            : field.field_type === "boolean" ? <Select allowClear options={[{ value: true, label: "是" }, { value: false, label: "否" }]} />
+              : field.field_type === "select" ? <Select allowClear options={field.options.map((value) => ({ value, label: value }))} />
+                : <Input type={field.field_type === "date" ? "date" : "text"} maxLength={500} />}
+        </Form.Item>)}
       </Form>
     </Drawer>
     <Modal title="存为任务模板" open={templateOpen} onCancel={() => setTemplateOpen(false)} onOk={() => templateForm.submit()} destroyOnHidden>
@@ -488,7 +508,7 @@ function makeLanes(items: WorkItem[], group: GroupMode, members: Member[], miles
 }
 
 export function ProjectTasks() {
-  const { project, roots, members, milestones, loading, selected, setSelected, reload, openTask, patchTask, deleteTask, batchPatch } = useProjectWork();
+  const { project, roots, members, milestones, sprints, loading, selected, setSelected, reload, openTask, patchTask, deleteTask, batchPatch } = useProjectWork();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [assignee, setAssignee] = useState("");
@@ -501,6 +521,8 @@ export function ProjectTasks() {
     { title: "优先级", dataIndex: "priority", width: 100, render: (value) => value ? <Tag color={PRIORITY_COLORS[String(value)]}>{PRIORITY_OPTIONS.find((option) => option.value === value)?.label}</Tag> : "-" },
     { title: "负责人", dataIndex: "assignee_name", width: 130, render: (value) => value || "未指派" },
     { title: "里程碑", dataIndex: "milestone_id", width: 150, render: (value) => milestoneName(String(value || "")) },
+    { title: "Sprint", dataIndex: "sprint_id", width: 140, render: (value) => sprints.find((sprint) => sprint.id === value)?.name || "-" },
+    { title: "关键路径", dataIndex: "critical_path", width: 100, render: (value) => value ? <Tag color="red">关键</Tag> : "-" },
     { title: "截止", dataIndex: "due_date", width: 120, render: (value, item) => <Typography.Text type={item.status !== "done" && value && String(value) < today() ? "danger" : undefined}>{String(value || "-")}</Typography.Text> },
     { title: "工时", width: 100, render: (_value, item) => `${item.spent_h || 0}/${item.estimate_h || 0}h` },
     { title: "操作", valueType: "option", width: 130, render: (_value, item) => <Space><Button type="link" size="small" icon={<EditOutlined />} onClick={() => openTask(item)}>详情</Button>{canWrite(project) && <Button type="link" danger size="small" onClick={() => Modal.confirm({ title: "删除此任务？", content: item.title, okButtonProps: { danger: true }, onOk: () => deleteTask(item) })}>删除</Button>}</Space> },
@@ -513,7 +535,7 @@ export function ProjectTasks() {
       loading={loading}
       search={false}
       pagination={{ pageSize: 15 }}
-      scroll={{ x: 1120 }}
+      scroll={{ x: 1340 }}
       options={{ reload: () => void reload(), density: true, setting: true }}
       rowSelection={canWrite(project) ? { selectedRowKeys: selected, onChange: (keys) => setSelected(keys.map(String)) } : undefined}
       toolbar={{
@@ -523,6 +545,48 @@ export function ProjectTasks() {
       tableAlertRender={({ selectedRowKeys }) => `已选择 ${selectedRowKeys.length} 项`}
       tableAlertOptionRender={() => <Space><Select value={batchStatus} onChange={setBatchStatus} options={[...STATUS_OPTIONS]} /><Button type="link" onClick={() => void batchPatch({ status: batchStatus })}>批量更新</Button><Button type="link" onClick={() => setSelected([])}>取消选择</Button></Space>}
     />
+  </div>;
+}
+
+export function ProjectIterations() {
+  const { project, customFields, sprints, reload } = useProjectWork();
+  const { message } = App.useApp();
+  const [fieldOpen, setFieldOpen] = useState(false);
+  const [sprintOpen, setSprintOpen] = useState(false);
+  const [burn, setBurn] = useState<{ sprint: Sprint; total: number; points: BurndownPoint[] } | null>(null);
+  const [fieldForm] = Form.useForm<Pick<ProjectCustomField, "name" | "field_type" | "options" | "required">>();
+  const [sprintForm] = Form.useForm<Pick<Sprint, "name" | "goal" | "start_date" | "end_date" | "status">>();
+  return <div className="tab-stack">
+    <Card title="Sprint / 周期" extra={<Space>{canWrite(project) && <Button icon={<PlusOutlined />} onClick={() => { sprintForm.setFieldsValue({ status: "planned" }); setSprintOpen(true); }}>新建 Sprint</Button>}<Button icon={<DownloadOutlined />} onClick={() => void consoleApi.exportPmCsv(project.id).catch((reason) => message.error(errorText(reason, "导出失败")))}>导出 CSV</Button></Space>}>
+      <Table<Sprint> rowKey="id" dataSource={sprints} pagination={false} columns={[
+        { title: "Sprint", dataIndex: "name", render: (value, sprint) => <div><Typography.Text strong>{String(value)}</Typography.Text><div><Typography.Text type="secondary">{sprint.goal || "未设置目标"}</Typography.Text></div></div> },
+        { title: "周期", width: 220, render: (_value, sprint) => `${sprint.start_date} — ${sprint.end_date}` },
+        { title: "状态", dataIndex: "status", width: 100, render: (value) => <Tag>{value === "active" ? "进行中" : value === "closed" ? "已关闭" : "计划中"}</Tag> },
+        { title: "操作", width: 170, render: (_value, sprint) => <Space><Button type="link" size="small" onClick={async () => { const result = await consoleApi.sprintBurndown(project.id, sprint.id); setBurn({ sprint, ...result }); }}>燃尽</Button>{canWrite(project) && <Popconfirm title="删除 Sprint？" description="任务会被移出该 Sprint，但不会删除。" onConfirm={async () => { await consoleApi.deleteSprint(project.id, sprint.id); await reload(); }}><Button type="link" danger size="small">删除</Button></Popconfirm>}</Space> },
+      ]} />
+    </Card>
+    <Card title="自定义字段" extra={canWrite(project) && <Button icon={<PlusOutlined />} onClick={() => { fieldForm.setFieldsValue({ field_type: "text", options: [], required: false }); setFieldOpen(true); }}>新增字段</Button>}>
+      <List dataSource={customFields} locale={{ emptyText: "暂无自定义字段" }} renderItem={(field) => <List.Item actions={canWrite(project) ? [<Popconfirm key="delete" title={`删除字段“${field.name}”？`} description="所有任务中的该字段值会一并移除。" onConfirm={async () => { await consoleApi.deleteCustomField(project.id, field.id); await reload(); }}><Button type="link" danger size="small">删除</Button></Popconfirm>] : []}><List.Item.Meta title={<Space><Typography.Text strong>{field.name}</Typography.Text>{field.required && <Tag color="orange">必填</Tag>}</Space>} description={`${field.field_type}${field.options.length ? ` · ${field.options.join(" / ")}` : ""}`} /></List.Item>} />
+    </Card>
+    <Modal title="新增自定义字段" open={fieldOpen} onCancel={() => setFieldOpen(false)} onOk={() => fieldForm.submit()} destroyOnHidden>
+      <Form form={fieldForm} layout="vertical" onFinish={async (values) => { try { await consoleApi.createCustomField(project.id, { ...values, options: values.options || [] }); setFieldOpen(false); await reload(); } catch (reason) { message.error(errorText(reason, "字段创建失败")); } }}>
+        <Form.Item name="name" label="字段名称" rules={[{ required: true, whitespace: true }]}><Input maxLength={80} /></Form.Item>
+        <Form.Item name="field_type" label="类型"><Select options={[{ value: "text", label: "文本" }, { value: "number", label: "数字" }, { value: "date", label: "日期" }, { value: "select", label: "单选" }, { value: "boolean", label: "是/否" }]} /></Form.Item>
+        <Form.Item noStyle shouldUpdate={(prev, next) => prev.field_type !== next.field_type}>{({ getFieldValue }) => getFieldValue("field_type") === "select" && <Form.Item name="options" label="选项"><Select mode="tags" tokenSeparators={[","]} /></Form.Item>}</Form.Item>
+        <Form.Item name="required" label="必填" valuePropName="checked"><Checkbox /></Form.Item>
+      </Form>
+    </Modal>
+    <Modal title="新建 Sprint" open={sprintOpen} onCancel={() => setSprintOpen(false)} onOk={() => sprintForm.submit()} destroyOnHidden>
+      <Form form={sprintForm} layout="vertical" onFinish={async (values) => { try { await consoleApi.createSprint(project.id, values); setSprintOpen(false); await reload(); } catch (reason) { message.error(errorText(reason, "Sprint 创建失败")); } }}>
+        <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true }]}><Input maxLength={120} /></Form.Item>
+        <Form.Item name="goal" label="目标"><Input.TextArea rows={3} maxLength={1000} /></Form.Item>
+        <Row gutter={12}><Col span={12}><Form.Item name="start_date" label="开始日期" rules={[{ required: true }]}><Input type="date" /></Form.Item></Col><Col span={12}><Form.Item name="end_date" label="结束日期" rules={[{ required: true }]}><Input type="date" /></Form.Item></Col></Row>
+        <Form.Item name="status" label="状态"><Select options={[{ value: "planned", label: "计划中" }, { value: "active", label: "进行中" }, { value: "closed", label: "已关闭" }]} /></Form.Item>
+      </Form>
+    </Modal>
+    <Drawer width={680} open={Boolean(burn)} title={burn ? `${burn.sprint.name} · 燃尽` : "燃尽"} onClose={() => setBurn(null)} destroyOnHidden>
+      {burn && <><Statistic title="初始工作量" value={burn.total} suffix="h" /><Table<BurndownPoint> rowKey="date" pagination={false} dataSource={burn.points} columns={[{ title: "日期", dataIndex: "date" }, { title: "理想剩余", dataIndex: "ideal_remaining", render: (value) => `${value}h` }, { title: "实际剩余", dataIndex: "actual_remaining", render: (value) => `${value}h` }]} /></>}
+    </Drawer>
   </div>;
 }
 

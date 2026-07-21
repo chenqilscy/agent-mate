@@ -14,7 +14,7 @@ import type { ProColumns } from "@ant-design/pro-components";
 import { useEffect, useState } from "react";
 import { consoleApi } from "../api";
 import {
-  ProjectGantt, ProjectOverview, ProjectPlan, ProjectTasks, ProjectWorkload,
+  ProjectGantt, ProjectIterations, ProjectOverview, ProjectPlan, ProjectTasks, ProjectWorkload,
   ProjectWorkProvider,
 } from "../components/project/ProjectWorkspace";
 import { navigate } from "../router";
@@ -61,6 +61,7 @@ export default function ProjectDetailPage({ projectId }: { projectId: string }) 
             { key: "tasks", label: "任务", children: <ProjectTasks /> },
             { key: "workload", label: "负载", children: <ProjectWorkload /> },
             { key: "gantt", label: "甘特", children: <ProjectGantt /> },
+            { key: "iterations", label: "周期与字段", children: <ProjectIterations /> },
             { key: "knowledge", label: "知识库", children: <KnowledgeTab project={project} /> },
             { key: "collab", label: "协作", children: <CollaborationTab project={project} /> },
             { key: "config", label: "配置", children: <ConfigTab project={project} onSaved={load} /> },
