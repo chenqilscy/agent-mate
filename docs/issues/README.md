@@ -269,6 +269,7 @@
 | [WB-250](WB-250-skill-release-console-lifecycle.md) | ⬜ | P1 | fullstack | Console Skill 管理仍是可变 CRUD，缺少测试审核灰度撤回和运行指标闭环 |
 | [WB-251](WB-251-reliable-automation-delivery-governance.md) | ✅ | P1 | backend | 自动化缺少真实失败判定、持久幂等重试、DLQ、成本上限与结果投递（WB-239 R2） |
 | [WB-255](WB-255-work-item-run-artifact-collaboration.md) | ✅ | P1 | fullstack | 项目工作项无法直接发起、跟踪和验收本地 Run 与 Artifact（WB-239 R3） |
+| [WB-257](WB-257-production-desktop-update-service.md) | ⬜ | P1 | fullstack | 桌面更新仍是占位 endpoint，缺少可配置发布服务、灰度回滚和真实入口（WB-239 R4） |
 
 ## 来源
 
