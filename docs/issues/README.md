@@ -268,7 +268,7 @@
 | [WB-249](WB-249-skill-installation-scope-and-locking.md) | ✅ | P1 | backend | Skill 安装启停为机器全局状态且并发安装卸载缺少事务锁与恢复能力 |
 | [WB-250](WB-250-skill-release-console-lifecycle.md) | ⬜ | P1 | fullstack | Console Skill 管理仍是可变 CRUD，缺少测试审核灰度撤回和运行指标闭环 |
 | [WB-251](WB-251-reliable-automation-delivery-governance.md) | ✅ | P1 | backend | 自动化缺少真实失败判定、持久幂等重试、DLQ、成本上限与结果投递（WB-239 R2） |
-| [WB-255](WB-255-work-item-run-artifact-collaboration.md) | ⬜ | P1 | fullstack | 项目工作项无法直接发起、跟踪和验收本地 Run 与 Artifact（WB-239 R3） |
+| [WB-255](WB-255-work-item-run-artifact-collaboration.md) | ✅ | P1 | fullstack | 项目工作项无法直接发起、跟踪和验收本地 Run 与 Artifact（WB-239 R3） |
 
 ## 来源
 

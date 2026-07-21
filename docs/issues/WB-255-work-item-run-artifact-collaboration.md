@@ -3,7 +3,7 @@ id: WB-255
 title: 项目工作项无法直接发起、跟踪和验收本地 Run 与 Artifact
 severity: P1
 area: fullstack
-status: open
+status: fixed
 origin: WB-239 R3
 files:
   - backend/routers/work_items.py:1
@@ -46,3 +46,13 @@ P1：R3 团队协作主链断裂，WorkItem 与本地执行仍是两套产品；
 - 显式验收原子完成 Artifact→Run→WorkItem，失败时不留下半完成状态；
 - Server/outbox 只有允许的 ID、状态、计数和摘要，不含私密正文/路径/secret；
 - API 回归、真实 SSE、明暗主题、窄屏、TypeScript 与生产构建通过。
+
+## 处理记录
+
+- 2026-07-21：新增持久 `work_item_launches` 与幂等执行 API，建立 WorkItem→Session→Run→Artifact 关联，
+  权限快照记录项目角色、工作项和发起人；真实 LLM 失败会回写失败 Run、暂停工作项并通知成员。
+- 2026-07-21：工作项详情加入 Agent 发起、运行状态/成本/错误、产物下载与整体验收；验收在单事务中校验并
+  更新全部 Artifact、Run 和 WorkItem，Viewer 只读、非成员不可见，上云 outbox 仅含 ID、状态、计数元数据。
+- 2026-07-21：4 条协作回归覆盖幂等、权限、事务回滚和元数据边界；隔离真 API 验证失败链路；TypeScript
+  与 Vite production build 通过。应用内浏览器完成深色、浅色和 860px 窄屏验收，并在隔离数据上确认
+  点击验收后 `Run=accepted`、产物“已验收”、工作项“已完成”；临时数据库、工作区和进程均已清理。
