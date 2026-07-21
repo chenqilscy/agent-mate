@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkPriority, WorkStatus } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -319,6 +319,14 @@ export const api = {
   deleteWorkItem: (id: string) => send<{ ok: boolean }>('DELETE', `/work-items/${id}`),
 
   // 里程碑（WB-108）：server-origin 项目走 Server 权威 + 本地镜像，离线回退本地。
+  getWorkItemDelivery: (id: string) => get<WorkItemDelivery>(`/work-items/${id}/delivery`),
+  executeWorkItem: (id: string, idempotencyKey: string, model?: string | null) =>
+    send<{ ok: boolean; created: boolean; launch: WorkItemLaunch }>('POST', `/work-items/${id}/execute`, {
+      idempotency_key: idempotencyKey, model: model || null,
+    }),
+  acceptWorkItemDelivery: (id: string, runId: string) =>
+    send<{ ok: boolean; work_item: WorkItem; run: AgentRun }>('POST', `/work-items/${id}/accept`, { run_id: runId }),
+
   listMilestones: (project: string) => get<{ milestones: Milestone[] }>(`/milestones?project=${project}`),
   createMilestone: (body: { project_id: string; name: string; description?: string; due_date?: string | null; status?: 'open' | 'closed' }) =>
     send<Milestone>('POST', '/milestones', body),

@@ -199,6 +199,28 @@ export interface AgentRun {
   artifacts?: ArtifactManifest[]
 }
 
+export interface WorkItemLaunch {
+  id: string
+  work_item_id: string
+  owner_id: string
+  idempotency_key: string
+  session_id: string | null
+  run_id: string | null
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  error_code: string | null
+  error_message: string | null
+  created_at: number
+  updated_at: number
+  finished_at: number | null
+}
+
+export interface WorkItemDelivery {
+  work_item: WorkItem
+  can_write: boolean
+  launches: WorkItemLaunch[]
+  runs: AgentRun[]
+}
+
 export interface SessionInfo {
   id: string
   title: string

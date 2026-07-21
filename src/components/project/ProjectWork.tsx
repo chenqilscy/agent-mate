@@ -5,10 +5,11 @@ import { useWorkItemStore } from '../../stores/workItemStore'
 import { useLoadoutStore } from '../../stores/loadoutStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
-import type { WorkAttachment, WorkItem, WorkPriority, WorkStatus } from '../../lib/types'
+import type { WorkAttachment, WorkItem, WorkItemDelivery, WorkPriority, WorkStatus } from '../../lib/types'
 import { AntModalBridge } from '../ui/AntModalBridge'
 import { Empty, Input, Select, Table, Tag } from 'antd'
 import { ProCard } from '@ant-design/pro-components'
+import { clickable } from '../../lib/a11y'
 
 const COLS: { key: WorkStatus; label: string }[] = [
   { key: 'todo', label: '待开始' },
@@ -311,6 +312,8 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
   const [cbody, setCbody] = useState('')
   const [serverOn, setServerOn] = useState(true)
 
+  const [delivery, setDelivery] = useState<WorkItemDelivery | null>(null)
+  const [deliveryBusy, setDeliveryBusy] = useState(false)
   // If the item vanishes (deleted elsewhere), close.
   useEffect(() => { if (!item) onClose() }, [item, onClose])
   useEffect(() => {
@@ -320,6 +323,23 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
     return () => { alive = false }
   }, [projectId, itemId])
   if (!item) return null
+  const loadDelivery = () => {
+    void api.getWorkItemDelivery(itemId).then((value) => {
+      setDelivery(value)
+      if (projectId && value.work_item.status !== item?.status) {
+        useWorkItemStore.getState().applyRemote({
+          id: itemId, project_id: projectId, status: value.work_item.status,
+        })
+      }
+    }).catch(() => {})
+  }
+  useEffect(() => { loadDelivery() }, [itemId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const deliveryActive = delivery?.launches.some((launch) => ['queued', 'running'].includes(launch.status)) ?? false
+  useEffect(() => {
+    if (!deliveryActive) return
+    const timer = setInterval(loadDelivery, 2500)
+    return () => clearInterval(timer)
+  }, [deliveryActive, itemId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const startEdit = () => { setDescDraft(item.description); setEditDesc(true) }
   const saveDesc = () => { setEditDesc(false); if (descDraft !== item.description) void update(item.id, { description: descDraft }) }
@@ -350,6 +370,24 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
     } catch { toast('评论失败') }
   }
 
+  const executeWithAgent = async () => {
+    setDeliveryBusy(true)
+    try {
+      await api.executeWorkItem(item.id, crypto.randomUUID())
+      if (projectId) useWorkItemStore.getState().applyRemote({ id: item.id, project_id: projectId, status: 'doing' })
+      toast('已交给 Agent 执行')
+      loadDelivery()
+    } catch { toast('发起执行失败') } finally { setDeliveryBusy(false) }
+  }
+  const acceptDelivery = async (runId: string) => {
+    setDeliveryBusy(true)
+    try {
+      await api.acceptWorkItemDelivery(item.id, runId)
+      if (projectId) useWorkItemStore.getState().applyRemote({ id: item.id, project_id: projectId, status: 'done' })
+      toast('交付已验收，工作项已完成')
+      loadDelivery()
+    } catch { toast('验收失败，请检查产物完整性') } finally { setDeliveryBusy(false) }
+  }
   return (
     <AntModalBridge onClose={onClose}>
       <div className="np-modal wb-td" role="dialog" aria-modal="true" aria-label="待办详情">
@@ -384,6 +422,45 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
           )}
 
           <div className="wb-td-sec-h">标签</div>
+          <div className="wb-td-sec-h">
+            Agent 交付
+            {delivery?.can_write && (
+              <WbButton className="wb-td-editlink" disabled={deliveryBusy || deliveryActive} onClick={() => void executeWithAgent()}>
+                {deliveryActive ? '执行中…' : '交给 Agent 执行'}
+              </WbButton>
+            )}
+          </div>
+          {!delivery || (delivery.runs.length === 0 && delivery.launches.length === 0) ? (
+            <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有关联执行与交付物" />
+          ) : (
+            <div className="auto-runs">
+              {delivery.runs.map((run) => (
+                <ProCard className="section-card" key={run.id} size="small" variant="outlined">
+                  <div className="wb-td-meta">
+                    <Tag color={run.status === 'failed' ? 'error' : run.status === 'accepted' ? 'success' : 'processing'}>{run.status}</Tag>
+                    {run.prompt_tokens + run.completion_tokens} tokens · {run.tool_calls} 次工具调用
+                  </div>
+                  {run.error_message && <div className="auto-detail-err err">{run.error_code}: {run.error_message}</div>}
+                  {(run.artifacts ?? []).map((artifact) => (
+                    <div className="wb-attach-chip" key={artifact.id}>
+                      <span className="ic" aria-hidden>📦</span>
+                      <span className="nm" {...clickable} onClick={() => projectId && void api.downloadFile(artifact.path, artifact.name, { project: projectId })}>{artifact.name}</span>
+                      <Tag color={artifact.acceptance_status === 'accepted' ? 'success' : 'default'}>{artifact.acceptance_status === 'accepted' ? '已验收' : '待验收'}</Tag>
+                    </div>
+                  ))}
+                  {delivery.can_write && run.status === 'completed' && (run.artifacts?.length ?? 0) > 0 && (
+                    <WbButton className="btn-dark" disabled={deliveryBusy} onClick={() => void acceptDelivery(run.id)}>验收全部产物并完成</WbButton>
+                  )}
+                </ProCard>
+              ))}
+              {delivery.launches.filter((launch) => !launch.run_id && launch.status !== 'completed').map((launch) => (
+                <div className="auto-detail-box" key={launch.id}>
+                  {launch.status === 'failed' ? `发起失败：${launch.error_code || ''}` : 'Agent 正在准备执行…'}
+                </div>
+              ))}
+            </div>
+          )}
+
           <LabelsEditor labels={item.labels} onChange={(l) => void update(item.id, { labels: l })} />
 
           {item.attachments.length > 0 && <div className="wb-td-sec-h">附件 {item.attachments.length}</div>}
