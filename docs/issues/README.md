@@ -274,7 +274,7 @@
 | [WB-255](WB-255-work-item-run-artifact-collaboration.md) | ✅ | P1 | fullstack | 项目工作项无法直接发起、跟踪和验收本地 Run 与 Artifact（WB-239 R3） |
 | [WB-256](WB-256-antd6-list-deprecation.md) | ✅ | P2 | ui | App 与 Console 仍使用 Ant Design 6 已弃用的 List 组件 |
 | [WB-257](WB-257-production-desktop-update-service.md) | ⬜ | P1 | fullstack | 桌面更新仍是占位 endpoint，缺少可配置发布服务、灰度回滚和真实入口（WB-239 R4） |
-| [WB-258](WB-258-evidence-gated-multi-agent-dag.md) | ⬜ | P1 | fullstack | 专家团仍是多 persona 同时注入，缺少独立 Run、DAG、审稿预算和对照评测（WB-239 R5） |
+| [WB-258](WB-258-evidence-gated-multi-agent-dag.md) | ✅ | P1 | fullstack | 专家团仍是多 persona 同时注入，缺少独立 Run、DAG、审稿预算和对照评测（WB-239 R5） |
 | [WB-259](WB-259-antd-version-gate-drift.md) | ✅ | P2 | frontend | Ant Design 依赖声明与精确版本门禁漂移，完整回归持续失败 |
 | [WB-260](WB-260-wbbutton-hover-border-jitter.md) | ✅ | P1 | ui | WbButton 无边框控件悬浮时被 Ant 补边框导致内容抖动 |
 
