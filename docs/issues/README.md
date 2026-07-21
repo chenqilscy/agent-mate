@@ -286,6 +286,7 @@
 | [WB-267](WB-267-managed-skill-categories.md) | ✅ | P1 | fullstack | Skill 分类是自由文本，缺少独立分类目录与引用治理 |
 | [WB-268](WB-268-full-regression-contract-drift.md) | ✅ | P1 | frontend | 全量回归门禁与已落地 Ant 及项目工作台实现漂移，持续集成仍有三项失败 |
 | [WB-269](WB-269-settings-center-mobile-overlap.md) | ✅ | P1 | ui | 设置中心在手机宽度仍保持双栏导致内容挤压重叠 |
+| [WB-270](WB-270-tauri-webview2loader-missing.md) | ✅ | P0 | misc | GNU Tauri 安装包遗漏 WebView2Loader.dll 导致桌面端无法启动 |
 
 ## 来源
 

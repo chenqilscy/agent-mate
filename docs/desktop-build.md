@@ -39,6 +39,8 @@ backend/.venv/Scripts/python.exe backend/build_sidecar.py
 pnpm tauri build
 # 3) 安装产物后核对主程序、sidecar 与 GNU WebView2 Loader 均已落盘
 powershell -ExecutionPolicy Bypass -File scripts/validate-windows-tauri-install.ps1
+# 可选真启动 smoke；成功后应用保持运行，验收结束后从托盘正常退出
+powershell -ExecutionPolicy Bypass -File scripts/validate-windows-tauri-install.ps1 -LaunchSmoke
 ```
 产物在 `src-tauri/target/release/bundle/`：
 - `msi/AgentMate_<ver>_x64_en-US.msi`（WiX）
