@@ -61,7 +61,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   },
   toggleMax: () => set((s) => ({ maxMode: !s.maxMode })),
   setPerm: (perm) => set({ perm }),
-  setPlan: (planMode) => set({ planMode }),
-  setAsk: (askMode) => set({ askMode }),
+  // Plan and Ask are modes, not independent capabilities. Turning one on must
+  // turn the other off so the UI never sends contradictory system contracts.
+  setPlan: (planMode) => set((s) => ({ planMode, askMode: planMode ? false : s.askMode })),
+  setAsk: (askMode) => set((s) => ({ askMode, planMode: askMode ? false : s.planMode })),
   setUsage: (u) => set((s) => ({ usage: { ...s.usage, ...u } })),
 }))

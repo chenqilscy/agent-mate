@@ -17,7 +17,7 @@ created: 2026-07-06
 
 - [x] **ChatSearch 漏跨文本节点匹配** — 已拆分并修复为 WB-281；搜索在单条消息内合并文本并映射回跨节点 Range，不跨消息拼接。
 - [x] **重名附件被静默丢弃却仍提示「已添加」** — 已拆分并修复为 WB-271；同名不同内容可并存，完全重复会得到明确反馈，chip 按内部 ID 独立删除。
-- [ ] **plan + ask 叠加产生自相矛盾的系统提示** — `runtime.py:163` plan 提示要求用 update_plan/ask_user，ask 后缀又要求「不要调用任何工具」，且 `tools_list=[]` 使 plan 能力全失。行为上 ask 压过 plan，但提示词冲突。显式互斥或定义优先级文案。
+- [x] **plan + ask 叠加产生自相矛盾的系统提示** — 已拆分并修复为 WB-272；前端互斥，后端对冲突请求按 Ask 优先归一。
 - [ ] **plan 模式静默丢弃连接器且横幅不显示** — `runtime.py:226` `if active_connectors and not plan and not ask` 使 plan 下连接器（含只读 list_notes）全不加载，且「已加载」横幅不展示用户已选连接器，易误解。
 - [ ] **resolve_model 用 rsplit(":",1)** — `runtime.py:89` 形如 `vendor/model:free` 的真实模型 id 会被误拆成 `free`。当前仅内置标签用 `Display:id`，属边角。
 - [ ] **session 事件到达前点停止，后端任务不被停** — `chatStore.ts:225` `api.stopChat` 受 `if(activeId)` 保护；新草稿在 `session` 事件回来前 `activeId` 为 null，此时停止只 abort 客户端连接。拿到 session 后补发 stop，或依赖断开让后端感知。

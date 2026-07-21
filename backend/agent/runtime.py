@@ -257,6 +257,9 @@ async def run_chat(
     max_output_tokens: int = 0,
 ) -> AsyncIterator[str]:
     """Trace one user turn, delegating the unchanged SSE loop to the inner runner."""
+    # Server-authoritative mode contract (WB-272): old/direct clients may still
+    # submit both flags. Ask is the stricter mode (zero tools), so it wins.
+    plan, ask = normalize_modes(plan, ask)
     mode = "ask" if ask else ("plan" if plan else "exec")
     with telemetry.chat_observation(
         session_id=session.id,
@@ -281,6 +284,11 @@ async def run_chat(
             chat_trace=chat_trace,
         ):
             yield chunk
+
+
+def normalize_modes(plan: bool, ask: bool) -> tuple[bool, bool]:
+    """Return mutually-exclusive (plan, ask) flags; Ask wins a conflict."""
+    return (False, True) if ask else (bool(plan), False)
 
 
 async def _run_chat_inner(
