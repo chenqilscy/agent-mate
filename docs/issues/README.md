@@ -260,6 +260,7 @@
 | [WB-241](WB-241-app-ant-design-migration.md) | 🟡 | P1 | frontend | AgentMate App 仍使用手写组件体系，未统一到 Ant Design 6 与 Pro Components |
 | [WB-242](WB-242-run-artifact-delivery-kernel.md) | ✅ | P1 | fullstack | Session 执行缺少独立 Run 与可验收 Artifact 交付内核（WB-239 R1） |
 | [WB-243](WB-243-office-artifact-tools-golden-gate.md) | ✅ | P1 | backend | 缺少 DOCX/XLSX/PPTX/PDF 专用生成校验工具与黄金任务门禁（WB-239 R1） |
+| [WB-244](WB-244-browser-tool-login-state-confirmation.md) | ⬜ | P1 | backend | 缺少可复用登录态且提交前强制确认的真实浏览器工具（WB-239 R1） |
 
 ## 来源
 
