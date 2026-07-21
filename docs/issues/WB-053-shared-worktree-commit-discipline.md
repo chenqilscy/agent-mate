@@ -3,11 +3,12 @@ id: WB-053
 title: 共享工作区提交纪律 —— 并发会话下别整文件 git add，按 hunk 暂存
 severity: P3
 area: misc
-status: open
+status: fixed
 origin: 既有实现
 files:
   - docs/issues/README.md
   - CLAUDE.md
+  - scripts/audit-staged-commit.ps1
 created: 2026-07-07
 ---
 
@@ -68,12 +69,17 @@ P3（备忘/流程）：不构成代码缺陷，但一旦发生就污染 git 历
    再核一次 README 的真实最大编号；发现撞号就顺延重编。
 8. 保持**一 commit 一 issue**，commit 标题带 `WB-###`。
 
-> 说明：这条纪律理想上也应写进 `CLAUDE.md` 的「Git」小节（所有会话都读它作为项目指令）。
-> 本 issue 先作为可追溯的登记与详细说明；是否并入 CLAUDE.md 由后续处理该 issue 时决定
-> （改 CLAUDE.md 本身也要按上述 hunk 纪律，因为它同样是热点共享文件）。
+> 处理结果：这条纪律已写入 `CLAUDE.md` 的「Git」小节，并提供只读 PowerShell 暂存区审计脚本；
+> `CLAUDE.md`、本 issue 与 README 均按精确 hunk 暂存。
 
 ## 验证
 
 - 一次提交后 `git show --stat HEAD` / `git diff HEAD~1` 只包含你这个 issue 的文件与 hunk，
   无其他会话的功能关键字。
 - 该纪律为标准做法后，`project-state.md` 的 COORDINATION 记录不再出现「误把对方改动提交」的复盘。
+
+## 处理记录（2026-07-22）
+
+- 改动：在 `CLAUDE.md` 固化共享热点文件按 hunk 暂存、README 只暂存当前行、提交前逐 hunk/敏感文件审计和编号冲突复核；新增 `scripts/audit-staged-commit.ps1` 只读门禁。
+- 验证：Windows PowerShell 5.1 下空暂存区退出 1、合法暂存区通过、禁止关键字命中退出 1；最终运行 `git diff --cached --check` 与脚本门禁，并逐 hunk 复核提交内容。
+- commit：本提交（`fix(WB-053): enforce shared worktree commit discipline`）。

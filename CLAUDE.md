@@ -71,8 +71,16 @@ cd backend && ./.venv/Scripts/python.exe -m py_compile <改动的 .py>
 ## Git
 
 - 在 `master` 上开发。仅当用户要求时提交。
-- 提交前敏感文件自检应为空：
-  `git diff --cached --name-only | grep -iE "\.env$|node_modules|\.venv|\.db|/workspace/|\.png$|\.playwright"`
+- **共享工作区默认有并发会话**：提交前先看 `git status --short`，不要覆盖、回退或代交不属于当前 issue 的改动。
+- **热点共享文件只按 hunk 暂存**：`docs/issues/README.md`、`CLAUDE.md`、注册表、配置、公共类型/API、
+  `backend/storage/db.py`、`backend/agent/runtime.py` 等不得直接 `git add <file>`；禁止 `git add .` / `git add -A`。
+  非交互环境用精确 patch 配合 `git apply --cached`，它只更新 index，不改工作区；新文件才可按精确路径 `git add`。
+- `docs/issues/README.md` 只暂存当前 issue 自己的行；不得删除、改写或代交其他会话的台账行。
+- 新建 issue 取号后、提交前都要复核文件名与 README 中的 `WB-###` 是否唯一；撞号时顺延重编并同步两处。
+- 提交前必须逐 hunk 阅读 `git diff --cached`，确认只有当前 issue；再运行跨 Windows 的只读门禁：
+  `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/audit-staged-commit.ps1 -IssueId WB-###`。
+  如需排除已知的其他会话功能关键字，可传 `-ForbiddenPattern '<regex1>','<regex2>'`。脚本会检查敏感文件、跨 issue
+  暂存、README 行归属、编号冲突、状态镜像与 whitespace error；任何失败都不得提交。
 - commit 信息结尾：`Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 
 ## Issue 流程

@@ -70,7 +70,7 @@
 | [WB-050](WB-050-chat-foreign-project-access-not-gated.md) | ✅ | P2 | backend | 非成员可把 /chat 指向他人项目（新建会话分支未校验 project 访问权，run 在该项目沙箱内执行） |
 | [WB-051](WB-051-telegram-connector.md) | ✅ | P2 | backend | 新增 Telegram 连接器（内置 MCP server，Bot API 收发消息） |
 | [WB-052](WB-052-kdocs-connector-fullstack.md) | ✅ | P2 | backend | 金山文档连接器全栈落地（后端 kdocs-cli 桥接 MCP + 前端连接器详情弹窗/接入 loadout） |
-| [WB-053](WB-053-shared-worktree-commit-discipline.md) | ⬜ | P3 | misc | 共享工作区提交纪律 —— 并发会话下别整文件 git add，按 hunk 暂存 |
+| [WB-053](WB-053-shared-worktree-commit-discipline.md) | ✅ | P3 | misc | 共享工作区提交纪律 —— 并发会话下别整文件 git add，按 hunk 暂存 |
 | [WB-054](WB-054-skillhub-skills-page.md) | ✅ | P2 | frontend | SkillHub 技能页落地（精选/商店网格+下载星标/分类过滤/安装·关闭·编辑·卸载） |
 | [WB-055](WB-055-skillhub-install-backend.md) | ✅ | P2 | backend | SkillHub 已安装技能落到后端 + 会话真正挂载（真实安装/发现/注入） |
 | [WB-056](WB-056-skill-detail-view.md) | ✅ | P2 | frontend | 技能详情页（渲染 SKILL.md + 预览/源码 + 去试试/启用/打开文件夹/卸载） |
