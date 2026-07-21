@@ -49,6 +49,17 @@ class AppAntDesignMigrationTests(unittest.TestCase):
         self.assertIn("mask={{ closable: closeOnMask }}", bridge)
         self.assertNotIn("maskClosable=", bridge)
 
+    def test_settings_center_uses_mobile_navigation_instead_of_squeezed_columns(self) -> None:
+        settings = (SRC / "components/settings/SettingsModal.tsx").read_text(encoding="utf-8")
+        css = (SRC / "styles/app.css").read_text(encoding="utf-8")
+        self.assertIn('className="set-mobile-nav"', settings)
+        self.assertIn('aria-label="设置页面"', settings)
+        self.assertIn(".set-mobile-nav { display: none; }", css)
+        self.assertIn(".set-layout { flex-direction: column; }", css)
+        self.assertIn(".set-nav-menu { display: none; }", css)
+        self.assertIn(".set-style { height: auto; min-height: 58px;", css)
+        self.assertIn("white-space: normal;", css)
+
     def test_borderless_product_buttons_keep_zero_width_border_on_hover(self) -> None:
         primitive = (SRC / "components/ui/Primitives.tsx").read_text(encoding="utf-8")
         marker = re.search(

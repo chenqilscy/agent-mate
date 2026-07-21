@@ -11,7 +11,7 @@ import { api } from '../../lib/api'
 import type { AgentSettings, AuditEntry, DataSummary, MemoryItem, MemorySearchHit, MemoryStats, MemoryTrace, StylePreset, SystemSettings } from '../../lib/types'
 import { useSystemSettingsStore } from '../../stores/systemSettingsStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
-import { App as AntApp, Card, Empty, Menu, Segmented, Spin, Switch } from 'antd'
+import { App as AntApp, Card, Empty, Menu, Segmented, Select, Spin, Switch } from 'antd'
 import { DesktopUpdateSettings } from './DesktopUpdateSettings'
 
 
@@ -684,6 +684,16 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               selectedKeys={[tab]}
               onClick={({ key }) => setTab(key as SettingsTab)}
               items={TAB_GROUPS.map((group) => ({ type: 'group' as const, label: group.label, children: group.items.map((item) => ({ key: item.id, className: 'set-nav-item', icon: <span className="set-nav-ic"><Icon>{item.icon}</Icon></span>, label: item.label })) }))}
+            />
+            <Select
+              className="set-mobile-nav"
+              value={tab}
+              aria-label="设置页面"
+              onChange={(value) => setTab(value as SettingsTab)}
+              options={TAB_GROUPS.map((group) => ({
+                label: group.label,
+                options: group.items.map((item) => ({ value: item.id, label: item.label })),
+              }))}
             />
           </aside>
 
