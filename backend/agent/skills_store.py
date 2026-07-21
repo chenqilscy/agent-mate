@@ -1136,12 +1136,15 @@ def rankings(rtype: str = "featured", category: str = "", limit: int = 0) -> lis
 def decorate_cards(
     items: list[dict[str, Any]], category: str = "", limit: int = 0
 ) -> list[dict[str, Any]]:
-    """给第三方商品卡按本机状态加工：标记已安装 + 按分类过滤 + 截断。"""
+    """给第三方商品卡按本机状态加工：执行 Server 下架策略、标记安装、分类与截断。"""
+    blocked = market_blocklist()
     inst = scan()
     inst_keys = {s["slug"] for s in inst} | {s["name"] for s in inst}
     cat = category.strip().lower()
     out: list[dict[str, Any]] = []
     for it in items:
+        if str(it.get("slug") or "").casefold() in blocked:
+            continue
         if cat:
             hay = " ".join([
                 str(it.get("category", "")),
@@ -1152,6 +1155,25 @@ def decorate_cards(
                 continue
         out.append({**it, "installed": it.get("slug") in inst_keys or it.get("name") in inst_keys})
     return out[:limit] if limit and limit > 0 else out
+
+
+def market_blocklist() -> dict[str, str]:
+    """Return the last-known-good Manager policy mirrored into the local catalog DB."""
+    from storage import db
+
+    rows = db.downlink_by_category().get("SKILLHUB_BLOCKLIST", [])
+    result: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        slug = str(row.get("slug") or "").strip()
+        if valid_slug(slug):
+            result[slug.casefold()] = str(row.get("reason") or "").strip()
+    return result
+
+
+def market_block_reason(slug: str) -> str | None:
+    return market_blocklist().get((slug or "").strip().casefold())
 
 
 def _directory_content_hash(root: Path) -> str:

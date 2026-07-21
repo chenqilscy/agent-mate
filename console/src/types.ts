@@ -42,6 +42,12 @@ export interface SkillCategoryData {
   description: string;
 }
 
+export interface SkillHubBlockData {
+  [key: string]: unknown;
+  slug: string;
+  reason: string;
+}
+
 export interface CatalogItem<T> {
   id: string;
   category: string;

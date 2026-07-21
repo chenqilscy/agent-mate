@@ -743,6 +743,25 @@ def _validate_skill_recommendation(data: Any, *, ignore_id: str = "") -> None:
             raise HTTPException(409, "skill recommendation already exists in this placement")
 
 
+def _validate_skillhub_blocklist(data: Any, *, ignore_id: str = "") -> dict[str, str]:
+    """Validate a policy row; Server distributes slugs only and never proxies SkillHub content."""
+    if not isinstance(data, dict):
+        raise HTTPException(400, "SKILLHUB_BLOCKLIST data must be an object")
+    normalized = {
+        "slug": str(data.get("slug") or "").strip(),
+        "reason": str(data.get("reason") or "").strip(),
+    }
+    if not _SKILL_SLUG_RE.fullmatch(normalized["slug"]):
+        raise HTTPException(400, "invalid SkillHub blocklist slug")
+    if len(normalized["reason"]) > 500:
+        raise HTTPException(400, "SkillHub blocklist reason is too long")
+    for row in db.list_catalog_items("SKILLHUB_BLOCKLIST", scope="builtin", include_disabled=True):
+        current = row.get("data") if isinstance(row.get("data"), dict) else {}
+        if row["id"] != ignore_id and str(current.get("slug") or "").casefold() == normalized["slug"].casefold():
+            raise HTTPException(409, "SkillHub slug is already blocked")
+    return normalized
+
+
 def _skill_is_recommended(slug: str) -> bool:
     return any(
         isinstance(row.get("data"), dict)
@@ -955,6 +974,8 @@ def create_item(body: CatalogItemBody, account: Account = CurrentAccount) -> dic
     elif body.category == "SKILL_RECOMMENDATIONS":
         data = _normalize_skill_recommendation(body.data)
         _validate_skill_recommendation(data)
+    elif body.category == "SKILLHUB_BLOCKLIST":
+        data = _validate_skillhub_blocklist(body.data)
     elif body.category == "CONN_DEFS":
         _validate_connector_definition(body.data)
     elif body.category == "CONNECTOR_RECOMMENDATIONS":
@@ -994,6 +1015,8 @@ def update_item(item_id: str, body: UpdateItemBody, account: Account = CurrentAc
     elif item["category"] == "SKILL_RECOMMENDATIONS" and body.data is not None:
         data = _normalize_skill_recommendation(body.data)
         _validate_skill_recommendation(data, ignore_id=item_id)
+    elif item["category"] == "SKILLHUB_BLOCKLIST" and body.data is not None:
+        data = _validate_skillhub_blocklist(body.data, ignore_id=item_id)
     elif item["category"] == "CONN_DEFS" and body.data is not None:
         _validate_connector_definition(body.data, ignore_id=item_id)
         old_slug = str(item.get("data", {}).get("slug", "")) if isinstance(item.get("data"), dict) else ""

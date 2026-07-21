@@ -1,15 +1,15 @@
 ---
 id: WB-191
-title: SkillHub 段展示的是上游商店镜像，本地目录下架对它无效（想下架某条需 Manager 侧持久化过滤）
+title: SkillHub 第三方市场缺少 Manager 集中下架策略
 severity: P3
 area: fullstack
-status: deferred
+status: fixed
 origin: 既有实现
 files:
-  - src/views/ExpertsView.tsx:424
-  - backend/storage/db.py:1433
-  - backend/hub_sync.py:112
-  - hub/skillhub_client.py:131
+  - console/src/SkillsPage.tsx
+  - server/routers/catalog.py
+  - backend/agent/skills_store.py
+  - backend/routers/skills.py
 created: 2026-07-17
 ---
 
@@ -64,3 +64,20 @@ P3：不影响运行时；是「用户想在自己的 App 里不看到某个上�
 本条不属于技能执行链路缺口：当前 SkillHub 段忠实展示第三方商店真镜像，安装与运行链路正常。
 是否在 AgentMate 侧屏蔽某个仍由上游发布的商品属于目录治理策略，需要明确选择全局下架名单或本机过滤；
 在产品策略确定前标记为 deferred，不把它混入本轮 App/Server 能力打通验收。
+
+## 决策记录（2026-07-22）
+
+- 采用集中治理，但适配 WB-215 后的真实架构：Manager 只下发持久化 slug 下架策略，App 仍在本机直连
+  SkillHub 获取商品元数据；策略在本地搜索、排行与安装入口统一执行，Server 不代理第三方正文或安装包。
+- Console 提供管理界面，不要求运营人员编辑文件或 JSON；下架策略随既有目录 revision/pull 跨同步生效。
+
+## 处理记录（2026-07-22）
+
+- 改动：Manager 技能页新增“SkillHub 下架”管理页，平台管理员按 slug 新增/恢复策略并填写原因；Server
+  对 `SKILLHUB_BLOCKLIST` 做 slug、长度与重复项校验，并纳入既有目录 revision/pull。App 保持本机直连
+  SkillHub，但在搜索、排行和直接安装三条入口统一执行 last-known-good 下架策略；已安装技能不被静默删除。
+- 架构纠偏：WB-215 后已不存在“Server 镜像 369 条 SkillHub 商品”的旧链路。本实现只通过 Server 下发
+  治理策略，不恢复第三方正文/安装包代理，也不要求运营人员编辑文件。
+- 验证：Server 策略回归 2/2、Backend 过滤与直接安装回归 2/2、Python `py_compile`、TypeScript
+  `tsc -b`、Console 生产构建均通过；重复 slug、非法 `../` slug 和直接安装均 fail closed。
+- commit：随本提交。

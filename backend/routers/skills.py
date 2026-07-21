@@ -216,6 +216,10 @@ def install_skill(body: InstallBody) -> dict:
         slug = skills_store.resolve_slug(display) or ""
         if not slug:
             raise HTTPException(404, f"SkillHub 未找到「{display or body.slug}」")
+    reason = skills_store.market_block_reason(slug)
+    if reason is not None:
+        detail = f"该 SkillHub 技能已由平台下架：{reason}" if reason else "该 SkillHub 技能已由平台下架"
+        raise HTTPException(409, detail)
     res = skills_store.install(slug, display_name=display)
     if not res.get("ok"):
         raise HTTPException(502, res.get("error") or "安装失败")

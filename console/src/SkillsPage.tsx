@@ -42,10 +42,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { consoleApi } from "./api";
 import SkillCategories from "./SkillCategories";
 import SkillEditor from "./SkillEditor";
-import type { CatalogItem, SkillCategoryData, SkillData, SkillRelease, SkillReleaseState, SkillTool, ToolCatalogAudit } from "./types";
+import type { CatalogItem, SkillCategoryData, SkillData, SkillHubBlockData, SkillRelease, SkillReleaseState, SkillTool, ToolCatalogAudit } from "./types";
 
 type StatusFilter = "all" | "enabled" | "disabled";
-type SkillTab = "gallery" | "manage" | "categories" | "tools" | "releases" | "recommendations";
+type SkillTab = "gallery" | "manage" | "categories" | "tools" | "releases" | "recommendations" | "skillhub-policy";
 
 export default function SkillsPage() {
   const { message } = App.useApp();
@@ -60,7 +60,7 @@ export default function SkillsPage() {
   const [category, setCategory] = useState<string | undefined>();
   const [status, setStatus] = useState<StatusFilter>("all");
   const requestedTab = new URLSearchParams(window.location.search).get("tab");
-  const [tab, setTab] = useState<SkillTab>(requestedTab === "manage" || requestedTab === "categories" || requestedTab === "tools" || requestedTab === "releases" || requestedTab === "recommendations" ? requestedTab : "gallery");
+  const [tab, setTab] = useState<SkillTab>(requestedTab === "manage" || requestedTab === "categories" || requestedTab === "tools" || requestedTab === "releases" || requestedTab === "recommendations" || requestedTab === "skillhub-policy" ? requestedTab : "gallery");
   const [editor, setEditor] = useState<{ item: CatalogItem<SkillData> | null; tab: "info" | "files" } | null>(null);
 
   async function load() {
@@ -191,6 +191,7 @@ export default function SkillsPage() {
           { key: "tools", label: "内置工具" },
           { key: "releases", label: "发布治理" },
           { key: "recommendations", label: "推荐位管理" },
+          { key: "skillhub-policy", label: "SkillHub 下架" },
         ]}
         onChange={(key) => { const next = key as SkillTab; setTab(next); const url = new URL(window.location.href); url.searchParams.set("tab", next); history.replaceState(null, "", url); }}
       />
@@ -198,7 +199,7 @@ export default function SkillsPage() {
         <Card loading={loading} title="客户端生效预览" extra={<Input.Search allowClear placeholder="搜索技能" value={query} onChange={(event) => setQuery(event.target.value)} />}>
           {visibleItems.filter((item) => item.enabled).length ? <Row gutter={[16, 16]}>{visibleItems.filter((item) => item.enabled).map((item) => <Col xs={24} md={12} xl={8} key={item.id}><Card size="small" className="catalog-card"><Space align="start"><Avatar shape="square" size={44}>{item.data.icon || <SafetyCertificateOutlined />}</Avatar><div><Typography.Title level={5}>{item.data.name}</Typography.Title><Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }}>{item.data.description}</Typography.Paragraph><Space wrap><Tag>{item.data.slug}</Tag>{item.data.category && <Tag color="blue">{item.data.category}</Tag>}</Space></div></Space></Card></Col>)}</Row> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无生效技能" />}
         </Card>
-      ) : tab === "recommendations" ? <SkillRecommendations skills={items} categories={skillCategories} /> : tab === "categories" ? (
+      ) : tab === "skillhub-policy" ? <SkillHubPolicy /> : tab === "recommendations" ? <SkillRecommendations skills={items} categories={skillCategories} /> : tab === "categories" ? (
         <SkillCategories categories={skillCategories} skills={items} loading={loading} reload={load} />
       ) : tab === "tools" ? (
         <ToolCatalogManager tools={tools} loading={loading} reload={load} />
@@ -233,6 +234,39 @@ export default function SkillsPage() {
       />
     </PageContainer>
   );
+}
+
+function SkillHubPolicy() {
+  const { message } = App.useApp();
+  const [items, setItems] = useState<CatalogItem<SkillHubBlockData>[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [form] = Form.useForm<SkillHubBlockData>();
+  async function load() {
+    setLoading(true);
+    try {
+      const result = await consoleApi.catalog<SkillHubBlockData>("SKILLHUB_BLOCKLIST", true);
+      setItems(result.items || []);
+    } catch (reason) {
+      message.error(reason instanceof Error ? reason.message : "下架策略加载失败");
+    } finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
+  const columns: ProColumns<CatalogItem<SkillHubBlockData>>[] = [
+    { title: "SkillHub slug", dataIndex: ["data", "slug"], width: 260, render: (value) => <Typography.Text code copyable>{String(value || "")}</Typography.Text> },
+    { title: "下架原因", dataIndex: ["data", "reason"], render: (value) => String(value || "未填写") },
+    { title: "操作", valueType: "option", width: 100, render: (_value, item) => <Popconfirm title={`恢复 ${item.data.slug}？`} description="恢复后，App 下次目录同步即可再次展示和安装。" onConfirm={async () => { await consoleApi.deleteCatalogItem(item.id); message.success("下架策略已移除"); await load(); }}><Button type="link" size="small">恢复</Button></Popconfirm> },
+  ];
+  return <>
+    <Alert type="info" showIcon message="这里只管理第三方 SkillHub 商品的全局可见性" description="App 仍在本机直连 SkillHub；Manager 只下发 slug 策略，不代理第三方 SKILL.md、源码或安装包。" />
+    <ProTable<CatalogItem<SkillHubBlockData>> rowKey="id" columns={columns} dataSource={items} loading={loading} search={false} pagination={false} options={{ reload: () => void load(), density: true }} toolBarRender={() => [<Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setOpen(true); }}>下架 SkillHub 技能</Button>]} />
+    <Modal title="下架 SkillHub 技能" open={open} onCancel={() => setOpen(false)} onOk={() => form.submit()} destroyOnHidden>
+      <Form form={form} layout="vertical" onFinish={async (values) => { try { await consoleApi.createCatalogItem("SKILLHUB_BLOCKLIST", values); message.success("下架策略已保存"); setOpen(false); await load(); } catch (reason) { message.error(reason instanceof Error ? reason.message : "保存失败"); } }}>
+        <Form.Item name="slug" label="SkillHub slug" rules={[{ required: true, whitespace: true }, { pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*$/, message: "仅允许字母、数字与 . _ -" }]}><Input maxLength={120} placeholder="例如 tencent-docs" /></Form.Item>
+        <Form.Item name="reason" label="下架原因"><Input.TextArea rows={4} maxLength={500} showCount /></Form.Item>
+      </Form>
+    </Modal>
+  </>;
 }
 
 const RELEASE_STATE: Record<SkillReleaseState, { label: string; color: string }> = {
