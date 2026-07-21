@@ -22,7 +22,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from agent import office, security
+from agent import browser, office, security
 from agent.sandbox import SandboxError, current_root, relpath, resolve_in_sandbox
 from config import scrubbed_env
 from storage import db
@@ -307,6 +307,62 @@ inspect_office_file = Tool(
     pre=lambda a: {"kind": "step", "tool": "inspect_office_file", "label": f"检查办公文件 {a.get('path', '')}"},
     run=_inspect_office,
     plan_safe=True,
+)
+
+
+# ---- persistent browser (WB-244) ---------------------------------------
+
+def _browser_outcome(result: dict[str, Any]) -> ToolOutcome:
+    artifacts = result.pop("artifacts", [])
+    title = str(result.get("title") or "")
+    url = str(result.get("url") or "")
+    return ToolOutcome(
+        text=json.dumps(result, ensure_ascii=False),
+        trace=[{"kind": "step", "tool": "browser", "label": f"浏览器 · {title or url}"}],
+        artifacts=artifacts,
+    )
+
+
+browser_navigate = Tool(
+    name="browser_navigate",
+    description=(
+        "用当前用户隔离且可复用登录态的系统 Edge/Chrome 打开公共 HTTP(S) 页面并读取可见内容。"
+        "默认阻断 localhost/私网和所有非 GET 网络写；可选把全页截图交付为 Artifact。"
+    ),
+    parameters={"type": "object", "properties": {
+        "url": {"type": "string"}, "timeout_ms": {"type": "integer", "minimum": 1000, "maximum": 60000},
+        "screenshot_path": {"type": "string", "description": "可选工作区 .png 路径"},
+    }, "required": ["url"]},
+    pre=lambda a: {"kind": "step", "tool": "browser_navigate", "label": f"打开网页 {str(a.get('url', ''))[:100]}"},
+    run=lambda a: _browser_outcome(browser.navigate(a)),
+    plan_safe=True,
+)
+
+browser_read = Tool(
+    name="browser_read",
+    description="读取当前用户浏览器 profile 上次页面（或指定公共 URL）的标题、可见文本、链接和表单控件；只发 GET。",
+    parameters={"type": "object", "properties": {"url": {"type": "string"}}},
+    pre=lambda a: {"kind": "step", "tool": "browser_read", "label": "读取浏览器页面"},
+    run=lambda a: _browser_outcome(browser.read(a)),
+    plan_safe=True,
+)
+
+browser_interact = Tool(
+    name="browser_interact",
+    description=(
+        "在当前页面执行 fill/select/check/uncheck/click/upload/screenshot/download。"
+        "submit、Enter 和任何 POST/PUT/PATCH/DELETE 始终被阻断并返回 confirmation_required；"
+        "模型不能自行声明用户已确认。"
+    ),
+    parameters={"type": "object", "properties": {
+        "url": {"type": "string"},
+        "actions": {"type": "array", "items": {"type": "object", "properties": {
+            "type": {"type": "string", "enum": ["fill", "select", "check", "uncheck", "click", "upload", "screenshot", "download", "submit", "press_enter"]},
+            "selector": {"type": "string"}, "value": {"type": "string"}, "path": {"type": "string"},
+        }, "required": ["type"]}},
+    }, "required": ["actions"]},
+    pre=lambda a: {"kind": "step", "tool": "browser_interact", "label": f"浏览器交互 {len(a.get('actions') or [])} 步"},
+    run=lambda a: _browser_outcome(browser.interact(a)),
 )
 
 
@@ -669,6 +725,7 @@ knowledge_add = Tool(
 TOOLS: list[Tool] = [
     list_dir, read_file, write_file,
     create_docx, create_xlsx, create_pptx, create_pdf, inspect_office_file,
+    browser_navigate, browser_read, browser_interact,
     run_command, update_plan,
 ]
 _BY_NAME = {t.name: t for t in TOOLS}
@@ -712,7 +769,7 @@ ASK_USER_SCHEMA: dict[str, Any] = {
 # Plan mode = read-only tools + ask_user (no write_file / run_command).
 # 这份名单现在只是 `Tool.plan_safe` 的**一致性断言**（WB-186）：过滤真正依据 plan_safe，
 # 好让技能工具（不在 TOOLS 里）也能表达「我 plan 安全吗」。两处若漂移，下面的断言会炸。
-_PLAN_TOOLS = {"list_dir", "read_file", "inspect_office_file", "update_plan"}
+_PLAN_TOOLS = {"list_dir", "read_file", "inspect_office_file", "browser_navigate", "browser_read", "update_plan"}
 for _t in TOOLS:  # 建表期自检：名单与 plan_safe 必须一致，防止日后改一处忘另一处
     assert (_t.name in _PLAN_TOOLS) == _t.plan_safe, (
         f"tools.py: {_t.name} 的 plan_safe={_t.plan_safe} 与 _PLAN_TOOLS 名单不一致"

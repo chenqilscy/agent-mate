@@ -25,6 +25,10 @@ for package in ('docx', 'openpyxl', 'pptx', 'reportlab', 'pypdf'):
     hidden += collect_submodules(package)
 for package in ('docx', 'pptx', 'reportlab'):
     datas += collect_data_files(package)
+# Playwright Python driver/runtime is bundled, but browser binaries are not:
+# runtime discovers the user's system Edge/Chrome (WB-244).
+hidden += collect_submodules('playwright')
+datas += collect_data_files('playwright')
 
 a = Analysis(
     ['main.py'],

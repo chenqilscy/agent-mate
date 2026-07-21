@@ -22,3 +22,5 @@ openpyxl==3.1.5
 python-pptx==1.0.2
 reportlab==4.4.10
 pypdf==6.14.2
+# 可复用系统 Edge/Chrome 的安全浏览器工具（WB-244）；不下载 Playwright 自带浏览器。
+playwright==1.61.0

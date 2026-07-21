@@ -18,6 +18,8 @@ backend/agentmate.db-shm
 backend/agentmate.db-wal
 backend/workspace/
 !backend/workspace/.gitkeep
+# 浏览器登录态/cookie（WB-244）：DB 同级、后端专用，绝不进 agent workspace 或版本库。
+backend/.browser-profiles/
 # 本地 ASR 模型缓存（WB-139，faster-whisper 首次使用下载，~145MB，不入库）
 backend/models/
 # 知识库文档字节落盘（WB-171，用户上传的团队资料，不入库）
