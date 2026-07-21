@@ -3049,6 +3049,24 @@ def list_messages(session_id: str) -> list[Message]:
         "SELECT * FROM messages WHERE session_id=? ORDER BY created_at ASC",
         (session_id,),
     ).fetchall()
+
+    out: list[Message] = []
+    for row in rows:
+        out.append(
+            Message(
+                id=row["id"],
+                session_id=row["session_id"],
+                role=row["role"],
+                content=row["content"],
+                actor=row["actor"],
+                trace=json.loads(row["trace"]) if row["trace"] else [],
+                usage=json.loads(row["usage"]) if row["usage"] else None,
+                created_at=row["created_at"],
+            )
+        )
+    return out
+
+
 def create_work_item_launch(
     *, work_item_id: str, owner_id: str, idempotency_key: str,
 ) -> tuple[dict, bool]:

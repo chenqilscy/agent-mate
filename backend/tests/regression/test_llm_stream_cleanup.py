@@ -76,9 +76,6 @@ class LlmStreamCleanupTest(unittest.TestCase):
             patch.object(runtime, "stream_chat", side_effect=fake_stream),
             patch.object(runtime, "resolve_model_config", return_value=("test", "http://test", "key", "/chat")),
             patch.object(runtime, "workspace_root", return_value=root),
-            # WB-277 is a separately tracked pre-existing list_messages regression;
-            # isolate it here so this test exercises only stream finalization.
-            patch.object(runtime.db, "list_messages", return_value=[]),
             patch.object(runtime.memory, "capture_enabled", return_value=False),
             patch.object(runtime.telemetry, "chat_observation", side_effect=noop_observation),
             patch.object(runtime.telemetry, "generation_observation", side_effect=noop_observation),
