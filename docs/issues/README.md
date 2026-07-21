@@ -261,6 +261,12 @@
 | [WB-242](WB-242-run-artifact-delivery-kernel.md) | ✅ | P1 | fullstack | Session 执行缺少独立 Run 与可验收 Artifact 交付内核（WB-239 R1） |
 | [WB-243](WB-243-office-artifact-tools-golden-gate.md) | ✅ | P1 | backend | 缺少 DOCX/XLSX/PPTX/PDF 专用生成校验工具与黄金任务门禁（WB-239 R1） |
 | [WB-244](WB-244-browser-tool-login-state-confirmation.md) | ⬜ | P1 | backend | 缺少可复用登录态且提交前强制确认的真实浏览器工具（WB-239 R1） |
+| [WB-245](WB-245-skill-immutable-release-snapshot.md) | ✅ | P0 | fullstack | Skill 已安装指令与实时工具绑定可形成混合版本且 Run 缺少不可变快照 |
+| [WB-246](WB-246-skill-tombstone-capability-sync.md) | ⬜ | P0 | fullstack | Skill 下行缺少 tombstone、客户端能力报告与增量兼容门禁 |
+| [WB-247](WB-247-skill-runtime-resources-and-composition.md) | ⬜ | P1 | backend | Skill references 与模板运行时不可达且多 Skill 指令缺少总预算和冲突规则 |
+| [WB-248](WB-248-skill-permission-and-worker-isolation.md) | ⬜ | P1 | backend | Skill 工具权限只有 plan_safe 粗粒度标记且长任务无法可靠取消隔离 |
+| [WB-249](WB-249-skill-installation-scope-and-locking.md) | ⬜ | P1 | backend | Skill 安装启停为机器全局状态且并发安装卸载缺少事务锁与恢复能力 |
+| [WB-250](WB-250-skill-release-console-lifecycle.md) | ⬜ | P1 | fullstack | Console Skill 管理仍是可变 CRUD，缺少测试审核灰度撤回和运行指标闭环 |
 
 ## 来源
 

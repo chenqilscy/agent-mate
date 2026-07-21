@@ -11,6 +11,7 @@ unknown identities are skipped and reported honestly instead of receiving a gene
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import ipaddress
 import logging
@@ -309,16 +310,23 @@ def builtin_list() -> list[dict[str, Any]]:
         for item in skills_store.scan()
         if item.get("source") == "agentmate" and not item.get("disabled")
     }
-    return [
-        {
-            "slug": s["slug"],
-            "name": installed[str(s["slug"])]["name"],
-            "description": installed[str(s["slug"])]["description"] or s["description"],
-            "tools": [t.name for t in _resolve_tools(s["tools"])],
-        }
-        for s in db.skill_specs()
-        if str(s["slug"]) in installed
-    ]
+    result: list[dict[str, Any]] = []
+    for spec in db.skill_specs():
+        slug = str(spec["slug"])
+        if slug not in installed:
+            continue
+        snapshot = skills_store.release_snapshot(slug)
+        if not snapshot:
+            continue
+        result.append({
+            "slug": slug,
+            "name": installed[slug]["name"],
+            "description": installed[slug]["description"] or spec["description"],
+            "tools": [tool.name for tool in _resolve_tools(snapshot["tools"])],
+            "release_id": snapshot["release_id"],
+            "content_hash": snapshot["content_hash"],
+        })
+    return result
 
 
 def catalog_detail(key: str) -> dict[str, Any] | None:
@@ -329,7 +337,6 @@ def catalog_detail(key: str) -> dict[str, Any] | None:
     spec = db.skill_spec_for(key)
     if not spec or not spec["instructions"]:
         return None
-    resolved_tools = [tool.name for tool in _resolve_tools(spec["tools"])]
     installed = next(
         (
             item for item in skills_store.scan()
@@ -340,6 +347,7 @@ def catalog_detail(key: str) -> dict[str, Any] | None:
     if installed:
         detail = skills_store.detail(str(installed["key"]))
         if detail:
+            snapshot = skills_store.release_snapshot(str(installed["key"]))
             catalog_version = str(spec.get("version") or "")
             installed_version = str(detail.get("version") or "")
             return {
@@ -347,7 +355,10 @@ def catalog_detail(key: str) -> dict[str, Any] | None:
                 "source": "AgentMate",
                 "catalog": True,
                 "category": str(spec.get("category") or ""),
-                "tools": resolved_tools,
+                "tools": [tool.name for tool in _resolve_tools(snapshot["tools"])] if snapshot else [],
+                "release_id": str(snapshot.get("release_id") or "") if snapshot else "",
+                "content_hash": str(snapshot.get("content_hash") or "") if snapshot else "",
+                "integrity_valid": bool(snapshot),
                 "catalog_version": catalog_version,
                 "update_available": bool(catalog_version and installed_version != catalog_version),
             }
@@ -427,8 +438,8 @@ def skill_def(name: str) -> tuple[str, list[Tool]] | None:
     """把 loadout 里的技能名（或 slug）解析成 (指令, 工具包)；**解析不到返回 None**。
 
     两层，都是真的：
-    1. 已安装的 AgentMate 目录技能——指令读本地 SKILL.md 快照，工具名由目录 DB 经
-       `_TOOL_REGISTRY` 解析；未安装/停用时不可用（WB-216）；
+    1. 已安装的 AgentMate 目录技能——指令与工具名都读本机不可变 release，经
+       `_TOOL_REGISTRY` 解析；未安装、停用或 hash 校验失败时不可用（WB-216/WB-245）；
     2. 对应一个已安装且未停用的磁盘 skill（WB-055）→ 注入其真实 SKILL.md 正文。
 
     曾经还有第三层兜底 `f"运用「{name}」技能的专长完成相关任务。"` —— 那是**伪装**：
@@ -437,9 +448,18 @@ def skill_def(name: str) -> tuple[str, list[Tool]] | None:
     解析不到就返回 None，由调用方**如实告知用户「未就绪」**——照连接器 `mcp_skipped`
     的既有范式（选了但加载不了就明说，不做静默 no-op），宁可少一个技能也不假装有。
     """
+    resolved = skill_runtime_def(name)
+    if not resolved:
+        return None
+    return resolved["instructions"], resolved["tools"]
+
+
+def skill_runtime_def(name: str) -> dict[str, Any] | None:
+    """Resolve one installed Skill into an immutable execution definition."""
     from storage import db  # 延迟导入，避免 storage.db ↔ agent.* 循环依赖
-    from agent import skills_store  # 延迟导入，避免与 config/加载顺序耦合
-    spec = db.skill_spec_for(name)  # 按 slug 或 name 命中（迁移期两者并存，WB-179）
+    from agent import skills_store
+
+    spec = db.skill_spec_for(name)
     if spec and spec["instructions"]:
         installed = next(
             (
@@ -451,10 +471,35 @@ def skill_def(name: str) -> tuple[str, list[Tool]] | None:
             None,
         )
         if installed:
-            body = skills_store.instructions_for(str(installed["key"]))
-            if body:
-                return (body, _resolve_tools(spec["tools"]))
+            key = str(installed["key"])
+            snapshot = skills_store.release_snapshot(key)
+            body = skills_store.instructions_for(key)
+            if snapshot and body:
+                return {
+                    "instructions": body,
+                    "tools": _resolve_tools(snapshot["tools"]),
+                    "snapshot": snapshot,
+                }
+            # A declared AgentMate package with a bad release hash must never fall
+            # through as a local instruction-only Skill.
+            return None
     body = skills_store.instructions_for(name)
     if body:
-        return (body, [])
+        digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        return {
+            "instructions": body,
+            "tools": [],
+            "snapshot": {
+                "slug": skills_store.canonical_slug(name) or name,
+                "release_id": f"local:{digest[:16]}",
+                "version": "",
+                "content_hash": digest,
+                "instructions_hash": digest,
+                "tool_contract_version": "0",
+                "tools": [],
+                "permissions": [],
+                "source": "local",
+                "legacy": True,
+            },
+        }
     return None

@@ -144,7 +144,8 @@ class SkillCatalogContractTest(unittest.TestCase):
         from agent.skills import skill_def
         self.assertIsNone(skill_def("skill-creator-guide"))
         skills_store.install_catalog_skill(
-            spec["slug"], spec["name"], spec["description"], spec["instructions"]
+            spec["slug"], spec["name"], spec["description"], spec["instructions"],
+            tools=spec["tools"],
         )
         resolved = skill_def("skill-creator-guide")
         self.assertIsNotNone(resolved)
@@ -169,7 +170,8 @@ class SkillCatalogContractTest(unittest.TestCase):
 
         spec = db.skill_spec_for("web-access")
         result = skills_store.install_catalog_skill(
-            spec["slug"], spec["name"], spec["description"], spec["instructions"]
+            spec["slug"], spec["name"], spec["description"], spec["instructions"],
+            tools=spec["tools"],
         )
         self.assertTrue(result["ok"])
         self.assertEqual("agentmate", result["skill"]["source"])
@@ -249,6 +251,55 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertEqual("v2\n", (root / "references" / "version.txt").read_text(encoding="utf-8"))
         self.assertIn("执行 v2 指令", (root / "SKILL.md").read_text(encoding="utf-8"))
         self.assertFalse(catalog_detail("versioned-skill")["update_available"])
+
+    def test_installed_release_keeps_v1_tools_until_atomic_upgrade(self) -> None:
+        from agent import skills_store
+        from agent.skills import skill_runtime_def
+
+        db.replace_server_skill_catalog([{
+            "slug": "atomic-skill", "name": "原子技能", "description": "原子快照测试",
+            "instructions": "执行 v1 指令。", "version": "1", "tools": ["web_fetch"],
+        }])
+        first = db.skill_spec_for("atomic-skill")
+        skills_store.install_catalog_skill(
+            first["slug"], first["name"], first["description"], first["instructions"],
+            first["version"], first["files"], first["tools"],
+        )
+        v1 = skill_runtime_def("atomic-skill")
+        self.assertEqual(["web_fetch"], [tool.name for tool in v1["tools"]])
+        self.assertEqual("1", v1["snapshot"]["version"])
+
+        db.replace_server_skill_catalog([{
+            "slug": "atomic-skill", "name": "原子技能", "description": "原子快照测试",
+            "instructions": "执行 v2 指令。", "version": "2", "tools": ["analyze_csv"],
+        }])
+        still_v1 = skill_runtime_def("atomic-skill")
+        self.assertEqual(["web_fetch"], [tool.name for tool in still_v1["tools"]])
+        self.assertIn("v1", still_v1["instructions"])
+
+        second = db.skill_spec_for("atomic-skill")
+        skills_store.upgrade_catalog_skill(
+            second["slug"], second["name"], second["description"], second["instructions"],
+            second["version"], second["files"], second["tools"],
+        )
+        v2 = skill_runtime_def("atomic-skill")
+        self.assertEqual(["analyze_csv"], [tool.name for tool in v2["tools"]])
+        self.assertEqual("2", v2["snapshot"]["version"])
+        self.assertNotEqual(v1["snapshot"]["content_hash"], v2["snapshot"]["content_hash"])
+
+    def test_tampered_catalog_release_is_rejected(self) -> None:
+        from agent import skills_store
+        from agent.skills import skill_runtime_def
+
+        spec = db.skill_spec_for("web-access")
+        skills_store.install_catalog_skill(
+            spec["slug"], spec["name"], spec["description"], spec["instructions"],
+            spec["version"], spec["files"], spec["tools"],
+        )
+        manifest = settings.SKILLS_DIR / "web-access" / skills_store.RELEASE_MANIFEST
+        self.assertTrue(manifest.is_file())
+        (settings.SKILLS_DIR / "web-access" / "SKILL.md").write_text("tampered", encoding="utf-8")
+        self.assertIsNone(skill_runtime_def("web-access"))
 
 
 if __name__ == "__main__":

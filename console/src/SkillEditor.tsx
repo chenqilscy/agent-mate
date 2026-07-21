@@ -47,7 +47,7 @@ interface SkillEditorProps {
   onSaved: () => void;
 }
 
-const RESERVED_FILES = new Set(["skill.md", "_skillhub_meta.json", "_meta.json", ".disabled"]);
+const RESERVED_FILES = new Set(["skill.md", "_skillhub_meta.json", "_meta.json", "_agentmate_release.json", ".disabled"]);
 
 function normalizePath(value: string): string {
   return value.replace(/\\/g, "/").trim();

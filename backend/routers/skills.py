@@ -90,6 +90,9 @@ def install_catalog_skill(key: str) -> dict:
             str(spec["instructions"]),
             str(spec.get("version") or ""),
             spec.get("files") if isinstance(spec.get("files"), list) else [],
+            spec.get("tools") if isinstance(spec.get("tools"), list) else [],
+            spec.get("permissions") if isinstance(spec.get("permissions"), list) else [],
+            str(spec.get("tool_contract_version") or "1"),
         )
     except skills_store.SkillImportError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
@@ -108,6 +111,9 @@ def upgrade_catalog_skill(key: str) -> dict:
             str(spec["slug"]), str(spec["name"]), str(spec.get("description") or ""),
             str(spec["instructions"]), str(spec.get("version") or ""),
             spec.get("files") if isinstance(spec.get("files"), list) else [],
+            spec.get("tools") if isinstance(spec.get("tools"), list) else [],
+            spec.get("permissions") if isinstance(spec.get("permissions"), list) else [],
+            str(spec.get("tool_contract_version") or "1"),
         )
     except skills_store.SkillImportError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc

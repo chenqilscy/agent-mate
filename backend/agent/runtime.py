@@ -25,7 +25,7 @@ from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
 from agent.mcp_client import call_mcp, mcp_schema, open_connectors
 from agent.sandbox import current_root, resolve_in_sandbox, use_root, workspace_root
-from agent.skills import canonical_skill_keys, skill_def, skill_display_name
+from agent.skills import canonical_skill_keys, skill_display_name, skill_runtime_def
 from agent.tools import (
     ASK_USER_SCHEMA,
     base_tools,
@@ -358,6 +358,7 @@ async def _run_chat_inner(
             )
 
     skill_tools = []
+    skill_release_snapshots: list[dict[str, Any]] = []
     loaded_experts: list[str] = []
     experts_skipped: list[str] = []
     if active_experts:
@@ -386,13 +387,15 @@ async def _run_chat_inner(
     if active_skills:
         lines = []
         for name in active_skills:
-            d = skill_def(name)
+            d = skill_runtime_def(name)
             if d is None:
                 skills_skipped.append(name)
                 continue
-            instr, tools = d
+            instr = str(d["instructions"])
+            tools = d["tools"]
             lines.append(f"- {name}：{instr}")
             skill_tools.extend(tools)
+            skill_release_snapshots.append(dict(d["snapshot"]))
         if lines:
             system_prompt += "\n\n# 已启用技能\n" + "\n".join(lines)
 
@@ -457,6 +460,7 @@ async def _run_chat_inner(
         permission_snapshot={
             "mode": "ask" if ask else ("plan" if plan else "exec"),
             "experts": active_experts, "skills": active_skills,
+            "skill_releases": skill_release_snapshots,
             "connectors": active_connectors, "knowledge_ids": active_knowledge,
         },
     )

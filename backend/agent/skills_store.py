@@ -32,6 +32,7 @@ from config import settings
 SKILL_MD = "SKILL.md"
 SKILLHUB_META = "_skillhub_meta.json"
 PUB_META = "_meta.json"
+RELEASE_MANIFEST = "_agentmate_release.json"
 DISABLED_MARKER = ".disabled"
 _MAX_INJECT = 6000  # 注入系统提示时单技能正文上限，控 token
 MAX_IMPORT_BYTES = 20 * 1024 * 1024
@@ -79,6 +80,103 @@ def _read_json(path: Path) -> dict[str, Any]:
         return raw if isinstance(raw, dict) else {}
     except Exception:  # noqa: BLE001 — 坏/缺文件都当空
         return {}
+
+
+def _canonical_json(value: Any) -> bytes:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _release_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Return the immutable fields covered by a release content hash."""
+    return {
+        "schema_version": int(manifest.get("schema_version") or 1),
+        "slug": str(manifest.get("slug") or ""),
+        "version": str(manifest.get("version") or ""),
+        "tool_contract_version": str(manifest.get("tool_contract_version") or "1"),
+        "tools": sorted({str(item) for item in manifest.get("tools", []) if str(item)}),
+        "permissions": sorted({str(item) for item in manifest.get("permissions", []) if str(item)}),
+        "files": sorted(
+            [
+                {
+                    "path": str(item.get("path") or ""),
+                    "sha256": str(item.get("sha256") or ""),
+                    "size": int(item.get("size") or 0),
+                }
+                for item in manifest.get("files", [])
+                if isinstance(item, dict)
+            ],
+            key=lambda item: item["path"],
+        ),
+    }
+
+
+def _build_release_manifest(
+    slug: str,
+    version: str,
+    package_files: list[tuple[str, bytes]],
+    tools: list[str] | None,
+    permissions: list[str] | None,
+    tool_contract_version: str,
+) -> dict[str, Any]:
+    entries = [
+        {"path": path, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+        for path, data in package_files
+    ]
+    manifest: dict[str, Any] = {
+        "schema_version": 1,
+        "slug": slug,
+        "version": version,
+        "tool_contract_version": str(tool_contract_version or "1"),
+        "tools": list(dict.fromkeys(str(item).strip() for item in (tools or []) if str(item).strip())),
+        "permissions": list(dict.fromkeys(str(item).strip() for item in (permissions or []) if str(item).strip())),
+        "files": entries,
+    }
+    content_hash = hashlib.sha256(_canonical_json(_release_payload(manifest))).hexdigest()
+    manifest["content_hash"] = content_hash
+    manifest["release_id"] = f"{slug}@{version or 'unversioned'}+{content_hash[:16]}"
+    return manifest
+
+
+def _verified_release(d: Path) -> dict[str, Any] | None:
+    """Verify an AgentMate release manifest and every file it covers."""
+    manifest = _read_json(d / RELEASE_MANIFEST)
+    if not manifest or int(manifest.get("schema_version") or 0) != 1:
+        return None
+    expected_slug = d.name.replace("__skillhub", "")
+    if str(manifest.get("slug") or "") != expected_slug:
+        return None
+    files = manifest.get("files")
+    if not isinstance(files, list) or not files:
+        return None
+    seen: set[str] = set()
+    verified_files: list[dict[str, Any]] = []
+    for entry in files:
+        if not isinstance(entry, dict):
+            return None
+        try:
+            rel = _safe_import_path(str(entry.get("path") or ""))
+        except SkillImportError:
+            return None
+        canonical = rel.as_posix().casefold()
+        if canonical in seen or rel.name in {RELEASE_MANIFEST, SKILLHUB_META, DISABLED_MARKER}:
+            return None
+        seen.add(canonical)
+        target = d.joinpath(*rel.parts)
+        if not target.is_file():
+            return None
+        try:
+            data = target.read_bytes()
+        except OSError:
+            return None
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != str(entry.get("sha256") or "") or len(data) != int(entry.get("size") or -1):
+            return None
+        verified_files.append({"path": rel.as_posix(), "sha256": digest, "size": len(data)})
+    checked = {**manifest, "files": verified_files}
+    content_hash = hashlib.sha256(_canonical_json(_release_payload(checked))).hexdigest()
+    if content_hash != str(manifest.get("content_hash") or ""):
+        return None
+    return {**_release_payload(checked), "content_hash": content_hash, "release_id": str(manifest.get("release_id") or "")}
 
 
 def _scalar(s: str) -> str:
@@ -179,6 +277,7 @@ def _info_from_dir(d: Path) -> dict[str, Any] | None:
     desc = str(fm.get("description") or fm.get("description_zh") or fm.get("description_en") or "").strip()
     version = str(sh.get("version") or pub.get("version") or fm.get("version") or "").strip()
     source = str(sh.get("source") or ("skillhub" if d.name.endswith("__skillhub") else "local")).strip()
+    release = _read_json(d / RELEASE_MANIFEST) if source == "agentmate" else {}
     return {
         "key": d.name,
         "slug": slug,
@@ -186,6 +285,8 @@ def _info_from_dir(d: Path) -> dict[str, Any] | None:
         "description": desc,
         "version": version,
         "source": source,
+        "release_id": str(release.get("release_id") or ""),
+        "content_hash": str(release.get("content_hash") or ""),
         "disabled": (d / DISABLED_MARKER).exists(),
     }
 
@@ -311,12 +412,15 @@ def _install_import_files(
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(data)
 
+        release = _read_json(staging / RELEASE_MANIFEST)
         meta = {
             "slug": slug,
             "name": name,
             "version": str(frontmatter.get("version") or "").strip(),
             "installedAt": existing_meta.get("installedAt") or int(time.time() * 1000),
             "source": installed_source,
+            "releaseId": str(release.get("release_id") or ""),
+            "contentHash": str(release.get("content_hash") or ""),
         }
         (staging / SKILLHUB_META).write_text(
             json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -413,6 +517,9 @@ def create_skill(slug: str, name: str, description: str, instructions: str) -> d
 def install_catalog_skill(
     slug: str, name: str, description: str, instructions: str, version: str = "",
     files: list[dict[str, str]] | None = None,
+    tools: list[str] | None = None,
+    permissions: list[str] | None = None,
+    tool_contract_version: str = "1",
 ) -> dict[str, Any]:
     """Install an AgentMate catalog definition as a real local skill snapshot."""
     slug = (slug or "").strip()
@@ -446,6 +553,10 @@ def install_catalog_skill(
         if not isinstance(content, str):
             raise SkillImportError("目录技能文件内容必须是文本", 422)
         package_files.append((path, content.encode("utf-8")))
+    release = _build_release_manifest(
+        slug, version, package_files, tools, permissions, tool_contract_version,
+    )
+    package_files.append((RELEASE_MANIFEST, _canonical_json(release) + b"\n"))
     return _install_import_files(
         package_files,
         f"{slug}.md",
@@ -456,6 +567,9 @@ def install_catalog_skill(
 def upgrade_catalog_skill(
     slug: str, name: str, description: str, instructions: str, version: str = "",
     files: list[dict[str, str]] | None = None,
+    tools: list[str] | None = None,
+    permissions: list[str] | None = None,
+    tool_contract_version: str = "1",
 ) -> dict[str, Any]:
     """原子升级一个 AgentMate 目录技能；保留启停状态，失败时恢复旧目录。"""
     slug = (slug or "").strip()
@@ -489,6 +603,10 @@ def upgrade_catalog_skill(
         if not isinstance(content, str):
             raise SkillImportError("目录技能文件内容必须是文本", 422)
         package_files.append((path, content.encode("utf-8")))
+    release = _build_release_manifest(
+        slug, version, package_files, tools, permissions, tool_contract_version,
+    )
+    package_files.append((RELEASE_MANIFEST, _canonical_json(release) + b"\n"))
     return _install_import_files(
         package_files, f"{slug}.md", installed_source="agentmate", replace_existing=True,
     )
@@ -552,6 +670,57 @@ def _build_detail(d: Path, installed: bool, name_override: str = "") -> dict[str
 def detail(key: str) -> dict[str, Any] | None:
     d = _safe_dir(key)
     return _build_detail(d, installed=True) if d else None
+
+
+def release_snapshot(key: str) -> dict[str, Any] | None:
+    """Return the verified immutable release installed for an AgentMate skill.
+
+    Pre-manifest AgentMate installs remain usable as instruction-only legacy snapshots.  This
+    intentionally refuses to infer tools from the live catalog: doing so would recreate the
+    old-instructions/new-tools privilege expansion fixed by WB-245.
+    """
+    d = _safe_dir(key)
+    if not d:
+        return None
+    info = _info_from_dir(d)
+    if not info or info.get("source") != "agentmate":
+        return None
+    manifest_path = d / RELEASE_MANIFEST
+    if manifest_path.is_file():
+        verified = _verified_release(d)
+        if not verified:
+            return None
+        skill_entry = next(
+            (item for item in verified["files"] if item["path"].casefold() == SKILL_MD.casefold()),
+            None,
+        )
+        return {
+            **verified,
+            "name": str(info.get("name") or verified["slug"]),
+            "source": "agentmate",
+            "legacy": False,
+            "instructions_hash": str(skill_entry.get("sha256") if skill_entry else ""),
+        }
+    try:
+        markdown = (d / SKILL_MD).read_bytes()
+    except OSError:
+        return None
+    digest = hashlib.sha256(markdown).hexdigest()
+    return {
+        "schema_version": 0,
+        "slug": str(info.get("slug") or key),
+        "name": str(info.get("name") or key),
+        "version": str(info.get("version") or ""),
+        "release_id": f"legacy:{digest[:16]}",
+        "content_hash": digest,
+        "instructions_hash": digest,
+        "tool_contract_version": "0",
+        "tools": [],
+        "permissions": [],
+        "files": [{"path": SKILL_MD, "sha256": digest, "size": len(markdown)}],
+        "source": "agentmate",
+        "legacy": True,
+    }
 
 
 def _frontmatter_markdown(frontmatter: dict[str, Any], body: str) -> str:

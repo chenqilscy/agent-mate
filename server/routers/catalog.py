@@ -79,7 +79,9 @@ class CatalogItemBody(BaseModel):
 
 _MAX_SKILL_FILES = 128
 _MAX_SKILL_FILES_BYTES = 1024 * 1024
-_RESERVED_SKILL_FILES = {"skill.md", "_skillhub_meta.json", "_meta.json", ".disabled"}
+_RESERVED_SKILL_FILES = {
+    "skill.md", "_skillhub_meta.json", "_meta.json", "_agentmate_release.json", ".disabled",
+}
 
 
 def _normalize_app_skill(data: Any) -> Any:

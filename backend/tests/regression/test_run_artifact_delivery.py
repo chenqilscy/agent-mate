@@ -182,6 +182,48 @@ class RunArtifactDeliveryTest(unittest.TestCase):
         self.assertEqual(["deliverable.md"], [item.path for item in artifacts])
         self.assertTrue((root / "deliverable.md").is_file())
 
+    def test_runtime_persists_immutable_skill_release_snapshot(self) -> None:
+        class NoopObservation:
+            def update(self, **_kwargs):
+                pass
+
+        @contextmanager
+        def noop_observation(**_kwargs):
+            yield NoopObservation()
+
+        async def fake_stream(_messages, **_kwargs):
+            yield Delta(content="完成。", usage={"prompt_tokens": 3, "completion_tokens": 1})
+
+        snapshot = {
+            "slug": "atomic-skill", "release_id": "atomic-skill@1+abc", "version": "1",
+            "content_hash": "abc", "instructions_hash": "def", "tool_contract_version": "1",
+            "tools": ["web_fetch"], "permissions": ["network.read"], "source": "agentmate",
+            "legacy": False,
+        }
+
+        async def collect():
+            return [chunk async for chunk in runtime.run_chat(
+                self.session, db.get_user(LOCAL_USER_ID), "执行技能", skills=["atomic-skill"],
+            )]
+
+        root = settings.WORKSPACE_ROOT / "default"
+        with (
+            patch.object(runtime, "skill_runtime_def", return_value={
+                "instructions": "只使用已安装快照。", "tools": [], "snapshot": snapshot,
+            }),
+            patch.object(runtime, "stream_chat", side_effect=fake_stream),
+            patch.object(runtime, "resolve_model_config", return_value=("test", "http://test", "key", "/chat")),
+            patch.object(runtime, "workspace_root", return_value=root),
+            patch.object(runtime.memory, "capture_enabled", return_value=False),
+            patch.object(runtime.telemetry, "chat_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "generation_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "tool_observation", side_effect=noop_observation),
+        ):
+            asyncio.run(collect())
+
+        run = db.list_runs(LOCAL_USER_ID, session_id=self.session.id)[0]
+        self.assertEqual([snapshot], run.permission_snapshot["skill_releases"])
+
 
 if __name__ == "__main__":
     unittest.main()
