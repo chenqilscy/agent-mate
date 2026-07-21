@@ -237,7 +237,9 @@ def init_db() -> None:
             knowledge_ids TEXT NOT NULL DEFAULT '[]',
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL,
-            origin TEXT NOT NULL DEFAULT 'local'
+            origin TEXT NOT NULL DEFAULT 'local',
+            server_updated_at REAL NOT NULL DEFAULT 0,
+            server_dirty INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_projects_owner
             ON projects(owner_id, updated_at DESC);
@@ -267,6 +269,9 @@ def init_db() -> None:
             user_id TEXT NOT NULL,
             role TEXT NOT NULL,
             created_at REAL NOT NULL,
+            updated_at REAL NOT NULL DEFAULT 0,
+            server_updated_at REAL NOT NULL DEFAULT 0,
+            server_dirty INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (project_id, user_id)
         );
         CREATE INDEX IF NOT EXISTS idx_project_members_user
@@ -291,7 +296,9 @@ def init_db() -> None:
             parent_id TEXT NOT NULL DEFAULT '',
             milestone_id TEXT NOT NULL DEFAULT '',
             estimate_h REAL NOT NULL DEFAULT 0,
-            spent_h REAL NOT NULL DEFAULT 0
+            spent_h REAL NOT NULL DEFAULT 0,
+            server_updated_at REAL NOT NULL DEFAULT 0,
+            server_dirty INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_work_items_project
             ON work_items(project_id, created_at);
@@ -325,7 +332,9 @@ def init_db() -> None:
             status TEXT NOT NULL DEFAULT 'open',
             sort INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL,
-            updated_at REAL NOT NULL
+            updated_at REAL NOT NULL,
+            server_updated_at REAL NOT NULL DEFAULT 0,
+            server_dirty INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_milestones_project
             ON milestones(project_id, sort);
@@ -533,6 +542,47 @@ def init_db() -> None:
             created_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox(synced, created_at);
+
+        -- WB-112d：Server 团队时间线的 last-known-good 本地缓存。append-only 元数据，
+        -- Server 不可达时仍能回读；不含会话正文、凭据或工作区文件。
+        CREATE TABLE IF NOT EXISTS server_timeline_cache (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            actor_id TEXT NOT NULL DEFAULT '',
+            actor_name TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL DEFAULT 'session',
+            title TEXT NOT NULL DEFAULT '',
+            summary TEXT NOT NULL DEFAULT '',
+            ext_id TEXT,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_server_timeline_cache_project
+            ON server_timeline_cache(project_id, created_at DESC);
+
+        -- WB-112e：增量镜像保留本地离线改动，发生本地/Server 分叉时显式留痕。
+        CREATE TABLE IF NOT EXISTS server_sync_conflicts (
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            local_updated_at REAL NOT NULL DEFAULT 0,
+            remote_updated_at REAL NOT NULL DEFAULT 0,
+            local_data TEXT NOT NULL DEFAULT '{}',
+            remote_data TEXT NOT NULL DEFAULT '{}',
+            detected_at REAL NOT NULL,
+            PRIMARY KEY (entity_type, entity_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_server_sync_conflicts_project
+            ON server_sync_conflicts(project_id, detected_at DESC);
+
+        -- 成员删除没有本地行可承载 dirty 标志，以 tombstone 保住离线删除意图。
+        CREATE TABLE IF NOT EXISTS server_member_tombstones (
+            project_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            local_deleted_at REAL NOT NULL,
+            server_updated_at REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (project_id, user_id)
+        );
 
         -- 本地 user（= Server account id）→ 其 Server token，供后台 outbox worker 以本人身份推送。
         CREATE TABLE IF NOT EXISTS server_identities (
@@ -786,6 +836,8 @@ def _migrate_columns() -> None:
         ("milestone_id", "milestone_id TEXT NOT NULL DEFAULT ''"),
         ("estimate_h", "estimate_h REAL NOT NULL DEFAULT 0"),   # WB-117 工时对齐
         ("spent_h", "spent_h REAL NOT NULL DEFAULT 0"),
+        ("server_updated_at", "server_updated_at REAL NOT NULL DEFAULT 0"),
+        ("server_dirty", "server_dirty INTEGER NOT NULL DEFAULT 0"),
     ):
         if col not in have:
             conn.execute(f"ALTER TABLE work_items ADD COLUMN {ddl}")
@@ -824,6 +876,28 @@ def _migrate_columns() -> None:
     # WB-198：项目级知识库是本机执行配置，Server 镜像更新不覆盖该列。
     if "knowledge_ids" not in have_p:
         conn.execute("ALTER TABLE projects ADD COLUMN knowledge_ids TEXT NOT NULL DEFAULT '[]'")
+    if "server_updated_at" not in have_p:
+        conn.execute("ALTER TABLE projects ADD COLUMN server_updated_at REAL NOT NULL DEFAULT 0")
+    if "server_dirty" not in have_p:
+        conn.execute("ALTER TABLE projects ADD COLUMN server_dirty INTEGER NOT NULL DEFAULT 0")
+
+    have_pm = {r["name"] for r in conn.execute("PRAGMA table_info(project_members)").fetchall()}
+    for col, ddl in (
+        ("updated_at", "updated_at REAL NOT NULL DEFAULT 0"),
+        ("server_updated_at", "server_updated_at REAL NOT NULL DEFAULT 0"),
+        ("server_dirty", "server_dirty INTEGER NOT NULL DEFAULT 0"),
+    ):
+        if col not in have_pm:
+            conn.execute(f"ALTER TABLE project_members ADD COLUMN {ddl}")
+    conn.execute("UPDATE project_members SET updated_at=created_at WHERE updated_at=0")
+
+    have_ms = {r["name"] for r in conn.execute("PRAGMA table_info(milestones)").fetchall()}
+    for col, ddl in (
+        ("server_updated_at", "server_updated_at REAL NOT NULL DEFAULT 0"),
+        ("server_dirty", "server_dirty INTEGER NOT NULL DEFAULT 0"),
+    ):
+        if col not in have_ms:
+            conn.execute(f"ALTER TABLE milestones ADD COLUMN {ddl}")
 
     # WB-220：连接器推荐位引用稳定 slug；存量 builtin 用产品种子回填。
     have_cc = {r["name"] for r in conn.execute("PRAGMA table_info(catalog_connectors)").fetchall()}
@@ -1090,48 +1164,293 @@ def cache_token(token: str, user_id: str) -> None:
     get_conn().commit()
 
 
+def _json_list(value: Any) -> list:
+    if isinstance(value, list):
+        return value
+    try:
+        parsed = json.loads(value or "[]")
+        return parsed if isinstance(parsed, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _record_server_conflict(
+    entity_type: str, entity_id: str, project_id: str, reason: str,
+    local_updated_at: float, remote_updated_at: float,
+    local_data: dict, remote_data: dict, *, commit: bool = True,
+) -> None:
+    conn = get_conn()
+    conn.execute(
+        """INSERT INTO server_sync_conflicts
+           (entity_type,entity_id,project_id,reason,local_updated_at,remote_updated_at,local_data,remote_data,detected_at)
+           VALUES (?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(entity_type,entity_id) DO UPDATE SET
+             project_id=excluded.project_id,reason=excluded.reason,
+             local_updated_at=excluded.local_updated_at,remote_updated_at=excluded.remote_updated_at,
+             local_data=excluded.local_data,remote_data=excluded.remote_data,detected_at=excluded.detected_at""",
+        (entity_type, entity_id, project_id, reason, float(local_updated_at or 0),
+         float(remote_updated_at or 0), json.dumps(local_data, ensure_ascii=False, sort_keys=True),
+         json.dumps(remote_data, ensure_ascii=False, sort_keys=True), time.time()),
+    )
+    if commit:
+        conn.commit()
+
+
+def _clear_server_conflict(entity_type: str, entity_id: str, *, commit: bool = True) -> None:
+    conn = get_conn()
+    conn.execute(
+        "DELETE FROM server_sync_conflicts WHERE entity_type=? AND entity_id=?",
+        (entity_type, entity_id),
+    )
+    if commit:
+        conn.commit()
+
+
+def list_server_sync_conflicts(project_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        """SELECT entity_type,entity_id,project_id,reason,local_updated_at,remote_updated_at,
+                  local_data,remote_data,detected_at
+           FROM server_sync_conflicts WHERE project_id=? ORDER BY detected_at DESC""",
+        (project_id,),
+    ).fetchall()
+    out: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        for key in ("local_data", "remote_data"):
+            try:
+                item[key] = json.loads(item[key] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                item[key] = {}
+        out.append(item)
+    return out
+
+
+def count_server_sync_conflicts(project_id: str) -> int:
+    return int(get_conn().execute(
+        "SELECT COUNT(*) FROM server_sync_conflicts WHERE project_id=?", (project_id,)
+    ).fetchone()[0])
+
+
+def mirror_server_timeline(project_id: str, events: list[dict]) -> None:
+    """增量缓存 Server append-only 时间线；不删除旧事件，供离线 last-known-good 回读。"""
+    conn = get_conn()
+    for event in events:
+        event_id = str(event.get("id") or "")
+        if not event_id:
+            continue
+        conn.execute(
+            """INSERT INTO server_timeline_cache
+               (id,project_id,actor_id,actor_name,kind,title,summary,ext_id,created_at)
+               VALUES (?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(id) DO UPDATE SET actor_id=excluded.actor_id,actor_name=excluded.actor_name,
+                 kind=excluded.kind,title=excluded.title,summary=excluded.summary,
+                 ext_id=excluded.ext_id,created_at=excluded.created_at""",
+            (event_id, project_id, str(event.get("actor_id") or ""),
+             str(event.get("actor_name") or "")[:60], str(event.get("kind") or "session")[:40],
+             str(event.get("title") or "")[:200], str(event.get("summary") or "")[:2000],
+             event.get("ext_id"), float(event.get("created_at") or time.time())),
+        )
+    conn.commit()
+
+
+def list_server_timeline(project_id: str, limit: int = 100) -> list[dict]:
+    rows = get_conn().execute(
+        """SELECT id,project_id,actor_id,actor_name,kind,title,summary,ext_id,created_at
+           FROM server_timeline_cache WHERE project_id=? ORDER BY created_at DESC LIMIT ?""",
+        (project_id, max(1, min(int(limit), 500))),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def mirror_server_project(
     *, id: str, name: str, owner_id: str, instruction: str = "",
     connectors: Optional[list] = None, experts: Optional[list] = None, skills: Optional[list] = None,
+    created_at: Optional[float] = None, updated_at: Optional[float] = None,
 ) -> None:
-    """幂等镜像一个 Server 项目进本地 projects（origin='server'，只读镜像；WB-062 Phase 2）。
-    id/owner_id = Server 侧 project/account id。WB-050 的 project_access_role 读同一批表，故镜像后
-    本地访问控制「自动」认它——无需改访问校验。"""
-    now = time.time()
-    get_conn().execute(
-        """INSERT INTO projects (id,name,owner_id,instruction,connectors,experts,skills,created_at,updated_at,origin)
-           VALUES (?,?,?,?,?,?,?,?,?,'server')
-           ON CONFLICT(id) DO UPDATE SET name=excluded.name, owner_id=excluded.owner_id,
-             instruction=excluded.instruction, connectors=excluded.connectors,
-             experts=excluded.experts, skills=excluded.skills, updated_at=excluded.updated_at, origin='server'""",
-        (id, name[:120], owner_id, instruction,
-         json.dumps(connectors or [], ensure_ascii=False),
-         json.dumps(experts or [], ensure_ascii=False),
-         json.dumps(skills or [], ensure_ascii=False), now, now),
-    )
-    get_conn().commit()
+    """按 ``id + updated_at`` 合并 Server 项目元数据。
 
-
-def replace_server_project_members(project_id: str, members: list[dict]) -> None:
-    """幂等重置一个镜像项目的成员表：清旧、按 Server 返回重建（owner 不入表，由 owner_id 记）。
-    同时把每个成员账号镜像进 users 以便显示名解析（WB-062 Phase 2）。"""
+    Server 更新且本地未改时应用远端；本地离线改动存在时保留本地值并登记冲突，避免 pull
+    静默覆盖。``knowledge_ids`` 是本机字段，不参与比较或覆盖。
+    """
     conn = get_conn()
-    conn.execute("DELETE FROM project_members WHERE project_id=?", (project_id,))
+    remote_ts = float(updated_at or time.time())
+    remote = {
+        "name": name[:120], "owner_id": owner_id, "instruction": instruction,
+        "connectors": list(connectors or []), "experts": list(experts or []),
+        "skills": list(skills or []),
+    }
+    row = conn.execute("SELECT * FROM projects WHERE id=?", (id,)).fetchone()
+    if row is None:
+        conn.execute(
+            """INSERT INTO projects
+               (id,name,owner_id,instruction,connectors,experts,skills,created_at,updated_at,origin,server_updated_at,server_dirty)
+               VALUES (?,?,?,?,?,?,?,?,?,'server',?,0)""",
+            (id, remote["name"], owner_id, instruction,
+             json.dumps(remote["connectors"], ensure_ascii=False),
+             json.dumps(remote["experts"], ensure_ascii=False),
+             json.dumps(remote["skills"], ensure_ascii=False),
+             float(created_at or remote_ts), remote_ts, remote_ts),
+        )
+        _clear_server_conflict("project", id, commit=False)
+        conn.commit()
+        return
+    local = {
+        "name": row["name"], "owner_id": row["owner_id"], "instruction": row["instruction"],
+        "connectors": _json_list(row["connectors"]), "experts": _json_list(row["experts"]),
+        "skills": _json_list(row["skills"]),
+    }
+    if row["origin"] != "server":
+        _record_server_conflict("project", id, id, "id_collision", row["updated_at"], remote_ts, local, remote, commit=False)
+        conn.commit()
+        return
+    baseline = float(row["server_updated_at"] or 0)
+    dirty = bool(row["server_dirty"])
+    if baseline == 0 and local != remote and float(row["updated_at"] or 0) > remote_ts:
+        dirty = True  # 老版本没有 dirty 标志时，以 updated_at 保护可能的离线改动。
+    if dirty and local != remote:
+        reason = "concurrent_update" if remote_ts > baseline else "local_ahead"
+        # owner_id 是权限边界，始终服从 Server；其余协作字段保留本地待人工处理。
+        conn.execute(
+            "UPDATE projects SET owner_id=?,server_updated_at=?,server_dirty=1 WHERE id=?",
+            (owner_id, remote_ts, id),
+        )
+        _record_server_conflict("project", id, id, reason, row["updated_at"], remote_ts, local, remote, commit=False)
+    else:
+        conn.execute(
+            """UPDATE projects SET name=?,owner_id=?,instruction=?,connectors=?,experts=?,skills=?,
+               updated_at=?,origin='server',server_updated_at=?,server_dirty=0 WHERE id=?""",
+            (remote["name"], owner_id, instruction,
+             json.dumps(remote["connectors"], ensure_ascii=False),
+             json.dumps(remote["experts"], ensure_ascii=False),
+             json.dumps(remote["skills"], ensure_ascii=False), remote_ts, remote_ts, id),
+        )
+        _clear_server_conflict("project", id, commit=False)
+    conn.commit()
+
+
+def replace_server_project_members(
+    project_id: str, members: list[dict], *, acknowledge_ids: Optional[set[str]] = None,
+) -> None:
+    """按成员 ``account_id + updated_at`` 增量合并，不再整表删插。
+
+    本地离线角色改动/删除通过 dirty 或 tombstone 保留，并写入可查询冲突台账。
+    """
+    conn = get_conn()
+    remote_ids: set[str] = set()
     for m in members:
-        aid = m.get("account_id")
+        aid = str(m.get("account_id") or "")
         if not aid:
             continue
+        remote_ids.add(aid)
         upsert_external_user(aid, m.get("name", ""))  # 成员/owner 账号镜像进 users
         if m.get("is_owner"):
+            _clear_server_conflict("project_member", f"{project_id}:{aid}", commit=False)
             continue  # owner 由 projects.owner_id 记，不入 project_members
         try:
             role = Role(m.get("role", "Member"))
         except ValueError:
             role = Role.MEMBER
+        remote_ts = float(m.get("updated_at") or m.get("created_at") or time.time())
+        entity_id = f"{project_id}:{aid}"
+        local = conn.execute(
+            "SELECT * FROM project_members WHERE project_id=? AND user_id=?", (project_id, aid)
+        ).fetchone()
+        tombstone = conn.execute(
+            "SELECT * FROM server_member_tombstones WHERE project_id=? AND user_id=?", (project_id, aid)
+        ).fetchone()
+        remote = {"role": role.value, "name": str(m.get("name") or "")}
+        if local is None and tombstone is not None:
+            _record_server_conflict(
+                "project_member", entity_id, project_id, "local_deleted",
+                tombstone["local_deleted_at"], remote_ts, {"deleted": True}, remote, commit=False,
+            )
+            conn.execute(
+                "UPDATE server_member_tombstones SET server_updated_at=? WHERE project_id=? AND user_id=?",
+                (remote_ts, project_id, aid),
+            )
+            continue
+        if local is None:
+            conn.execute(
+                """INSERT INTO project_members
+                   (project_id,user_id,role,created_at,updated_at,server_updated_at,server_dirty)
+                   VALUES (?,?,?,?,?,?,0)""",
+                (project_id, aid, role.value, float(m.get("created_at") or remote_ts), remote_ts, remote_ts),
+            )
+            _clear_server_conflict("project_member", entity_id, commit=False)
+            continue
+        local_payload = {"role": local["role"], "name": remote["name"]}
+        baseline = float(local["server_updated_at"] or 0)
+        dirty = bool(local["server_dirty"])
+        if baseline == 0 and local_payload != remote and float(local["updated_at"] or 0) > remote_ts:
+            dirty = True
+        if dirty and local_payload != remote:
+            # 角色是权限边界：Server 恢复后必须以权威角色为准；本地意图完整留在冲突台账。
+            conn.execute(
+                """UPDATE project_members SET role=?,updated_at=?,server_updated_at=?,server_dirty=0
+                   WHERE project_id=? AND user_id=?""",
+                (role.value, remote_ts, remote_ts, project_id, aid),
+            )
+            _record_server_conflict(
+                "project_member", entity_id, project_id, "permission_conflict",
+                local["updated_at"], remote_ts, local_payload, remote, commit=False,
+            )
+        else:
+            conn.execute(
+                """UPDATE project_members SET role=?,updated_at=?,server_updated_at=?,server_dirty=0
+                   WHERE project_id=? AND user_id=?""",
+                (role.value, remote_ts, remote_ts, project_id, aid),
+            )
+            conn.execute("DELETE FROM server_member_tombstones WHERE project_id=? AND user_id=?", (project_id, aid))
+            existing_conflict = conn.execute(
+                "SELECT reason FROM server_sync_conflicts WHERE entity_type='project_member' AND entity_id=?",
+                (entity_id,),
+            ).fetchone()
+            if aid in (acknowledge_ids or set()) or not existing_conflict or existing_conflict["reason"] != "permission_conflict":
+                _clear_server_conflict("project_member", entity_id, commit=False)
+
+    # 完整 Server 快照中消失的行：干净镜像删除；本地新增/修改保留并显式报冲突。
+    rows = conn.execute("SELECT * FROM project_members WHERE project_id=?", (project_id,)).fetchall()
+    for local in rows:
+        aid = local["user_id"]
+        if aid in remote_ids:
+            continue
+        entity_id = f"{project_id}:{aid}"
+        if bool(local["server_dirty"]) or not float(local["server_updated_at"] or 0):
+            _record_server_conflict(
+                "project_member", entity_id, project_id, "permission_conflict",
+                local["updated_at"], 0, {"role": local["role"]}, {"deleted": True}, commit=False,
+            )
+        conn.execute("DELETE FROM project_members WHERE project_id=? AND user_id=?", (project_id, aid))
+        if not bool(local["server_dirty"]) and float(local["server_updated_at"] or 0):
+            _clear_server_conflict("project_member", entity_id, commit=False)
+    tombstones = conn.execute("SELECT user_id FROM server_member_tombstones WHERE project_id=?", (project_id,)).fetchall()
+    for tombstone in tombstones:
+        if tombstone["user_id"] not in remote_ids:
+            entity_id = f"{project_id}:{tombstone['user_id']}"
+            conn.execute("DELETE FROM server_member_tombstones WHERE project_id=? AND user_id=?", (project_id, tombstone["user_id"]))
+            _clear_server_conflict("project_member", entity_id, commit=False)
+    conn.commit()
+
+
+def reconcile_server_project_access(account_id: str, remote_project_ids: set[str]) -> None:
+    """撤销 Server 已不再授予的项目访问；权限收敛不受本地 dirty/冲突保护影响。"""
+    conn = get_conn()
+    for project, _role in list_projects_for(account_id):
+        if project.origin != "server" or project.id in remote_project_ids:
+            continue
+        if project.owner_id == account_id:
+            # 有效 token 下 owner 项目消失意味着远端项目已删除；移除本地控制面入口，
+            # 会话/工作区仍留本机但因项目门禁不可访问，避免误删执行数据。
+            conn.execute("DELETE FROM project_members WHERE project_id=?", (project.id,))
+            conn.execute("DELETE FROM projects WHERE id=?", (project.id,))
+        else:
+            conn.execute(
+                "DELETE FROM project_members WHERE project_id=? AND user_id=?",
+                (project.id, account_id),
+            )
         conn.execute(
-            "INSERT INTO project_members (project_id,user_id,role,created_at) VALUES (?,?,?,?) "
-            "ON CONFLICT(project_id,user_id) DO UPDATE SET role=excluded.role",
-            (project_id, aid, role.value, time.time()),
+            "DELETE FROM server_member_tombstones WHERE project_id=? AND user_id=?",
+            (project.id, account_id),
         )
     conn.commit()
 
@@ -1808,6 +2127,7 @@ def update_project(
 ) -> Project:
     sets: list[str] = []
     vals: list[Any] = []
+    server_fields_changed = any(value is not None for value in (name, instruction, connectors, experts, skills))
     if name is not None:
         sets.append("name=?"); vals.append(name[:120])
     if instruction is not None:
@@ -1820,6 +2140,8 @@ def update_project(
         sets.append("skills=?"); vals.append(json.dumps(skills, ensure_ascii=False))
     if knowledge_ids is not None:
         sets.append("knowledge_ids=?"); vals.append(json.dumps(knowledge_ids, ensure_ascii=False))
+    if server_fields_changed:
+        sets.append("server_dirty=CASE WHEN origin='server' THEN 1 ELSE server_dirty END")
     sets.append("updated_at=?"); vals.append(time.time())
     vals.append(project_id)
     get_conn().execute(f"UPDATE projects SET {', '.join(sets)} WHERE id=?", vals)
@@ -2691,19 +3013,40 @@ def downlink_by_category() -> dict[str, list]:
 
 def add_project_member(project_id: str, user_id: str, role: Role) -> None:
     """Add a member or change their role (upsert). The owner is never stored here."""
-    get_conn().execute(
-        "INSERT INTO project_members (project_id, user_id, role, created_at) VALUES (?,?,?,?) "
-        "ON CONFLICT(project_id, user_id) DO UPDATE SET role=excluded.role",
-        (project_id, user_id, role.value, time.time()),
+    conn = get_conn()
+    now = time.time()
+    project = conn.execute("SELECT origin FROM projects WHERE id=?", (project_id,)).fetchone()
+    dirty = int(bool(project and project["origin"] == "server"))
+    conn.execute(
+        """INSERT INTO project_members
+           (project_id,user_id,role,created_at,updated_at,server_updated_at,server_dirty)
+           VALUES (?,?,?,?,?,0,?)
+           ON CONFLICT(project_id,user_id) DO UPDATE SET
+             role=excluded.role,updated_at=excluded.updated_at,
+             server_dirty=CASE WHEN excluded.server_dirty=1 THEN 1 ELSE project_members.server_dirty END""",
+        (project_id, user_id, role.value, now, now, dirty),
     )
-    get_conn().commit()
+    conn.execute("DELETE FROM server_member_tombstones WHERE project_id=? AND user_id=?", (project_id, user_id))
+    conn.commit()
 
 
 def remove_project_member(project_id: str, user_id: str) -> None:
-    get_conn().execute(
-        "DELETE FROM project_members WHERE project_id=? AND user_id=?", (project_id, user_id)
-    )
-    get_conn().commit()
+    conn = get_conn()
+    row = conn.execute(
+        """SELECT m.server_updated_at,p.origin FROM project_members m
+           JOIN projects p ON p.id=m.project_id WHERE m.project_id=? AND m.user_id=?""",
+        (project_id, user_id),
+    ).fetchone()
+    if row and row["origin"] == "server":
+        conn.execute(
+            """INSERT INTO server_member_tombstones
+               (project_id,user_id,local_deleted_at,server_updated_at) VALUES (?,?,?,?)
+               ON CONFLICT(project_id,user_id) DO UPDATE SET
+                 local_deleted_at=excluded.local_deleted_at,server_updated_at=excluded.server_updated_at""",
+            (project_id, user_id, time.time(), float(row["server_updated_at"] or 0)),
+        )
+    conn.execute("DELETE FROM project_members WHERE project_id=? AND user_id=?", (project_id, user_id))
+    conn.commit()
 
 
 def project_member_role(project_id: str, user_id: str) -> Optional[Role]:
@@ -2889,27 +3232,80 @@ def list_work_items(project_id: str) -> list[WorkItem]:
 
 
 def mirror_server_work_items(project_id: str, items: list[dict]) -> None:
-    """用 Server 的 work_items 覆盖某 server-origin 项目的本地 work_items（Server 权威，WB-091）。
-    本地行 = Server 行镜像（Server id 作本地 id，供 update/delete 定位 + 离线读兜底）；
-    owner_id 空、attachments/due_date 取默认（Server work_items 不带这些本地专有字段）。"""
+    """按 work item ``id + updated_at`` 增量合并，保留附件等本机字段与离线分叉。"""
     conn = get_conn()
-    conn.execute("DELETE FROM work_items WHERE project_id=?", (project_id,))
+    remote_ids: set[str] = set()
     for it in items:
+        item_id = str(it.get("id") or "")
+        if not item_id:
+            continue
+        remote_ids.add(item_id)
         labels = it.get("labels") or []
-        conn.execute(
-            """INSERT INTO work_items
-               (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at,description,due_date,attachments,
-                priority,start_date,labels,parent_id,milestone_id,estimate_h,spent_h)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (it.get("id") or new_uuid(), project_id, "", str(it.get("title", ""))[:200],
-             it.get("status", "todo"), it.get("source", "手动"), it.get("assignee", ""),
-             it.get("created_at") or time.time(), it.get("updated_at") or time.time(),
-             str(it.get("description", ""))[:4000], it.get("due_date") or None, "[]",
-             it.get("priority", ""), it.get("start_date") or None,
-             json.dumps(labels if isinstance(labels, list) else [], ensure_ascii=False),
-             it.get("parent_id", ""), it.get("milestone_id", ""),
-             float(it.get("estimate_h") or 0), float(it.get("spent_h") or 0)),
-        )
+        remote_ts = float(it.get("updated_at") or it.get("created_at") or time.time())
+        remote = {
+            "title": str(it.get("title") or "")[:200], "status": it.get("status", "todo"),
+            "source": it.get("source", "手动"), "assignee": it.get("assignee", ""),
+            "description": str(it.get("description") or "")[:4000], "due_date": it.get("due_date") or None,
+            "priority": it.get("priority", ""), "start_date": it.get("start_date") or None,
+            "labels": labels if isinstance(labels, list) else [], "parent_id": it.get("parent_id", ""),
+            "milestone_id": it.get("milestone_id", ""), "estimate_h": float(it.get("estimate_h") or 0),
+            "spent_h": float(it.get("spent_h") or 0),
+        }
+        local = conn.execute("SELECT * FROM work_items WHERE id=?", (item_id,)).fetchone()
+        if local is None:
+            conn.execute(
+                """INSERT INTO work_items
+                   (id,project_id,owner_id,title,status,source,assignee,created_at,updated_at,description,due_date,attachments,
+                    priority,start_date,labels,parent_id,milestone_id,estimate_h,spent_h,server_updated_at,server_dirty)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
+                (item_id, project_id, "", remote["title"], remote["status"], remote["source"], remote["assignee"],
+                 float(it.get("created_at") or remote_ts), remote_ts, remote["description"], remote["due_date"], "[]",
+                 remote["priority"], remote["start_date"], json.dumps(remote["labels"], ensure_ascii=False),
+                 remote["parent_id"], remote["milestone_id"], remote["estimate_h"], remote["spent_h"], remote_ts),
+            )
+            _clear_server_conflict("work_item", item_id, commit=False)
+            continue
+        local_payload = {
+            "title": local["title"], "status": local["status"], "source": local["source"],
+            "assignee": local["assignee"], "description": local["description"], "due_date": local["due_date"],
+            "priority": local["priority"], "start_date": local["start_date"], "labels": _json_list(local["labels"]),
+            "parent_id": local["parent_id"], "milestone_id": local["milestone_id"],
+            "estimate_h": float(local["estimate_h"] or 0), "spent_h": float(local["spent_h"] or 0),
+        }
+        baseline = float(local["server_updated_at"] or 0)
+        dirty = bool(local["server_dirty"])
+        if baseline == 0 and local_payload != remote and float(local["updated_at"] or 0) > remote_ts:
+            dirty = True
+        if dirty and local_payload != remote:
+            conn.execute("UPDATE work_items SET server_updated_at=?,server_dirty=1 WHERE id=?", (remote_ts, item_id))
+            _record_server_conflict(
+                "work_item", item_id, project_id,
+                "concurrent_update" if remote_ts > baseline else "local_ahead",
+                local["updated_at"], remote_ts, local_payload, remote, commit=False,
+            )
+        else:
+            conn.execute(
+                """UPDATE work_items SET title=?,status=?,source=?,assignee=?,updated_at=?,description=?,due_date=?,
+                   priority=?,start_date=?,labels=?,parent_id=?,milestone_id=?,estimate_h=?,spent_h=?,
+                   server_updated_at=?,server_dirty=0 WHERE id=?""",
+                (remote["title"], remote["status"], remote["source"], remote["assignee"], remote_ts,
+                 remote["description"], remote["due_date"], remote["priority"], remote["start_date"],
+                 json.dumps(remote["labels"], ensure_ascii=False), remote["parent_id"], remote["milestone_id"],
+                 remote["estimate_h"], remote["spent_h"], remote_ts, item_id),
+            )
+            _clear_server_conflict("work_item", item_id, commit=False)
+    for local in conn.execute("SELECT * FROM work_items WHERE project_id=?", (project_id,)).fetchall():
+        if local["id"] in remote_ids:
+            continue
+        local_payload = {"title": local["title"], "status": local["status"]}
+        if bool(local["server_dirty"]) or not float(local["server_updated_at"] or 0):
+            _record_server_conflict(
+                "work_item", local["id"], project_id, "local_only", local["updated_at"], 0,
+                local_payload, {"deleted": True}, commit=False,
+            )
+        else:
+            conn.execute("DELETE FROM work_items WHERE id=?", (local["id"],))
+            _clear_server_conflict("work_item", local["id"], commit=False)
     conn.commit()
 
 
@@ -2933,6 +3329,10 @@ def update_work_item(
     estimate_h: Optional[float] = None, spent_h: Optional[float] = None,
 ) -> Optional[WorkItem]:
     sets, vals = [], []
+    server_fields_changed = any(value is not None for value in (
+        title, status, description, due_date, priority, start_date, labels,
+        parent_id, milestone_id, estimate_h, spent_h,
+    )) or clear_due_date or clear_start_date
     if title is not None:
         sets.append("title=?"); vals.append(title[:200])
     if status is not None:
@@ -2963,6 +3363,11 @@ def update_work_item(
         sets.append("spent_h=?"); vals.append(float(spent_h))
     if not sets:
         return get_work_item(item_id)
+    if server_fields_changed:
+        sets.append(
+            "server_dirty=CASE WHEN EXISTS (SELECT 1 FROM projects p "
+            "WHERE p.id=work_items.project_id AND p.origin='server') THEN 1 ELSE server_dirty END"
+        )
     sets.append("updated_at=?"); vals.append(time.time())
     vals.append(item_id)
     get_conn().execute(f"UPDATE work_items SET {', '.join(sets)} WHERE id=?", vals)
@@ -3014,6 +3419,10 @@ def update_milestone(mid: str, **fields: Any) -> Optional[dict]:
             sets.append(f"{k}=?"); vals.append(v)
     if not sets:
         return get_milestone(mid)
+    sets.append(
+        "server_dirty=CASE WHEN EXISTS (SELECT 1 FROM projects p "
+        "WHERE p.id=milestones.project_id AND p.origin='server') THEN 1 ELSE server_dirty END"
+    )
     sets.append("updated_at=?"); vals.append(time.time())
     vals.append(mid)
     get_conn().execute(f"UPDATE milestones SET {', '.join(sets)} WHERE id=?", vals)
@@ -3029,18 +3438,62 @@ def delete_milestone(mid: str) -> None:
 
 
 def mirror_server_milestones(project_id: str, items: list[dict]) -> None:
-    """用 Server 里程碑覆盖某 server-origin 项目的本地镜像（Server 权威，WB-108）。"""
+    """按 milestone ``id + updated_at`` 增量合并，不再整表删插。"""
     conn = get_conn()
-    conn.execute("DELETE FROM milestones WHERE project_id=?", (project_id,))
+    remote_ids: set[str] = set()
     for i, it in enumerate(items):
-        conn.execute(
-            "INSERT INTO milestones (id,project_id,name,description,due_date,status,sort,created_at,updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (it.get("id") or new_uuid(), project_id, str(it.get("name", ""))[:200],
-             str(it.get("description", "")), it.get("due_date") or None,
-             it.get("status", "open"), it.get("sort", i),
-             it.get("created_at") or time.time(), it.get("updated_at") or time.time()),
-        )
+        mid = str(it.get("id") or "")
+        if not mid:
+            continue
+        remote_ids.add(mid)
+        remote_ts = float(it.get("updated_at") or it.get("created_at") or time.time())
+        remote = {
+            "name": str(it.get("name") or "")[:200], "description": str(it.get("description") or ""),
+            "due_date": it.get("due_date") or None, "status": it.get("status", "open"),
+            "sort": int(it.get("sort", i)),
+        }
+        local = conn.execute("SELECT * FROM milestones WHERE id=?", (mid,)).fetchone()
+        if local is None:
+            conn.execute(
+                """INSERT INTO milestones
+                   (id,project_id,name,description,due_date,status,sort,created_at,updated_at,server_updated_at,server_dirty)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,0)""",
+                (mid, project_id, remote["name"], remote["description"], remote["due_date"], remote["status"],
+                 remote["sort"], float(it.get("created_at") or remote_ts), remote_ts, remote_ts),
+            )
+            _clear_server_conflict("milestone", mid, commit=False)
+            continue
+        local_payload = {key: local[key] for key in ("name", "description", "due_date", "status", "sort")}
+        baseline = float(local["server_updated_at"] or 0)
+        dirty = bool(local["server_dirty"])
+        if baseline == 0 and local_payload != remote and float(local["updated_at"] or 0) > remote_ts:
+            dirty = True
+        if dirty and local_payload != remote:
+            conn.execute("UPDATE milestones SET server_updated_at=?,server_dirty=1 WHERE id=?", (remote_ts, mid))
+            _record_server_conflict(
+                "milestone", mid, project_id,
+                "concurrent_update" if remote_ts > baseline else "local_ahead",
+                local["updated_at"], remote_ts, local_payload, remote, commit=False,
+            )
+        else:
+            conn.execute(
+                """UPDATE milestones SET name=?,description=?,due_date=?,status=?,sort=?,updated_at=?,
+                   server_updated_at=?,server_dirty=0 WHERE id=?""",
+                (remote["name"], remote["description"], remote["due_date"], remote["status"], remote["sort"],
+                 remote_ts, remote_ts, mid),
+            )
+            _clear_server_conflict("milestone", mid, commit=False)
+    for local in conn.execute("SELECT * FROM milestones WHERE project_id=?", (project_id,)).fetchall():
+        if local["id"] in remote_ids:
+            continue
+        if bool(local["server_dirty"]) or not float(local["server_updated_at"] or 0):
+            _record_server_conflict(
+                "milestone", local["id"], project_id, "local_only", local["updated_at"], 0,
+                {"name": local["name"], "status": local["status"]}, {"deleted": True}, commit=False,
+            )
+        else:
+            conn.execute("DELETE FROM milestones WHERE id=?", (local["id"],))
+            _clear_server_conflict("milestone", local["id"], commit=False)
     conn.commit()
 
 

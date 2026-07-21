@@ -40,7 +40,7 @@ def _capability_report(revision: str) -> dict:
 def pull(token: str) -> dict:
     """用请求携带的 Server token 拉该账号在 Server 的项目 + 成员，幂等镜像进本地。返回 {synced, projects}。"""
     projects = server_client.list_projects(token)
-    if not projects:
+    if projects is None:
         return {"synced": 0, "projects": []}
     synced: list[str] = []
     for p in projects:
@@ -51,11 +51,21 @@ def pull(token: str) -> dict:
             id=pid, name=p.get("name", ""), owner_id=p.get("owner_id", ""),
             instruction=p.get("instruction", ""), connectors=p.get("connectors", []),
             experts=p.get("experts", []), skills=canonical_skill_keys(p.get("skills", [])),
+            created_at=p.get("created_at"), updated_at=p.get("updated_at"),
         )
-        members = server_client.list_project_members(token, pid) or []
-        db.replace_server_project_members(pid, members)
+        members = server_client.list_project_members(token, pid)
+        # 项目列表成功不代表成员子请求也成功；子请求不可达时保留 last-known-good，
+        # 不能把“未知”误当空快照并清空本地权限镜像。
+        if members is not None:
+            db.replace_server_project_members(pid, members)
         synced.append(pid)
-    return {"synced": len(synced), "projects": synced}
+    account_id = db.user_id_for_token(token)
+    if account_id:
+        db.reconcile_server_project_access(account_id, set(synced))
+    conflicts = [
+        conflict for pid in synced for conflict in db.list_server_sync_conflicts(pid)
+    ]
+    return {"synced": len(synced), "projects": synced, "conflicts": conflicts}
 
 
 # ---- 上行 outbox（WB-062 Phase 3）--------------------------------------

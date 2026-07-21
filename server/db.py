@@ -128,6 +128,7 @@ def init_db() -> None:
             account_id TEXT NOT NULL,
             role TEXT NOT NULL,
             created_at REAL NOT NULL,
+            updated_at REAL NOT NULL DEFAULT 0,
             PRIMARY KEY (project_id, account_id)
         );
         CREATE INDEX IF NOT EXISTS idx_project_members_account ON project_members(account_id);
@@ -639,6 +640,11 @@ def init_db() -> None:
             (now,),
         )
     conn.commit()
+    have_pm = {r["name"] for r in conn.execute("PRAGMA table_info(project_members)").fetchall()}
+    if "updated_at" not in have_pm:
+        conn.execute("ALTER TABLE project_members ADD COLUMN updated_at REAL NOT NULL DEFAULT 0")
+    conn.execute("UPDATE project_members SET updated_at=created_at WHERE updated_at=0")
+    conn.commit()
     # 一次性：存量 work_items.assignee 自由文本 → account_id 强映射（WB-112c-B）。
     if get_setting("assignee_norm_v1") != "1":
         migrate_assignees_to_account_id()
@@ -959,10 +965,11 @@ def list_projects_for(account_id: str) -> list[tuple[Project, Role]]:
 
 
 def add_project_member(project_id: str, account_id: str, role: Role) -> None:
+    now = time.time()
     get_conn().execute(
-        "INSERT INTO project_members (project_id, account_id, role, created_at) VALUES (?,?,?,?) "
-        "ON CONFLICT(project_id, account_id) DO UPDATE SET role=excluded.role",
-        (project_id, account_id, role.value, time.time()),
+        "INSERT INTO project_members (project_id, account_id, role, created_at, updated_at) VALUES (?,?,?,?,?) "
+        "ON CONFLICT(project_id, account_id) DO UPDATE SET role=excluded.role,updated_at=excluded.updated_at",
+        (project_id, account_id, role.value, now, now),
     )
     get_conn().commit()
 
@@ -975,20 +982,26 @@ def remove_project_member(project_id: str, account_id: str) -> None:
 
 
 def list_project_members(project_id: str) -> list[dict]:
-    p = get_conn().execute("SELECT owner_id FROM projects WHERE id=?", (project_id,)).fetchone()
+    p = get_conn().execute("SELECT owner_id,created_at,updated_at FROM projects WHERE id=?", (project_id,)).fetchone()
     if not p:
         return []
     out: list[dict] = []
     owner = get_account(p["owner_id"])
     if owner:
-        out.append({"account_id": owner.id, "name": owner.name, "role": Role.OWNER.value, "is_owner": True})
+        out.append({
+            "account_id": owner.id, "name": owner.name, "role": Role.OWNER.value, "is_owner": True,
+            "created_at": p["created_at"], "updated_at": p["updated_at"],
+        })
     rows = get_conn().execute(
-        "SELECT m.account_id, m.role, a.name FROM project_members m JOIN accounts a ON a.id=m.account_id "
+        "SELECT m.account_id,m.role,m.created_at,m.updated_at,a.name FROM project_members m JOIN accounts a ON a.id=m.account_id "
         "WHERE m.project_id=? ORDER BY m.created_at",
         (project_id,),
     ).fetchall()
     for r in rows:
-        out.append({"account_id": r["account_id"], "name": r["name"], "role": r["role"], "is_owner": False})
+        out.append({
+            "account_id": r["account_id"], "name": r["name"], "role": r["role"], "is_owner": False,
+            "created_at": r["created_at"], "updated_at": r["updated_at"],
+        })
     return out
 
 

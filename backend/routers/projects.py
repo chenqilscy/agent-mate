@@ -40,10 +40,13 @@ def _server_token(project_id: str, authorization: str) -> str:
     return tok
 
 
-def _mirror_members(tok: str, project_id: str) -> None:
+def _mirror_members(tok: str, project_id: str, acknowledge_id: str = "") -> None:
     mem = server_client.list_project_members(tok, project_id)
     if mem is not None:
-        db.replace_server_project_members(project_id, mem)
+        # 成功写代理后的回读等价于用户已在 Server 处理该成员分叉，可清对应权限冲突。
+        db.replace_server_project_members(
+            project_id, mem, acknowledge_ids={acknowledge_id} if acknowledge_id else None,
+        )
 
 
 def _mirror_project(p: dict) -> None:
@@ -52,6 +55,7 @@ def _mirror_project(p: dict) -> None:
         id=p.get("id", ""), name=p.get("name", ""), owner_id=p.get("owner_id", ""),
         instruction=p.get("instruction", ""), connectors=p.get("connectors"),
         experts=p.get("experts"), skills=canonical_skill_keys(p.get("skills") or []),
+        created_at=p.get("created_at"), updated_at=p.get("updated_at"),
     )
 
 
@@ -122,6 +126,7 @@ def _ago(ts: float) -> str:
 def _view(p, role: Role | None = None) -> dict:
     d = p.to_dict()
     d["ago"] = _ago(p.created_at)
+    d["sync_conflicts"] = db.count_server_sync_conflicts(p.id) if p.origin == "server" else 0
     if role is not None:
         # The caller's role in this project — the UI uses it for a badge and to
         # gate management actions (Owner/Admin can manage members & settings).
@@ -231,7 +236,7 @@ def add_member(project_id: str, body: AddMemberBody, authorization: str = Header
         # Console 按账号名解析成员（可加尚未镜像到本地的 Console 账号）；成功后刷新本地成员镜像。
         res = server_client.add_member(tok, project_id, (body.name or "").strip(), role.value)
         if res is not None:
-            _mirror_members(tok, project_id)
+            _mirror_members(tok, project_id, str((res.get("member") or {}).get("account_id") or ""))
             return {"members": db.list_project_members(project_id)}
         # Console 不可达 → 回退本地
     found = db.get_user_by_name((body.name or "").strip())
@@ -262,7 +267,7 @@ def update_member(project_id: str, user_id: str, body: UpdateMemberBody, authori
     if tok:
         # server-origin 项目里 user_id 即 Console account id（镜像时同 id）。
         if server_client.update_member(tok, project_id, user_id, role.value) is not None:
-            _mirror_members(tok, project_id)
+            _mirror_members(tok, project_id, user_id)
             return {"members": db.list_project_members(project_id)}
         # Console 不可达 → 回退本地
     if db.project_member_role(project_id, user_id) is None:
@@ -289,7 +294,7 @@ def remove_member(project_id: str, user_id: str, authorization: str = Header(def
     tok = _server_token(project_id, authorization)
     if tok:
         if server_client.remove_member(tok, project_id, user_id):
-            _mirror_members(tok, project_id)
+            _mirror_members(tok, project_id, user_id)
             return {"ok": True}
         # Console 不可达 → 回退本地
     if user_id == me.id:

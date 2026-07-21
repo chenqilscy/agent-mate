@@ -137,6 +137,10 @@ export const api = {
     send<{ id: string; mentioned?: number }>('POST', `/server/projects/${pid}/work-items/${wid}/comments`, { body }),
   serverPresence: (pid: string) =>
     get<{ server: boolean; presence: { account_id: string; name: string; role: string; online: boolean; last_seen: number }[] }>(`/server/projects/${pid}/presence`),
+  serverTimeline: (pid: string) =>
+    get<{ server: boolean; reachable: boolean; stale: boolean; events: import('./types').ServerTimelineEvent[] }>(`/server/projects/${pid}/timeline`),
+  serverSyncConflicts: (pid: string) =>
+    get<{ count: number; conflicts: { entity_type: string; entity_id: string; reason: string; detected_at: number }[] }>(`/server/projects/${pid}/sync-conflicts`),
   serverNotifications: () =>
     get<{ server: boolean; notifications: { id: string; title: string; body: string; created_at: number; read: number }[]; unread: number }>('/server/notifications'),
   serverMarkNotifs: (ids?: string[]) => send<{ ok: boolean }>('POST', '/server/notifications/read', ids ? { ids } : {}),

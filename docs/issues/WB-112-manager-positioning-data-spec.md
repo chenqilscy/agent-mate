@@ -7,11 +7,14 @@ status: in-progress
 origin: 2026-07-10 用户方向设定（Hub 改名 AgentMate Manager、定位管理端、要数据上云/本地规范、统一用户、PM 细化）
 files:
   - docs/agentmate-数据分层与同步规范.md
-  - hub/web/console.html
-  - hub/main.py
-  - hub/db.py
+  - server/db.py
+  - console/src/components/project/ProjectWorkspace.tsx
   - backend/routers/projects.py
-  - backend/hub_client.py
+  - backend/routers/server.py
+  - backend/server_client.py
+  - backend/server_sync.py
+  - backend/storage/db.py
+  - src/views/ProjectHomeView.tsx
 created: 2026-07-10
 ---
 
@@ -29,18 +32,19 @@ created: 2026-07-10
 
 - **WB-112a｜改名（done）**：console.html 标题/logo/登录页 + hub/main.py + hub/db.py 的用户可见串改为 "AgentMate Manager / App 管理端"。历史 issue 台账保持原名不改写。
 - **WB-112b｜数据分层规范（done）**：新增 [`docs/agentmate-数据分层与同步规范.md`](../agentmate-数据分层与同步规范.md) —— 三条红线 + 实体分层总表 + 同步契约 + 统一身份 + 新实体归层决策流程。
-- **WB-112c｜P1 协作写代理 + 身份强映射**（待做，最高优先）：
-  - `backend/routers/projects.py` 的成员增改删 + `update_project`（指令/连接器/专家/技能）按 work_items 模式加**写代理**到 Manager（hub-origin 项目），Manager 不可达回退本地。
-  - `assignee` 由自由文本升级为 Manager `account_id` 强外键；Manager `work_items` 加 owner/assignee 账号列；存量迁移（旧文本 → 按成员名匹配 account_id，匹配不上保留原文本兜底）。显示名由成员表解析。
-- **WB-112d｜动态回读**：`hub_client` 加 `list_timeline`；App「动态」tab 与 Manager 均消费 Manager `timeline_events`，队友执行动态互见。
-- **WB-112e｜镜像增量合并**：`mirror_hub_*` 由"整表删插"改为按 `id+updated_at` 增量合并、冲突可见，避免离线并发丢改动。
-- **WB-112f｜PM 细化丰富**：按与用户对齐的优先级细化项目管理功能（候选：看板 WIP/分组/泳道、任务模板与批量操作、自定义字段、保存的视图/筛选、任务依赖与关键路径、工时/预估、周期与燃尽、@提及联动任务、导出）。范围待用户拍板后分片。
+- **WB-112c｜P1 协作写代理 + 身份强映射（done）**：当前 Server 架构下，server-origin 项目的成员/配置写代理与 assignee `account_id` 归一已经落地；Server 不可达时保留 local-first 回退。
+- **WB-112d｜动态回读（done）**：`server_client.list_timeline` + App scoped readback API；在线增量缓存 last-known-good，Server 不可达回退缓存；App「动态」合并团队时间线和本机 session，其他成员的远端事件不提供本机会话跳转。
+- **WB-112e｜镜像增量合并（done）**：项目/成员/work item/milestone 按 `id+updated_at` 合并，不再整表删插；本地离线协作改动以 dirty/tombstone 保留，分叉进入可查询冲突台账并在 App 显示数量。owner/成员角色/项目访问仍以 Server 权限为准，远端撤权会收敛本地访问。
+- **WB-112f｜PM 细化丰富（in progress，连续切片）**：既有切片已覆盖看板 WIP/分组/泳道、批量操作、保存视图/筛选、工时/预估、甘特与协作时间线；本次恢复 React Console 的项目级任务模板（从现有任务保存、套用后仍经 Server `createWorkItem` 创建）。**仍未完成、不得视为本 epic 已验收**：自定义字段、任务依赖/关键路径、Sprint/周期与燃尽、PM 导出。
 
 ## 验证（各子任务分别）
 
 - 改名：Manager :8100 页面标题/顶栏/登录页显示新名，无残留旧名（历史台账除外）。
 - 写代理：hub-origin 项目改成员/配置后，隔离 Manager 侧 DB 真变，App 再 pull 不回退；Manager 不可达回退本地不报错。
 - 身份：多账号下任务负责人跨 App/Manager 显示一致、可按人过滤；存量迁移不丢数据。
+- 动态：两个真实 Server 账号仅能回读有权限项目；在线事件进入缓存，Server 停止后同一账号可读缓存，陌生账号不可读。
+- 增量合并：远端更新正常合并；离线本地与远端并发改动不静默覆盖且冲突可见；远端成员角色/撤权不会被本地 dirty 绕过。
+- PM 模板切片：模板按项目隔离保存；套用只预填任务表单，保存仍走 Server 权限与创建 API。
 - 无后端运行时回归；改后端硬重启核对。
 
 ## 处理记录
@@ -57,4 +61,12 @@ created: 2026-07-10
   - Manager console：`PM_CTX.members` 保留 `{account_id,name,role}` 全对象；负责人筛选/详情下拉 value=account_id·label=name；看板卡头像 + 列表负责人显示 `assignee_name`。
   - 验证：隔离 Hub（TestClient + scratch DB）6 项断言全过——创建/更新/list 名字→account_id 归一、不可解析名保留不丢、存量迁移生效、活动流用名不漏 uuid。App backend reload 后 `/api/work-items` 422（非 500）、`/api/health` 200，无回归。
   - **运行中的 Manager :8100 需重启**才激活 Hub 侧改动（迁移 + 归一/解析）；console.html 每次请求实时读取、已即时更新。
-- WB-112d/e/f（动态回读 / 镜像增量合并 / PM 细化四方向）：待做。用户已选 PM 细化范围 = 看板视图增强 + 任务字段丰富 + 计划与度量 + 协作联动（全选）。
+- 当时 WB-112d/e/f（动态回读 / 镜像增量合并 / PM 细化四方向）尚待做；用户已选 PM 细化范围 = 看板视图增强 + 任务字段丰富 + 计划与度量 + 协作联动（全选）。
+
+2026-07-22（d/e 完成，f 新增一个连续切片）：
+- 重新审计当前 `server/` + `backend/server_client.py` 架构，确认 a/b 文档与命名存在，c 的项目/成员写代理及 assignee 账号归一已在重构后路径中保留；未覆盖既有 Server 重构。
+- **d 动态回读**：新增项目门禁下的 `/api/server/projects/{id}/timeline`，成功回读后以事件 id 增量缓存，不可达时返回 last-known-good；App 动态流与本机 session 去重合并，缓存状态可见。缓存只含协作元数据，不含会话正文、凭据、数据库或 workspace。
+- **e 冲突安全镜像**：为项目/成员/任务/里程碑维护 `server_updated_at/server_dirty`；成员删除用 tombstone；冲突保存本地/远端快照并提供 scoped 查询。Server owner、角色及项目列表作为权限权威，远端角色回写、撤权后本地入口移除，防止离线 dirty 扩权。
+- **f 任务模板切片**：React Console 恢复项目级任务模板的保存/套用/删除；模板是本机偏好，套用后的任务只能通过既有 Server API 与权限门禁创建。其余未完成 PM 能力仍列在 112f，不标完成。
+- 验证：Server 全量 `41/41`；WB-112 增量/隔离回归 `6/6`（含成员子请求失败时保留 last-known-good）；隔离 Server+Backend 双账号、双临时 DB 的真实 HTTP 场景 `1/1`（在线回读→Server 停止缓存回退→离线本地改→Server 恢复并发改→本地保留且冲突 API 可见）；PM 模板契约 `1/1`；`npx tsc --noEmit`、`pnpm build`（App + Console）通过。
+- 已知基线：Backend regression 全量 discover 97 项仍有 8 个与本次无关的既存失败（`list_messages` 返回 None、部分测试未初始化表、skill catalog revision 契约）；相关模块单跑与本 issue changed-path 回归均通过。WB-112f 尚有明确剩余范围，故 status 保持 `in-progress`，不虚假标 fixed。

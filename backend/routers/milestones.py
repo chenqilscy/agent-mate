@@ -69,7 +69,7 @@ def list_items(project: str, authorization: str = Header(default="")) -> dict:
         items = server_client.list_milestones(tok, project)  # None = Server 不可达
         if items is not None:
             db.mirror_server_milestones(project, items)
-            return {"milestones": items}
+            return {"milestones": db.list_milestones(project)}
     return {"milestones": db.list_milestones(project)}
 
 

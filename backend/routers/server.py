@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 import server_client
 import server_sync
+from auth.deps import current_user
 from storage import db
 from storage.models import LOCAL_USER_ID
 
@@ -132,6 +133,41 @@ def server_presence(project_id: str, authorization: str = Header(default="")) ->
     if not server_client.server_enabled():
         return {"server": False, "presence": []}
     return {"server": True, "presence": server_client.list_presence(_bearer(authorization), project_id) or []}
+
+
+@router.get("/server/projects/{project_id}/timeline")
+def server_timeline(project_id: str, authorization: str = Header(default="")) -> dict:
+    """App 动态回读 Server 时间线；网络失败返回 last-known-good 缓存，不泄漏其他项目。"""
+    user = current_user()
+    project = db.get_project_for(project_id, user.id)
+    if not project:
+        raise HTTPException(404, "project not found")
+    token = _bearer(authorization)
+    if project.origin == "server" and (not token or db.user_id_for_token(token) != user.id):
+        # AuthMiddleware 对无效/缺失 token 会回到 local owner；Server 私有缓存不能继承该单机回退。
+        raise HTTPException(401, "server identity required")
+    cached = db.list_server_timeline(project_id)
+    if project.origin != "server" or not server_client.server_enabled():
+        return {"server": False, "reachable": False, "stale": bool(cached), "events": cached}
+    events = server_client.list_timeline(token, project_id)
+    if events is None:
+        return {"server": True, "reachable": False, "stale": bool(cached), "events": cached}
+    db.mirror_server_timeline(project_id, events)
+    return {"server": True, "reachable": True, "stale": False, "events": db.list_server_timeline(project_id)}
+
+
+@router.get("/server/projects/{project_id}/sync-conflicts")
+def server_sync_conflicts(project_id: str, authorization: str = Header(default="")) -> dict:
+    """返回当前用户可访问项目的镜像分叉，供 UI/诊断明确展示而非静默覆盖。"""
+    user = current_user()
+    project = db.get_project_for(project_id, user.id)
+    if not project:
+        raise HTTPException(404, "project not found")
+    token = _bearer(authorization)
+    if project.origin == "server" and (not token or db.user_id_for_token(token) != user.id):
+        raise HTTPException(401, "server identity required")
+    conflicts = db.list_server_sync_conflicts(project_id)
+    return {"conflicts": conflicts, "count": len(conflicts)}
 
 
 @router.get("/server/notifications")

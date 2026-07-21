@@ -187,7 +187,8 @@ def list_items(project: str, authorization: str = Header(default="")) -> dict:
         items = server_client.list_work_items(tok, project)  # None = Server 不可达
         if items is not None:
             db.mirror_server_work_items(project, items)       # 刷新本地镜像
-            return {"items": [_server_view(it) for it in items]}
+            # 增量合并可能保留本地离线分叉；读取合并后的镜像，不能再用远端数组覆盖视图。
+            return {"items": [_view(wi, user) for wi in db.list_work_items(project)]}
     return {"items": [_view(wi, user) for wi in db.list_work_items(project)]}
 
 

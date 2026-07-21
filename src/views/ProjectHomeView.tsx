@@ -1,7 +1,7 @@
 import { WbButton, WbTextArea } from '../components/ui/Primitives'
 import { useCallback, useEffect, useState } from 'react'
 import { api, type Assistant } from '../lib/api'
-import type { Automation, ProjectInfo, SessionInfo } from '../lib/types'
+import type { Automation, ProjectInfo, ServerTimelineEvent, SessionInfo } from '../lib/types'
 import { useProjectStore } from '../stores/projectStore'
 import { useChatStore } from '../stores/chatStore'
 import { useLoadoutStore } from '../stores/loadoutStore'
@@ -38,6 +38,14 @@ function iconOf(kind: Kind, name: string): string {
   return cat.SK_GRID.find((s) => s.name === label || s.slug === name)?.icon ?? '🧩'
 }
 
+function relativeTime(timestamp: number): string {
+  const seconds = Math.max(0, Date.now() / 1000 - timestamp)
+  if (seconds < 60) return '刚刚'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}分钟前`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}小时前`
+  return `${Math.floor(seconds / 86400)}天前`
+}
+
 const IC_ADD = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
 const IC_EDIT = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" /></svg>
 
@@ -58,6 +66,8 @@ export function ProjectHomeView() {
   const [project, setProject] = useState<ProjectInfo | null>(active)
   const [tab, setTab] = useState<Tab>('动态')
   const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [timeline, setTimeline] = useState<ServerTimelineEvent[]>([])
+  const [timelineStale, setTimelineStale] = useState(false)
   const [editInstr, setEditInstr] = useState(false)
   const [instrDraft, setInstrDraft] = useState('')
   const [picker, setPicker] = useState<Kind | null>(null)
@@ -101,7 +111,13 @@ export function ProjectHomeView() {
       useLoadoutStore.getState().setKnowledgeIds(p.knowledge_ids ?? [])
     }).catch(() => {})
     api.projectSessions(pid).then((r) => setSessions(r.sessions)).catch(() => {})
-    loadWork(pid)
+    api.serverTimeline(pid).then((r) => {
+      setTimeline(r.events)
+      setTimelineStale(!r.reachable)
+    }).catch(() => { setTimelineStale(true) })
+    void loadWork(pid).then(() => api.serverSyncConflicts(pid)).then(({ count }) => {
+      setProject((current) => current ? { ...current, sync_conflicts: count } : current)
+    }).catch(() => {})
     void loadBindings()
   }, [pid, setActive, loadWork, loadBindings])
 
@@ -150,6 +166,21 @@ export function ProjectHomeView() {
 
   const boundAssistants = assistants.filter((item) => item.workspace === `project:${project.id}`)
   const boundAutomations = automations.filter((item) => item.project_id === project.id)
+  const localSessions = new Map(sessions.map((session) => [session.id, session]))
+  const remoteSessionIds = new Set(timeline.map((event) => event.ext_id).filter(Boolean))
+  const activityFeed = [
+    ...timeline.map((event) => ({
+      id: `server:${event.id}`, title: event.title || event.summary || '项目动态',
+      actor: event.actor_name, when: relativeTime(event.created_at), createdAt: event.created_at,
+      sessionId: event.ext_id && localSessions.has(event.ext_id) ? event.ext_id : null,
+      running: false,
+    })),
+    ...sessions.filter((session) => !remoteSessionIds.has(session.id)).map((session) => ({
+      id: `local:${session.id}`, title: session.title, actor: session.owner_name || '',
+      when: session.ago ?? '', createdAt: session.updated_at || session.created_at || 0,
+      sessionId: session.id, running: session.status === 'running',
+    })),
+  ].sort((a, b) => b.createdAt - a.createdAt)
 
   const bindingSection = (kind: ProjectBindingKind, label: string) => {
     const items = kind === 'assistant' ? boundAssistants : boundAutomations
@@ -202,6 +233,8 @@ export function ProjectHomeView() {
         <div className="pe-crumb">
           <Breadcrumb items={[{ title: <span {...clickable} onClick={() => setView('projects')}>项目</span> }, { title: project.name }]} />
           {isShared && <Tag className="pj-rolebadge">协作 · {ROLE_LABEL[project.role!] || project.role}</Tag>}
+          {!!project.sync_conflicts && <Tooltip title="本地离线改动与 Server 镜像存在分叉，已保留本地版本，请在恢复连接后核对。"><Tag color="warning">同步冲突 {project.sync_conflicts}</Tag></Tooltip>}
+          {timelineStale && <Tooltip title="Server 当前不可达；动态展示本机最后一次成功回读的缓存（如有）。"><Tag>动态缓存</Tag></Tooltip>}
         </div>
         <div style={{ marginLeft: 'auto' }}>
           <WbButton className="btn-dark" style={{ height: 32 }} onClick={() => setMembersOpen(true)}>{canManage ? '邀请' : '成员'}</WbButton>
@@ -219,12 +252,16 @@ export function ProjectHomeView() {
 
           <div className="pjh-body">
             {tab === '动态' && (
-              sessions.length ? (
-                <List dataSource={sessions} renderItem={(s) => (
-                  <List.Item className="pj-feed-row" key={s.id} {...clickable} onClick={() => openExec(s.id)}>
+              activityFeed.length ? (
+                <List dataSource={activityFeed} renderItem={(item) => (
+                  <List.Item
+                    className="pj-feed-row" key={item.id}
+                    {...(item.sessionId ? clickable : {})}
+                    onClick={item.sessionId ? () => openExec(item.sessionId!) : undefined}
+                  >
                     <span className="fi"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16v12H5.2L4 17.2z" /></svg></span>
-                    <span className="ft">{s.title}</span>
-                    <span className="fa">{s.owner_name ? `${s.owner_name} · ` : ''}{s.status === 'running' ? '执行中' : s.ago}</span>
+                    <span className="ft">{item.title}</span>
+                    <span className="fa">{item.actor ? `${item.actor} · ` : ''}{item.running ? '执行中' : item.when}</span>
                   </List.Item>
                 )} />
               ) : (

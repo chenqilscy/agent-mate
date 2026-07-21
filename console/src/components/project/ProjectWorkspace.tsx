@@ -5,7 +5,7 @@ import {
 } from "antd";
 import {
   CalendarOutlined, CheckCircleOutlined, ClockCircleOutlined, EditOutlined,
-  FlagOutlined, PlusOutlined, SaveOutlined, TeamOutlined,
+  DeleteOutlined, FlagOutlined, PlusOutlined, SaveOutlined, TeamOutlined,
 } from "@ant-design/icons";
 import { ProTable } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
@@ -40,6 +40,11 @@ const STATUS_META: Record<WorkItem["status"], { label: string; color: string }> 
 };
 
 type TaskDraft = Partial<WorkItem> & { title: string };
+interface TaskTemplate { id: string; name: string; fields: Partial<WorkItem> }
+
+function storageJson<T>(key: string, fallback: T): T {
+  try { return JSON.parse(localStorage.getItem(key) || "") as T; } catch { return fallback; }
+}
 
 interface ProjectWorkContextValue {
   project: Project;
@@ -56,6 +61,9 @@ interface ProjectWorkContextValue {
   patchTask: (task: WorkItem, patch: Partial<WorkItem>) => Promise<void>;
   deleteTask: (task: WorkItem) => Promise<void>;
   batchPatch: (patch: Partial<WorkItem>) => Promise<void>;
+  templates: TaskTemplate[];
+  openTemplate: (templateId: string) => void;
+  deleteTemplate: (templateId: string) => void;
 }
 
 const ProjectWorkContext = createContext<ProjectWorkContextValue | null>(null);
@@ -83,7 +91,12 @@ export function ProjectWorkProvider({ project, children }: { project: Project; c
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string[]>([]);
   const [editing, setEditing] = useState<WorkItem | null | undefined>(undefined);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [templateRevision, setTemplateRevision] = useState(0);
   const [form] = Form.useForm<TaskDraft>();
+  const [templateForm] = Form.useForm<{ name: string }>();
+  const templateKey = `agentmate.console.pm.templates.${project.id}`;
+  const templates = useMemo(() => storageJson<TaskTemplate[]>(templateKey, []), [templateKey, templateRevision]);
 
   async function reload() {
     setLoading(true);
@@ -116,6 +129,39 @@ export function ProjectWorkProvider({ project, children }: { project: Project; c
       assignee: "", milestone_id: "", start_date: "", due_date: "", estimate_h: 0,
       spent_h: 0, labels: [], parent_id: "",
     });
+  }
+
+  function openTemplate(templateId: string) {
+    const template = templates.find((item) => item.id === templateId);
+    if (!template) return;
+    setEditing(null);
+    form.resetFields();
+    form.setFieldsValue({
+      title: "", description: "", status: "todo", priority: "", source: "console",
+      assignee: "", milestone_id: "", start_date: "", due_date: "", estimate_h: 0,
+      spent_h: 0, labels: [], parent_id: "", ...template.fields,
+    });
+  }
+
+  function saveTemplate({ name }: { name: string }) {
+    const fields: Partial<WorkItem> & { title?: string } = { ...form.getFieldsValue() };
+    delete fields.title;
+    const template: TaskTemplate = {
+      id: globalThis.crypto?.randomUUID?.() || `template-${Date.now()}`,
+      name: name.trim().slice(0, 40),
+      fields,
+    };
+    localStorage.setItem(templateKey, JSON.stringify([...templates, template]));
+    setTemplateRevision((value) => value + 1);
+    setTemplateOpen(false);
+    templateForm.resetFields();
+    message.success("任务模板已保存");
+  }
+
+  function deleteTemplate(templateId: string) {
+    localStorage.setItem(templateKey, JSON.stringify(templates.filter((item) => item.id !== templateId)));
+    setTemplateRevision((value) => value + 1);
+    message.success("任务模板已删除");
   }
 
   async function patchTask(task: WorkItem, patch: Partial<WorkItem>) {
@@ -170,8 +216,8 @@ export function ProjectWorkProvider({ project, children }: { project: Project; c
   const roots = useMemo(() => items.filter((item) => !item.parent_id), [items]);
   const value = useMemo<ProjectWorkContextValue>(() => ({
     project, items, roots, members, milestones, activity, loading, selected, setSelected,
-    reload, openTask, patchTask, deleteTask, batchPatch,
-  }), [project, items, roots, members, milestones, activity, loading, selected]);
+    reload, openTask, patchTask, deleteTask, batchPatch, templates, openTemplate, deleteTemplate,
+  }), [project, items, roots, members, milestones, activity, loading, selected, templates]);
 
   return <ProjectWorkContext.Provider value={value}>
     {children}
@@ -181,7 +227,10 @@ export function ProjectWorkProvider({ project, children }: { project: Project; c
       title={editing ? `任务 · ${editing.title}` : "新建任务"}
       onClose={() => setEditing(undefined)}
       destroyOnHidden
-      extra={canWrite(project) && <Button type="primary" onClick={() => form.submit()}>保存</Button>}
+      extra={canWrite(project) && <Space>
+        {editing && <Button icon={<SaveOutlined />} onClick={() => setTemplateOpen(true)}>存为模板</Button>}
+        <Button type="primary" onClick={() => form.submit()}>保存</Button>
+      </Space>}
     >
       <Form form={form} layout="vertical" disabled={!canWrite(project)} onFinish={saveTask}>
         <Form.Item name="title" label="标题" rules={[{ required: true, whitespace: true }]}>
@@ -208,6 +257,11 @@ export function ProjectWorkProvider({ project, children }: { project: Project; c
         <Form.Item name="labels" label="标签"><Select mode="tags" tokenSeparators={[","]} /></Form.Item>
       </Form>
     </Drawer>
+    <Modal title="存为任务模板" open={templateOpen} onCancel={() => setTemplateOpen(false)} onOk={() => templateForm.submit()} destroyOnHidden>
+      <Form form={templateForm} layout="vertical" onFinish={saveTemplate}>
+        <Form.Item name="name" label="模板名称" rules={[{ required: true, whitespace: true }]}><Input maxLength={40} /></Form.Item>
+      </Form>
+    </Modal>
   </ProjectWorkContext.Provider>;
 }
 
@@ -271,12 +325,11 @@ function MilestoneCard({ project, roots, milestones }: { project: Project; roots
 type GroupMode = "none" | "assignee" | "milestone";
 interface SavedPlanView { name: string; group: GroupMode; assignee: string; source: string; search: string }
 
-function storageJson<T>(key: string, fallback: T): T {
-  try { return JSON.parse(localStorage.getItem(key) || "") as T; } catch { return fallback; }
-}
-
 export function ProjectPlan() {
-  const { project, roots, members, milestones, loading, selected, setSelected, openTask, patchTask, batchPatch } = useProjectWork();
+  const {
+    project, roots, members, milestones, loading, selected, setSelected, openTask,
+    patchTask, batchPatch, templates, openTemplate, deleteTemplate,
+  } = useProjectWork();
   const [group, setGroup] = useState<GroupMode>("none");
   const [assignee, setAssignee] = useState("");
   const [source, setSource] = useState("");
@@ -284,6 +337,7 @@ export function ProjectPlan() {
   const [batchStatus, setBatchStatus] = useState<WorkItem["status"]>("doing");
   const [wipOpen, setWipOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
+  const [templateId, setTemplateId] = useState("");
   const [revision, setRevision] = useState(0);
   const [viewForm] = Form.useForm<{ name: string }>();
   const wipKey = `agentmate.console.pm.wip.${project.id}`;
@@ -326,6 +380,9 @@ export function ProjectPlan() {
       <div className="project-plan-toolbar-row">
         <Space wrap>
           {canWrite(project) && <Button type="primary" icon={<PlusOutlined />} onClick={() => openTask(null)}>新建任务</Button>}
+          {canWrite(project) && <Select aria-label="任务模板" value={templateId || undefined} placeholder="选择任务模板" onChange={setTemplateId} options={templates.map((template) => ({ value: template.id, label: template.name }))} />}
+          {canWrite(project) && <Button disabled={!templateId} onClick={() => openTemplate(templateId)}>使用模板</Button>}
+          {canWrite(project) && <Button aria-label="删除任务模板" danger icon={<DeleteOutlined />} disabled={!templateId} onClick={() => { deleteTemplate(templateId); setTemplateId(""); }} />}
           <Select aria-label="泳道分组" value={group} onChange={setGroup} options={[{ value: "none", label: "不分组" }, { value: "assignee", label: "按负责人泳道" }, { value: "milestone", label: "按里程碑泳道" }]} />
           <Select aria-label="负责人筛选" allowClear value={assignee || undefined} placeholder="全部负责人" onChange={(value) => setAssignee(value || "")} options={members.map((member) => ({ value: member.account_id, label: member.name }))} />
           <Select aria-label="来源筛选" allowClear value={source || undefined} placeholder="全部来源" onChange={(value) => setSource(value || "")} options={sources.map((value) => ({ value, label: value }))} />

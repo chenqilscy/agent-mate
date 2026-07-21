@@ -470,6 +470,19 @@ export interface ProjectInfo {
   knowledge_ids: string[]
   ago?: string
   role?: string // the current user's role in this project (M7 C2): Owner|Admin|Member|Viewer
+  sync_conflicts?: number // Server 镜像分叉数；>0 时 UI 必须显式提示，不能静默覆盖。
+}
+
+export interface ServerTimelineEvent {
+  id: string
+  project_id: string
+  actor_id: string
+  actor_name: string
+  kind: string
+  title: string
+  summary: string
+  ext_id: string | null
+  created_at: number
 }
 
 // 自定义专家（我的专家 · WB-049）。persona 在后端注入系统提示，让自造专家真生效。

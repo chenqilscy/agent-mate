@@ -193,6 +193,13 @@ def post_timeline(token: str, project_id: str, event: dict[str, Any]) -> bool:
         return False
 
 
+def list_timeline(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
+    """读取 Server 团队时间线；None 表示不可达/无权，[] 表示可达但暂无事件。"""
+    d = _get(f"/api/projects/{project_id}/timeline", token)
+    events = d.get("events") if isinstance(d, dict) else None
+    return events if isinstance(events, list) else None
+
+
 def create_project(token: str, project: dict[str, Any]) -> Optional[str]:
     """在 Server 新建一个项目（WB-063 存量导入用），返回其 Server id 或 None。
     project 只带元数据（name/instruction/loadout），无凭据/工作区文件。"""
