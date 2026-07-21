@@ -5,9 +5,14 @@ import asyncio
 from dataclasses import replace
 import tempfile
 import time
+import sys
 import unittest
 from pathlib import Path
 
+BACKEND = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(BACKEND))
+
+from agent import security
 from agent.sandbox import use_root
 from agent.tool_execution import ToolExecutionCancelled, ToolExecutionTimeout, execute_tool
 from agent.tools import base_tools, run_command
@@ -18,8 +23,10 @@ class ToolExecutionPolicyTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.workspace = Path(self.tmp.name) / "workspace"
         use_root(self.workspace)
+        security.set_security_context(None)
 
     def tearDown(self) -> None:
+        security.set_security_context(None)
         self.tmp.cleanup()
 
     def _late_write_command(self, path: str, delay_ms: int = 1200) -> str:

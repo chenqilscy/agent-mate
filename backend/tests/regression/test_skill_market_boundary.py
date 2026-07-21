@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -13,10 +15,27 @@ ROOT = BACKEND.parent
 sys.path.insert(0, str(BACKEND))
 
 from agent import skills_store  # noqa: E402
+from config import settings  # noqa: E402
 from routers import skills as skills_router  # noqa: E402
+from storage import db  # noqa: E402
 
 
 class SkillMarketBoundaryTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_db = settings.DB_PATH
+        settings.DB_PATH = Path(self.tmp.name) / "agentmate-test.db"
+        db._local = threading.local()
+        db.init_db()
+
+    def tearDown(self) -> None:
+        conn = getattr(db._local, "conn", None)
+        if conn is not None:
+            conn.close()
+        settings.DB_PATH = self.old_db
+        db._local = threading.local()
+        self.tmp.cleanup()
+
     def test_app_routes_query_local_market_and_expose_no_preview_endpoint(self) -> None:
         card = {"slug": "demo", "name": "Demo", "description": "metadata only"}
         with patch.object(skills_store, "search", return_value=[card]) as search:
