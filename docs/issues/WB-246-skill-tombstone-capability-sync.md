@@ -3,7 +3,7 @@ id: WB-246
 title: Skill 下行缺少 tombstone、客户端能力报告与增量兼容门禁
 severity: P0
 area: fullstack
-status: open
+status: fixed
 origin: 既有实现
 files:
   - server/routers/catalog.py:42
@@ -41,3 +41,13 @@ P0：紧急撤回失效；不兼容能力可以被展示或安装；离线、网
 - Server 停用 builtin 同 slug Skill 后，App 不再回退出该能力；恢复发布可重新启用。
 - 旧 App 对高版本工具显示最低版本要求，安装与运行均被拒绝。
 - 同 revision 条件请求不重复改写本地目录；断网继续使用最后可用状态。
+
+## 处理记录（2026-07-21）
+
+- 改动：新增 `/api/catalog/pull` 条件下行协议与 SHA-256 revision；App 上报版本、平台、架构和
+  真实工具契约，Server 返回兼容结论与显式 withdrawn tombstone；本地目录持久化 revision、兼容状态
+  和撤回状态，安装/升级及 runtime 均执行硬门禁；Server 不可达保留 last-known-good，并兼容旧 Server
+  GET 协议；App 启动、5 分钟周期及窗口恢复时触发条件刷新。
+- 验证：覆盖 revision 命中、工具不兼容、安装拒绝、tombstone 压制 builtin/runtime、旧 Server 回退与
+  断网保留；Backend 14/14、Server 7/7 定向回归通过，`py_compile` 与 `tsc --noEmit` 通过。
+- commit：见本次 WB-246 提交。

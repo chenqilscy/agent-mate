@@ -5,6 +5,7 @@
 org 级目录运营（团队 Admin）留后续。
 """
 from __future__ import annotations
+import hashlib
 
 import json
 import re
@@ -13,7 +14,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import db
 from auth import CurrentAccount
@@ -39,22 +40,68 @@ def _require_admin(account: Account) -> None:
         raise HTTPException(403, "platform admin only")
 
 
+def _downlink_catalog_items(*, include_all: bool = False, include_withdrawn: bool = False) -> list[dict[str, Any]]:
+    items = db.list_all_catalog_items(scope="builtin", include_disabled=include_all)
+    if not include_all:
+        # A withdrawn Skill is an explicit state, not an omitted row.  Recommendations
+        # use the same rule so an intentionally empty placement does not revive fallback.
+        categories = set(_RECOMMENDATION_CATEGORIES)
+        if include_withdrawn:
+            categories.add("APP_SKILLS")
+        for category in categories:
+            items.extend(
+                row for row in db.list_catalog_items(category, scope="builtin", include_disabled=True)
+                if not row.get("enabled", True)
+                and not any(current["id"] == row["id"] for current in items)
+            )
+        items.sort(key=lambda row: (row["category"], row["sort"]))
+    return items
+
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    parts = re.findall(r"\d+", str(value or ""))[:4]
+    return tuple(int(part) for part in parts) if parts else (0,)
+
+
+def _catalog_revision(items: list[dict[str, Any]]) -> str:
+    raw = json.dumps(items, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _skill_compatibility(data: dict[str, Any], report: "CatalogPullBody") -> dict[str, Any]:
+    tool_specs = {str(item.get("name") or ""): item for item in _SKILL_TOOL_CATALOG if isinstance(item, dict)}
+    tools = [str(item) for item in data.get("tools", []) if str(item)]
+    required_app = str(data.get("min_app_version") or "0.0.0")
+    unsupported: list[str] = []
+    for name in tools:
+        spec = tool_specs.get(name, {})
+        minimum = str(spec.get("min_app_version") or "0.0.0")
+        if _version_tuple(minimum) > _version_tuple(required_app):
+            required_app = minimum
+        required_contract = str(spec.get("contract_version") or "1")
+        supported_contract = str(report.supported_tools.get(name) or "0")
+        if _version_tuple(supported_contract) < _version_tuple(required_contract):
+            unsupported.append(name)
+    reasons: list[str] = []
+    if _version_tuple(report.app_version) < _version_tuple(required_app):
+        reasons.append(f"requires app {required_app}+")
+    if unsupported:
+        reasons.append("unsupported tools: " + ", ".join(sorted(unsupported)))
+    return {
+        "compatible": not reasons,
+        "compatibility_error": "; ".join(reasons),
+        "min_app_version": required_app,
+        "unsupported_tools": sorted(unsupported),
+    }
+
+
 @router.get("/catalog")
 def list_all_catalog(all: bool = False, account: Account = CurrentAccount) -> dict:
     """所有 builtin 目录项（跨 category），供客户端一次性下行覆盖本地。
     `?all=true`（仅平台管理员）连停用项一并返回，供门户高级 JSON 视图。"""
     inc = all and account.is_platform_admin
-    items = db.list_all_catalog_items(scope="builtin", include_disabled=inc)
-    if not inc:
-        # 推荐位需要把“已配置但全部停用”与“从未配置”区分开：前者应诚实显示空，
-        # 后者才允许 App local-first 回退。因此下行携带推荐位 enabled 状态。
-        for category in _RECOMMENDATION_CATEGORIES:
-            items.extend(
-                row for row in db.list_catalog_items(category, scope="builtin", include_disabled=True)
-                if not any(current["id"] == row["id"] for current in items)
-            )
-        items.sort(key=lambda row: (row["category"], row["sort"]))
-    return {"items": items}
+    items = _downlink_catalog_items(include_all=inc)
+    return {"items": items, "revision": _catalog_revision(items)}
 
 
 @router.get("/catalog/skill-tools")
@@ -75,6 +122,37 @@ class CatalogItemBody(BaseModel):
     kind: str = ""
     data: Any = None  # 目录卡：数组(如 EXP_GRID 元组) 或对象(如 CONN_META)
     sort: int = 0
+
+
+class CatalogPullBody(BaseModel):
+    revision: str = ""
+    app_version: str = "0.0.0"
+    platform: str = ""
+    arch: str = ""
+    tool_contract_version: str = "0"
+    supported_tools: dict[str, str] = Field(default_factory=dict)
+
+
+@router.post("/catalog/pull")
+def pull_catalog(body: CatalogPullBody, account: Account = CurrentAccount) -> dict:
+    """Conditional capability-aware catalog snapshot for AgentMate App clients."""
+    items = _downlink_catalog_items(include_withdrawn=True)
+    revision = _catalog_revision(items)
+    if body.revision and body.revision == revision:
+        return {"revision": revision, "unchanged": True, "items": []}
+    rendered: list[dict[str, Any]] = []
+    for item in items:
+        row = dict(item)
+        if row.get("category") == "APP_SKILLS" and isinstance(row.get("data"), dict):
+            withdrawn = not bool(row.get("enabled", True))
+            compatibility = _skill_compatibility(row["data"], body) if not withdrawn else {
+                "compatible": False, "compatibility_error": "withdrawn",
+                "min_app_version": str(row["data"].get("min_app_version") or "0.0.0"),
+                "unsupported_tools": [],
+            }
+            row.update({"withdrawn": withdrawn, **compatibility})
+        rendered.append(row)
+    return {"revision": revision, "unchanged": False, "items": rendered}
 
 
 _MAX_SKILL_FILES = 128

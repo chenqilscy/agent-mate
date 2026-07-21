@@ -64,19 +64,23 @@ export const useCatalogStore = create<CatalogState>((set) => ({
   },
 }))
 
-// 登录态下触发一次本地 backend → Server 下行 pull（仅 AgentMate 自有目录与协作配置）。
-let serverPulled = false
-async function syncFromServer(): Promise<void> {
-  if (serverPulled) return
-  serverPulled = true
+// 登录态下周期触发本地 backend → Server 条件 pull。Server revision 未变化时不会重写本地目录。
+const SERVER_PULL_INTERVAL = 5 * 60 * 1000
+let serverPulling = false
+let lastServerPull = 0
+async function syncFromServer(force = false): Promise<void> {
+  if (serverPulling || (!force && Date.now() - lastServerPull < SERVER_PULL_INTERVAL)) return
   if (!localStorage.getItem(TOKEN_KEY)) return // 未登录 → 无 Server token，跳过
+  serverPulling = true
   try {
     const r = await api.serverPull()
+    lastServerPull = Date.now()
     if (r.server) {
       await useCatalogStore.getState().load()
       await useSkillStore.getState().load(true)
     }
-  } catch { /* 未接 Server / 不可达：保留本地兜底 */ }
+  } catch { /* 未接 Server / 不可达：保留 last-known-good */ }
+  finally { serverPulling = false }
 }
 
 // 第三方市场始终从本地 App 后端直读真实 SkillHub 排行，与 Server 登录/同步状态无关（WB-215）。
@@ -109,3 +113,8 @@ void (async () => {
   await useCatalogStore.getState().load()
   await Promise.all([syncFromServer(), loadSkillMarketplace()])
 })()
+
+window.setInterval(() => { void syncFromServer() }, SERVER_PULL_INTERVAL)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void syncFromServer()
+})

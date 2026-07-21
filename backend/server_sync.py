@@ -9,11 +9,39 @@ Server 项目落本地 `projects`(origin='server')，成员落 `project_members`
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import platform
+from pathlib import Path
+
 import server_client
-from agent.skills import canonical_skill_keys
+from agent.skills import _TOOL_REGISTRY, canonical_skill_keys
 from config import settings
 from storage import db
 from storage.models import LOCAL_USER_ID
+
+
+_CATALOG_REVISION_KEY = "server.catalog_revision"
+
+
+def _capability_report(revision: str) -> dict:
+    contracts: dict[str, str] = {}
+    try:
+        raw = json.loads((Path(__file__).resolve().parent.parent / "shared" / "skill-tools.json").read_text(encoding="utf-8"))
+        contracts = {
+            str(item.get("name")): str(item.get("contract_version") or settings.TOOL_CONTRACT_VERSION)
+            for item in raw if isinstance(item, dict) and item.get("name") in _TOOL_REGISTRY
+        }
+    except (OSError, ValueError, TypeError):
+        contracts = {name: settings.TOOL_CONTRACT_VERSION for name in _TOOL_REGISTRY}
+    return {
+        "revision": revision,
+        "app_version": settings.APP_VERSION,
+        "platform": platform.system().lower(),
+        "arch": platform.machine().lower(),
+        "tool_contract_version": settings.TOOL_CONTRACT_VERSION,
+        "supported_tools": contracts,
+    }
 
 
 def pull(token: str) -> dict:
@@ -115,11 +143,27 @@ def pull_catalog(token: str) -> dict:
     Server 不可达 → 保留上次下发（不清空）；Server 空 → 清空 → 本地 builtin 兜底。"""
     if not settings.server_enabled:
         return {"downlinked": 0, "reachable": False}
-    items = server_client.list_all_catalog(token)
-    if items is None:  # 不可达：保留上次下发，别清成空
-        return {"downlinked": 0, "reachable": False}
+    revision = db.get_user_setting(LOCAL_USER_ID, _CATALOG_REVISION_KEY) or ""
+    snapshot = server_client.pull_catalog_snapshot(token, _capability_report(revision))
+    if snapshot is None:
+        # Compatibility window for pre-WB-246 Server versions. A truly unreachable
+        # Server returns None from both guarded requests, preserving last-known-good.
+        legacy = server_client.list_all_catalog(token)
+        if legacy is None:
+            return {"downlinked": 0, "reachable": False}
+        digest = hashlib.sha256(json.dumps(legacy, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        snapshot = {"items": legacy, "revision": f"legacy:{digest}", "unchanged": False}
+    if snapshot.get("unchanged"):
+        return {"downlinked": 0, "reachable": True, "unchanged": True, "revision": revision}
+    items = snapshot["items"]
     skill_rows = [
-        {**it["data"], "sort": it.get("sort", 0), "version": str(it.get("version", ""))}
+        {
+            **it["data"], "sort": it.get("sort", 0), "version": str(it.get("version", "")),
+            "withdrawn": bool(it.get("withdrawn", False)),
+            "compatible": bool(it.get("compatible", True)),
+            "compatibility_error": str(it.get("compatibility_error", "")),
+            "min_app_version": str(it.get("min_app_version", "0.0.0")),
+        }
         for it in items
         if it.get("category") == "APP_SKILLS" and isinstance(it.get("data"), dict)
     ]
@@ -147,8 +191,12 @@ def pull_catalog(token: str) -> dict:
     connector_result = db.replace_server_connector_catalog(connector_rows)
     expert_result = db.replace_server_expert_catalog(expert_rows)
     db.replace_all_downlink(showcase_rows)
+    next_revision = str(snapshot.get("revision") or "")
+    if next_revision:
+        db.set_user_setting(LOCAL_USER_ID, _CATALOG_REVISION_KEY, next_revision)
     return {
         "downlinked": len(items), "reachable": True,
+        "unchanged": False, "revision": next_revision,
         "skills": skill_result["inserted"], "skills_skipped": skill_result["skipped"],
         "connectors": connector_result["inserted"], "connectors_skipped": connector_result["skipped"],
         "experts": expert_result["inserted"], "experts_skipped": expert_result["skipped"],

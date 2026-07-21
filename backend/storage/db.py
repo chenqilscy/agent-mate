@@ -410,6 +410,10 @@ def init_db() -> None:
             files TEXT NOT NULL DEFAULT '[]',
             category TEXT NOT NULL DEFAULT '',
             source TEXT NOT NULL DEFAULT '',
+            withdrawn INTEGER NOT NULL DEFAULT 0,
+            compatible INTEGER NOT NULL DEFAULT 1,
+            compatibility_error TEXT NOT NULL DEFAULT '',
+            min_app_version TEXT NOT NULL DEFAULT '0.0.0',
             enabled INTEGER NOT NULL DEFAULT 1,
             sort INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL,
@@ -771,6 +775,14 @@ def _migrate_columns() -> None:
         conn.execute("ALTER TABLE catalog_skills ADD COLUMN files TEXT NOT NULL DEFAULT '[]'")
     if "version" not in have_cs:
         conn.execute("ALTER TABLE catalog_skills ADD COLUMN version TEXT NOT NULL DEFAULT ''")
+    for col, ddl in (
+        ("withdrawn", "withdrawn INTEGER NOT NULL DEFAULT 0"),
+        ("compatible", "compatible INTEGER NOT NULL DEFAULT 1"),
+        ("compatibility_error", "compatibility_error TEXT NOT NULL DEFAULT ''"),
+        ("min_app_version", "min_app_version TEXT NOT NULL DEFAULT '0.0.0'"),
+    ):
+        if col not in have_cs:
+            conn.execute(f"ALTER TABLE catalog_skills ADD COLUMN {ddl}")
 
     # WB-134: model_meta 增缓存命中输入价 + 币种（定价分档 / ¥·$ 区分）。
     have_mm = {r["name"] for r in conn.execute("PRAGMA table_info(model_meta)").fetchall()}
@@ -1965,8 +1977,9 @@ def skill_specs() -> list[dict[str, Any]]:
     （同连接器「launch spec 存库、实现在代码」的分工）。
     """
     rows = get_conn().execute(
-        "SELECT scope,slug,name,icon,description,instructions,version,tools,files,category,source "
-        "FROM catalog_skills WHERE enabled=1 "
+        "SELECT scope,slug,name,icon,description,instructions,version,tools,files,category,source,"
+        "withdrawn,compatible,compatibility_error,min_app_version "
+        "FROM catalog_skills WHERE enabled=1 OR (scope='server' AND withdrawn=1) "
         "ORDER BY CASE scope WHEN 'server' THEN 0 ELSE 1 END, sort, name"
     ).fetchall()
     out: list[dict[str, Any]] = []
@@ -1975,6 +1988,8 @@ def skill_specs() -> list[dict[str, Any]]:
         if r["slug"] in seen:
             continue  # Server 同 slug 覆盖 builtin；前端与运行时都只暴露一个稳定身份。
         seen.add(r["slug"])
+        if bool(r["withdrawn"]):
+            continue  # Explicit Server tombstone suppresses the same-slug builtin.
         try:
             tools = json.loads(r["tools"]) if r["tools"] else []
         except (json.JSONDecodeError, TypeError):
@@ -1990,6 +2005,9 @@ def skill_specs() -> list[dict[str, Any]]:
             "tools": tools if isinstance(tools, list) else [],
             "files": files if isinstance(files, list) else [],
             "category": r["category"], "source": r["source"], "scope": r["scope"],
+            "compatible": bool(r["compatible"]),
+            "compatibility_error": r["compatibility_error"],
+            "min_app_version": r["min_app_version"],
         })
     return out
 
@@ -2085,10 +2103,11 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
             continue
         slug = str(raw.get("slug", "")).strip()
         name = str(raw.get("name", "")).strip()
+        withdrawn = bool(raw.get("withdrawn"))
         description = str(raw.get("description", "")).strip()
         instructions = str(raw.get("instructions", "")).strip()
         if (
-            not slug or not name or not description or not instructions
+            not slug or not name or (not withdrawn and (not description or not instructions))
             or len(name) > 120 or len(description) > 500 or len(instructions) > 50_000
             or not _SKILL_SLUG_RE.fullmatch(slug) or slug in seen
         ):
@@ -2110,14 +2129,18 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
             description, instructions, str(raw.get("version", "")),
             json.dumps([str(t) for t in tools], ensure_ascii=False),
             json.dumps(files, ensure_ascii=False), str(raw.get("category", "")),
-            str(raw.get("source", "Server")), 1, int(raw.get("sort", index)), now, now,
+            str(raw.get("source", "Server")), 1 if withdrawn else 0,
+            1 if raw.get("compatible", True) else 0,
+            str(raw.get("compatibility_error", "")), str(raw.get("min_app_version", "0.0.0")),
+            0 if withdrawn else 1, int(raw.get("sort", index)), now, now,
         ))
     with conn:
         conn.execute("DELETE FROM catalog_skills WHERE scope='server'")
         conn.executemany(
             """INSERT INTO catalog_skills
                (id,scope,owner_id,slug,name,icon,description,instructions,version,tools,files,category,source,
-                enabled,sort,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                withdrawn,compatible,compatibility_error,min_app_version,enabled,sort,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
     return {"inserted": len(rows), "skipped": skipped}
@@ -2136,6 +2159,27 @@ def skill_spec_for(key: str) -> Optional[dict[str, Any]]:
         if s["slug"] == k or s["name"] == k:
             return s
     return None
+
+
+def skill_catalog_state(key: str) -> dict[str, Any]:
+    """Return Server authority state even when a tombstone suppresses normal specs."""
+    value = (key or "").strip()
+    if not value:
+        return {"withdrawn": False}
+    row = get_conn().execute(
+        "SELECT slug,name,withdrawn,compatible,compatibility_error,min_app_version "
+        "FROM catalog_skills WHERE scope='server' AND (slug=? OR name=?) "
+        "ORDER BY sort LIMIT 1",
+        (value, value),
+    ).fetchone()
+    if not row:
+        return {"withdrawn": False}
+    return {
+        "slug": row["slug"], "withdrawn": bool(row["withdrawn"]),
+        "compatible": bool(row["compatible"]),
+        "compatibility_error": row["compatibility_error"],
+        "min_app_version": row["min_app_version"],
+    }
 
 
 def migrate_skill_identities(resolve: Callable[[str], Optional[str]]) -> dict[str, int]:

@@ -60,6 +60,10 @@ else:
 
 
 class Settings:
+    # Public compatibility metadata sent to AgentMate Server. It contains no secrets.
+    # Release packaging sets AGENTMATE_APP_VERSION to the signed desktop version.
+    APP_VERSION: str = os.getenv("AGENTMATE_APP_VERSION", "1.0.0").strip()
+    TOOL_CONTRACT_VERSION: str = os.getenv("AGENTMATE_TOOL_CONTRACT_VERSION", "1").strip()
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "").strip()
     LLM_API_BASE: str = os.getenv("LLM_API_BASE", "https://api.deepseek.com/v1").strip().rstrip("/")
     LLM_MODEL: str = os.getenv("LLM_MODEL", "deepseek-chat").strip()

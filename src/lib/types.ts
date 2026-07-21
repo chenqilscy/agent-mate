@@ -552,4 +552,10 @@ export interface SkillDetail extends InstalledSkill {
   tools?: string[]
   catalog_version?: string               // Server 当前目录版本；仅 AgentMate 目录技能
   update_available?: boolean             // 本机快照与目录版本不一致
+  compatible?: boolean
+  compatibility_error?: string
+  min_app_version?: string
+  release_id?: string
+  content_hash?: string
+  integrity_valid?: boolean
 }

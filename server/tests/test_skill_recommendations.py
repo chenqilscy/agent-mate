@@ -15,8 +15,8 @@ import db  # noqa: E402
 from config import settings  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 from routers.catalog import (  # noqa: E402
-    UpdateItemBody, _validate_app_skill, _validate_skill_recommendation,
-    delete_item, list_all_catalog, list_skill_tools, update_item,
+    CatalogPullBody, UpdateItemBody, _validate_app_skill, _validate_skill_recommendation,
+    delete_item, list_all_catalog, list_skill_tools, pull_catalog, update_item,
 )
 
 
@@ -80,6 +80,30 @@ class SkillRecommendationContractTest(unittest.TestCase):
         payload = list_all_catalog(False, SimpleNamespace(is_platform_admin=False))
         row = next(item for item in payload["items"] if item["id"] == rid)
         self.assertFalse(row["enabled"])
+
+    def test_skill_pull_is_revisioned_capability_aware_and_carries_tombstone(self) -> None:
+        account = SimpleNamespace(is_platform_admin=False)
+        supported = CatalogPullBody(app_version="1.0.0", supported_tools={"web_fetch": "1"})
+        first = pull_catalog(supported, account)
+        skill = next(item for item in first["items"] if item["category"] == "APP_SKILLS")
+        self.assertTrue(skill["compatible"])
+        same = pull_catalog(CatalogPullBody(
+            revision=first["revision"], app_version="1.0.0", supported_tools={"web_fetch": "1"},
+        ), account)
+        self.assertTrue(same["unchanged"])
+        self.assertEqual([], same["items"])
+
+        incompatible = pull_catalog(CatalogPullBody(app_version="1.0.0", supported_tools={}), account)
+        skill = next(item for item in incompatible["items"] if item["category"] == "APP_SKILLS")
+        self.assertFalse(skill["compatible"])
+        self.assertIn("web_fetch", skill["unsupported_tools"])
+
+        item = db.list_catalog_items("APP_SKILLS", scope="builtin", include_disabled=True)[0]
+        db.update_catalog_item(item["id"], enabled=False)
+        withdrawn = pull_catalog(supported, account)
+        skill = next(row for row in withdrawn["items"] if row["id"] == item["id"])
+        self.assertTrue(skill["withdrawn"])
+        self.assertFalse(skill["compatible"])
 
     def test_existing_skill_definitions_are_migrated_once(self) -> None:
         db.get_conn().execute("DELETE FROM settings WHERE k='skill_recommendations_v2'")

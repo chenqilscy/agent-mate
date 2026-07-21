@@ -7,6 +7,9 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from fastapi import HTTPException
 
 BACKEND = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BACKEND))
@@ -300,6 +303,66 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertTrue(manifest.is_file())
         (settings.SKILLS_DIR / "web-access" / "SKILL.md").write_text("tampered", encoding="utf-8")
         self.assertIsNone(skill_runtime_def("web-access"))
+
+    def test_server_tombstone_suppresses_builtin_and_runtime(self) -> None:
+        from agent import skills_store
+        from agent.skills import skill_runtime_def
+
+        builtin = db.skill_spec_for("web-access")
+        skills_store.install_catalog_skill(
+            builtin["slug"], builtin["name"], builtin["description"], builtin["instructions"],
+            builtin["version"], builtin["files"], builtin["tools"],
+        )
+        self.assertIsNotNone(skill_runtime_def("web-access"))
+        result = db.replace_server_skill_catalog([{
+            "slug": "web-access", "name": "Web Access", "withdrawn": True,
+            "description": "已撤回", "instructions": "已撤回", "version": "9", "tools": [],
+        }])
+        self.assertEqual({"inserted": 1, "skipped": 0}, result)
+        self.assertIsNone(db.skill_spec_for("web-access"))
+        self.assertTrue(db.skill_catalog_state("web-access")["withdrawn"])
+        self.assertIsNone(skill_runtime_def("web-access"))
+
+    def test_catalog_sync_persists_revision_and_incompatibility(self) -> None:
+        import server_sync
+
+        snapshot = {
+            "revision": "rev-1", "unchanged": False,
+            "items": [{
+                "id": "server-skill", "category": "APP_SKILLS", "sort": 0, "version": 3,
+                "withdrawn": False, "compatible": False,
+                "compatibility_error": "requires app 9.0.0+", "min_app_version": "9.0.0",
+                "data": {
+                    "slug": "future-skill", "name": "未来技能", "description": "新版本",
+                    "instructions": "仅新版本可用。", "tools": ["web_fetch"], "files": [],
+                },
+            }],
+        }
+        with patch.object(server_sync.server_client, "pull_catalog_snapshot", return_value=snapshot) as call:
+            result = server_sync.pull_catalog("token")
+        self.assertEqual("rev-1", result["revision"])
+        self.assertEqual("rev-1", db.get_user_setting(server_sync.LOCAL_USER_ID, "server.catalog_revision"))
+        spec = db.skill_spec_for("future-skill")
+        self.assertFalse(spec["compatible"])
+        self.assertIn("9.0.0", spec["compatibility_error"])
+        self.assertIn("supported_tools", call.call_args.args[1])
+        from routers.skills import install_catalog_skill
+        with self.assertRaises(HTTPException) as incompatible:
+            install_catalog_skill("future-skill")
+        self.assertEqual(409, incompatible.exception.status_code)
+
+        with patch.object(server_sync.server_client, "pull_catalog_snapshot", return_value={
+            "revision": "rev-1", "unchanged": True, "items": [],
+        }):
+            unchanged = server_sync.pull_catalog("token")
+        self.assertTrue(unchanged["unchanged"])
+        with (
+            patch.object(server_sync.server_client, "pull_catalog_snapshot", return_value=None),
+            patch.object(server_sync.server_client, "list_all_catalog", return_value=None),
+        ):
+            offline = server_sync.pull_catalog("token")
+        self.assertFalse(offline["reachable"])
+        self.assertIsNotNone(db.skill_spec_for("future-skill"))
 
 
 if __name__ == "__main__":

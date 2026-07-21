@@ -361,6 +361,9 @@ def catalog_detail(key: str) -> dict[str, Any] | None:
                 "integrity_valid": bool(snapshot),
                 "catalog_version": catalog_version,
                 "update_available": bool(catalog_version and installed_version != catalog_version),
+                "compatible": bool(spec.get("compatible", True)),
+                "compatibility_error": str(spec.get("compatibility_error") or ""),
+                "min_app_version": str(spec.get("min_app_version") or "0.0.0"),
             }
     source = "AgentMate"
     return {
@@ -371,6 +374,9 @@ def catalog_detail(key: str) -> dict[str, Any] | None:
         "version": str(spec.get("version") or ""),
         "catalog_version": str(spec.get("version") or ""),
         "update_available": False,
+        "compatible": bool(spec.get("compatible", True)),
+        "compatibility_error": str(spec.get("compatibility_error") or ""),
+        "min_app_version": str(spec.get("min_app_version") or "0.0.0"),
         "source": source,
         "disabled": False,
         "markdown": "",
@@ -459,6 +465,8 @@ def skill_runtime_def(name: str) -> dict[str, Any] | None:
     from storage import db  # 延迟导入，避免 storage.db ↔ agent.* 循环依赖
     from agent import skills_store
 
+    if db.skill_catalog_state(name).get("withdrawn"):
+        return None
     spec = db.skill_spec_for(name)
     if spec and spec["instructions"]:
         installed = next(
@@ -475,9 +483,12 @@ def skill_runtime_def(name: str) -> dict[str, Any] | None:
             snapshot = skills_store.release_snapshot(key)
             body = skills_store.instructions_for(key)
             if snapshot and body:
+                resolved_tools = _resolve_tools(snapshot["tools"])
+                if {tool.name for tool in resolved_tools} != set(snapshot["tools"]):
+                    return None  # installed release requires a tool contract this App cannot satisfy
                 return {
                     "instructions": body,
-                    "tools": _resolve_tools(snapshot["tools"]),
+                    "tools": resolved_tools,
                     "snapshot": snapshot,
                 }
             # A declared AgentMate package with a bad release hash must never fall

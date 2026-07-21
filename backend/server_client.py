@@ -226,6 +226,12 @@ def list_all_catalog(token: str) -> Optional[list[dict[str, Any]]]:
     return items if isinstance(items, list) else None
 
 
+def pull_catalog_snapshot(token: str, capability: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Conditional catalog pull with non-sensitive App capability metadata."""
+    result = _post("/api/catalog/pull", token, capability)
+    return result if isinstance(result, dict) and isinstance(result.get("items"), list) else None
+
+
 # ---- 团队计划/任务 work_items 代理（WB-091）：server-origin 项目的看板走 Server 权威 ----
 
 def list_work_items(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:

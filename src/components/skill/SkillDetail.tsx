@@ -12,7 +12,7 @@ import { useLoadoutStore } from '../../stores/loadoutStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
-import { Empty, Spin } from 'antd'
+import { Alert, Empty, Spin } from 'antd'
 
 // 详情入口：已安装用 key；AgentMate 自有目录用 catalog+slug；第三方未安装项必须带商店卡元数据。
 export type SkillTarget = { key?: string; slug?: string; name?: string; catalog?: boolean; card?: SkillCard }
@@ -133,7 +133,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
               {installed ? (
                 <>
                   {data?.update_available && (
-                    <WbButton className="btn-dark" disabled={installing} onClick={doUpgrade}>
+                    <WbButton className="btn-dark" disabled={installing || data.compatible === false} onClick={doUpgrade}>
                       {installing ? <><IcSpin /> 升级中…</> : `升级${data.catalog_version ? '到 v' + data.catalog_version : ''}`}
                     </WbButton>
                   )}
@@ -154,12 +154,21 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
                   </div>
                 </>
               ) : (
-                <WbButton className="btn-dark" disabled={installing} onClick={doInstall}>
+                <WbButton className="btn-dark" disabled={installing || data?.compatible === false} onClick={doInstall}>
                   {installing ? <><IcSpin /> 安装中…</> : '安装'}
                 </WbButton>
               )}
             </div>
           </div>
+
+          {data?.compatible === false && (
+            <Alert
+              type="warning"
+              showIcon
+              message="当前 App 与此技能版本不兼容"
+              description={data.compatibility_error || `需要 AgentMate ${data.min_app_version || '更高版本'}`}
+            />
+          )}
 
           {data && installed ? (
             <div className="skd-card">

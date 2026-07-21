@@ -79,9 +79,14 @@ def install_catalog_skill(key: str) -> dict:
     """Install an AgentMate recommended definition into the local skill directory."""
     from storage import db
 
+    state = db.skill_catalog_state(key)
+    if state.get("withdrawn"):
+        raise HTTPException(410, "catalog skill withdrawn")
     spec = db.skill_spec_for(key)
     if not spec or not spec.get("instructions"):
         raise HTTPException(404, "catalog skill not found")
+    if not spec.get("compatible", True):
+        raise HTTPException(409, spec.get("compatibility_error") or "current App is incompatible with this skill")
     try:
         return skills_store.install_catalog_skill(
             str(spec["slug"]),
@@ -103,9 +108,14 @@ def upgrade_catalog_skill(key: str) -> dict:
     """把已安装的 AgentMate 目录技能原子升级到当前 Server 定义。"""
     from storage import db
 
+    state = db.skill_catalog_state(key)
+    if state.get("withdrawn"):
+        raise HTTPException(410, "catalog skill withdrawn")
     spec = db.skill_spec_for(key)
     if not spec or not spec.get("instructions"):
         raise HTTPException(404, "catalog skill not found")
+    if not spec.get("compatible", True):
+        raise HTTPException(409, spec.get("compatibility_error") or "current App is incompatible with this skill")
     try:
         return skills_store.upgrade_catalog_skill(
             str(spec["slug"]), str(spec["name"]), str(spec.get("description") or ""),
