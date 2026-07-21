@@ -258,7 +258,7 @@
 | [WB-236](WB-236-console-remaining-pages-ant-design.md) | ✅ | P1 | frontend | AgentMate Console 其余 legacy 页面尚未迁移到统一组件体系 |
 | [WB-237](WB-237-app-production-build-type-errors.md) | ✅ | P1 | frontend | AgentMate App 生产构建被现有 TypeScript 错误阻断 |
 | [WB-238](WB-238-stale-authoritative-docs-cleanup.md) | ✅ | P1 | misc | 权威文档残留过时架构、端口与能力边界，且以勘误掩盖正文冲突 |
-| [WB-239](WB-239-task-delivery-roadmap-epic.md) | 🟡 | P1 | fullstack | AgentMate 功能主线尚未围绕可验收任务交付闭环组织（路线图 epic） |
+| [WB-239](WB-239-task-delivery-roadmap-epic.md) | ✅ | P1 | fullstack | AgentMate 可验收任务交付路线图 R0～R5 已完成；正式桌面更新部署门槛转 WB-283 |
 | [WB-240](WB-240-home-task-control-center.md) | ✅ | P1 | frontend | 首页只能发起新任务，无法看到真实执行状态与最近交付（WB-239 R0） |
 | [WB-241](WB-241-app-ant-design-migration.md) | ✅ | P1 | frontend | AgentMate App 仍使用手写组件体系，未统一到 Ant Design 6 与 Pro Components |
 | [WB-242](WB-242-run-artifact-delivery-kernel.md) | ✅ | P1 | fullstack | Session 执行缺少独立 Run 与可验收 Artifact 交付内核（WB-239 R1） |
@@ -302,6 +302,7 @@
 | [WB-280](WB-280-regression-test-state-isolation.md) | ✅ | P2 | test | 回归测试泄漏 DB 与安全上下文导致顺序相关失败 |
 | [WB-281](WB-281-chatsearch-cross-node-match.md) | ✅ | P3 | frontend | ChatSearch 无法匹配跨 Markdown 文本节点短语 |
 | [WB-282](WB-282-issue-index-missing-entries.md) | ✅ | P2 | docs | issue 索引漏列 WB-173～175，文件与台账状态不一致 |
+| [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) | ⏸ | P1 | fullstack | 正式桌面更新服务缺少生产域名、CI 签名材料与上线验收（外部部署前置条件） |
 
 ## 来源
 

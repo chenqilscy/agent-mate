@@ -183,8 +183,9 @@ AgentMate 能力目录。AgentMate Console 同源调用 `/api/*`，不直接执�
 
 Tauri 2 外壳、PyInstaller sidecar、托盘和 MSI/NSIS 打包链已经存在。WB-257 已实现 Server 不可变桌面
 release、stable/beta、稳定设备灰度、暂停/回滚、受控 HTTPS endpoint，以及设置中心的检查、下载、
-安装和状态入口。尚未完成的是部署方外部条件：真实 HTTPS 签名产物、Tauri 私钥、可信 Windows 代码
-签名证书和前后两个可安装版本；这些齐备后还必须做旧版→新版、签名失败拒绝和回滚真机演练。
+安装和状态入口。WB-257 已用一次性真实 updater 密钥完成旧版→新版、错误签名拒绝和显式回滚真机演练。
+尚未完成的是正式生产部署：部署方需提供公开 HTTPS 域名、受保护 CI updater 私钥、可信 Windows 代码
+签名证书和生产前后版本，并按 WB-283 复跑上线验收；这是外部部署条件，不是功能代码缺口。
 
 构建与发布要求见 [`desktop-build.md`](desktop-build.md)。Server 发布目录内容不会自动升级 App 二进制；
 两者必须通过能力兼容门禁和签名更新服务协同。

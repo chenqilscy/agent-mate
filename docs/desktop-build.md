@@ -138,6 +138,7 @@ CA 的代码签名证书**（OV 或 EV；**自签名无效**，SmartScreen 只�
 ## 已知待办
 
 - **A4 自动更新**代码链路及本机真实 updater 签名安装演练已完成；每个部署仍必须配置公开 HTTPS
-  Server、CI 私钥、可信代码签名证书和生产签名产物，并用前后两个生产安装版本复跑升级/回滚。
+  Server、CI 私钥、可信代码签名证书和生产签名产物，并用前后两个生产安装版本复跑升级/回滚；正式
+  上线所需输入、步骤和退出条件由 [WB-283](issues/WB-283-production-desktop-update-deployment-acceptance.md) 追踪。
 - **代码签名**需你购买证书（见上）。
 - 第三方 stdio 连接器（GitHub 等）在打包版里默认禁用（内置连接器已可用）。

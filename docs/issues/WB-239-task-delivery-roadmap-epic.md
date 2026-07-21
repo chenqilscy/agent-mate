@@ -3,7 +3,7 @@ id: WB-239
 title: AgentMate 功能主线尚未围绕可验收任务交付闭环组织
 severity: P1
 area: fullstack
-status: in-progress
+status: fixed
 origin: 既有实现
 files:
   - docs/agentmate-功能规划-v2.md:1
@@ -60,5 +60,13 @@ P1：继续按页面增加功能会放大概念重复和入口分散，真实工
   IMAP/SMTP 账号联调，因此两条继续保持 `in-progress`，不以代码合入冒充完整交付。
 - 统一回归通过：Backend 128/128、Server 41/41、WB-112 HTTP 集成 1/1、App 与 Console 生产构建、Tauri
   `cargo check`。WB-193 另以无 workaround 真实 LLM 会话完成 URL 入库、状态轮询和同文档检索闭环。
-- 本 epic 继续保持 `in-progress`：除 WB-112/WB-160 的明确剩余项外，生产更新链仍需要部署方提供正式域名、
+- 当时本 epic 继续保持 `in-progress`：除 WB-112/WB-160 的明确剩余项外，生产更新链仍需要部署方提供正式域名、
   CI updater 私钥、可信 Windows 代码签名证书和生产前后版本上线演练。
+
+## 关闭记录（2026-07-22）
+
+- WB-112 已补齐自定义字段、依赖关系、Sprint/燃尽、CSV 导出和 App 镜像契约，并通过 Server 45/45、Backend 131/131、真实 Server↔Backend HTTP 集成及 App/Console 生产构建。
+- WB-160 已使用本机真实邮件渠道完成 IMAP/SMTP 自发自收，验证 PEEK 不提前 Seen、稳定身份、回环防护和精确 UID Seen；9 项持久投递协议回归继续覆盖崩溃/重启与至多一次回复分支。
+- WB-191 已按当前 App 直连 SkillHub 架构落地 Manager 下架策略；WB-240～258 等路线图子项均在台账中有独立实现、验证与关闭记录。
+- R0～R5 的产品与代码退出条件均已满足。正式 HTTPS 域名、受保护 CI updater 私钥、可信 Windows 代码签名证书及生产前后版本上线演练是部署方外部输入，不再把已完成的产品 epic 长期标为 `in-progress`；该上线门槛由 WB-283 独立追踪。
+- 状态：`fixed`/✅。
