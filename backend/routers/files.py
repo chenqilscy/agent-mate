@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import mimetypes
 import shutil
+import threading
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -37,6 +39,37 @@ _TEXT_EXT = {
 _MAX_BYTES = 512 * 1024
 _SKIP = {"node_modules", "__pycache__", ".git", ".venv"}
 _MAX_DEPTH = 4
+_USAGE_CACHE_TTL = 2.0
+_usage_cache: dict[Path, tuple[float, int]] = {}
+_usage_cache_lock = threading.Lock()
+
+
+def _directory_usage(base: Path) -> int:
+    total = 0
+    if base.exists():
+        for entry in base.rglob("*"):
+            if entry.is_file():
+                total += entry.stat().st_size
+    return total
+
+
+def _workspace_usage(base: Path) -> int:
+    key = base.resolve()
+    now = time.monotonic()
+    # Keep the scan inside the lock so concurrent misses for the same large
+    # workspace do not trigger duplicate full traversals.
+    with _usage_cache_lock:
+        cached = _usage_cache.get(key)
+        if cached and now - cached[0] < _USAGE_CACHE_TTL:
+            return cached[1]
+        total = _directory_usage(key)
+        _usage_cache[key] = (time.monotonic(), total)
+        return total
+
+
+def _invalidate_usage(base: Path) -> None:
+    with _usage_cache_lock:
+        _usage_cache.pop(base.resolve(), None)
 
 
 def _select_root(session: str | None, project: str | None, write: bool = False) -> None:
@@ -157,12 +190,7 @@ class _RenameBody(_PathBody):
 def usage(project: str | None = None, session: str | None = None) -> dict:
     _select_root(session, project)
     base = current_root()
-    total = 0
-    if base.exists():
-        for f in base.rglob("*"):
-            if f.is_file():
-                total += f.stat().st_size
-    return {"used": total, "quota": QUOTA_BYTES}
+    return {"used": _workspace_usage(base), "quota": QUOTA_BYTES}
 
 
 @router.post("/upload")
@@ -186,6 +214,7 @@ async def upload(request: Request, path: str, project: str | None = None, sessio
         raise HTTPException(403, str(e))
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
+    _invalidate_usage(current_root())
     return {"ok": True, "path": relpath(target), "size": len(data)}
 
 
@@ -241,4 +270,5 @@ def delete(body: _PathBody) -> dict:
         shutil.rmtree(target, ignore_errors=True)
     elif target.exists():
         target.unlink()
+    _invalidate_usage(current_root())
     return {"ok": True}

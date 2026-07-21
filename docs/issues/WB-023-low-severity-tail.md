@@ -21,7 +21,7 @@ created: 2026-07-06
 - [x] **plan 模式静默丢弃连接器且横幅不显示** — 已拆分并修复为 WB-273；仍保守禁用外部 MCP，但轨迹逐项说明连接器因计划模式未加载。
 - [x] **resolve_model 用 rsplit(":",1)** — 已拆分并修复为 WB-274；旧显示标签只切首个冒号，裸 `vendor/model:free` 整体保留。
 - [ ] **session 事件到达前点停止，后端任务不被停** — `chatStore.ts:225` `api.stopChat` 受 `if(activeId)` 保护；新草稿在 `session` 事件回来前 `activeId` 为 null，此时停止只 abort 客户端连接。拿到 session 后补发 stop，或依赖断开让后端感知。
-- [ ] **files usage 每次全量 rglob** — `files.py:129` 每次 `rglob("*")` 全量遍历并在线程池同步阻塞，大工作区慢。可缓存/增量。
+- [x] **files usage 每次全量 rglob** — 已拆分并修复为 WB-275；按工作区短时缓存，上传/删除立即失效，外部写入由短 TTL 收敛。
 - [x] **files.py `root` 死参** — `files.py:76` 的 `root` 参数永远被 `current_root()` 覆盖，属死代码，清理。
 - [x] **mcp_stack 在 try 之外打开** — `runtime.py:226` 连接器已 spawn 后、进入 try（`:260`）前有 `yield`（loadout `:258`）；若此窗口内断开或 `mcp_schema` 抛错，`finally` 不执行 → 连接器进程泄漏。纳入同一 try 或用独立 `async with`。
 - [x] **ask_user 对畸形模型输出不健壮** — `runtime.py:344` 若模型把 `questions` 返回成字符串列表，`q.get(...)` 抛 `AttributeError`，整轮以「执行出错」中止。对每个 question 做类型校验/跳过。
