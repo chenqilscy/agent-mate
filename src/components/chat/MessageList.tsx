@@ -4,6 +4,7 @@ import { renderMarkdown } from '../../lib/markdown'
 import { CatLogo } from '../../lib/icons'
 import { TraceStream } from './TraceStream'
 import { BotActions } from './BotActions'
+import { clickable } from '../../lib/a11y'
 
 const SC_SM = (
   <svg className="sc" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg>
@@ -20,7 +21,12 @@ function BotMessage({ msg, streaming }: { msg: ChatMessage; streaming: boolean }
       <CatLogo className="bot-ic" />
       <div className="bot-body">
         <div className="bot-nm">AgentMate</div>
-        <div className={`bot-st ${collapsed ? 'clpsd' : ''}`.trim()} onClick={() => hasTrace && setCollapsed((v) => !v)}>
+        <div
+          className={`bot-st ${collapsed ? 'clpsd' : ''}`.trim()}
+          {...(hasTrace ? clickable : {})}
+          aria-expanded={hasTrace ? !collapsed : undefined}
+          onClick={() => hasTrace && setCollapsed((v) => !v)}
+        >
           {running ? (
             <><span className="run-ic" />执行中…</>
           ) : (

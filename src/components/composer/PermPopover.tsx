@@ -1,5 +1,6 @@
 import { useSettingsStore } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
+import { Switch } from 'antd'
 
 // Permission mode (spec 5.3). Default = sandbox-only; toggling full access is the
 // real semantic behind the prototype's switch (越界操作触发授权 lands with tools).
@@ -14,9 +15,11 @@ export function PermPopover() {
       </div>
       <div className="perm-tg">
         允许完全访问
-        <span
-          className={`sw ${full ? 'on' : ''}`.trim()}
-          onClick={() => {
+        <Switch
+          size="small"
+          aria-label="允许完全访问"
+          checked={full}
+          onChange={() => {
             const next = full ? '默认权限' : '完全访问权限'
             setPerm(next)
             toast('已切换 · ' + next)

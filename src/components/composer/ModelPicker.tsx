@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
 import type { ModelOption } from '../../lib/types'
+import { clickable } from '../../lib/a11y'
 
 // 能力徽标（WB-132）：picker 里 text 不显（默认都有），只显图片/音频/视频/工具/推理。
 const CAP_ICON: Record<string, string> = { image: '🖼', audio: '🎧', video: '🎬', tools: '🔧', reasoning: '🧠' }
@@ -25,7 +26,7 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
   const row = (m: ModelOption) => {
     const sel = m.key === current
     return (
-      <div className="mrow" key={m.key || 'default'} onClick={() => pick(m)}>
+      <div className="mrow" key={m.key || 'default'} {...clickable} onClick={() => pick(m)}>
         <span className="mi" style={m.color ? { background: m.color, color: '#fff' } : undefined}>{m.icon}</span>
         <span className="mname">{m.name}</span>
         {m.meta?.capabilities && m.meta.capabilities.length > 0 && (

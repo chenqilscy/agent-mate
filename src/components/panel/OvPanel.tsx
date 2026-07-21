@@ -6,6 +6,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { Popover } from '../ui/Popover'
 import { FileTree } from './FileTree'
 import { FileViewer } from './FileViewer'
+import { clickable } from '../../lib/a11y'
 
 // Overview panel (概览 / 工作空间文件 / 浏览器). Switching is a real dropdown; the
 // 目录 / 产物 sections fold; the panel itself collapses with a width animation
@@ -57,7 +58,7 @@ const TABS: { id: Tab; icon: string }[] = [
 // A section header that folds its content (rotating chevron).
 function SectionHead({ label, open, onToggle }: { label: string; open: boolean; onToggle: () => void }) {
   return (
-    <div className="ov-h" style={{ cursor: 'pointer' }} onClick={onToggle}>
+    <div className="ov-h" style={{ cursor: 'pointer' }} {...clickable} onClick={onToggle}>
       {label}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ transition: 'transform .18s', transform: open ? 'none' : 'rotate(-90deg)' }}>
         <path d="M6 9l6 6 6-6" />
@@ -97,18 +98,18 @@ export function OvPanel({ open, messages }: { open: boolean; messages: ChatMessa
     <aside className={`ovpanel ${open ? 'open' : ''} ${open && ovExpanded ? 'expanded' : ''}`.trim()}>
       <div className="ov-inner">
         <div className="ov-top">
-          <span className="fic" aria-label="目录" onClick={() => { setTab('概览'); closeFile() }}>
+          <span className="fic" aria-label="目录" {...clickable} onClick={() => { setTab('概览'); closeFile() }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
           </span>
           <span style={{ flex: 1 }} />
-          <span className="fic" aria-label={ovExpanded ? '收起为侧栏' : '全屏展开'} onClick={toggleExpand}>
+          <span className="fic" aria-label={ovExpanded ? '收起为侧栏' : '全屏展开'} {...clickable} onClick={toggleExpand}>
             {ovExpanded ? (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 20H4v-6M4 20l9-9" /></svg>
             ) : (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 4h6v6M20 4l-9 9" /></svg>
             )}
           </span>
-          <span className="fic" aria-label="收起面板" style={{ background: 'var(--chip)' }} onClick={collapse}>
+          <span className="fic" aria-label="收起面板" style={{ background: 'var(--chip)' }} {...clickable} onClick={collapse}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
           </span>
         </div>
@@ -123,7 +124,7 @@ export function OvPanel({ open, messages }: { open: boolean; messages: ChatMessa
             </WbButton>
             <Popover open={ddOpen} anchor={ddRef.current} dir="down" onClose={() => setDdOpen(false)} minWidth={168}>
               {TABS.map((t) => (
-                <div className="pop-item" key={t.id} onClick={() => { setTab(t.id); setDdOpen(false) }}>
+                <div className="pop-item" key={t.id} {...clickable} onClick={() => { setTab(t.id); setDdOpen(false) }}>
                   <span className="pi-ic">{t.icon}</span>{t.id}
                   {tab === t.id && <span className="chk">✓</span>}
                 </div>
@@ -137,7 +138,7 @@ export function OvPanel({ open, messages }: { open: boolean; messages: ChatMessa
                   <div className="ov-outline">
                     {outline.length ? (
                       outline.map((it, i) => (
-                        <div className={`ov-oi ${it.sub ? 'oh' : ''}`.trim()} key={`${it.msgId}-${i}`} title={it.text} onClick={() => jump(it.msgId)}>
+                        <div className={`ov-oi ${it.sub ? 'oh' : ''}`.trim()} key={`${it.msgId}-${i}`} title={it.text} {...clickable} onClick={() => jump(it.msgId)}>
                           {it.text.length > 16 ? it.text.slice(0, 16) + '…' : it.text}
                         </div>
                       ))
@@ -150,7 +151,7 @@ export function OvPanel({ open, messages }: { open: boolean; messages: ChatMessa
                 {prodOpen && (artifacts.length ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 4px' }}>
                     {artifacts.map((a) => (
-                      <div className="ov-art" key={a.path} onClick={() => openFile(a.path)}>
+                      <div className="ov-art" key={a.path} {...clickable} onClick={() => openFile(a.path)}>
                         <span className="oa-ic">{badge(a.name)}</span>
                         <div style={{ minWidth: 0 }}>
                           <div className="oa-n">{a.name}</div>

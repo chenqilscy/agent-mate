@@ -6,6 +6,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
 
+
 // Project members & roles (M7 C2). Owner/Admin can invite by username, change a
 // member's role, and remove members; everyone else sees the roster read-only and
 // can leave. "Invite" on a shared backend = add an existing account by name.

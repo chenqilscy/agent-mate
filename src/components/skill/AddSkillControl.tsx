@@ -5,6 +5,7 @@ import type { InstalledSkill } from '../../lib/types'
 import { useSkillStore } from '../../stores/skillStore'
 import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { clickable } from '../../lib/a11y'
 
 type DirectoryFile = File & { webkitRelativePath?: string }
 
@@ -99,6 +100,8 @@ function ImportSkillModal({ open, onClose, onImported }: {
         <div className="np-body">
           <div
             className={`skill-import-drop ${dragging ? 'dragging' : ''}`.trim()}
+            {...clickable}
+            aria-disabled={busy}
             onClick={() => { if (!busy) fileInput.current?.click() }}
             onDragOver={(e) => { e.preventDefault(); if (!busy) setDragging(true) }}
             onDragLeave={() => setDragging(false)}

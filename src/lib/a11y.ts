@@ -18,3 +18,18 @@ export function activate<E extends HTMLElement = HTMLElement>(handler: (e?: Keyb
     },
   }
 }
+
+// Compatibility props for elements that already have an onClick handler. The
+// key handler delegates to the element's existing click path so call sites do
+// not have to duplicate business logic while legacy prototype markup is being
+// migrated to semantic Ant controls.
+export const clickable = {
+  role: 'button' as const,
+  tabIndex: 0,
+  onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      e.currentTarget.click()
+    }
+  },
+}

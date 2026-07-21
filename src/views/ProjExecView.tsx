@@ -9,6 +9,7 @@ import { useProjectStore } from '../stores/projectStore'
 import { useUIStore } from '../stores/uiStore'
 import { toast } from '../stores/toastStore'
 import { IcSearch, IcPanel } from '../lib/icons'
+import { clickable } from '../lib/a11y'
 
 // Project execution view — a chat scoped to a project (the agent runs with the
 // project's instruction injected as background). Right panel = 产物/工作空间文件/变更.
@@ -65,9 +66,9 @@ export function ProjExecView() {
         <div className="chat-head">
           <div className="pe-crumb">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
-            <span style={{ cursor: 'pointer' }} onClick={() => setView('projects')}>项目</span>
+            <span style={{ cursor: 'pointer' }} {...clickable} onClick={() => setView('projects')}>项目</span>
             <span className="ps">/</span>
-            <span style={{ cursor: 'pointer' }} onClick={() => setView('project', { projectId: project?.id })}>{project?.name ?? '项目'}</span>
+            <span style={{ cursor: 'pointer' }} {...clickable} onClick={() => setView('project', { projectId: project?.id })}>{project?.name ?? '项目'}</span>
             <span className="ps">/</span><b>{title || '开始执行'}</b>
             {streaming ? (
               <span className="pe-badge spin"><span className="run-ic" /></span>
@@ -76,8 +77,8 @@ export function ProjExecView() {
             )}
           </div>
           <div className="ch-r" style={{ marginLeft: 'auto' }}>
-            <div className={`fic ${searchOpen ? 'on' : ''}`.trim()} data-tip="对话内搜索（⌘F / Ctrl+F）" aria-label="搜索" onClick={() => setSearchOpen((v) => !v)}><IcSearch /></div>
-            <div className="fic" aria-label="邀请成员" onClick={() => toast('邀请成员（M7 协作版）')}>
+            <div className={`fic ${searchOpen ? 'on' : ''}`.trim()} data-tip="对话内搜索（⌘F / Ctrl+F）" aria-label="搜索" {...clickable} onClick={() => setSearchOpen((v) => !v)}><IcSearch /></div>
+            <div className="fic" aria-label="邀请成员" {...clickable} onClick={() => toast('邀请成员（M7 协作版）')}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="10" cy="8" r="4" /><path d="M2 21c0-4 4-6 8-6M19 8v6M16 11h6" /></svg>
             </div>
             <div className="fic" aria-label="产物面板"><IcPanel /></div>
@@ -95,7 +96,7 @@ export function ProjExecView() {
             <MessageList messages={messages} streaming={streaming} />
           )}
         </div>
-        <div className={`scrolldn ${showDn ? 'show' : ''}`.trim()} aria-label="回到底部" onClick={() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight }}>
+        <div className={`scrolldn ${showDn ? 'show' : ''}`.trim()} aria-label="回到底部" {...clickable} onClick={() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg>
         </div>
 

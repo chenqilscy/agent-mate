@@ -8,7 +8,7 @@ import { Popover } from '../components/ui/Popover'
 import { useChatStore } from '../stores/chatStore'
 import { useUIStore } from '../stores/uiStore'
 import { toast } from '../stores/toastStore'
-import { activate } from '../lib/a11y'
+import { activate, clickable } from '../lib/a11y'
 import { conversationToMarkdown, copyText, downloadText, safeFilename } from '../lib/exportChat'
 import { IcSearch, IcShare, IcHistory, IcPanel } from '../lib/icons'
 
@@ -124,7 +124,7 @@ export function ChatView() {
             <MessageList messages={messages} streaming={streaming} />
           )}
         </div>
-        <div className={`scrolldn ${showDn ? 'show' : ''}`.trim()} aria-label="回到底部" onClick={scrollToBottom}>
+        <div className={`scrolldn ${showDn ? 'show' : ''}`.trim()} aria-label="回到底部" {...clickable} onClick={scrollToBottom}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg>
         </div>
 

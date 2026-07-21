@@ -68,6 +68,20 @@ body { background: var(--console-bg); }
 .catalog-tabs { margin: -8px 0 16px; }
 .page-loading { min-height: 55vh; display: grid; place-items: center; }
 .section-row, .section-card { margin-top: 16px; }
+.overview-stat-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.table-scroll-hint { display: none; margin: 0 0 8px !important; }
+.compat-list-items, .compat-list-actions { margin: 0; padding: 0; list-style: none; }
+.compat-list-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-block-end: 1px solid color-mix(in srgb, currentColor 10%, transparent); }
+.compat-list-item:last-child { border-block-end: 0; }
+.ant-list-sm .compat-list-item { padding: 8px 0; }
+.ant-list-lg .compat-list-item { padding: 16px 0; }
+.compat-list-empty { padding: 16px; color: currentColor; text-align: center; opacity: .55; }
+.compat-list-meta { display: flex; flex: 1; align-items: flex-start; min-width: 0; }
+.compat-list-meta .ant-list-item-meta-avatar { margin-inline-end: 16px; }
+.compat-list-meta .ant-list-item-meta-content { flex: 1; min-width: 0; }
+.compat-list-meta .ant-list-item-meta-title { margin: 0 0 4px; font-size: inherit; font-weight: 500; }
+.compat-list-meta .ant-list-item-meta-description { opacity: .65; }
+.compat-list-actions { display: flex; gap: 8px; margin-inline-start: 24px; }
 .tab-stack { display: grid; gap: 16px; }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .status-dot.online { background: #16b37a; box-shadow: 0 0 0 4px rgb(22 179 122 / 14%); }
@@ -147,9 +161,12 @@ body { background: var(--console-bg); }
   .file-browser { grid-template-columns: 1fr; }
   .file-list-panel { border-right: 0; border-bottom: 1px solid var(--console-border); max-height: 240px; overflow: auto; }
   .file-content-editor { min-height: 280px !important; }
+  .overview-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .table-scroll-hint { display: block; }
 }
 
 @media (max-width: 640px) {
+  .overview-stat-grid { grid-template-columns: 1fr; }
   .skill-search, .skill-filter { width: 100%; }
   .ant-pro-table-list-toolbar-container { align-items: stretch; }
   .ant-pro-table-list-toolbar-right { width: 100%; }

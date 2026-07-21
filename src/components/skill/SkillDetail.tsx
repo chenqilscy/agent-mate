@@ -12,7 +12,8 @@ import { useLoadoutStore } from '../../stores/loadoutStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
-import { Alert, Empty, Spin } from 'antd'
+import { Alert, App as AntApp, Empty, Spin } from 'antd'
+import { clickable } from '../../lib/a11y'
 
 // 详情入口：已安装用 key；AgentMate 自有目录用 catalog+slug；第三方未安装项必须带商店卡元数据。
 export type SkillTarget = { key?: string; slug?: string; name?: string; catalog?: boolean; card?: SkillCard }
@@ -24,6 +25,7 @@ const IcCode = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const IcSpin = () => <svg className="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 3a9 9 0 1 0 9 9" /></svg>
 
 export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: () => void }) {
+  const { modal } = AntApp.useApp()
   const [data, setData] = useState<SkillDetailData | null>(null)
   const [loading, setLoading] = useState(Boolean(target.key || target.catalog))
   const [installedKey, setInstalledKey] = useState(target.key || '')
@@ -93,9 +95,19 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
     const slug = data?.slug || target.slug || ''
     if (!slug) return
     const addedPermissions = data?.added_permissions ?? []
-    if (addedPermissions.length && !window.confirm(
-      `此升级新增以下权限：\n\n${addedPermissions.map((item) => `• ${item}`).join('\n')}\n\n是否允许并继续升级？`,
-    )) return
+    if (addedPermissions.length) {
+      modal.confirm({
+        title: '允许新增权限并升级？',
+        content: <><p>此升级将新增以下权限：</p><ul>{addedPermissions.map((item) => <li key={item}>{item}</li>)}</ul></>,
+        okText: '允许并升级',
+        cancelText: '取消',
+        onOk: () => performUpgrade(slug, addedPermissions),
+      })
+      return
+    }
+    await performUpgrade(slug, addedPermissions)
+  }
+  const performUpgrade = async (slug: string, addedPermissions: string[]) => {
     setInstalling(true)
     await useSkillStore.getState().upgradeCatalog(name, slug, addedPermissions)
     try {
@@ -151,8 +163,8 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
                     <WbButton className="hc-more" aria-label="更多" onClick={() => setMenu((v) => !v)}>⋯</WbButton>
                     {menu && (
                       <div className="card-menu open skd-menu">
-                        <div className="more-item" onClick={reveal}><IcFolder />打开文件夹</div>
-                        <div className="more-item div" onClick={doUninstall}><IcTrash />卸载</div>
+                        <div className="more-item" {...clickable} onClick={reveal}><IcFolder />打开文件夹</div>
+                        <div className="more-item div" {...clickable} onClick={doUninstall}><IcTrash />卸载</div>
                       </div>
                     )}
                   </div>

@@ -8,6 +8,7 @@ import { api } from '../../lib/api'
 import { useServerStore } from '../../stores/serverStore'
 import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { clickable } from '../../lib/a11y'
 
 type Notif = { id: string; title: string; body: string; created_at: number; read: number }
 
@@ -85,8 +86,8 @@ export function ServerConnectModal({ onClose }: { onClose: () => void }) {
           <>
             <div className="np-body">
               <div className="subtabs">
-                <div className={`subtab ${mode === 'login' ? 'active' : ''}`.trim()} onClick={() => setMode('login')}>登录</div>
-                <div className={`subtab ${mode === 'register' ? 'active' : ''}`.trim()} onClick={() => setMode('register')}>注册</div>
+                <div className={`subtab ${mode === 'login' ? 'active' : ''}`.trim()} {...clickable} onClick={() => setMode('login')}>登录</div>
+                <div className={`subtab ${mode === 'register' ? 'active' : ''}`.trim()} {...clickable} onClick={() => setMode('register')}>注册</div>
               </div>
               <div className="np-lbl">AgentMate Server 用户名</div>
               <WbInput className="np-input" value={name} autoFocus placeholder="你的 Server 用户名" onChange={(e) => setName(e.target.value)} onKeyDown={onKey} />

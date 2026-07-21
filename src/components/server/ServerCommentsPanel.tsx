@@ -8,7 +8,8 @@ import { api } from '../../lib/api'
 import { useServerStore } from '../../stores/serverStore'
 import { toast } from '../../stores/toastStore'
 import { ServerConnectModal } from './ServerConnectModal'
-import { Avatar, Badge, Empty, List, Result, Tag } from 'antd'
+import { Avatar, Badge, Empty, Result, Tag } from 'antd'
+import { CompatList as List } from '../ui/CompatList'
 
 type Comment = { id: string; author_name: string; body: string; created_at: number }
 type Presence = { account_id: string; name: string; role: string; online: boolean; last_seen: number }

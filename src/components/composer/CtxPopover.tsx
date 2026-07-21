@@ -1,4 +1,5 @@
 import { useSettingsStore } from '../../stores/settingsStore'
+import { clickable } from '../../lib/a11y'
 
 // Context-usage panel (spec 5.2 `usage` event). Numbers are real: fed by the
 // backend's usage event after each turn (token accounting).
@@ -24,7 +25,7 @@ export function CtxPopover({ onClose }: { onClose: () => void }) {
     <>
       <div className="ctx-h">
         上下文用量
-        <span className="ctx-x" onClick={onClose}>×</span>
+        <span className="ctx-x" {...clickable} onClick={onClose}>×</span>
       </div>
       <div className="ctx-pct">
         {usage.pct.toFixed(1)}%

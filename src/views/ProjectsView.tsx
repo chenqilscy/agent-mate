@@ -6,8 +6,10 @@ import { useUIStore } from '../stores/uiStore'
 import { NewProjectModal } from '../components/project/NewProjectModal'
 import { useCatalog } from '../stores/catalogStore'
 import type { ProjectInfo } from '../lib/types'
-import { Dropdown, Empty, Input, List, Tag } from 'antd'
+import { Dropdown, Empty, Input, Tag } from 'antd'
+import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
+import { clickable } from '../lib/a11y'
 
 // A shared project (M7 C2) carries the caller's role; owned projects show no badge.
 const ROLE_LABEL: Record<string, string> = { Admin: '管理员', Member: '成员', Viewer: '只读' }
@@ -51,16 +53,17 @@ export function ProjectsView() {
           </svg>
         </div>
 
-        <div className="sec-row">
+        <div className="sec-row projects-owned">
           <div className="sec-title">我的项目</div>
           <Input.Search className="search-box" allowClear placeholder="搜索项目" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         <List
           id="myProjList"
+          className="projects-list"
           dataSource={shownProjects}
           locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? '没有匹配的项目' : '还没有项目'}><WbButton className="btn-line" onClick={() => setModalOpen(true)}>新建项目</WbButton></Empty> }}
           renderItem={(p) => (
-            <List.Item className="my-proj" key={p.id} onClick={() => openProject(p)}>
+            <List.Item className="my-proj" key={p.id} {...clickable} onClick={() => openProject(p)}>
               <span className="t-ic" style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--brand-soft)', display: 'grid', placeItems: 'center', color: 'var(--brand-600)' }}>🤖</span>
               <div>
                 <div style={{ fontSize: 13.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -79,7 +82,7 @@ export function ProjectsView() {
         <div className="sec-title">从模版创建</div>
         <div className="card-grid g4">
           {PROJ_TPL.map(([ic, n, d]) => (
-            <ProCard className="tpl" key={n} hoverable onClick={() => setModalOpen(true)} styles={{ body: { display: 'contents' } }}>
+            <ProCard className="tpl" key={n} hoverable {...clickable} onClick={() => setModalOpen(true)} styles={{ body: { display: 'contents' } }}>
               <span className="t-ic">{ic}</span>
               <div>
                 <div className="t-n">{n}</div>

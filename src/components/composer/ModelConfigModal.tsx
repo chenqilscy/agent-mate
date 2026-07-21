@@ -5,6 +5,8 @@ import type { ModelMeta, ModelOption, Provider } from '../../lib/types'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { clickable } from '../../lib/a11y'
+import { App as AntApp } from 'antd'
 
 // 模型管理（WB-128/129/132）。内置厂商渠道（填一次 Key 即启用，Base URL 可改、可在线拉取真实模型）
 // + 自定义模型兜底；每个模型可记「能力(模态/工具/推理)+成本」为 Auto 铺路。Key 只写不回读（铁律#4）。
@@ -26,6 +28,7 @@ const capLabel = (k: string) => CAPS.find((c) => c.k === k)?.label ?? k
 
 // embedded=true 时只渲染 np-body 内容（供「设置中心」模型 tab 内嵌，WB-146），不带自己的 overlay/标题/底栏。
 export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; embedded?: boolean }) {
+  const { modal } = AntApp.useApp()
   const reloadModels = useSettingsStore((s) => s.reloadModels)
   const [providers, setProviders] = useState<Provider[]>([])
   const [custom, setCustom] = useState<ModelOption[]>([])
@@ -86,11 +89,21 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
       await refresh()
     } catch { toast('保存失败') } finally { setBusy(false) }
   }
-  const clearKey = async (p: Provider) => {
-    if (busy || !window.confirm(`撤销「${p.name}」的 API Key？其模型将不可用。`)) return
-    setBusy(true)
-    try { await api.setProviderKey(p.id, ''); toast('已撤销'); await refresh() }
-    catch { toast('操作失败') } finally { setBusy(false) }
+  const clearKey = (p: Provider) => {
+    if (busy) return
+    modal.confirm({
+      title: `撤销「${p.name}」的 API Key？`,
+      content: '撤销后，该厂商下的模型将不可用。',
+      okText: '确认撤销',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setBusy(true)
+        try { await api.setProviderKey(p.id, ''); toast('已撤销'); await refresh() }
+        catch { toast('操作失败') }
+        finally { setBusy(false) }
+      },
+    })
   }
   const deleteModel = async (p: Provider, mid: string) => {
     if (busy) return
@@ -202,11 +215,22 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
     } catch (e) { toast(String(e).includes('409') ? '已有同名模型' : '保存失败') }
     finally { setBusy(false) }
   }
-  const delCustom = async (m: ModelOption) => {
-    if (!m.id || busy || !window.confirm(`删除自定义模型「${m.name}」？`)) return
-    setBusy(true)
-    try { await api.deleteCustomModel(m.id); toast('已删除'); if (editing?.id === m.id) cancelForm(); await refresh() }
-    catch { toast('删除失败') } finally { setBusy(false) }
+  const delCustom = (m: ModelOption) => {
+    if (!m.id || busy) return
+    const modelId = m.id
+    modal.confirm({
+      title: `删除自定义模型「${m.name}」？`,
+      content: '删除后不可恢复。',
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setBusy(true)
+        try { await api.deleteCustomModel(modelId); toast('已删除'); if (editing?.id === modelId) cancelForm(); await refresh() }
+        catch { toast('删除失败') }
+        finally { setBusy(false) }
+      },
+    })
   }
 
   const cur = (meta?: ModelMeta) => meta?.currency || ''
@@ -247,7 +271,7 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
             const open = expanded === p.id
             return (
               <div className={`mc-prov ${open ? 'open' : ''}`.trim()} key={p.id}>
-                <div className="mc-provhd" onClick={() => setExpanded(open ? null : p.id)}>
+                <div className="mc-provhd" {...clickable} onClick={() => setExpanded(open ? null : p.id)}>
                   <span className="mc-ic" style={p.color ? { background: p.color, color: '#fff' } : undefined}>{p.icon}</span>
                   <span className="mc-info">
                     <span className="mc-name">{p.name}</span>

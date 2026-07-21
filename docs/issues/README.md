@@ -268,7 +268,11 @@
 | [WB-249](WB-249-skill-installation-scope-and-locking.md) | ✅ | P1 | backend | Skill 安装启停为机器全局状态且并发安装卸载缺少事务锁与恢复能力 |
 | [WB-250](WB-250-skill-release-console-lifecycle.md) | ✅ | P1 | fullstack | Console Skill 管理仍是可变 CRUD，缺少测试审核灰度撤回和运行指标闭环 |
 | [WB-251](WB-251-reliable-automation-delivery-governance.md) | ✅ | P1 | backend | 自动化缺少真实失败判定、持久幂等重试、DLQ、成本上限与结果投递（WB-239 R2） |
+| [WB-252](WB-252-assistant-page-height-chain.md) | ✅ | P0 | ui | 助理页被长对话撑高并整体移出视口 |
+| [WB-253](WB-253-app-ui-migration-polish.md) | ✅ | P1 | ui | App 组件迁移后残留暗色、布局、侧栏与分类细节问题 |
+| [WB-254](WB-254-console-responsive-detail-polish.md) | ✅ | P1 | ui | Console 概览栅格与高级 JSON 窄屏操作不可达 |
 | [WB-255](WB-255-work-item-run-artifact-collaboration.md) | ✅ | P1 | fullstack | 项目工作项无法直接发起、跟踪和验收本地 Run 与 Artifact（WB-239 R3） |
+| [WB-256](WB-256-antd6-list-deprecation.md) | ✅ | P2 | ui | App 与 Console 仍使用 Ant Design 6 已弃用的 List 组件 |
 | [WB-257](WB-257-production-desktop-update-service.md) | ⬜ | P1 | fullstack | 桌面更新仍是占位 endpoint，缺少可配置发布服务、灰度回滚和真实入口（WB-239 R4） |
 
 ## 来源

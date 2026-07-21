@@ -6,6 +6,7 @@ import { FileViewer } from '../panel/FileViewer'
 import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
 import { Breadcrumb, Dropdown, Empty, Input, Progress, Table } from 'antd'
+import { clickable } from '../../lib/a11y'
 
 // 资产 = the project's cloud drive (§11 阶段 C): a real file manager over the
 // project workspace — upload / download / rename / delete / new folder + quota.
@@ -119,7 +120,7 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
         <Input.Search className="search-box" allowClear style={{ margin: 0, width: 220 }} placeholder="搜索文件或文件夹" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
-      <Breadcrumb className="as-crumb" items={[{ title: <span onClick={() => setCwd('')}>项目云盘</span> }, ...cwd.split('/').filter(Boolean).map((seg, i, arr) => ({ title: <span onClick={() => setCwd(arr.slice(0, i + 1).join('/'))}>{seg}</span> }))]} />
+      <Breadcrumb className="as-crumb" items={[{ title: <span {...clickable} onClick={() => setCwd('')}>项目云盘</span> }, ...cwd.split('/').filter(Boolean).map((seg, i, arr) => ({ title: <span {...clickable} onClick={() => setCwd(arr.slice(0, i + 1).join('/'))}>{seg}</span> }))]} />
 
       <Table<FileEntry>
         className="as-table"
@@ -138,7 +139,7 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
                       onBlur={() => setRenaming(null)}
                     />
                   ) : (
-                    <span className="as-name" onClick={() => (e.type === 'd' ? setCwd(e.path) : openFile(e.path))}>
+                    <span className="as-name" {...clickable} onClick={() => (e.type === 'd' ? setCwd(e.path) : openFile(e.path))}>
                       <span className="ic">{iconFor(e)}</span>{e.name}
                     </span>
                   )

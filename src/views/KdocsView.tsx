@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import type { KdocsFile } from '../lib/types'
 import { toast } from '../stores/toastStore'
-import { Breadcrumb, Empty, List, Result, Spin, Tabs } from 'antd'
+import { Breadcrumb, Empty, Result, Spin, Tabs } from 'antd'
+import { CompatList as List } from '../components/ui/CompatList'
+import { clickable } from '../lib/a11y'
 
 // 侧栏「更多 → 金山文档」面板（WB-140）：直接浏览/搜索/打开自己的金山云文档。
 // 两种模式（对齐金山文档网页版）：「最近」= 最近访问的扁平列表 + 全局搜索；
@@ -223,7 +225,7 @@ export function KdocsView() {
 
             {mode === 'folder' && (
               <div className="mf-filter" style={{ marginTop: 14 }}>
-                <Breadcrumb className="kd-crumb" items={crumbs.map((c, i) => ({ title: <span className={`kd-cr ${i === crumbs.length - 1 ? 'cur' : ''}`.trim()} onClick={() => gotoCrumb(i)}>{c.name}</span> }))} />
+                <Breadcrumb className="kd-crumb" items={crumbs.map((c, i) => ({ title: <span className={`kd-cr ${i === crumbs.length - 1 ? 'cur' : ''}`.trim()} {...clickable} onClick={() => gotoCrumb(i)}>{c.name}</span> }))} />
                 <span style={{ flex: 1 }} />
                 <WbButton className="cap-act" onClick={refresh} disabled={loading} title="刷新">刷新</WbButton>
               </div>
@@ -243,8 +245,7 @@ export function KdocsView() {
             <List className="kd-list" dataSource={files} renderItem={(f) => {
                 if (f.is_folder) {
                   return (
-                    <List.Item key={f.file_id} className="kd-item" onClick={() => enterFolder(f)} role="button" tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === 'Enter') enterFolder(f) }}>
+                    <List.Item key={f.file_id} className="kd-item" {...clickable} onClick={() => enterFolder(f)}>
                       <span className="kd-ic">{f.is_kb ? '📚' : '📁'}</span>
                       <div className="kd-main">
                         <div className="kd-name">{f.name}</div>
@@ -256,8 +257,7 @@ export function KdocsView() {
                 }
                 const [icon, kind] = kindOf(f.ext)
                 return (
-                  <List.Item key={f.file_id || f.name} className={`kd-item ${viewing?.file_id === f.file_id ? 'active' : ''}`.trim()} onClick={() => openFile(f)} role="button" tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter') openFile(f) }}>
+                  <List.Item key={f.file_id || f.name} className={`kd-item ${viewing?.file_id === f.file_id ? 'active' : ''}`.trim()} {...clickable} onClick={() => openFile(f)}>
                     <span className="kd-ic">{icon}</span>
                     <div className="kd-main">
                       <div className="kd-name">{f.name}</div>

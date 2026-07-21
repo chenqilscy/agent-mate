@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type FileEntry } from '../../lib/api'
 import { useUIStore } from '../../stores/uiStore'
+import { clickable } from '../../lib/a11y'
 
 export interface FileScope { project?: string; session?: string }
 
@@ -25,6 +26,7 @@ function Node({ entry, depth, onOpen }: { entry: FileEntry; depth: number; onOpe
       <div
         className={`ws-row ${!isDir && viewerPath === entry.path ? 'on' : ''}`.trim()}
         style={{ paddingLeft: 16 + depth * 16 }}
+        {...clickable}
         onClick={() => (isDir ? setOpen((v) => !v) : onOpen(entry.path))}
       >
         <span className="wi">{iconFor(entry)}</span>

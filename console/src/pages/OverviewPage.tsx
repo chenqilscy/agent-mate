@@ -1,4 +1,5 @@
-import { App, Button, Card, Col, Empty, List, Progress, Row, Space, Statistic, Tag, Typography } from "antd";
+import { App, Button, Card, Col, Empty, Progress, Row, Space, Statistic, Tag, Typography } from "antd";
+import { CompatList as List } from "../components/CompatList";
 import { AppstoreOutlined, ProjectOutlined, TeamOutlined, UserOutlined } from "@ant-design/icons";
 import { PageContainer } from "@ant-design/pro-components";
 import { useEffect, useState } from "react";
@@ -38,15 +39,13 @@ export default function OverviewPage({ account }: { account: Account }) {
 
   return (
     <PageContainer title="概览" subTitle="AgentMate Server 管理总览" header={{ breadcrumb: { items: [{ title: "工作区" }, { title: "概览" }] } }}>
-      <Row gutter={[16, 16]}>
+      <div className="overview-stat-grid">
         {cards.map((item) => (
-          <Col xs={24} sm={12} xl={account.is_platform_admin ? 5 : 8} key={item.title}>
-            <Card hoverable loading={loading} onClick={() => navigate(item.path)}>
-              <Statistic title={item.title} value={item.value} prefix={item.icon} />
-            </Card>
-          </Col>
+          <Card hoverable loading={loading} onClick={() => navigate(item.path)} key={item.title}>
+            <Statistic title={item.title} value={item.value} prefix={item.icon} />
+          </Card>
         ))}
-      </Row>
+      </div>
       <Row gutter={[16, 16]} className="section-row">
         <Col xs={24} lg={15}>
           <Card title="最近项目" extra={<Button type="link" onClick={() => navigate("/projects")}>查看全部</Button>}>

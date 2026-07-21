@@ -4,6 +4,7 @@ import { toast } from '../stores/toastStore'
 import { useCatalog } from '../stores/catalogStore'
 import { Input, Segmented, Tag, Tooltip } from 'antd'
 import { ProCard } from '@ant-design/pro-components'
+import { clickable } from '../lib/a11y'
 
 export function InspireView() {
   const [cat, setCat] = useState('全部')
@@ -39,7 +40,7 @@ export function InspireView() {
         <div className="insp-cols">
           {shown.map(([bg, title, desc]) => {
             const i = INSP.findIndex((item) => item[1] === title)
-            return <ProCard className="insp" key={title} hoverable styles={{ body: { padding: 0 } }} onClick={() => toast('打开灵感 · ' + title)}>
+            return <ProCard className="insp" key={title} hoverable styles={{ body: { padding: 0 } }} {...clickable} onClick={() => toast('打开灵感 · ' + title)}>
               <div className="insp-prev" style={{ height: 140, background: bg, display: 'grid', placeItems: 'center', padding: 16 }}>
                 <span style={{ color: '#fff', fontWeight: 800, fontSize: 16, textShadow: '0 1px 4px rgba(0,0,0,.35)', textAlign: 'center' }}>{title}</span>
               </div>

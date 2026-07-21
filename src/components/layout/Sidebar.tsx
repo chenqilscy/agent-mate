@@ -8,14 +8,15 @@ import { useAuthStore } from '../../stores/authStore'
 import { useNotificationStore } from '../../stores/notificationStore'
 import { toast } from '../../stores/toastStore'
 import type { ProjectInfo, SessionInfo, ViewId } from '../../lib/types'
-import { activate } from '../../lib/a11y'
+import { activate, clickable } from '../../lib/a11y'
 import { LoginModal } from '../auth/LoginModal'
 import { MessageCenter } from './MessageCenter'
 import { ServerConnectModal } from '../server/ServerConnectModal'
 import { SettingsModal } from '../settings/SettingsModal'
 import { useServerStore } from '../../stores/serverStore'
 import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
-import { Badge, Button, Collapse, Dropdown, Input, List, Menu, Tooltip } from 'antd'
+import { Badge, Button, Collapse, Dropdown, Input, Menu, Tooltip } from 'antd'
+import { CompatList as List } from '../ui/CompatList'
 import type { InputRef } from 'antd'
 
 type NavItem = { id: ViewId; label: string; icon: ReactNode; cls?: string }
@@ -97,6 +98,7 @@ export function Sidebar() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'running'>('all')
+  const [showAllTasks, setShowAllTasks] = useState(false)
   const searchRef = useRef<InputRef>(null)
 
   const act = activeNav(view)
@@ -111,6 +113,7 @@ export function Sidebar() {
   const matchText = (t: string) => !q || t.toLowerCase().includes(q)
   const matchSession = (s: SessionInfo) => matchText(s.title) && (filter === 'all' || s.status === 'running')
   const adhocShown = adhoc.filter(matchSession)
+  const visibleAdhoc = filtering || showAllTasks ? adhocShown : adhocShown.slice(0, 12)
   // Automation runs can pile up (one per fire); show only the recent few here as a
   // quick-access group — the full per-automation history lives on the 自动化 page.
   const autoMatched = autoRuns.filter(matchSession)
@@ -251,15 +254,15 @@ export function Sidebar() {
       <Collapse
         ghost
         className="sb-scroll"
-        defaultActiveKey={['tasks', 'spaces', 'automation']}
+        defaultActiveKey={['tasks']}
         items={[
-          { key: 'tasks', label: `任务 (${adhocShown.length})`, children: <List className="sb-list" dataSource={adhocShown} locale={{ emptyText: filtering ? '无匹配任务' : '暂无任务' }} renderItem={(s) => <List.Item className="sb-task" onClick={() => openTask(s.id)}><span className="tt">{s.title}</span>{s.status === 'running' ? <Badge status="processing" /> : <span className="ago">{s.ago}</span>}</List.Item>} /> },
-          { key: 'spaces', label: `空间 (${projRows.length})`, children: <List className="sb-list" dataSource={projRows} locale={{ emptyText: filtering ? '无匹配空间' : '暂无项目' }} renderItem={({ p, kidsShown }) => <List.Item className="sb-task sb-space" onClick={() => openProject(p)}><IcFolder /><span className="tt">{p.name}</span>{kidsShown.length > 0 && <Badge count={kidsShown.length} />}</List.Item>} /> },
-          { key: 'automation', label: `自动化 (${autoMatched.length})`, children: <List className="sb-list" dataSource={autoShown} locale={{ emptyText: filtering ? '无匹配运行' : '暂无自动化运行' }} renderItem={(s) => <List.Item className="sb-task" onClick={() => openTask(s.id)}><span className="tt">{s.title}</span>{s.status === 'running' ? <Badge status="processing" /> : <span className="ago">{s.ago}</span>}</List.Item>} /> },
+          { key: 'tasks', label: `任务 (${adhocShown.length})`, children: <><List className="sb-list" dataSource={visibleAdhoc} locale={{ emptyText: filtering ? '无匹配任务' : '暂无任务' }} renderItem={(s) => <List.Item className="sb-task" {...clickable} onClick={() => openTask(s.id)}><span className="tt">{s.title}</span>{s.status === 'running' ? <Badge status="processing" /> : <span className="ago">{s.ago}</span>}</List.Item>} />{!filtering && adhocShown.length > 12 && <Button type="text" className="sb-show-all" onClick={() => setShowAllTasks((value) => !value)}>{showAllTasks ? '收起最近任务' : `显示全部 ${adhocShown.length} 项`}</Button>}</> },
+          { key: 'spaces', label: `空间 (${projRows.length})`, children: <List className="sb-list" dataSource={projRows} locale={{ emptyText: filtering ? '无匹配空间' : '暂无项目' }} renderItem={({ p, kidsShown }) => <List.Item className="sb-task sb-space" {...clickable} onClick={() => openProject(p)}><IcFolder /><span className="tt">{p.name}</span>{kidsShown.length > 0 && <Badge count={kidsShown.length} />}</List.Item>} /> },
+          { key: 'automation', label: `自动化 (${autoMatched.length})`, children: <List className="sb-list" dataSource={autoShown} locale={{ emptyText: filtering ? '无匹配运行' : '暂无自动化运行' }} renderItem={(s) => <List.Item className="sb-task" {...clickable} onClick={() => openTask(s.id)}><span className="tt">{s.title}</span>{s.status === 'running' ? <Badge status="processing" /> : <span className="ago">{s.ago}</span>}</List.Item>} /> },
         ]}
       />
 
-      <div className="sb-foot" ref={footRef} onClick={(e) => {
+      <div className="sb-foot" ref={footRef} {...clickable} onClick={(e) => {
         if ((e.target as HTMLElement).closest('.fic')) return
         setProfileOpen((v) => !v)
         setMoreOpen(false)
@@ -283,29 +286,29 @@ export function Sidebar() {
         <div className="profile open" role="dialog" aria-label="账号">
           <div className="pf-name">
             {me?.name ?? '奇'}
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" onClick={() => toast('已复制用户名')}><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 012-2h10" /></svg>
+            <span {...clickable} aria-label="复制用户名" onClick={() => toast('已复制用户名')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 012-2h10" /></svg></span>
           </div>
           <div className="pf-row">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></svg>
             {me?.plan ?? '体验版'}<span className="up">升级</span>
           </div>
           <div className="pf-div" />
-          <div className="pf-row" onClick={() => { setSettingsOpen(true, 'account'); setProfileOpen(false) }}>
+          <div className="pf-row" {...clickable} onClick={() => { setSettingsOpen(true, 'account'); setProfileOpen(false) }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18" /></svg>设置中心
           </div>
           {serverEnabled && (
-            <div className="pf-row" onClick={() => { setProfileOpen(false); setServerOpen(true) }}>
+            <div className="pf-row" {...clickable} onClick={() => { setProfileOpen(false); setServerOpen(true) }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 17H7A5 5 0 017 7h2M15 7h2a5 5 0 010 10h-2M8 12h8" /></svg>
               {serverLinked ? `已连接 AgentMate Server · ${serverLinked.name}` : '连接 AgentMate Server'}
             </div>
           )}
           <div className="pf-div" />
           {loggedIn ? (
-            <div className="pf-row" onClick={() => { setProfileOpen(false); void logout() }}>
+            <div className="pf-row" {...clickable} onClick={() => { setProfileOpen(false); void logout() }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" /></svg>退出登录
             </div>
           ) : (
-            <div className="pf-row" onClick={() => { setProfileOpen(false); setLoginOpen(true) }}>
+            <div className="pf-row" {...clickable} onClick={() => { setProfileOpen(false); setLoginOpen(true) }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" /></svg>登录 / 注册账号
             </div>
           )}

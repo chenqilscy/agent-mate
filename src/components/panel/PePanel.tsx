@@ -4,6 +4,7 @@ import { useUIStore } from '../../stores/uiStore'
 import { useChatStore } from '../../stores/chatStore'
 import { FileTree } from './FileTree'
 import { FileViewer } from './FileViewer'
+import { clickable } from '../../lib/a11y'
 
 // Project-execution side panel (spec 4.2): 产物 / 工作空间文件 / 变更. The 变更 tab
 // lists every diff the agent made (the real "变更(N)" list); 产物 lists the unique
@@ -51,7 +52,7 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
       <div className="ov-inner">
         <div className="pe-tabs">
           {TABS.map((t) => (
-            <span key={t.id} className={`pe-tab ${tab === t.id ? 'active' : ''}`.trim()} onClick={() => { setTab(t.id); if (t.id !== 'prod') closeFile() }}>
+            <span key={t.id} className={`pe-tab ${tab === t.id ? 'active' : ''}`.trim()} {...clickable} onClick={() => { setTab(t.id); if (t.id !== 'prod') closeFile() }}>
               {t.icon}{t.label}
             </span>
           ))}
@@ -63,7 +64,7 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
           arts.length ? (
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {arts.map((a) => (
-                <div className="ov-art" key={a.path} onClick={() => openFile(a.path)}>
+                <div className="ov-art" key={a.path} {...clickable} onClick={() => openFile(a.path)}>
                   <span className="oa-ic">{(a.name.split('.').pop()?.toUpperCase() ?? '').slice(0, 3) || 'F'}</span>
                   <div style={{ minWidth: 0 }}><div className="oa-n">{a.name}</div><div className="oa-m">{a.op} · 工作空间产物</div></div>
                 </div>
@@ -77,7 +78,7 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
         ) : diffs.length ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px' }}>
             {diffs.map((d, i) => (
-              <div className="step" key={i} onClick={() => openFile(d.file)} style={{ cursor: 'pointer' }}>
+              <div className="step" key={i} {...clickable} onClick={() => openFile(d.file)} style={{ cursor: 'pointer' }}>
                 {IC_PEN}<span className="op">{d.op}</span>
                 <a>{d.file}</a>
                 <span className="add">+{d.add}</span><span className="del">-{d.del}</span>

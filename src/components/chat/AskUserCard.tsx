@@ -1,6 +1,7 @@
 import { WbButton, WbInput } from '../ui/Primitives'
 import { useState } from 'react'
 import type { AskQuestion } from '../../lib/types'
+import { clickable } from '../../lib/a11y'
 
 // The ask-user card (spec 4.2): the agent's real clarifying questions. Answers
 // are collected across the 1..N questions; submitting POSTs them back, which
@@ -37,15 +38,15 @@ export function AskUserCard({
       <div className="ak-h">
         <span className="ak-q">{q.q}</span>
         <span className="ak-pg">
-          <span className="ak-ar" onClick={() => qi > 0 && setQi(qi - 1)}>‹</span>
+          <span className="ak-ar" {...(qi > 0 ? clickable : {})} aria-disabled={qi === 0} onClick={() => qi > 0 && setQi(qi - 1)}>‹</span>
           <span>{qi + 1}/{total}</span>
-          <span className="ak-ar" onClick={() => qi < total - 1 && setQi(qi + 1)}>›</span>
+          <span className="ak-ar" {...(qi < total - 1 ? clickable : {})} aria-disabled={qi === total - 1} onClick={() => qi < total - 1 && setQi(qi + 1)}>›</span>
         </span>
-        <span className="ak-x" onClick={() => finish(answers)}>×</span>
+        <span className="ak-x" {...clickable} onClick={() => finish(answers)}>×</span>
       </div>
       <div>
         {q.options.map((o, j) => (
-          <div className="ak-opt" key={j} onClick={() => record(o)}>
+          <div className="ak-opt" key={j} {...clickable} onClick={() => record(o)}>
             <span className="ak-n">{j + 1}</span>
             <span className="ak-t">{o}</span>
             <span className="ak-go">→</span>

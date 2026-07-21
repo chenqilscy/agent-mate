@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, type FileContent } from '../../lib/api'
 import { renderMarkdown } from '../../lib/markdown'
 import type { FileScope } from './FileTree'
+import { clickable } from '../../lib/a11y'
 
 // Real file viewer (spec M3): Markdown files render through the markdown pipeline;
 // text/code render with a line-number gutter; binaries show a placeholder.
@@ -50,7 +51,7 @@ export function FileViewer({ path, onClose, scope }: { path: string; onClose: ()
         <span className="pv-tab">
           <span>{iconFor(name)}</span>
           <span>{name}</span>
-          <span className="pv-x" onClick={onClose}>×</span>
+          <span className="pv-x" {...clickable} onClick={onClose}>×</span>
         </span>
       </div>
       <div className="pv-body">
@@ -80,7 +81,7 @@ export function FileViewer({ path, onClose, scope }: { path: string; onClose: ()
           {counts && <span>行数 {counts.lines}</span>}
           {counts && <span>字数 {counts.chars}</span>}
           <span className="sp" />
-          <span className="pv-dl" onClick={download}>
+          <span className="pv-dl" {...clickable} onClick={download}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>下载
           </span>
         </div>

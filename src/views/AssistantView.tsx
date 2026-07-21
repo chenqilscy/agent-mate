@@ -6,7 +6,9 @@ import { AssistantChannels } from '../components/channel/AssistantChannels'
 import { api, type Assistant } from '../lib/api'
 import type { ChatMessage } from '../lib/types'
 import { toast } from '../stores/toastStore'
-import { Avatar, Badge, Empty, List, Tabs } from 'antd'
+import { Avatar, Badge, Empty, Tabs } from 'antd'
+import { CompatList as List } from '../components/ui/CompatList'
+import { clickable } from '../lib/a11y'
 
 // 助理（多助理 · 多渠道）主从视图 —— WB-088。左侧助理列表 + 新建，右侧选中助理的
 // 对话 / 设置 / 渠道 三 tab。后端 /api/assistants*（WB-087）。
@@ -110,7 +112,7 @@ export function AssistantView() {
             <WbButton className="asst-new" onClick={onCreate}>＋ 新建</WbButton>
           </div>
           <List className="asst-list" dataSource={assistants} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有助理" /> }} renderItem={(a) => (
-              <List.Item key={a.id} className={`asst-item ${a.id === selectedId ? 'on' : ''}`.trim()} onClick={() => select(a.id)}>
+              <List.Item key={a.id} className={`asst-item ${a.id === selectedId ? 'on' : ''}`.trim()} {...clickable} onClick={() => select(a.id)}>
                 <Avatar className="asst-av">{a.avatar || '🤖'}</Avatar>
                 <span className="asst-nm">{a.name}</span>
                 <Badge color={statusDot(a)} title={a.channels.length ? '' : '未配渠道'} />

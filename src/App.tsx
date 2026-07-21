@@ -162,7 +162,7 @@ export function App() {
           <Sidebar />
           <NavigationToggle />
           {/* Scrim behind the off-canvas sidebar (≤900px); inert at wide widths. */}
-          <div className="nav-scrim" onClick={() => setNavOpen(false)} />
+          <div className="nav-scrim" aria-hidden="true" onClick={() => setNavOpen(false)} />
           <main className="main" id="main">
             <MainView />
           </main>

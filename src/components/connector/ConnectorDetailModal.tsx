@@ -10,6 +10,7 @@ import { toast } from '../../stores/toastStore'
 import { WeKnoraConfigForm } from './WeKnoraConfigForm'
 import { AntModalBridge } from '../ui/AntModalBridge'
 import { Tag } from 'antd'
+import { clickable } from '../../lib/a11y'
 
 // 连接器详情弹窗（套现有 .np-overlay/.np-modal 骨架，天然继承暗色覆盖）。
 // OAuth 连接器（如金山文档）走真实授权流：点「连接」→ 后端 spawn `kdocs-cli auth login`
@@ -211,7 +212,7 @@ export function ConnectorDetailModal(
             <>
               <div className="sec-title" style={{ margin: '18px 0 8px' }}>试试这样问我</div>
               {meta.prompts.map((p) => (
-                <div className="pkc-row" key={p} onClick={() => doPrompt(p)}>
+                <div className="pkc-row" key={p} {...clickable} onClick={() => doPrompt(p)}>
                   <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--text-2)' }}>“{p}”</div>
                   <span style={{ color: 'var(--text-3)', flexShrink: 0 }}>›</span>
                 </div>

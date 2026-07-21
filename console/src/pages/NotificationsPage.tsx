@@ -1,4 +1,5 @@
-import { App, Badge, Button, Card, Empty, List, Space, Tag, Typography } from "antd";
+import { App, Badge, Button, Card, Empty, Space, Tag, Typography } from "antd";
+import { CompatList as List } from "../components/CompatList";
 import { BellOutlined, CheckOutlined } from "@ant-design/icons";
 import { PageContainer } from "@ant-design/pro-components";
 import { useEffect, useState } from "react";

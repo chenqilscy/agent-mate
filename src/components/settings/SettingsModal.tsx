@@ -11,7 +11,8 @@ import { api } from '../../lib/api'
 import type { AgentSettings, AuditEntry, DataSummary, MemoryItem, MemorySearchHit, MemoryStats, MemoryTrace, StylePreset, SystemSettings } from '../../lib/types'
 import { useSystemSettingsStore } from '../../stores/systemSettingsStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
-import { Card, Empty, Menu, Segmented, Spin, Switch } from 'antd'
+import { App as AntApp, Card, Empty, Menu, Segmented, Spin, Switch } from 'antd'
+
 
 type Tab = { id: SettingsTab; label: string; icon: ReactNode }
 type TabGroup = { label: string; items: Tab[] }
@@ -240,6 +241,7 @@ type MemView = 'active' | 'archived' | 'superseded'
 const pct = (x: number | undefined) => Math.round((x ?? 0) * 100)
 
 function MemoryPanel() {
+  const { modal } = AntApp.useApp()
   const [enabled, setEnabled] = useState(false)
   const [items, setItems] = useState<MemoryItem[]>([])
   const [stats, setStats] = useState<MemoryStats | null>(null)
@@ -296,10 +298,21 @@ function MemoryPanel() {
       cancelEdit()
     } catch { toast('保存失败（内容为空或与已有记忆重复）') }
   }
-  const clear = async () => {
-    if (busy || !window.confirm('清空全部记忆（含归档）？此操作不可撤销。')) return
-    setBusy(true)
-    try { await api.clearMemory(); setItems([]); refreshStats(); toast('已清空记忆') } catch { toast('清空失败') } finally { setBusy(false) }
+  const clear = () => {
+    if (busy) return
+    modal.confirm({
+      title: '清空全部记忆？',
+      content: '全部活跃与已归档记忆都会被清空，此操作不可撤销。',
+      okText: '确认清空',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setBusy(true)
+        try { await api.clearMemory(); setItems([]); refreshStats(); toast('已清空记忆') }
+        catch { toast('清空失败') }
+        finally { setBusy(false) }
+      },
+    })
   }
   const setImpLocal = (id: string, p: number) =>
     setItems((xs) => xs.map((x) => (x.id === id ? { ...x, importance: p / 100 } : x)))

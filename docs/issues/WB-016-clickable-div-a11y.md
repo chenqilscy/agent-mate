@@ -32,3 +32,12 @@ Tab 能聚焦这些控件并显示 focus ring，Enter/Space 可激活。
 ## 处理记录（2026-07-06）
 - 改动：新增 `activate()` helper（role=button/tabIndex/Enter·Space）；应用到高频入口：ChatView 头部 .fic、Sidebar 图标/nav-item/分区/任务行/展开箭头/通知发现、PlusMenu 各项与模式开关（开关用 role=switch + aria-checked）。（src/lib/a11y.ts（新增）, src/views/ChatView.tsx, src/components/layout/Sidebar.tsx, src/components/composer/PlusMenu.tsx）
 - 验证：`tsc`/`vite build` 通过；这些控件现可 Tab 聚焦、显示 focus ring、Enter/Space 激活。范围收敛在高频入口，其余 div 后续逐步迁移。
+
+## 复发审查（2026-07-21）
+- Ant Design 迁移后的全量静态复核仍检出 123 行 `div/span/li + onClick`，其中仅约 17 行使用 `activate()`；专家分类、项目面包屑、菜单项、卡片和删除图标等仍不可通过键盘触达。
+- App 仍有原生 `confirm/prompt`，Console 高级 JSON 的启用 Switch 缺少可访问名称，专业组件迁移后的焦点和对话框体验尚未闭环。
+
+## 处理记录（2026-07-21）
+- 改动：新增兼容既有点击路径的 `clickable` 键盘语义，覆盖 App 中所有 `div/span/li/b/svg/ProCard` 等非原生点击控件；禁用态不进入 Tab 序列；高级 JSON Switch 补目录身份名称。原生 `confirm/prompt` 全部迁为 Ant App Modal，并为保存视图提供 Ant Input 校验。
+- 验证：AST 全量扫描 `ACTIONABLE_MISSING=0`；`window.confirm/prompt/alert` 搜索为空；浏览器用 Tab 聚焦 SkillHub 分类并以 Enter 成功切换，焦点环、`role=button`、`tabIndex=0` 均存在。
+- 提交：本次 WB-016/WB-252/WB-253/WB-254/WB-256 UI 审查修复提交。

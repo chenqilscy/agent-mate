@@ -9,13 +9,13 @@ import {
   Form,
   Input,
   InputNumber,
-  List,
   Row,
   Segmented,
   Space,
   Tag,
   Typography,
 } from "antd";
+import { CompatList as List } from "./components/CompatList";
 import {
   DeleteOutlined,
   FileAddOutlined,

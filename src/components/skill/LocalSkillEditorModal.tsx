@@ -5,9 +5,11 @@ import type { InstalledSkill } from '../../lib/types'
 import { useSkillStore } from '../../stores/skillStore'
 import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
-import { Spin } from 'antd'
+import { App as AntApp, Spin } from 'antd'
+
 
 export function LocalSkillEditorModal({ skill, onClose }: { skill: InstalledSkill; onClose: () => void }) {
+  const { modal } = AntApp.useApp()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [instructions, setInstructions] = useState('')
@@ -42,8 +44,15 @@ export function LocalSkillEditorModal({ skill, onClose }: { skill: InstalledSkil
   })
 
   const requestClose = () => {
-    if (dirty && !window.confirm('有尚未保存的技能修改，确定放弃吗？')) return
-    onClose()
+    if (!dirty) { onClose(); return }
+    modal.confirm({
+      title: '放弃未保存的修改？',
+      content: '当前技能的修改尚未保存，关闭后将无法恢复。',
+      okText: '放弃修改',
+      okButtonProps: { danger: true },
+      cancelText: '继续编辑',
+      onOk: onClose,
+    })
   }
   const save = async () => {
     const payload = { name: name.trim(), description: description.trim(), instructions: instructions.trim() }

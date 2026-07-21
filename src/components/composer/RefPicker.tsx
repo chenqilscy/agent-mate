@@ -4,6 +4,7 @@ import { api, type FileEntry } from '../../lib/api'
 import { useLoadoutStore } from '../../stores/loadoutStore'
 import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { clickable } from '../../lib/a11y'
 
 // "引用对话中的文件": pick a file from the current session/project workspace and
 // attach its content to the next message. Content is fetched real from
@@ -71,7 +72,7 @@ export function RefPicker({ scope, onClose }: { scope: Scope; onClose: () => voi
             <div className="rp-empty">{q ? '没有匹配的文件' : '当前工作空间还没有文件'}</div>
           )}
           {shown.map((f) => (
-            <div className={`pkc-row ${busy === f.path ? 'sel' : ''}`.trim()} key={f.path} onClick={() => pick(f)}>
+            <div className={`pkc-row ${busy === f.path ? 'sel' : ''}`.trim()} key={f.path} {...clickable} onClick={() => pick(f)}>
               <span className="pi">📄</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="pn">{f.name}</div>

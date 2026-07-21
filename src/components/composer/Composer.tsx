@@ -16,6 +16,7 @@ import { useKnowledgeStore } from '../../stores/knowledgeStore'
 import { skillDisplayName, useSkillStore } from '../../stores/skillStore'
 import { useVoiceInput } from './useVoiceInput'
 import { IcPlus, IcClose, IcSend, IcChevronDown, IcMic, IcShield } from '../../lib/icons'
+import { clickable } from '../../lib/a11y'
 
 // Attach limits — kept in step with the backend ref caps in backend/agent/runtime.py
 // (MAX_REF_BODY / MAX_REFS_TOTAL). EFFECTIVE_REF_LIMIT mirrors MAX_REF_BODY: the chars
@@ -159,21 +160,21 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
       {hasLoadout && (
         <div className="cloadout">
           {experts.map((n) => (
-            <span className="np-chip" key={'e' + n} title={expertLabel(n)}><span>{iconOf('exp', n)}</span><span className="np-lbl">{expertLabel(n)}</span><span className="x" onClick={() => toggleLoad('exp', n)}>×</span></span>
+            <span className="np-chip" key={'e' + n} title={expertLabel(n)}><span>{iconOf('exp', n)}</span><span className="np-lbl">{expertLabel(n)}</span><span className="x" {...clickable} onClick={() => toggleLoad('exp', n)}>×</span></span>
           ))}
           {skills.map((n) => (
-            <span className="np-chip" key={'s' + n} title={n}><span>{iconOf('skill', n)}</span><span className="np-lbl">{skillDisplayName(n)}</span><span className="x" onClick={() => toggleLoad('skill', n)}>×</span></span>
+            <span className="np-chip" key={'s' + n} title={n}><span>{iconOf('skill', n)}</span><span className="np-lbl">{skillDisplayName(n)}</span><span className="x" {...clickable} onClick={() => toggleLoad('skill', n)}>×</span></span>
           ))}
           {connectors.map((n) => (
-            <span className="np-chip" key={'c' + n} title={n}><span>{iconOf('conn', n)}</span><span className="np-lbl">{n}</span><span className="x" onClick={() => toggleLoad('conn', n)}>×</span></span>
+            <span className="np-chip" key={'c' + n} title={n}><span>{iconOf('conn', n)}</span><span className="np-lbl">{n}</span><span className="x" {...clickable} onClick={() => toggleLoad('conn', n)}>×</span></span>
           ))}
           {knowledgeIds.map((id) => (
-            <span className="np-chip" key={'k' + id} title={kbName(id)}><span>📚</span><span className="np-lbl">{kbName(id)}</span><span className="x" onClick={() => toggleLoad('kb', id)}>×</span></span>
+            <span className="np-chip" key={'k' + id} title={kbName(id)}><span>📚</span><span className="np-lbl">{kbName(id)}</span><span className="x" {...clickable} onClick={() => toggleLoad('kb', id)}>×</span></span>
           ))}
           {refs.map((r) => {
             const truncated = r.content.length > EFFECTIVE_REF_LIMIT
             return (
-              <span className={`np-chip ${r.kind === 'todo' ? 'ref-todo' : 'ref-file'}`} key={'r' + r.name} title={truncated ? `${r.name}（注入时截断至前 100 万字符）` : r.name}><span>{r.kind === 'todo' ? '🔖' : '📎'}</span><span className="np-lbl">{r.name}{truncated ? ' · 已截断' : ''}</span><span className="x" onClick={() => removeRef(r.name)}>×</span></span>
+              <span className={`np-chip ${r.kind === 'todo' ? 'ref-todo' : 'ref-file'}`} key={'r' + r.name} title={truncated ? `${r.name}（注入时截断至前 100 万字符）` : r.name}><span>{r.kind === 'todo' ? '🔖' : '📎'}</span><span className="np-lbl">{r.name}{truncated ? ' · 已截断' : ''}</span><span className="x" {...clickable} onClick={() => removeRef(r.name)}>×</span></span>
             )
           })}
         </div>

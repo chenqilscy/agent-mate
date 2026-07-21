@@ -1,4 +1,5 @@
-import { App, Button, Drawer, Form, Input, List, Modal, Select, Space, Tag, Typography } from "antd";
+import { App, Button, Drawer, Form, Input, Modal, Select, Space, Tag, Typography } from "antd";
+import { CompatList as List } from "../components/CompatList";
 import { PlusOutlined, TeamOutlined, UserAddOutlined } from "@ant-design/icons";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";

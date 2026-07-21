@@ -9,6 +9,7 @@ import { Popover } from '../ui/Popover'
 import type { ProjectInfo } from '../../lib/types'
 import { AntModalBridge } from '../ui/AntModalBridge'
 import { Tag } from 'antd'
+import { clickable } from '../../lib/a11y'
 
 type Kind = 'conn' | 'exp' | 'skill' | 'kb'
 
@@ -106,7 +107,7 @@ export function NewProjectModal({ open, onClose, onCreated }: {
         {[...sel[kind]].map((n) => (
           <span className="np-chip" key={n} title={n}>
             <span>{iconOf(kind, n)}</span><span className="np-lbl">{kind === 'kb' ? (kbs.find((k) => k.id === n)?.name ?? '已删除知识库') : kind === 'skill' ? skillDisplayName(n) : n}</span>
-            <span className="x" onClick={() => removeChip(kind, n)}>×</span>
+            <span className="x" {...clickable} onClick={() => removeChip(kind, n)}>×</span>
           </span>
         ))}
       </div>
@@ -150,7 +151,7 @@ export function NewProjectModal({ open, onClose, onCreated }: {
 
       <Popover open={tplOpen} anchor={tplRef.current} dir="down" onClose={() => setTplOpen(false)} minWidth={172}>
         {NP_TPLS.map((t) => (
-          <div className="pop-item" key={t[0]} onClick={() => applyTpl(t[0])}>{t[0]}</div>
+          <div className="pop-item" key={t[0]} {...clickable} onClick={() => applyTpl(t[0])}>{t[0]}</div>
         ))}
       </Popover>
 
@@ -227,7 +228,7 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
               const ready = READY_CONNECTORS.has(c[1])
               const needsToken = NEEDS_TOKEN_CONNECTORS.has(c[1])
               return (
-                <div className={`pkc-row ${on ? 'sel' : ''}`.trim()} key={c[1]} onClick={() => onToggle(c[1])}>
+                <div className={`pkc-row ${on ? 'sel' : ''}`.trim()} key={c[1]} {...clickable} onClick={() => onToggle(c[1])}>
                   <span className="pi">{c[0]}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="pn">
@@ -246,7 +247,7 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
               {NP_EXPERTS.filter((e) => match(e[1]) || match(e[3])).map((e) => {
                 const on = sel.has(e[1])
                 return (
-                  <div className={`selcard ecard ${on ? 'sel' : ''}`.trim()} key={e[1]} onClick={() => onToggle(e[1])}>
+                  <div className={`selcard ecard ${on ? 'sel' : ''}`.trim()} key={e[1]} {...clickable} onClick={() => onToggle(e[1])}>
                     <div className="ec-h"><div className="ec-av">{e[0]}</div>
                       <div style={{ flex: 1, minWidth: 0 }}><div className="ec-n">{e[1]}</div><div className="ec-s">{e[2]}</div></div>
                     </div>
@@ -269,7 +270,7 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
                 {skillItems.filter((s) => match(s.name) || match(s.desc)).map((s) => {
                   const on = sel.has(s.key)
                   return (
-                    <div className={`selcard ${on ? 'sel' : ''}`.trim()} key={s.key} onClick={() => onToggle(s.key)}>
+                    <div className={`selcard ${on ? 'sel' : ''}`.trim()} key={s.key} {...clickable} onClick={() => onToggle(s.key)}>
                       <div style={{ display: 'flex', gap: 11, alignItems: 'center' }}>
                         <div className="sc-ic">{s.icon}</div>
                         {/* tag 内联在 .sc-n 内 —— 同连接器 picker 的 .pn 用法；.conn-tag 是
@@ -293,7 +294,7 @@ export function PickerOverlay({ kind, sel, onToggle, onClose }: {
                 {kbs.filter((k) => match(k.name) || match(k.description || '')).map((k) => {
                   const on = sel.has(k.id)
                   return (
-                    <div className={`selcard ${on ? 'sel' : ''}`.trim()} key={k.id} onClick={() => onToggle(k.id)}>
+                    <div className={`selcard ${on ? 'sel' : ''}`.trim()} key={k.id} {...clickable} onClick={() => onToggle(k.id)}>
                       <div style={{ display: 'flex', gap: 11, alignItems: 'center' }}>
                         <div className="sc-ic">📚</div><div className="sc-n">{k.name}</div>
                       </div>

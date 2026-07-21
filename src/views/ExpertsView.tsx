@@ -18,8 +18,27 @@ import { useCatalog, useCatalogStore } from '../stores/catalogStore'
 import { AntModalBridge } from '../components/ui/AntModalBridge'
 import { Empty, Input, Spin, Tabs, Tag } from 'antd'
 import { ProCard } from '@ant-design/pro-components'
+import { clickable } from '../lib/a11y'
 
 type CapabilityKind = 'experts' | 'skills' | 'connectors'
+
+const SKILL_CATEGORY_LABELS: Record<string, string> = {
+  'ai-agent': 'AI 智能体',
+  'office-efficiency': '办公效率',
+  'knowledge-management': '知识管理',
+  'data-analysis': '数据分析',
+  'design-media': '设计与媒体',
+  'dev-programming': '开发编程',
+  professional: '专业服务',
+  'life-service': '生活服务',
+  'content-creation': '内容创作',
+  'it-ops-security': '运维与安全',
+  'business-ops': '商业运营',
+}
+
+function skillCategoryLabel(category: string) {
+  return SKILL_CATEGORY_LABELS[category] || category
+}
 
 // 详情弹窗的两种主体：Server 推荐的单个专家或独立 EXP_TEAMS 专家团。
 type Detail =
@@ -77,7 +96,7 @@ function ExpertsPane() {
       <div className="sec-title" style={{ marginTop: 2 }}>精选场景</div>
       <div className="scene-grid">
         {EXP_SCENES.map(([t, list]) => (
-          <div className="scene-card" key={t} onClick={() => { setSub('专家团'); setCat('全部'); toast('打开场景 · ' + t) }}>
+          <div className="scene-card" key={t} {...clickable} onClick={() => { setSub('专家团'); setCat('全部'); toast('打开场景 · ' + t) }}>
             <div className="sc-top">{t}</div>
             <div className="sc-list">
               {list.map((n) => (
@@ -88,22 +107,22 @@ function ExpertsPane() {
         ))}
       </div>
       <div className="subtabs">
-        <div className={`subtab ${sub === '专家' ? 'active' : ''}`.trim()} onClick={() => setSub('专家')}>专家</div>
-        <div className={`subtab ${sub === '专家团' ? 'active' : ''}`.trim()} onClick={() => setSub('专家团')}>专家团</div>
+        <div className={`subtab ${sub === '专家' ? 'active' : ''}`.trim()} {...clickable} onClick={() => setSub('专家')}>专家</div>
+        <div className={`subtab ${sub === '专家团' ? 'active' : ''}`.trim()} {...clickable} onClick={() => setSub('专家团')}>专家团</div>
         <div style={{ flex: 1 }} />
         <div className="subtab" style={{ fontSize: 12, color: 'var(--brand-600)' }}>最热</div>
         <div className="subtab" style={{ fontSize: 12 }}>最新</div>
       </div>
       <div className="cats">
         {EXP_CATS.map((c) => (
-          <div key={c} className={`cat ${cat === c ? 'active' : ''}`.trim()} onClick={() => setCat(c)}>{c}</div>
+          <div key={c} className={`cat ${cat === c ? 'active' : ''}`.trim()} {...clickable} onClick={() => setCat(c)}>{skillCategoryLabel(c)}</div>
         ))}
       </div>
 
       {sub === '专家' ? (
         <div className="card-grid g4">
           {experts.map((expert) => (
-            <ProCard className="ecard" hoverable styles={{ body: { display: 'contents' } }} key={expert.slug} onClick={() => setDetail({ type: 'expert', icon: expert.avatar, name: expert.name, subtitle: expert.subtitle, badge: expert.badge, category: expert.category, intro: expert.intro, strengths: expert.tags })}>
+            <ProCard className="ecard" hoverable styles={{ body: { display: 'contents' } }} key={expert.slug} {...clickable} onClick={() => setDetail({ type: 'expert', icon: expert.avatar, name: expert.name, subtitle: expert.subtitle, badge: expert.badge, category: expert.category, intro: expert.intro, strengths: expert.tags })}>
               <div className="ec-h">
                 <div className="ec-av">{expert.avatar}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -119,7 +138,7 @@ function ExpertsPane() {
       ) : (
         <div className="card-grid g4">
           {teams.map((t) => (
-            <ProCard className="ecard" hoverable styles={{ body: { display: 'contents' } }} key={t.name} onClick={() => setDetail({ type: 'team', team: t })}>
+            <ProCard className="ecard" hoverable styles={{ body: { display: 'contents' } }} key={t.name} {...clickable} onClick={() => setDetail({ type: 'team', team: t })}>
               <div className="ec-h">
                 <div className="ec-av">{t.icon}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -198,7 +217,7 @@ function ExpertDetailModal({ detail, onClose }: { detail: Detail; onClose: () =>
             <>
               <div className="sec-title" style={{ margin: '18px 0 8px' }}>试试这样问我</div>
               {prompts.map((p) => (
-                <div className="pkc-row" key={p} onClick={() => doSummon(p)}>
+                <div className="pkc-row" key={p} {...clickable} onClick={() => doSummon(p)}>
                   <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--text-2)' }}>“{p}”</div>
                   <span style={{ color: 'var(--text-3)', flexShrink: 0 }}>›</span>
                 </div>
@@ -249,13 +268,13 @@ function SkillMenu({ skill, onClose, onEdit }: { skill: InstalledSkill; onClose:
   const store = useSkillStore.getState()
   return (
     <div className="card-menu open">
-      <div className="more-item" onClick={() => store.toggle(skill.key, !skill.disabled)}>
+      <div className="more-item" {...clickable} onClick={() => store.toggle(skill.key, !skill.disabled)}>
         <IcPower />{skill.disabled ? '启用' : '关闭'}
       </div>
       {skill.source !== 'agentmate' && onEdit && (
-        <div className="more-item" onClick={() => onEdit(skill)}><IcEdit />编辑</div>
+        <div className="more-item" {...clickable} onClick={() => onEdit(skill)}><IcEdit />编辑</div>
       )}
-      <div className="more-item div" onClick={() => store.uninstall(skill.key)}>
+      <div className="more-item div" {...clickable} onClick={() => store.uninstall(skill.key)}>
         <IcTrash />卸载
       </div>
     </div>
@@ -303,7 +322,7 @@ function MirrorSkillCard({ card, onOpenDetail }: { card: SkillCard; onOpenDetail
   const inst = useSkillStore((s) => matchSkill(s.installed, card.slug || card.name))
   const target: SkillTarget = inst ? { key: inst.key } : { card }
   return (
-    <ProCard className="hcard clickable" hoverable styles={{ body: { display: 'contents' } }} onClick={() => onOpenDetail(target)}>
+    <ProCard className="hcard clickable" hoverable styles={{ body: { display: 'contents' } }} {...clickable} onClick={() => onOpenDetail(target)}>
       <div className="hc-h">
         <span className="hc-ic" style={card.iconUrl ? { background: 'transparent', padding: 0, overflow: 'hidden' } : { background: '#6B7280' }}>
           {card.iconUrl
@@ -365,7 +384,7 @@ function SkillHubView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) =>
     <div className="sk-cathead">
       <div className="cats">
         {chips.map((c) => (
-          <div key={c} className={`cat ${cat === c ? 'active' : ''}`.trim()} onClick={() => setCat(c)}>{c}</div>
+          <div key={c} className={`cat ${cat === c ? 'active' : ''}`.trim()} {...clickable} onClick={() => setCat(c)}>{skillCategoryLabel(c)}</div>
         ))}
       </div>
       <div className="sk-cathead-r">
@@ -408,7 +427,7 @@ function RecoView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) => voi
   return (
     <>
       <div className="cats">
-        {SK_CATS.map((c) => <div key={c} className={`cat ${cat === c ? 'active' : ''}`.trim()} onClick={() => setCat(c)}>{c}</div>)}
+        {SK_CATS.map((c) => <div key={c} className={`cat ${cat === c ? 'active' : ''}`.trim()} {...clickable} onClick={() => setCat(c)}>{skillCategoryLabel(c)}</div>)}
       </div>
       <div className="card-grid g4">
         {visible.map((s) => {
@@ -416,7 +435,7 @@ function RecoView({ onOpenDetail }: { onOpenDetail: (target: SkillTarget) => voi
             ? { slug: s.slug, name: s.name, catalog: true }
             : { card: { slug: s.slug, name: s.name, description: s.description, category: s.category, source: 'SkillHub' } }
           return (
-            <ProCard className="scard clickable" hoverable styles={{ body: { display: 'contents' } }} key={`${s.provider}:${s.slug}`} onClick={() => onOpenDetail(target)}>
+            <ProCard className="scard clickable" hoverable styles={{ body: { display: 'contents' } }} key={`${s.provider}:${s.slug}`} {...clickable} onClick={() => onOpenDetail(target)}>
               <div className="sc-ic">{s.icon}</div>
               <div className="sc-info"><div className="sc-n">{s.name}</div><div className="sc-d">{s.description}</div></div>
               {s.provider === 'agentmate'
@@ -444,8 +463,8 @@ function SkillsPane({ query, onOpenDetail }: { query: string; onOpenDetail: (tar
   return (
     <div className="cap-pane show">
       <div className="sk-seg">
-        <div className={`sk-seg-item ${seg === 'reco' ? 'active' : ''}`.trim()} onClick={() => setSeg('reco')}>推荐</div>
-        <div className={`sk-seg-item ${seg === 'skillhub' ? 'active' : ''}`.trim()} onClick={() => setSeg('skillhub')}>SkillHub</div>
+        <div className={`sk-seg-item ${seg === 'reco' ? 'active' : ''}`.trim()} {...clickable} onClick={() => setSeg('reco')}>推荐</div>
+        <div className={`sk-seg-item ${seg === 'skillhub' ? 'active' : ''}`.trim()} {...clickable} onClick={() => setSeg('skillhub')}>SkillHub</div>
       </div>
       {seg === 'skillhub' && <SkillHubView onOpenDetail={onOpenDetail} />}
       {seg === 'reco' && <RecoView onOpenDetail={onOpenDetail} />}
@@ -483,14 +502,14 @@ function InstalledCard({ skill, onOpenDetail, onEdit }: { skill: InstalledSkill;
   const tile = skillTile(skill.name)
   const [menu, setMenu] = useState(false)
   return (
-    <ProCard className={`inst-card clickable ${skill.disabled ? 'off' : ''}`.trim()} hoverable styles={{ body: { display: 'contents' } }} onClick={() => onOpenDetail({ key: skill.key })}>
+    <ProCard className={`inst-card clickable ${skill.disabled ? 'off' : ''}`.trim()} hoverable styles={{ body: { display: 'contents' } }} {...clickable} onClick={() => onOpenDetail({ key: skill.key })}>
       <span className="inst-ic" style={{ background: tile.color }}>{tile.icon}</span>
       <div style={{ minWidth: 0 }}>
         <div className="inst-n">{skill.name}{skill.disabled && <span className="hc-off" style={{ marginLeft: 6 }}>已关闭</span>}</div>
         <div className="inst-d">{skill.description || '已安装技能'}</div>
       </div>
       <div className="more-wrap" style={{ position: 'absolute', top: 8, right: 8 }} onClick={(e) => e.stopPropagation()}>
-        <span className="inst-more" onClick={(e) => { e.stopPropagation(); setMenu((v) => !v) }}>⋯</span>
+        <span className="inst-more" {...clickable} onClick={(e) => { e.stopPropagation(); setMenu((v) => !v) }}>⋯</span>
         {menu && <SkillMenu skill={skill} onClose={() => setMenu(false)} onEdit={onEdit} />}
       </div>
     </ProCard>

@@ -6,6 +6,7 @@ import { useNotificationStore } from '../../stores/notificationStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useUIStore } from '../../stores/uiStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { clickable } from '../../lib/a11y'
 
 // Message center (M7 C4) — lists real collaboration events. Opening refreshes the
 // list; "全部已读" clears the badge. Clicking an event with a project jumps there.
@@ -65,6 +66,8 @@ export function MessageCenter({ onClose }: { onClose: () => void }) {
               <div
                 key={n.id}
                 className={`msg-row ${n.read ? '' : 'unread'} ${n.project_id ? 'clickable' : ''}`.trim()}
+                {...(n.project_id ? clickable : {})}
+                aria-disabled={!n.project_id}
                 onClick={() => openProject(n)}
               >
                 <span className="msg-ic">{KIND_ICON[n.kind] || '🔔'}</span>

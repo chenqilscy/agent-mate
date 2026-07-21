@@ -17,8 +17,10 @@ import { useWorkItemStore } from '../stores/workItemStore'
 import { useCatalogStore } from '../stores/catalogStore'
 import { useKnowledgeStore } from '../stores/knowledgeStore'
 import { skillDisplayName, useSkillStore } from '../stores/skillStore'
-import { Avatar, Breadcrumb, Empty, List, Tabs, Tag, Tooltip } from 'antd'
+import { Avatar, Breadcrumb, Empty, Tabs, Tag, Tooltip } from 'antd'
+import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
+import { clickable } from '../lib/a11y'
 
 type Tab = '动态' | '计划' | '任务' | '负载' | '甘特' | '资产' | '讨论'
 type Kind = 'conn' | 'exp' | 'skill' | 'kb'
@@ -134,7 +136,7 @@ export function ProjectHomeView() {
       <ProCard className="pjcfg-sec" styles={{ body: { display: 'contents' } }}>
         <div className="pjcfg-h">
           {label}<span className="n">{items.length}</span>
-          {canManage && <span className="add" onClick={() => openPicker(k)}>{IC_ADD}</span>}
+          {canManage && <span className="add" {...clickable} onClick={() => openPicker(k)}>{IC_ADD}</span>}
         </div>
         {items.length ? (
           <Avatar.Group className="pjcfg-icons">
@@ -151,7 +153,7 @@ export function ProjectHomeView() {
     <section className="view active" data-view="project">
       <div className="chat-head">
         <div className="pe-crumb">
-          <Breadcrumb items={[{ title: <span onClick={() => setView('projects')}>项目</span> }, { title: project.name }]} />
+          <Breadcrumb items={[{ title: <span {...clickable} onClick={() => setView('projects')}>项目</span> }, { title: project.name }]} />
           {isShared && <Tag className="pj-rolebadge">协作 · {ROLE_LABEL[project.role!] || project.role}</Tag>}
         </div>
         <div style={{ marginLeft: 'auto' }}>
@@ -172,7 +174,7 @@ export function ProjectHomeView() {
             {tab === '动态' && (
               sessions.length ? (
                 <List dataSource={sessions} renderItem={(s) => (
-                  <List.Item className="pj-feed-row" key={s.id} onClick={() => openExec(s.id)}>
+                  <List.Item className="pj-feed-row" key={s.id} {...clickable} onClick={() => openExec(s.id)}>
                     <span className="fi"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16v12H5.2L4 17.2z" /></svg></span>
                     <span className="ft">{s.title}</span>
                     <span className="fa">{s.owner_name ? `${s.owner_name} · ` : ''}{s.status === 'running' ? '执行中' : s.ago}</span>
@@ -207,7 +209,7 @@ export function ProjectHomeView() {
           <div className="pjcfg-sec">
             <div className="pjcfg-h">
               指令
-              {!editInstr && canManage && <span className="add" onClick={() => { setInstrDraft(project.instruction); setEditInstr(true) }}>{IC_EDIT}</span>}
+              {!editInstr && canManage && <span className="add" {...clickable} onClick={() => { setInstrDraft(project.instruction); setEditInstr(true) }}>{IC_EDIT}</span>}
             </div>
             {editInstr ? (
               <>
@@ -230,7 +232,7 @@ export function ProjectHomeView() {
           <div className="pjcfg-sec">
             <div className="pjcfg-h">
               成员
-              <span className="add" onClick={() => setMembersOpen(true)}>{canManage ? IC_ADD : IC_EDIT}</span>
+              <span className="add" {...clickable} onClick={() => setMembersOpen(true)}>{canManage ? IC_ADD : IC_EDIT}</span>
             </div>
             <div className="pjcfg-sub">
               {canManage ? '邀请队友、分配角色（所有者/管理员/成员/只读）' : `你的角色：${ROLE_LABEL[project.role!] || project.role}`}

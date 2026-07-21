@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useAuthStore } from '../../stores/authStore'
 import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { clickable } from '../../lib/a11y'
 
 // Login / register for real accounts (M7 C1). On success the store persists the
 // token and reloads the app under the new identity. Not logging in keeps you as
@@ -41,7 +42,7 @@ export function LoginModal({ onClose }: { onClose: () => void }) {
           <WbInput className="np-input" type="password" value={password} placeholder={mode === 'register' ? '至少 4 位' : '密码'} onChange={(e) => setPassword(e.target.value)} onKeyDown={onKey} />
           <div className="auth-switch">
             {mode === 'login' ? '还没有账号？' : '已有账号？'}
-            <span onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? '去注册' : '去登录'}</span>
+            <span {...clickable} onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? '去注册' : '去登录'}</span>
           </div>
         </div>
         <div className="np-foot">

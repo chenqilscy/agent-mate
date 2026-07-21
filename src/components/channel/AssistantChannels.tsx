@@ -4,6 +4,7 @@ import { api, type Assistant, type AssistantChannel, type ChannelType } from '..
 import { Popover } from '../ui/Popover'
 import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
+import { clickable } from '../../lib/a11y'
 
 // 助理渠道管理（WB-088/096）。类型化：Telegram + 邮件 可用，其它类型「敬请期待」占位（不造假）。
 // 凭据（token / 邮箱密码）存 DB、本机可见（WB-093 决策）。
@@ -199,6 +200,8 @@ export function AssistantChannels({ assistant, onChanged }: {
       <Popover open={typePick} anchor={typeAnchor.current} dir="down" onClose={() => setTypePick(false)} minWidth={180}>
         {types.map((t) => (
           <div key={t.type} className={`pop-item ${t.available ? '' : 'pop-empty'}`.trim()}
+               {...(t.available ? clickable : {})}
+               aria-disabled={!t.available}
                onClick={() => { if (t.available) { setTypePick(false); setForm({ type: t.type, channel: null }) } }}>
             {t.label}{t.available ? '' : ' · 敬请期待'}
           </div>

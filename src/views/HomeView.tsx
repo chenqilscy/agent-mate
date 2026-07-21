@@ -11,8 +11,10 @@ import { Popover } from '../components/ui/Popover'
 import { PermPopover } from '../components/composer/PermPopover'
 import { api, type RawMessage } from '../lib/api'
 import type { SessionInfo } from '../lib/types'
-import { Empty, List, Segmented, Spin, Statistic } from 'antd'
+import { Empty, Segmented, Spin, Statistic } from 'antd'
+import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
+import { clickable } from '../lib/a11y'
 
 const SCENES: [string, string, string][] = [
   ['day', '🔥', '日常办公'],
@@ -137,7 +139,7 @@ export function HomeView() {
 
   return (
     <section className="view active" data-view="home">
-      <div className="reward" onClick={() => toast('打开成长计划')}>
+      <div className="reward" {...clickable} onClick={() => toast('打开成长计划')}>
         <span className="ri">🚀</span>做任务赢积分好礼
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M9 6l6 6-6 6" /></svg>
       </div>
@@ -158,6 +160,7 @@ export function HomeView() {
               <div
                 key={label}
                 className="qchip"
+                {...clickable}
                 onClick={() => (label === '更多' ? toast('更多快捷入口，敬请期待') : launch(label))}
               >
                 {ic === '⋯' ? (
@@ -207,12 +210,12 @@ export function HomeView() {
               </WbButton>
             </div>
             <Popover open={pop === 'ws'} anchor={wsAnchor.current} dir="down" onClose={() => setPop(null)} minWidth={220}>
-              <div className="pop-item" onClick={() => { setSelProject(null); setPop(null) }}>
+              <div className="pop-item" {...clickable} onClick={() => { setSelProject(null); setPop(null) }}>
                 无（默认空间）{selProject === null && <span className="chk">✓</span>}
               </div>
               {projects.length === 0 && <div className="pop-item pop-empty">暂无工作空间</div>}
               {projects.map((p) => (
-                <div className="pop-item" key={p.id} onClick={() => { setSelProject(p.id); setPop(null) }}>
+                <div className="pop-item" key={p.id} {...clickable} onClick={() => { setSelProject(p.id); setPop(null) }}>
                   <span className="pi-ic">🗂️</span>{p.name}{selProject === p.id && <span className="chk">✓</span>}
                 </div>
               ))}

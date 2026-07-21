@@ -1,8 +1,9 @@
 import {
   App, Avatar, Button, Card, Col, Descriptions, Drawer, Empty, Form, Input, InputNumber,
-  List, Modal, Popconfirm, Progress, Row, Select, Space, Statistic, Switch, Tabs, Tag,
+  Modal, Popconfirm, Progress, Row, Select, Space, Statistic, Switch, Tabs, Tag,
   Timeline, Typography, Upload,
 } from "antd";
+import { CompatList as List } from "../components/CompatList";
 import {
   ArrowLeftOutlined, CloudUploadOutlined, DeleteOutlined, EditOutlined, FileTextOutlined,
   PlusOutlined, ProjectOutlined, TeamOutlined,

@@ -1,5 +1,6 @@
 import { toast } from '../../stores/toastStore'
 import type { ChatMessage } from '../../lib/types'
+import { clickable } from '../../lib/a11y'
 
 const ACTS: [string, string][] = [
   ['复制', 'M9 9h11v11H9zM5 15V5a2 2 0 012-2h10'],
@@ -16,7 +17,7 @@ export function BotActions({ msg }: { msg: ChatMessage }) {
   return (
     <div className="bot-acts">
       {ACTS.map(([label, path]) => (
-        <div className="a" key={label} aria-label={label} onClick={() => (label === '复制' ? copy() : toast(label))}>
+        <div className="a" key={label} aria-label={label} {...clickable} onClick={() => (label === '复制' ? copy() : toast(label))}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={path} /></svg>
         </div>
       ))}

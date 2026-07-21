@@ -7,7 +7,7 @@ import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
 import type { WorkAttachment, WorkItem, WorkItemDelivery, WorkPriority, WorkStatus } from '../../lib/types'
 import { AntModalBridge } from '../ui/AntModalBridge'
-import { Empty, Input, Select, Table, Tag } from 'antd'
+import { App as AntApp, Empty, Input, Select, Table, Tag } from 'antd'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../../lib/a11y'
 
@@ -118,7 +118,7 @@ function DueDatePill({ value, dir = 'up', onChange }: { value: string | null; di
             onChange={(e) => { onChange(e.target.value || null); setOpen(false) }} autoFocus
           />
           {value && (
-            <div className="pop-item danger" onClick={() => { onChange(null); setOpen(false) }}>清除截止日期</div>
+            <div className="pop-item danger" {...clickable} onClick={() => { onChange(null); setOpen(false) }}>清除截止日期</div>
           )}
         </div>
       </Popover>
@@ -150,9 +150,9 @@ function MilestonePill({ value, dir = 'up', onPick }: { value: string; dir?: 'up
         <span aria-hidden>🚩</span>{cur ? cur.name : '里程碑'}{IcCaret}
       </WbButton>
       <Popover open={open} anchor={ref.current} dir={dir} onClose={() => { setOpen(false); setCreating(false) }} minWidth={200}>
-        <div className="pop-item" onClick={() => { onPick(''); setOpen(false) }}>无里程碑</div>
+        <div className="pop-item" {...clickable} onClick={() => { onPick(''); setOpen(false) }}>无里程碑</div>
         {milestones.map((m) => (
-          <div className="pop-item" key={m.id} onClick={() => { onPick(m.id); setOpen(false) }}>🚩 {m.name}</div>
+          <div className="pop-item" key={m.id} {...clickable} onClick={() => { onPick(m.id); setOpen(false) }}>🚩 {m.name}</div>
         ))}
         {creating ? (
           <div style={{ padding: 6, display: 'flex', gap: 6 }}>
@@ -161,7 +161,7 @@ function MilestonePill({ value, dir = 'up', onPick }: { value: string; dir?: 'up
             <WbButton className="btn-dark" style={{ height: 30, padding: '0 12px' }} onClick={() => void doCreate()}>建</WbButton>
           </div>
         ) : (
-          <div className="pop-item" onClick={() => setCreating(true)}>＋ 新建里程碑</div>
+          <div className="pop-item" {...clickable} onClick={() => setCreating(true)}>＋ 新建里程碑</div>
         )}
       </Popover>
     </>
@@ -179,7 +179,7 @@ function LabelsEditor({ labels, onChange }: { labels: string[]; onChange: (l: st
   return (
     <div className="wb-labels-ed">
       {labels.map((l, i) => (
-        <span className="wb-label-chip" key={l}>#{l}<span className="x" onClick={() => onChange(labels.filter((_, j) => j !== i))}>×</span></span>
+        <span className="wb-label-chip" key={l}>#{l}<span className="x" {...clickable} onClick={() => onChange(labels.filter((_, j) => j !== i))}>×</span></span>
       ))}
       <WbInput className="wb-label-in" placeholder="加标签…" value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -225,7 +225,7 @@ function AssetPickerOverlay({ projectId, onPick, onClose }: {
         </div>
         <div className="np-body" style={{ paddingTop: 2 }}>
           {rows.length ? rows.map((f) => (
-            <div className="pkc-row" key={f.path} onClick={() => onPick({ name: f.name, kind: 'asset', path: f.path })}>
+            <div className="pkc-row" key={f.path} {...clickable} onClick={() => onPick({ name: f.name, kind: 'asset', path: f.path })}>
               <span className="pi">📄</span>
               <div style={{ flex: 1, minWidth: 0 }}><div className="pn">{f.name}</div><div className="pd">{f.path}</div></div>
             </div>
@@ -267,8 +267,8 @@ function AttachmentAdder({ projectId, onAdd, dir = 'up' }: {
       <WbButton ref={ref} type="button" className="wb-attach-btn" title="添加附件" aria-label="添加附件" onClick={() => setMenu((v) => !v)}>📎</WbButton>
       <WbInput ref={fileRef} type="file" hidden onChange={onFileChosen} />
       <Popover open={menu} anchor={ref.current} dir={dir} onClose={() => setMenu(false)} minWidth={120}>
-        <div className="pop-item" onClick={onLocal}>本地文件</div>
-        <div className="pop-item" onClick={() => { setMenu(false); setPickAsset(true) }}>项目资产</div>
+        <div className="pop-item" {...clickable} onClick={onLocal}>本地文件</div>
+        <div className="pop-item" {...clickable} onClick={() => { setMenu(false); setPickAsset(true) }}>项目资产</div>
       </Popover>
       {pickAsset && <AssetPickerOverlay projectId={projectId} onPick={(a) => { onAdd(a); setPickAsset(false) }} onClose={() => setPickAsset(false)} />}
     </>
@@ -290,8 +290,8 @@ function AttachmentChips({ list, projectId, onRemove }: {
       {list.map((a, i) => (
         <span className="wb-attach-chip" key={i} title={a.name}>
           <span className="ic" aria-hidden>📎</span>
-          <span className="nm" onClick={() => download(a)}>{a.name}</span>
-          {onRemove && <span className="x" onClick={() => onRemove(i)}>×</span>}
+          <span className="nm" {...clickable} onClick={() => download(a)}>{a.name}</span>
+          {onRemove && <span className="x" {...clickable} onClick={() => onRemove(i)}>×</span>}
         </span>
       ))}
     </div>
@@ -632,7 +632,7 @@ function BatchMove({ disabled, onPick }: { disabled: boolean; onPick: (s: WorkSt
       <WbButton ref={ref} type="button" className="btn-ghost" disabled={disabled} onClick={() => setOpen((v) => !v)}>移动到 ▾</WbButton>
       <Popover open={open} anchor={ref.current} dir="down" onClose={() => setOpen(false)} minWidth={132}>
         {STATUS_OPTS.map((s) => (
-          <div className="pop-item" key={s.key} onClick={() => { onPick(s.key); setOpen(false) }}>
+          <div className="pop-item" key={s.key} {...clickable} onClick={() => { onPick(s.key); setOpen(false) }}>
             <span className="wb-dot" style={{ background: DOT[s.key] }} />{s.label}
           </div>
         ))}
@@ -645,6 +645,7 @@ function BatchMove({ disabled, onPick }: { disabled: boolean; onPick: (s: WorkSt
 // per-card detail modal, a full new-todo modal, a top toolbar (filter/batch/search)
 // and a placeholder 添加数据源 picker.
 export function KanbanBoard() {
+  const { message, modal } = AntApp.useApp()
   const items = useWorkItemStore((s) => s.items)
   const add = useWorkItemStore((s) => s.add)
   const move = useWorkItemStore((s) => s.move)
@@ -713,7 +714,27 @@ export function KanbanBoard() {
   }
   const saveWip = (k: string, v: number) => { const w = getWip(projectId); if (v > 0) w[k] = v; else delete w[k]; if (projectId) setWip(projectId, w); setTick((t) => t + 1) }
   const applyKView = (idx: string) => { const v = kviews[Number(idx)]; if (!v) return; setFAssignee(v.assignee); setFSource(v.source); setQ(v.q); setGroup((v.group as 'none' | 'assignee' | 'milestone') || 'none') }
-  const saveKView = () => { const name = (window.prompt('视图名称：') || '').trim(); if (!name || !projectId) return; const v = getKViews(projectId); v.push({ name, assignee: fAssignee, source: fSource, q, group }); setKViews(projectId, v); setTick((t) => t + 1) }
+  const saveKView = () => {
+    if (!projectId) return
+    let name = ''
+    modal.confirm({
+      title: '保存当前视图',
+      content: <Input autoFocus maxLength={40} placeholder="输入视图名称" onChange={(e) => { name = e.target.value }} />,
+      okText: '保存',
+      cancelText: '取消',
+      onOk: () => {
+        const trimmed = name.trim()
+        if (!trimmed) {
+          void message.warning('请输入视图名称')
+          return Promise.reject(new Error('view name required'))
+        }
+        const views = getKViews(projectId)
+        views.push({ name: trimmed, assignee: fAssignee, source: fSource, q, group })
+        setKViews(projectId, views)
+        setTick((t) => t + 1)
+      },
+    })
+  }
   const batchMove = (s: WorkStatus) => { sel.forEach((id) => void move(id, s)); exitBatch() }
   const batchDelete = () => { sel.forEach((id) => void remove(id)); exitBatch() }
   const cardClick = (i: WorkItem) => { if (batch) toggleSel(i.id); else setDetailId(i.id) }
@@ -738,7 +759,7 @@ export function KanbanBoard() {
               <span className="cnt" style={over ? { background: '#EF4444', color: '#fff' } : undefined}>{lim ? `${colItems.length}/${lim}` : colItems.length}</span>
               {wipEdit
                 ? <WbInput type="number" min={0} className="np-input" style={{ width: 46, height: 22, padding: '0 6px', marginLeft: 6, fontSize: 11 }} defaultValue={lim || ''} placeholder="∞" onBlur={(e) => saveWip(col.key, parseInt(e.target.value, 10) || 0)} />
-                : <span className="plus" onClick={() => { setQuickIn(col.key); setQuickDraft('') }}>＋</span>}
+                : <span className="plus" {...clickable} onClick={() => { setQuickIn(col.key); setQuickDraft('') }}>＋</span>}
             </div>
             {quickIn === col.key && (
               <WbInput
@@ -755,12 +776,13 @@ export function KanbanBoard() {
                 styles={{ body: { display: 'contents' } }}
                 draggable={!batch}
                 onDragStart={(e) => e.dataTransfer.setData('text/plain', i.id)}
+                {...clickable}
                 onClick={() => cardClick(i)}
               >
                 {batch ? (
                   <span className={`pj-card-chk ${sel.has(i.id) ? 'on' : ''}`.trim()}>{sel.has(i.id) ? '✓' : ''}</span>
                 ) : (
-                  <span className="del" onClick={(e) => { e.stopPropagation(); void remove(i.id) }}>×</span>
+                  <span className="del" {...clickable} onClick={(e) => { e.stopPropagation(); void remove(i.id) }}>×</span>
                 )}
                 <div className="t">
                   {i.priority && <span className="wb-dot" style={{ background: PRIO[i.priority].color, marginRight: 6, verticalAlign: 'middle' }} title={`优先级：${PRIO[i.priority].label}`} />}
@@ -915,11 +937,11 @@ export function GanttView() {
         const color = (PRIO[x.priority] ?? PRIO['']).color
         return (
           <div key={x.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 7 }}>
-            <div style={{ width: 160, flexShrink: 0, fontSize: 12.5, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} onClick={() => setDetailId(x.id)}>{x.title}</div>
+            <div style={{ width: 160, flexShrink: 0, fontSize: 12.5, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} {...clickable} onClick={() => setDetailId(x.id)}>{x.title}</div>
             <div style={{ position: 'relative', flex: 1, height: 24, background: 'var(--border-2)', borderRadius: 6, overflow: 'hidden' }}>
               {ticks.map((f) => <div key={f} style={{ position: 'absolute', top: 0, bottom: 0, left: `${(f * 100).toFixed(1)}%`, width: 1, background: 'var(--border)' }} />)}
               <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${todayL}%`, width: 2, background: '#3D6BFF', zIndex: 2 }} />
-              <div title={`${x.start_date || ''} → ${x.due_date || ''}`} onClick={() => setDetailId(x.id)} style={{ position: 'absolute', top: 4, bottom: 4, left: `${left}%`, width: `${w}%`, background: color, borderRadius: 5, cursor: 'pointer', opacity: 0.92 }} />
+              <div title={`${x.start_date || ''} → ${x.due_date || ''}`} {...clickable} onClick={() => setDetailId(x.id)} style={{ position: 'absolute', top: 4, bottom: 4, left: `${left}%`, width: `${w}%`, background: color, borderRadius: 5, cursor: 'pointer', opacity: 0.92 }} />
             </div>
           </div>
         )
@@ -940,11 +962,11 @@ export function TaskList() {
   return (
     <>
       <div className="mf-filter" style={{ marginTop: 0, marginBottom: 10 }}>
-        <div className="mf-type" onClick={() => toast('筛选归属')}>
+        <div className="mf-type" {...clickable} onClick={() => toast('筛选归属')}>
           <span className="ft-lb">全部任务</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 11, height: 11 }}><path d="M6 9l6 6 6-6" /></svg>
         </div>
-        <div className="mf-type" onClick={() => toast('筛选来源')}>
+        <div className="mf-type" {...clickable} onClick={() => toast('筛选来源')}>
           <span className="ft-lb">全部来源</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 11, height: 11 }}><path d="M6 9l6 6 6-6" /></svg>
         </div>

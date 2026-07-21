@@ -9,8 +9,10 @@ import type { KbTemplate } from '../data/catalog'
 import { toast } from '../stores/toastStore'
 import { WeKnoraConfigForm } from '../components/connector/WeKnoraConfigForm'
 import { AntModalBridge } from '../components/ui/AntModalBridge'
-import { Empty, List, Spin, Tag, Upload } from 'antd'
+import { App as AntApp, Empty, Spin, Tag, Upload } from 'antd'
+import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
+import { clickable } from '../lib/a11y'
 
 // 知识库（自托管 WeKnora RAG · WB-173/174）：建库 / 传档 / 解析状态，并可「挂载到对话」，
 // 让 agent 用 knowledge_retrieve 真检索作答。真调 WeKnora（经本地 backend，API Key 只在后端）。
@@ -30,6 +32,7 @@ function docStatus(d: KbDocument): { label: string; color: string; done: boolean
 }
 
 export function KnowledgeView() {
+  const { modal } = AntApp.useApp()
   const { kbs, loaded, load, create, remove, listDocs, uploadDoc, deleteDoc } = useKnowledgeStore()
   const knowledgeIds = useLoadoutStore((s) => s.knowledgeIds)
   const toggleLoadout = useLoadoutStore((s) => s.toggle)
@@ -104,16 +107,32 @@ export function KnowledgeView() {
     if (fileInput.current) fileInput.current.value = ''
   }
 
-  const onDelDoc = async (d: KbDocument) => {
-    if (!confirm(`删除文档「${d.name}」？`)) return
-    try { await deleteDoc(d.id); if (openId) await refreshDocs(openId) }
-    catch { toast('删除失败') }
+  const onDelDoc = (d: KbDocument) => {
+    modal.confirm({
+      title: `删除文档「${d.name}」？`,
+      content: '删除后不可恢复。',
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try { await deleteDoc(d.id); if (openId) await refreshDocs(openId) }
+        catch { toast('删除失败') }
+      },
+    })
   }
 
-  const onDelKb = async (id: string, name: string) => {
-    if (!confirm(`删除知识库「${name}」？其中所有文档将一并删除，且不可恢复。`)) return
-    try { await remove(id); toast('已删除知识库'); if (openId === id) closeDetail() }
-    catch { toast('删除失败') }
+  const onDelKb = (id: string, name: string) => {
+    modal.confirm({
+      title: `删除知识库「${name}」？`,
+      content: '其中所有文档将一并删除，且不可恢复。',
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try { await remove(id); toast('已删除知识库'); if (openId === id) closeDetail() }
+        catch { toast('删除失败') }
+      },
+    })
   }
 
   const onMount = (id: string, name: string) => {
@@ -156,7 +175,7 @@ export function KnowledgeView() {
             <div className="sec-title" style={{ marginTop: 18 }}>从模板新建</div>
             <div className="card-grid g4" style={{ marginTop: 10 }}>
               {KB_TPLS.map((t) => (
-                 <ProCard key={t.key} className="scard clickable" hoverable styles={{ body: { display: 'contents' } }}
+                 <ProCard key={t.key} className="scard clickable" hoverable styles={{ body: { display: 'contents' } }} {...clickable}
                    onClick={() => { setPrefill(t); setShowCreate(true) }}>
                   <span className="sc-ic" style={{ fontSize: 22 }}>{t.icon || '📚'}</span>
                   <div className="sc-info" style={{ minWidth: 0 }}>

@@ -2,7 +2,7 @@ import { WbButton, WbInput, WbTextArea } from '../components/ui/Primitives'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCatalog, useCatalogStore } from '../stores/catalogStore'
 import { api } from '../lib/api'
-import { activate } from '../lib/a11y'
+import { activate, clickable } from '../lib/a11y'
 import { IcChevronDown } from '../lib/icons'
 import { useAutomationStore } from '../stores/automationStore'
 import { useChatStore } from '../stores/chatStore'
@@ -13,7 +13,8 @@ import { toast } from '../stores/toastStore'
 import { Popover } from '../components/ui/Popover'
 import type { Automation, AutomationFire, CreateAutomationInput, SessionInfo, TriggerKind } from '../lib/types'
 import { AntModalBridge } from '../components/ui/AntModalBridge'
-import { Empty, List, Spin, Switch, Tabs, Tag } from 'antd'
+import { Empty, Spin, Switch, Tabs, Tag } from 'antd'
+import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
 
 const IC_ADD = (
@@ -113,7 +114,7 @@ export function AutomationView() {
   const templateGrid = (
     <div className="card-grid g3 auto-template-grid">
       {AUTO.map(([ic, n, d]) => (
-        <ProCard className="tpl" key={n} hoverable styles={{ body: { display: 'contents' } }} onClick={() => pickTemplate(n, d)}>
+        <ProCard className="tpl" key={n} hoverable styles={{ body: { display: 'contents' } }} {...clickable} onClick={() => pickTemplate(n, d)}>
           <span className="t-ic">{ic}</span>
           <div><div className="t-n">{n}</div><div className="t-d">{d}</div></div>
         </ProCard>
@@ -181,7 +182,7 @@ export function AutomationView() {
               <>
                 <div className="sec-title">当前</div>
                 <List className="auto-list" dataSource={shownItems} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无匹配自动化" /> }} renderItem={(a) => (
-                <List.Item className="auto-row" key={a.id} onClick={() => setEditing({ auto: a })}>
+                <List.Item className="auto-row" key={a.id} {...clickable} onClick={() => setEditing({ auto: a })}>
                   <span className="t-ic">{iconOf(a.name)}</span>
                   <div className="auto-row-main">
                     <div className="auto-row-n">{a.name}</div>
@@ -205,11 +206,11 @@ export function AutomationView() {
                   </div>
 
                   <Popover open={menuId === a.id} anchor={menuAnchor.current} dir="down" onClose={() => setMenuId(null)} minWidth={140}>
-                    <div className="pop-item" onClick={() => doRun(a)}>立即运行</div>
-                    <div className="pop-item" onClick={() => { setMenuId(null); setEditing({ auto: a }) }}>编辑</div>
-                    <div className="pop-item" onClick={() => { setMenuId(null); openRun(a) }}>打开上次运行</div>
-                    <div className="pop-item" onClick={() => openHistory(a)}>运行历史</div>
-                    <div className="pop-item danger" onClick={() => { setMenuId(null); remove(a.id); toast('已删除 · ' + a.name) }}>删除</div>
+                    <div className="pop-item" {...clickable} onClick={() => doRun(a)}>立即运行</div>
+                    <div className="pop-item" {...clickable} onClick={() => { setMenuId(null); setEditing({ auto: a }) }}>编辑</div>
+                    <div className="pop-item" {...clickable} onClick={() => { setMenuId(null); openRun(a) }}>打开上次运行</div>
+                    <div className="pop-item" {...clickable} onClick={() => openHistory(a)}>运行历史</div>
+                    <div className="pop-item danger" {...clickable} onClick={() => { setMenuId(null); remove(a.id); toast('已删除 · ' + a.name) }}>删除</div>
                   </Popover>
 
                   <Popover open={histId === a.id} anchor={menuAnchor.current} dir="down" onClose={() => setHistId(null)} minWidth={200}>
@@ -286,7 +287,7 @@ function RunsTab({ query, onOpenDetail }: { query: string; onOpenDetail: (r: Ses
         <div key={g.label}>
           <div className="auto-day">{g.label}</div>
           <List dataSource={g.runs} renderItem={(r) => (
-            <List.Item className="auto-run" key={r.id} onClick={() => onOpenDetail(r)}>
+            <List.Item className="auto-run" key={r.id} {...clickable} onClick={() => onOpenDetail(r)}>
               <div className="auto-run-main">
                 <span className="auto-run-n">{r.title}</span>
                 <span className="auto-run-lb">{runLabel(r)}</span>
@@ -557,8 +558,8 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
           <div className="np-lbl">触发方式</div>
           <div className="auto-trig">
             <div className="seg2">
-              <b className={kind === 'interval' ? 'on' : ''} onClick={() => setKind('interval')}>每隔一段</b>
-              <b className={kind === 'daily' ? 'on' : ''} onClick={() => setKind('daily')}>每天定时</b>
+              <b className={kind === 'interval' ? 'on' : ''} {...clickable} onClick={() => setKind('interval')}>每隔一段</b>
+              <b className={kind === 'daily' ? 'on' : ''} {...clickable} onClick={() => setKind('daily')}>每天定时</b>
             </div>
             {kind === 'interval' ? (
               <div className="auto-trig-in">
@@ -611,12 +612,12 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
       </div>
 
       <Popover open={wsOpen} anchor={wsAnchor.current} dir="down" onClose={() => setWsOpen(false)} minWidth={220}>
-        <div className="pop-item" onClick={() => { setProjectId(null); setWsOpen(false) }}>
+        <div className="pop-item" {...clickable} onClick={() => { setProjectId(null); setWsOpen(false) }}>
           不绑定（默认工作区）{projectId === null && <span className="chk">✓</span>}
         </div>
         {projects.length === 0 && <div className="pop-item pop-empty">暂无工作空间</div>}
         {projects.map((p) => (
-          <div className="pop-item" key={p.id} onClick={() => { setProjectId(p.id); setWsOpen(false) }}>
+          <div className="pop-item" key={p.id} {...clickable} onClick={() => { setProjectId(p.id); setWsOpen(false) }}>
             <span className="pi-ic">🗂️</span>{p.name}{projectId === p.id && <span className="chk">✓</span>}
           </div>
         ))}
@@ -624,13 +625,13 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
 
       <Popover open={modelOpen} anchor={modelAnchor.current} dir="down" onClose={() => setModelOpen(false)} className="model" minWidth={240}>
         {models.length === 0 && <div className="pop-item pop-empty">模型列表加载中…</div>}
-        <div className="mrow" onClick={() => { setModel(null); setModelOpen(false) }}>
+        <div className="mrow" {...clickable} onClick={() => { setModel(null); setModelOpen(false) }}>
           <span className="mi">⚙</span>
           <span className="mname">跟随默认模型</span>
           {model === null && <span className="chk">✓</span>}
         </div>
         {models.map((m) => (
-          <div className="mrow" key={m.key} onClick={() => { setModel(m.key); setModelOpen(false) }}>
+          <div className="mrow" key={m.key} {...clickable} onClick={() => { setModel(m.key); setModelOpen(false) }}>
             <span className="mi" style={m.color ? { background: m.color, color: '#fff' } : undefined}>{m.icon}</span>
             <span className="mname">{m.name}</span>
             {m.key === model && <span className="chk">✓</span>}
