@@ -60,6 +60,32 @@
   outline-offset: 2px;
 }
 
+/* Preserve the established WorkBuddy button box model. Ant's generic hover
+   rule uses a border shorthand, so a borderless custom button would otherwise
+   gain 1px on every side and recenter its contents. */
+.agentmate-antd-app .ant-btn.wb-button-borderless:not(:disabled):not(.ant-btn-disabled):hover,
+.agentmate-antd-app .ant-btn.wb-button-borderless:not(:disabled):not(.ant-btn-disabled):active {
+  border: 0;
+}
+
+/* The responsive navigation handle intentionally keeps three border sides. */
+.agentmate-antd-app .ant-btn.shell-nav-toggle:not(:disabled):not(.ant-btn-disabled):hover,
+.agentmate-antd-app .ant-btn.shell-nav-toggle:not(:disabled):not(.ant-btn-disabled):active {
+  border: 1px solid var(--border);
+  border-left: 0;
+}
+
+.agentmate-antd-app .ant-btn.asst-seg-btn:not(:disabled):not(.ant-btn-disabled):hover,
+.agentmate-antd-app .ant-btn.asst-seg-btn:not(:disabled):not(.ant-btn-disabled):active {
+  border: 0;
+  border-right: 1px solid var(--border);
+}
+
+.agentmate-antd-app .ant-btn.asst-seg-btn:last-child:not(:disabled):not(.ant-btn-disabled):hover,
+.agentmate-antd-app .ant-btn.asst-seg-btn:last-child:not(:disabled):not(.ant-btn-disabled):active {
+  border-right: 0;
+}
+
 .agentmate-ant-message .ant-message-notice-content {
   border: 1px solid var(--border);
   box-shadow: var(--shadow-md);

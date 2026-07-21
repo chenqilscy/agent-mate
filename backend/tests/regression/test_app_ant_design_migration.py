@@ -44,6 +44,57 @@ class AppAntDesignMigrationTests(unittest.TestCase):
         self.assertIn("mask={{ closable: closeOnMask }}", bridge)
         self.assertNotIn("maskClosable=", bridge)
 
+    def test_borderless_product_buttons_keep_zero_width_border_on_hover(self) -> None:
+        primitive = (SRC / "components/ui/Primitives.tsx").read_text(encoding="utf-8")
+        marker = re.search(
+            r"const BORDERLESS_VISUAL_CLASSES = new Set\(\[(.*?)\]\)",
+            primitive,
+            re.DOTALL,
+        )
+        asymmetric_marker = re.search(
+            r"const ASYMMETRIC_VISUAL_CLASSES = new Set\(\[(.*?)\]\)",
+            primitive,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(marker)
+        self.assertIsNotNone(asymmetric_marker)
+        configured = set(re.findall(r"'([A-Za-z_][\w-]*)'", marker.group(1)))
+        configured.update(re.findall(r"'([A-Za-z_][\w-]*)'", asymmetric_marker.group(1)))
+
+        button_classes: set[str] = set()
+        class_attr = re.compile(
+            r"<WbButton\b[\s\S]{0,240}?className\s*=\s*(?:\"([^\"]+)\"|\{([^}\n]+)\})"
+        )
+        for path in SRC.rglob("*.tsx"):
+            source = path.read_text(encoding="utf-8")
+            for match in class_attr.finditer(source):
+                value = match.group(1) or match.group(2) or ""
+                for literal in re.findall(r"['\"`]([^'\"`]+)['\"`]", value):
+                    button_classes.update(literal.split())
+                if match.group(1):
+                    button_classes.update(match.group(1).split())
+
+        css = "\n".join(path.read_text(encoding="utf-8") for path in (SRC / "styles").glob("*.css"))
+        css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+        borderless_used: set[str] = set()
+        implicit_borderless_selectors: list[str] = []
+        for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css, re.DOTALL):
+            if not re.search(r"(?:^|;)\s*border\s*:\s*(?:none|0(?:px)?)\s*(?:;|$)", body):
+                continue
+            if re.search(r"(?:^|[\s>+~,])button(?=[:.#\s,]|$)", selectors):
+                implicit_borderless_selectors.append(" ".join(selectors.split()))
+            for class_name in re.findall(r"\.([A-Za-z_][\w-]*)", selectors):
+                if class_name in button_classes:
+                    borderless_used.add(class_name)
+
+        self.assertEqual(implicit_borderless_selectors, [])
+        self.assertTrue(borderless_used.issubset(configured))
+        self.assertEqual(configured - {"shell-nav-toggle"}, borderless_used)
+        integration = (SRC / "styles/antd.css").read_text(encoding="utf-8")
+        self.assertIn(".ant-btn.wb-button-borderless", integration)
+        self.assertIn(".ant-btn.shell-nav-toggle", integration)
+        self.assertIn(".ant-btn.asst-seg-btn", integration)
+
 
 if __name__ == "__main__":
     unittest.main()

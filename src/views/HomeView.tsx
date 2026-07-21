@@ -231,7 +231,7 @@ export function HomeView() {
                 <b>任务进展</b>
                 <span>从真实会话与执行记录汇总</span>
               </div>
-              <WbButton onClick={() => setView('projects')}>查看项目</WbButton>
+              <WbButton className="home-console-action" onClick={() => setView('projects')}>查看项目</WbButton>
             </div>
             <div className="home-metrics">
               <ProCard className="home-metric"><Statistic value={activeRuns.length} title="执行中 / 等待输入" /></ProCard>

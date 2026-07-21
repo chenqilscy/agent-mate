@@ -89,16 +89,16 @@ export function AssistantSettingsForm({ assistant, onSaved }: {
       <div className="np-lbl">权限</div>
       <div className="asst-seg">
         {MODES.map((m) => (
-          <WbButton key={m.v} className={mode === m.v ? 'on' : ''} title={m.hint} onClick={() => setMode(m.v)}>{m.label}</WbButton>
+          <WbButton key={m.v} className={`asst-seg-btn ${mode === m.v ? 'on' : ''}`.trim()} title={m.hint} onClick={() => setMode(m.v)}>{m.label}</WbButton>
         ))}
       </div>
       <div className="asst-hint2">{MODES.find((m) => m.v === mode)?.hint}</div>
 
       <div className="np-lbl">工作空间</div>
       <div className="asst-seg">
-        <WbButton className={wsKind === 'default' ? 'on' : ''} onClick={() => setWsKind('default')}>默认</WbButton>
-        <WbButton className={wsKind === 'dedicated' ? 'on' : ''} onClick={() => setWsKind('dedicated')}>专属</WbButton>
-        <WbButton className={wsKind === 'project' ? 'on' : ''} onClick={() => setWsKind('project')}>项目</WbButton>
+        <WbButton className={`asst-seg-btn ${wsKind === 'default' ? 'on' : ''}`.trim()} onClick={() => setWsKind('default')}>默认</WbButton>
+        <WbButton className={`asst-seg-btn ${wsKind === 'dedicated' ? 'on' : ''}`.trim()} onClick={() => setWsKind('dedicated')}>专属</WbButton>
+        <WbButton className={`asst-seg-btn ${wsKind === 'project' ? 'on' : ''}`.trim()} onClick={() => setWsKind('project')}>项目</WbButton>
       </div>
       {wsKind === 'project' && (
         <WbSelect className="np-input" style={{ marginTop: 8 }} value={wsProject} onChange={(e) => setWsProject(e.target.value)}>

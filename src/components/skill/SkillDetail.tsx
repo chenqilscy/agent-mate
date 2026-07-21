@@ -189,8 +189,8 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
           {data && installed ? (
             <div className="skd-card">
               <div className="skd-viewtoggle">
-                <WbButton className={view === 'preview' ? 'on' : ''} aria-label="预览" title="预览" onClick={() => setView('preview')}><IcEye /></WbButton>
-                <WbButton className={view === 'source' ? 'on' : ''} aria-label="源码" title="源码" onClick={() => setView('source')}><IcCode /></WbButton>
+                <WbButton className={`skd-viewtoggle-btn ${view === 'preview' ? 'on' : ''}`.trim()} aria-label="预览" title="预览" onClick={() => setView('preview')}><IcEye /></WbButton>
+                <WbButton className={`skd-viewtoggle-btn ${view === 'source' ? 'on' : ''}`.trim()} aria-label="源码" title="源码" onClick={() => setView('source')}><IcCode /></WbButton>
               </div>
               {view === 'preview' ? (
                 <div className="skd-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(data.body || data.markdown) }} />

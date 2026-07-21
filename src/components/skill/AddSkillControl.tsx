@@ -169,8 +169,8 @@ export function AddSkillControl({ onCreate, onImported }: {
         </WbButton>
         {menuOpen && (
           <div className="skill-add-menu" role="menu">
-            <WbButton role="menuitem" onClick={() => choose(() => setImportOpen(true))}>上传技能</WbButton>
-            <WbButton role="menuitem" onClick={() => choose(onCreate)}>创建技能</WbButton>
+            <WbButton className="skill-add-menu-action" role="menuitem" onClick={() => choose(() => setImportOpen(true))}>上传技能</WbButton>
+            <WbButton className="skill-add-menu-action" role="menuitem" onClick={() => choose(onCreate)}>创建技能</WbButton>
           </div>
         )}
       </div>

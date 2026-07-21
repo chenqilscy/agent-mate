@@ -21,6 +21,39 @@ type NativeButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type'> &
   type?: ButtonHTMLAttributes<HTMLButtonElement>['type']
 }
 
+// These product-skin classes intentionally own a zero-width border. Ant's
+// generic default/primary hover rule otherwise reintroduces a 1px border,
+// shrinking the content box and making icons/text jump on pointer entry.
+const BORDERLESS_VISUAL_CLASSES = new Set([
+  'asst-del',
+  'asst-new',
+  'auto-more',
+  'btn-dark',
+  'cs-btn',
+  'csend',
+  'cstop',
+  'home-console-action',
+  'mc-act',
+  'mm-x',
+  'np-add',
+  'np-x',
+  'ov-dd',
+  'pj-ds-act',
+  'sb-scl',
+  'set-chip2-x',
+  'set-link',
+  'set-mem-x',
+  'skd-viewtoggle-btn',
+  'skill-add-menu-action',
+  'tray-chip',
+  'wb-td-editlink',
+])
+
+const ASYMMETRIC_VISUAL_CLASSES = new Set([
+  'asst-seg-btn',
+  'shell-nav-toggle',
+])
+
 /** Native-compatible Ant button used during the WorkBuddy skin migration. */
 export const WbButton = forwardRef<HTMLButtonElement, NativeButtonProps>(function WbButton(
   { type = 'button', className = '', ...props },
@@ -28,6 +61,9 @@ export const WbButton = forwardRef<HTMLButtonElement, NativeButtonProps>(functio
 ) {
   const visualType: ButtonProps['type'] = className.includes('btn-dark') ? 'primary' : 'default'
   const danger = /(^|\s)(danger|danger-b)(\s|$)/.test(className)
+  const borderless = className.split(/\s+/).some((name) => BORDERLESS_VISUAL_CLASSES.has(name))
+  const asymmetric = className.split(/\s+/).some((name) => ASYMMETRIC_VISUAL_CLASSES.has(name))
+  const mergedClassName = `${className}${borderless ? ' wb-button-borderless' : ''}${asymmetric ? ' wb-button-asymmetric' : ''}`.trim()
   return (
     <AntButton
       ref={ref}
@@ -35,7 +71,7 @@ export const WbButton = forwardRef<HTMLButtonElement, NativeButtonProps>(functio
       htmlType={type}
       type={visualType}
       danger={danger}
-      className={className}
+      className={mergedClassName}
     />
   )
 })
