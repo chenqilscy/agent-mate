@@ -19,25 +19,41 @@ function clearHighlights() {
   hl?.delete(HL_CUR)
 }
 
-// Walk the text nodes under `root` and return a Range for every case-insensitive
-// occurrence of `query`, in document order.
-function collectRanges(root: HTMLElement, query: string): Range[] {
+// Build one searchable string per message, then map each match back to its text
+// nodes. This lets a phrase cross inline Markdown elements (`strong`, `code`,
+// links...) without ever joining the tail of one message to the next one.
+export function collectRanges(root: HTMLElement, query: string): Range[] {
   const out: Range[] = []
   if (!query) return out
   const q = query.toLowerCase()
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  let node: Node | null
-  while ((node = walker.nextNode())) {
-    const value = node.nodeValue
-    if (!value) continue
-    const text = value.toLowerCase()
-    let idx = text.indexOf(q)
+  const messages = Array.from(root.querySelectorAll<HTMLElement>('.msg'))
+  const scopes = messages.length ? messages : [root]
+
+  for (const scope of scopes) {
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT)
+    const segments: { node: Text; start: number; end: number }[] = []
+    let text = ''
+    let node: Node | null
+    while ((node = walker.nextNode())) {
+      const value = node.nodeValue
+      if (!value) continue
+      const start = text.length
+      text += value
+      segments.push({ node: node as Text, start, end: text.length })
+    }
+
+    const haystack = text.toLowerCase()
+    let idx = haystack.indexOf(q)
     while (idx !== -1) {
+      const matchEnd = idx + q.length
+      const first = segments.find((part) => part.start <= idx && idx < part.end)
+      const last = segments.find((part) => part.start < matchEnd && matchEnd <= part.end)
+      if (!first || !last) break
       const r = document.createRange()
-      r.setStart(node, idx)
-      r.setEnd(node, idx + q.length)
+      r.setStart(first.node, idx - first.start)
+      r.setEnd(last.node, matchEnd - last.start)
       out.push(r)
-      idx = text.indexOf(q, idx + q.length)
+      idx = haystack.indexOf(q, matchEnd)
     }
   }
   return out

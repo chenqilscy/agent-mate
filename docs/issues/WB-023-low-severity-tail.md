@@ -3,7 +3,7 @@ id: WB-023
 title: 低危备忘集合（13 项）
 severity: P3
 area: misc
-status: open
+status: in-progress
 origin: mixed
 files:
   - 见各条
@@ -15,7 +15,7 @@ created: 2026-07-06
 
 ## 清单
 
-- [ ] **ChatSearch 漏跨文本节点匹配** — `ChatSearch.tsx:23` `indexOf` 仅在单个 text node 内查找；markdown 把 `**bold**`/代码/链接切成多节点，跨边界短语搜不到（浏览器原生查找能命中）。属已知取舍，至少文案说明或后续做跨节点合并。
+- [x] **ChatSearch 漏跨文本节点匹配** — 已拆分并修复为 WB-281；搜索在单条消息内合并文本并映射回跨节点 Range，不跨消息拼接。
 - [ ] **重名附件被静默丢弃却仍提示「已添加」** — `Composer.tsx:68` + `loadoutStore.ts:49` `addRef` 按 `name` 去重；两个不同目录同名文件第二个被丢弃但仍 toast「已添加」。按完整路径/内容去重，或去重时提示。
 - [ ] **plan + ask 叠加产生自相矛盾的系统提示** — `runtime.py:163` plan 提示要求用 update_plan/ask_user，ask 后缀又要求「不要调用任何工具」，且 `tools_list=[]` 使 plan 能力全失。行为上 ask 压过 plan，但提示词冲突。显式互斥或定义优先级文案。
 - [ ] **plan 模式静默丢弃连接器且横幅不显示** — `runtime.py:226` `if active_connectors and not plan and not ask` 使 plan 下连接器（含只读 list_notes）全不加载，且「已加载」横幅不展示用户已选连接器，易误解。
