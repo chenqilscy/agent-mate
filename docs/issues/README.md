@@ -290,6 +290,7 @@
 | [WB-271](WB-271-duplicate-attachment-feedback.md) | ✅ | P3 | frontend | 重名附件被静默丢弃却仍提示添加成功 |
 | [WB-272](WB-272-plan-ask-mode-conflict.md) | ✅ | P3 | fullstack | Plan 与 Ask 可叠加并产生冲突系统提示 |
 | [WB-273](WB-273-plan-connector-transparency.md) | ✅ | P3 | backend | Plan 模式静默忽略已选连接器 |
+| [WB-274](WB-274-legacy-model-id-colon.md) | ✅ | P3 | backend | 旧模型选择解析会截断含冒号的真实模型 ID |
 | [WB-281](WB-281-chatsearch-cross-node-match.md) | ✅ | P3 | frontend | ChatSearch 无法匹配跨 Markdown 文本节点短语 |
 
 ## 来源

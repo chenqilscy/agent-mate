@@ -174,14 +174,25 @@ def resolve_model_config(
         row = db.get_custom_model_by_name(owner_id, client_model, include_secrets=True)
         if row and row.get("model_id"):
             return row["model_id"], row.get("api_base"), row.get("api_key"), default_path
-        if ":" in client_model:
-            real = client_model.rsplit(":", 1)[-1].strip()
-            if real:
-                return real, None, None, default_path
+        real = parse_legacy_model_id(client_model)
+        if real:
+            return real, None, None, default_path
     raise LLMError(
         f"模型「{client_model}」当前不可用（可能厂商 Key 已撤销、或模型已删除）。"
         "请在「模型管理」里重新选择默认模型，或在模型菜单里换一个。"
     )
+
+
+def parse_legacy_model_id(selection: str) -> str | None:
+    """Parse old `Display:real-id` values without truncating colon-bearing IDs."""
+    label, sep, model_id = selection.partition(":")
+    if not sep:
+        return None
+    # `vendor/model:variant` is already a bare provider model id. A legacy label
+    # precedes the first colon and therefore does not contain the provider path.
+    if "/" in label:
+        return selection.strip() or None
+    return model_id.strip() or None
 
 
 def _approx_tokens(text: str) -> int:

@@ -19,7 +19,7 @@ created: 2026-07-06
 - [x] **重名附件被静默丢弃却仍提示「已添加」** — 已拆分并修复为 WB-271；同名不同内容可并存，完全重复会得到明确反馈，chip 按内部 ID 独立删除。
 - [x] **plan + ask 叠加产生自相矛盾的系统提示** — 已拆分并修复为 WB-272；前端互斥，后端对冲突请求按 Ask 优先归一。
 - [x] **plan 模式静默丢弃连接器且横幅不显示** — 已拆分并修复为 WB-273；仍保守禁用外部 MCP，但轨迹逐项说明连接器因计划模式未加载。
-- [ ] **resolve_model 用 rsplit(":",1)** — `runtime.py:89` 形如 `vendor/model:free` 的真实模型 id 会被误拆成 `free`。当前仅内置标签用 `Display:id`，属边角。
+- [x] **resolve_model 用 rsplit(":",1)** — 已拆分并修复为 WB-274；旧显示标签只切首个冒号，裸 `vendor/model:free` 整体保留。
 - [ ] **session 事件到达前点停止，后端任务不被停** — `chatStore.ts:225` `api.stopChat` 受 `if(activeId)` 保护；新草稿在 `session` 事件回来前 `activeId` 为 null，此时停止只 abort 客户端连接。拿到 session 后补发 stop，或依赖断开让后端感知。
 - [ ] **files usage 每次全量 rglob** — `files.py:129` 每次 `rglob("*")` 全量遍历并在线程池同步阻塞，大工作区慢。可缓存/增量。
 - [x] **files.py `root` 死参** — `files.py:76` 的 `root` 参数永远被 `current_root()` 覆盖，属死代码，清理。
