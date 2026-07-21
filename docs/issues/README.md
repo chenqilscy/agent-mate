@@ -295,6 +295,7 @@
 | [WB-276](WB-276-llm-stream-close-on-stop.md) | ✅ | P3 | backend | 停止生成时 LLM HTTP 流未被立即关闭 |
 | [WB-277](WB-277-list-messages-missing-return.md) | ✅ | P1 | backend | list_messages 丢失返回体导致全部对话运行失败 |
 | [WB-278](WB-278-text-3-contrast-design-contract.md) | 🚫 | P3 | ui | text-3 二级文字对比度低于 WCAG AA（原型保真约束，本轮不改） |
+| [WB-279](WB-279-skill-catalog-test-server-gate.md) | ✅ | P2 | test | Skill catalog 同步回归未开启 Server gate |
 | [WB-281](WB-281-chatsearch-cross-node-match.md) | ✅ | P3 | frontend | ChatSearch 无法匹配跨 Markdown 文本节点短语 |
 
 ## 来源

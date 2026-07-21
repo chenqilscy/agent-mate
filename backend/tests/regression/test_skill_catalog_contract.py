@@ -376,6 +376,7 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertTrue(db.skill_catalog_state("web-access")["withdrawn"])
         self.assertIsNone(skill_runtime_def("web-access"))
 
+    @patch.object(settings, "AGENTMATE_SERVER_URL", "http://server.test")
     def test_catalog_sync_persists_revision_and_incompatibility(self) -> None:
         import server_sync
 
