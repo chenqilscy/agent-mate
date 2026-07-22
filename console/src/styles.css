@@ -106,7 +106,12 @@ body {
 
 .project-plan { display: grid; gap: 16px; }
 .project-plan-toolbar { position: sticky; top: 64px; z-index: 5; border-color: var(--console-border); }
-.project-plan-toolbar-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.project-plan-toolbar-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 20px; }
+.project-plan-toolbar-group { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.project-plan-toolbar-group > .ant-space { min-width: 0; }
+.project-plan-toolbar-label { flex: 0 0 auto; width: 28px; font-size: 12px; font-weight: 600; }
+.project-plan-toolbar-view { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+.project-plan-toolbar-filter { grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid var(--console-border); }
 .project-plan-toolbar .ant-input-search { width: 210px; }
 .project-plan-toolbar .ant-select { min-width: 132px; }
 .project-batch-bar {
@@ -143,6 +148,7 @@ body {
 .project-kanban-cards { display: grid; align-content: start; gap: 8px; }
 .project-task-card { cursor: pointer; border-color: var(--console-border); background: var(--console-task-hover); }
 .project-task-card:hover { border-color: color-mix(in srgb, var(--console-brand) 55%, var(--console-border)); box-shadow: 0 6px 16px rgb(0 0 0 / 8%); }
+.project-task-card.is-saving { border-color: color-mix(in srgb, var(--console-brand) 45%, var(--console-border)); opacity: .82; }
 .project-task-card[draggable="true"] { cursor: grab; }
 .project-task-card[draggable="true"]:active { cursor: grabbing; }
 .project-task-card .ant-card-body { display: grid; gap: 8px; padding: 11px; }
@@ -259,8 +265,11 @@ body {
   .overview-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .table-scroll-hint { display: block; }
   .project-plan-toolbar { position: static; }
-  .project-plan-toolbar-row { align-items: stretch; flex-direction: column; }
-  .project-plan-toolbar-row > .ant-space { width: 100%; }
+  .project-plan-toolbar-row { grid-template-columns: 1fr; }
+  .project-plan-toolbar-filter { grid-column: auto; }
+  .project-plan-toolbar-group { align-items: flex-start; }
+  .project-plan-toolbar-group > .ant-space { width: 100%; }
+  .project-plan-toolbar-view { grid-column: auto; grid-row: auto; justify-content: flex-start; }
   .project-plan-toolbar .ant-input-search { width: min(100%, 260px); }
   .project-kanban { grid-template-columns: repeat(4, 260px); }
   .task-editor-layout { grid-template-columns: 1fr; }
@@ -273,6 +282,8 @@ body {
   .ant-pro-table-list-toolbar-right { width: 100%; }
   .ant-pro-table-list-toolbar-right > div { width: 100%; display: grid; gap: 8px; }
   .project-workspace-tabs > .ant-tabs-nav { overflow-x: auto; }
+  .project-plan-toolbar-group { align-items: stretch; flex-direction: column; }
+  .project-plan-toolbar-label { width: auto; }
   .project-plan-toolbar-row .ant-space-item,
   .project-plan-toolbar .ant-select,
   .project-plan-toolbar .ant-input-search { width: 100%; }

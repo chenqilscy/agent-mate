@@ -126,6 +126,7 @@ interface ProjectWorkContextValue {
   sprints: Sprint[];
   activity: Activity[];
   loading: boolean;
+  savingTaskIds: ReadonlySet<string>;
   selected: string[];
   setSelected: (ids: string[]) => void;
   reload: () => Promise<void>;
@@ -191,6 +192,7 @@ export function ProjectWorkProvider({
   const [customFields, setCustomFields] = useState<ProjectCustomField[]>([]);
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [savingTaskIds, setSavingTaskIds] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<string[]>([]);
   const [editing, setEditing] = useState<WorkItem | null | undefined>(
     undefined,
@@ -204,10 +206,14 @@ export function ProjectWorkProvider({
     {},
   );
   const [savedViews, setSavedViews] = useState<SavedPlanView[]>([]);
+  const [taskDirty, setTaskDirty] = useState(false);
+  const [taskSaving, setTaskSaving] = useState(false);
+  const [quickPlanSaving, setQuickPlanSaving] = useState(false);
   const [form] = Form.useForm<TaskDraft>();
   const [templateForm] = Form.useForm<{ name: string }>();
   const [commentForm] = Form.useForm<{ body: string }>();
   const [quickPlanForm] = Form.useForm<QuickPlanDraft>();
+  const watchedTaskTitle = Form.useWatch("title", form);
 
   async function reload() {
     setLoading(true);
@@ -260,11 +266,21 @@ export function ProjectWorkProvider({
     setLoading(false);
   }
 
+  async function refreshActivitySilently() {
+    try {
+      const result = await consoleApi.activity(project.id);
+      setActivity(result.activity || []);
+    } catch {
+      // 行内保存已经成功时，活动流刷新失败不应反向覆盖任务状态。
+    }
+  }
+
   useEffect(() => {
     void reload();
   }, [project.id]);
 
-  function openTask(task: WorkItem | null) {
+  function loadTaskEditor(task: WorkItem | null) {
+    setTaskDirty(false);
     setEditing(task);
     form.resetFields();
     form.setFieldsValue(
@@ -302,9 +318,38 @@ export function ProjectWorkProvider({
       });
   }
 
+  function confirmDiscard(action: () => void, title: string) {
+    if (!taskDirty || !canWrite(project)) {
+      action();
+      return;
+    }
+    Modal.confirm({
+      title,
+      content: "当前修改尚未保存，放弃后无法恢复。",
+      okText: "放弃修改",
+      cancelText: "继续编辑",
+      okButtonProps: { danger: true },
+      onOk: action,
+    });
+  }
+
+  function openTask(task: WorkItem | null) {
+    confirmDiscard(() => loadTaskEditor(task), "切换任务并放弃修改？");
+  }
+
   function openChild(parent: WorkItem) {
-    openTask(null);
-    form.setFieldValue("parent_id", parent.id);
+    confirmDiscard(() => {
+      loadTaskEditor(null);
+      form.setFieldValue("parent_id", parent.id);
+    }, "新建子任务并放弃修改？");
+  }
+
+  function closeTaskEditor() {
+    if (taskSaving) return;
+    confirmDiscard(() => {
+      setTaskDirty(false);
+      setEditing(undefined);
+    }, "关闭并放弃修改？");
   }
 
   function openQuickPlan(kind: QuickPlanKind) {
@@ -314,6 +359,7 @@ export function ProjectWorkProvider({
   }
 
   async function saveQuickPlan(values: QuickPlanDraft) {
+    setQuickPlanSaving(true);
     try {
       if (quickPlanKind === "milestone") {
         const created = await consoleApi.createMilestone(project.id, {
@@ -324,6 +370,7 @@ export function ProjectWorkProvider({
         });
         setMilestones((current) => [...current, created]);
         form.setFieldValue("milestone_id", created.id);
+        setTaskDirty(true);
         message.success("里程碑已创建并选中");
       } else if (quickPlanKind === "sprint") {
         const created = await consoleApi.createSprint(project.id, {
@@ -335,11 +382,14 @@ export function ProjectWorkProvider({
         });
         setSprints((current) => [...current, created]);
         form.setFieldValue("sprint_id", created.id);
+        setTaskDirty(true);
         message.success("Sprint 已创建并选中");
       }
       setQuickPlanKind(null);
     } catch (reason) {
       message.error(errorText(reason, "计划对象创建失败"));
+    } finally {
+      setQuickPlanSaving(false);
     }
   }
 
@@ -391,6 +441,7 @@ export function ProjectWorkProvider({
       sprint_id: "",
       ...values,
     });
+    setTaskDirty(true);
   }
 
   async function saveTemplate({ name }: { name: string }) {
@@ -433,11 +484,32 @@ export function ProjectWorkProvider({
   }
 
   async function patchTask(task: WorkItem, patch: Partial<WorkItem>) {
+    if (savingTaskIds.has(task.id)) return;
+    setItems((current) =>
+      current.map((item) => (item.id === task.id ? { ...item, ...patch } : item)),
+    );
+    setSavingTaskIds((current) => new Set(current).add(task.id));
     try {
-      await consoleApi.updateWorkItem(project.id, task.id, patch);
-      await reload();
+      const updated = await consoleApi.updateWorkItem(
+        project.id,
+        task.id,
+        patch,
+      );
+      setItems((current) =>
+        current.map((item) => (item.id === task.id ? updated : item)),
+      );
+      void refreshActivitySilently();
     } catch (reason) {
+      setItems((current) =>
+        current.map((item) => (item.id === task.id ? task : item)),
+      );
       message.error(errorText(reason, "任务更新失败"));
+    } finally {
+      setSavingTaskIds((current) => {
+        const next = new Set(current);
+        next.delete(task.id);
+        return next;
+      });
     }
   }
 
@@ -453,19 +525,53 @@ export function ProjectWorkProvider({
 
   async function batchPatch(patch: Partial<WorkItem>) {
     if (!selected.length) return;
-    try {
-      await Promise.all(
-        selected.map((id) => consoleApi.updateWorkItem(project.id, id, patch)),
+    const ids = selected.filter((id) => !savingTaskIds.has(id));
+    if (!ids.length) return;
+    const originals = new Map(
+      items
+        .filter((item) => ids.includes(item.id))
+        .map((item) => [item.id, item]),
+    );
+    setItems((current) =>
+      current.map((item) => (ids.includes(item.id) ? { ...item, ...patch } : item)),
+    );
+    setSavingTaskIds((current) => new Set([...current, ...ids]));
+    const results = await Promise.allSettled(
+      ids.map((id) => consoleApi.updateWorkItem(project.id, id, patch)),
+    );
+    const failedIds = new Set<string>();
+    const returned = new Map<string, WorkItem>();
+    results.forEach((result, index) => {
+      const id = ids[index];
+      if (result.status === "fulfilled") returned.set(id, result.value);
+      else failedIds.add(id);
+    });
+    setItems((current) =>
+      current.map(
+        (item) =>
+          returned.get(item.id) ||
+          (failedIds.has(item.id) ? originals.get(item.id) || item : item),
+      ),
+    );
+    setSavingTaskIds((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    if (failedIds.size) {
+      setSelected([...failedIds]);
+      message.error(
+        `${ids.length - failedIds.size} 项已更新，${failedIds.size} 项失败并已回滚`,
       );
-      message.success(`已更新 ${selected.length} 个任务`);
+    } else {
+      message.success(`已更新 ${ids.length} 个任务`);
       setSelected([]);
-      await reload();
-    } catch (reason) {
-      message.error(errorText(reason, "批量更新失败"));
     }
+    if (returned.size) void refreshActivitySilently();
   }
 
   async function saveTask(values: TaskDraft) {
+    setTaskSaving(true);
     try {
       const body: TaskDraft = {
         ...values,
@@ -482,10 +588,13 @@ export function ProjectWorkProvider({
         await consoleApi.updateWorkItem(project.id, editing.id, body);
       else await consoleApi.createWorkItem(project.id, body);
       message.success(editing ? "任务已保存" : "任务已创建");
+      setTaskDirty(false);
       setEditing(undefined);
       await reload();
     } catch (reason) {
       message.error(errorText(reason, "任务保存失败"));
+    } finally {
+      setTaskSaving(false);
     }
   }
 
@@ -501,6 +610,7 @@ export function ProjectWorkProvider({
       sprints,
       activity,
       loading,
+      savingTaskIds,
       selected,
       setSelected,
       reload,
@@ -525,6 +635,8 @@ export function ProjectWorkProvider({
       sprints,
       activity,
       loading,
+      savingTaskIds,
+      taskDirty,
       selected,
       templates,
       wip,
@@ -538,8 +650,19 @@ export function ProjectWorkProvider({
       <Drawer
         width="min(860px, 100vw)"
         open={editing !== undefined}
-        title={editing ? `任务 · ${editing.title}` : "新建任务"}
-        onClose={() => setEditing(undefined)}
+        title={
+          <Space size={8} wrap>
+            <span>
+              {editing
+                ? `任务 · ${watchedTaskTitle || editing.title}`
+                : "新建任务"}
+            </span>
+            {taskDirty && <Badge status="warning" text="未保存" />}
+          </Space>
+        }
+        onClose={closeTaskEditor}
+        maskClosable={!taskSaving}
+        closable={!taskSaving}
         destroyOnHidden
         extra={
           canWrite(project) && (
@@ -547,12 +670,18 @@ export function ProjectWorkProvider({
               {editing && (
                 <Button
                   icon={<SaveOutlined />}
+                  disabled={taskSaving}
                   onClick={() => setTemplateOpen(true)}
                 >
                   存为模板
                 </Button>
               )}
-              <Button type="primary" onClick={() => form.submit()}>
+              <Button
+                type="primary"
+                loading={taskSaving}
+                disabled={!taskDirty || taskSaving}
+                onClick={() => form.submit()}
+              >
                 保存
               </Button>
             </Space>
@@ -563,6 +692,7 @@ export function ProjectWorkProvider({
           form={form}
           layout="vertical"
           disabled={!canWrite(project)}
+          onValuesChange={() => setTaskDirty(true)}
           onFinish={saveTask}
         >
           <div className="task-editor-layout">
@@ -843,7 +973,8 @@ export function ProjectWorkProvider({
                     ]}
                   >
                     <Checkbox
-                      disabled={!canWrite(project)}
+                      disabled={!canWrite(project) || savingTaskIds.has(child.id)}
+                      aria-label={`${child.title} 完成状态`}
                       checked={child.status === "done"}
                       onChange={(event) =>
                         void patchTask(child, {
@@ -958,6 +1089,9 @@ export function ProjectWorkProvider({
         open={quickPlanKind !== null}
         onCancel={() => setQuickPlanKind(null)}
         onOk={() => quickPlanForm.submit()}
+        confirmLoading={quickPlanSaving}
+        maskClosable={!quickPlanSaving}
+        closable={!quickPlanSaving}
         destroyOnHidden
       >
         <Form form={quickPlanForm} layout="vertical" onFinish={saveQuickPlan}>
@@ -1315,6 +1449,7 @@ export function ProjectPlan() {
     members,
     milestones,
     loading,
+    savingTaskIds,
     selected,
     setSelected,
     openTask,
@@ -1361,6 +1496,16 @@ export function ProjectPlan() {
     () => makeLanes(filtered, group, members, milestones),
     [filtered, group, members, milestones],
   );
+  const hasPlanFilters =
+    group !== "none" || Boolean(assignee || source || search);
+
+  function clearPlanFilters() {
+    setGroup("none");
+    setAssignee("");
+    setSource("");
+    setSearch("");
+    setSelectedView("");
+  }
 
   function toggleSelected(id: string, checked: boolean) {
     setSelected(
@@ -1395,7 +1540,18 @@ export function ProjectPlan() {
     <div className="project-plan">
       <Card className="project-plan-toolbar" styles={{ body: { padding: 12 } }}>
         <div className="project-plan-toolbar-row">
-          <Space wrap>
+          <div
+            className="project-plan-toolbar-group project-plan-toolbar-actions"
+            role="group"
+            aria-label="任务操作"
+          >
+            <Typography.Text
+              className="project-plan-toolbar-label"
+              type="secondary"
+            >
+              任务
+            </Typography.Text>
+            <Space wrap>
             {canWrite(project) && (
               <Button
                 type="primary"
@@ -1435,12 +1591,29 @@ export function ProjectPlan() {
                   void deleteTemplate(templateId);
                   setTemplateId("");
                 }}
-              />
+                />
             )}
+            </Space>
+          </div>
+          <div
+            className="project-plan-toolbar-group project-plan-toolbar-filter"
+            role="group"
+            aria-label="任务筛选"
+          >
+            <Typography.Text
+              className="project-plan-toolbar-label"
+              type="secondary"
+            >
+              筛选
+            </Typography.Text>
+            <Space wrap>
             <Select
               aria-label="泳道分组"
               value={group}
-              onChange={setGroup}
+              onChange={(value) => {
+                setGroup(value);
+                setSelectedView("");
+              }}
               options={[
                 { value: "none", label: "不分组" },
                 { value: "assignee", label: "按负责人泳道" },
@@ -1452,7 +1625,10 @@ export function ProjectPlan() {
               allowClear
               value={assignee || undefined}
               placeholder="全部负责人"
-              onChange={(value) => setAssignee(value || "")}
+              onChange={(value) => {
+                setAssignee(value || "");
+                setSelectedView("");
+              }}
               options={members.map((member) => ({
                 value: member.account_id,
                 label: member.name,
@@ -1463,18 +1639,39 @@ export function ProjectPlan() {
               allowClear
               value={source || undefined}
               placeholder="全部来源"
-              onChange={(value) => setSource(value || "")}
+              onChange={(value) => {
+                setSource(value || "");
+                setSelectedView("");
+              }}
               options={sources.map((value) => ({ value, label: value }))}
             />
             <Input.Search
               aria-label="搜索任务"
               allowClear
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setSelectedView("");
+              }}
               placeholder="搜索任务"
             />
-          </Space>
-          <Space wrap>
+              <Button disabled={!hasPlanFilters} onClick={clearPlanFilters}>
+                清除筛选
+              </Button>
+            </Space>
+          </div>
+          <div
+            className="project-plan-toolbar-group project-plan-toolbar-view"
+            role="group"
+            aria-label="视图设置"
+          >
+            <Typography.Text
+              className="project-plan-toolbar-label"
+              type="secondary"
+            >
+              视图
+            </Typography.Text>
+            <Space wrap>
             <Select
               aria-label="保存的视图"
               allowClear
@@ -1511,7 +1708,8 @@ export function ProjectPlan() {
               canWrite(project) && (
                 <Button onClick={() => setWipOpen(true)}>WIP 上限</Button>
               )}
-          </Space>
+            </Space>
+          </div>
         </div>
         {selected.length > 0 && canWrite(project) && (
           <div className="project-batch-bar">
@@ -1598,8 +1796,11 @@ export function ProjectPlan() {
                         <Card
                           key={task.id}
                           size="small"
-                          className="project-task-card"
-                          draggable={canWrite(project)}
+                          className={`project-task-card${savingTaskIds.has(task.id) ? " is-saving" : ""}`}
+                          draggable={
+                            canWrite(project) && !savingTaskIds.has(task.id)
+                          }
+                          aria-busy={savingTaskIds.has(task.id)}
                           onDragStart={(event) =>
                             event.dataTransfer.setData("text/plain", task.id)
                           }
@@ -1609,6 +1810,8 @@ export function ProjectPlan() {
                             {canWrite(project) && (
                               <Checkbox
                                 checked={selected.includes(task.id)}
+                                disabled={savingTaskIds.has(task.id)}
+                                aria-label={`选择任务 ${task.title}`}
                                 onClick={(event) => event.stopPropagation()}
                                 onChange={(event) =>
                                   toggleSelected(task.id, event.target.checked)
@@ -1621,6 +1824,9 @@ export function ProjectPlan() {
                             >
                               {task.title}
                             </Typography.Text>
+                            {savingTaskIds.has(task.id) && (
+                              <Tag icon={<ClockCircleOutlined />}>保存中</Tag>
+                            )}
                           </div>
                           {task.description && (
                             <Typography.Paragraph
@@ -1663,6 +1869,9 @@ export function ProjectPlan() {
                               <Select
                                 size="small"
                                 value={task.status}
+                                aria-label={`${task.title} 状态`}
+                                loading={savingTaskIds.has(task.id)}
+                                disabled={savingTaskIds.has(task.id)}
                                 onClick={(event) => event.stopPropagation()}
                                 onChange={(value) =>
                                   void patchTask(task, { status: value })
@@ -1811,6 +2020,7 @@ export function ProjectTasks() {
     milestones,
     sprints,
     loading,
+    savingTaskIds,
     selected,
     setSelected,
     reload,
@@ -1846,6 +2056,9 @@ export function ProjectTasks() {
         >
           <span>
             <Typography.Text strong>{item.title}</Typography.Text>
+            {savingTaskIds.has(item.id) && (
+              <Tag icon={<ClockCircleOutlined />}>保存中</Tag>
+            )}
             {items.some((child) => child.parent_id === item.id) && <Tag>{items.filter((child) => child.parent_id === item.id && child.status === "done").length}/{items.filter((child) => child.parent_id === item.id).length} 子任务</Tag>}
             {item.description && (
               <Typography.Text type="secondary" ellipsis>
@@ -1864,7 +2077,9 @@ export function ProjectTasks() {
         <Select
           size="small"
           value={item.status}
-          disabled={!canWrite(project)}
+          aria-label={`${item.title} 状态`}
+          loading={savingTaskIds.has(item.id)}
+          disabled={!canWrite(project) || savingTaskIds.has(item.id)}
           options={[...STATUS_OPTIONS]}
           onChange={(value) => void patchTask(item, { status: value })}
         />
@@ -1878,7 +2093,9 @@ export function ProjectTasks() {
         <Select
           size="small"
           value={item.priority}
-          disabled={!canWrite(project)}
+          aria-label={`${item.title} 优先级`}
+          loading={savingTaskIds.has(item.id)}
+          disabled={!canWrite(project) || savingTaskIds.has(item.id)}
           options={[...PRIORITY_OPTIONS]}
           onChange={(value) => void patchTask(item, { priority: value })}
         />
@@ -1896,7 +2113,9 @@ export function ProjectTasks() {
           optionFilterProp="label"
           value={item.assignee || undefined}
           placeholder="未指派"
-          disabled={!canWrite(project)}
+          aria-label={`${item.title} 负责人`}
+          loading={savingTaskIds.has(item.id)}
+          disabled={!canWrite(project) || savingTaskIds.has(item.id)}
           options={members.map((member) => ({
             value: member.account_id,
             label: member.name,
@@ -1917,7 +2136,9 @@ export function ProjectTasks() {
           optionFilterProp="label"
           value={item.milestone_id || undefined}
           placeholder="无里程碑"
-          disabled={!canWrite(project)}
+          aria-label={`${item.title} 里程碑`}
+          loading={savingTaskIds.has(item.id)}
+          disabled={!canWrite(project) || savingTaskIds.has(item.id)}
           options={milestones.map((milestone) => ({
             value: milestone.id,
             label: milestone.name,
@@ -1938,7 +2159,9 @@ export function ProjectTasks() {
           optionFilterProp="label"
           value={item.sprint_id || undefined}
           placeholder="无 Sprint"
-          disabled={!canWrite(project)}
+          aria-label={`${item.title} Sprint`}
+          loading={savingTaskIds.has(item.id)}
+          disabled={!canWrite(project) || savingTaskIds.has(item.id)}
           options={sprints.map((sprint) => ({ value: sprint.id, label: sprint.name }))}
           onChange={(value) => void patchTask(item, { sprint_id: value || "" })}
         />
@@ -1959,7 +2182,8 @@ export function ProjectTasks() {
           size="small"
           type="date"
           value={item.due_date || ""}
-          disabled={!canWrite(project)}
+          aria-label={`${item.title} 截止日期`}
+          disabled={!canWrite(project) || savingTaskIds.has(item.id)}
           status={item.status !== "done" && item.due_date && item.due_date < today() ? "error" : undefined}
           onChange={(event) => void patchTask(item, { due_date: event.target.value })}
         />
