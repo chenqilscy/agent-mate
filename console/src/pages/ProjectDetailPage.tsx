@@ -46,6 +46,7 @@ import {
   ProjectWorkload,
   ProjectWorkProvider,
 } from "../components/project/ProjectWorkspace";
+import type { ProjectWorkspaceTab } from "../components/project/ProjectWorkspace";
 import { navigate } from "../router";
 import type {
   CatalogData,
@@ -63,6 +64,24 @@ const ROLE_OPTIONS = ["Admin", "Member", "Viewer"].map((value) => ({
   value,
   label: value,
 }));
+const PROJECT_TABS: readonly ProjectWorkspaceTab[] = [
+  "overview",
+  "plan",
+  "tasks",
+  "workload",
+  "gantt",
+  "iterations",
+  "knowledge",
+  "collab",
+  "config",
+];
+
+function requestedProjectTab(): ProjectWorkspaceTab {
+  const requested = new URLSearchParams(window.location.search).get("tab");
+  return PROJECT_TABS.includes(requested as ProjectWorkspaceTab)
+    ? (requested as ProjectWorkspaceTab)
+    : "overview";
+}
 function errorText(reason: unknown, fallback: string): string {
   return reason instanceof Error ? reason.message : fallback;
 }
@@ -84,7 +103,7 @@ export default function ProjectDetailPage({
   const { message } = App.useApp();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState<ProjectWorkspaceTab>(requestedProjectTab);
   async function load() {
     setLoading(true);
     try {
@@ -98,6 +117,36 @@ export default function ProjectDetailPage({
   useEffect(() => {
     void load();
   }, [projectId]);
+  useEffect(() => {
+    const syncTabFromUrl = () => {
+      const url = new URL(window.location.href);
+      const requested = url.searchParams.get("tab");
+      const next = requestedProjectTab();
+      setTab(next);
+      if (
+        requested &&
+        !PROJECT_TABS.includes(requested as ProjectWorkspaceTab)
+      ) {
+        url.searchParams.delete("tab");
+        window.history.replaceState(null, "", url);
+      }
+    };
+    syncTabFromUrl();
+    window.addEventListener("popstate", syncTabFromUrl);
+    return () => window.removeEventListener("popstate", syncTabFromUrl);
+  }, [projectId]);
+
+  const selectProjectTab = useCallback(
+    (next: ProjectWorkspaceTab) => {
+      if (next === tab) return;
+      setTab(next);
+      const url = new URL(window.location.href);
+      if (next === "overview") url.searchParams.delete("tab");
+      else url.searchParams.set("tab", next);
+      window.history.pushState(null, "", url);
+    },
+    [tab],
+  );
   return (
     <PageContainer
       title={project?.name || "项目"}
@@ -133,7 +182,10 @@ export default function ProjectDetailPage({
       }}
     >
       {project ? (
-        <ProjectWorkProvider project={project}>
+        <ProjectWorkProvider
+          project={project}
+          onNavigateTab={selectProjectTab}
+        >
           <Card className="project-hero">
             <Space size={16}>
               <Avatar shape="square" size={52} icon={<ProjectOutlined />} />
@@ -148,7 +200,7 @@ export default function ProjectDetailPage({
           <Tabs
             className="project-workspace-tabs"
             activeKey={tab}
-            onChange={setTab}
+            onChange={(key) => selectProjectTab(key as ProjectWorkspaceTab)}
             more={{ trigger: "click" }}
             items={[
               { key: "overview", label: "概览", children: <ProjectOverview /> },

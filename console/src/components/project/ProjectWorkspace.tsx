@@ -90,6 +90,16 @@ const STATUS_META: Record<
 
 type TaskDraft = Partial<WorkItem> & { title: string };
 type QuickPlanKind = "milestone" | "sprint";
+export type ProjectWorkspaceTab =
+  | "overview"
+  | "plan"
+  | "tasks"
+  | "workload"
+  | "gantt"
+  | "iterations"
+  | "knowledge"
+  | "collab"
+  | "config";
 interface QuickPlanDraft {
   name: string;
   description?: string;
@@ -130,6 +140,7 @@ interface ProjectWorkContextValue {
   selected: string[];
   setSelected: (ids: string[]) => void;
   reload: () => Promise<void>;
+  navigateToTab: (tab: ProjectWorkspaceTab) => void;
   openTask: (task: WorkItem | null) => void;
   patchTask: (task: WorkItem, patch: Partial<WorkItem>) => Promise<void>;
   deleteTask: (task: WorkItem) => Promise<void>;
@@ -179,9 +190,11 @@ function useProjectWork(): ProjectWorkContextValue {
 
 export function ProjectWorkProvider({
   project,
+  onNavigateTab,
   children,
 }: {
   project: Project;
+  onNavigateTab: (tab: ProjectWorkspaceTab) => void;
   children: ReactNode;
 }) {
   const { message } = App.useApp();
@@ -614,6 +627,7 @@ export function ProjectWorkProvider({
       selected,
       setSelected,
       reload,
+      navigateToTab: onNavigateTab,
       openTask,
       patchTask,
       deleteTask,
@@ -638,6 +652,7 @@ export function ProjectWorkProvider({
       savingTaskIds,
       taskDirty,
       selected,
+      onNavigateTab,
       templates,
       wip,
       savedViews,
@@ -1156,7 +1171,15 @@ export function ProjectWorkProvider({
 }
 
 export function ProjectOverview() {
-  const { project, roots, milestones, activity, loading } = useProjectWork();
+  const {
+    project,
+    roots,
+    milestones,
+    activity,
+    loading,
+    navigateToTab,
+    openTask,
+  } = useProjectWork();
   const done = roots.filter((item) => item.status === "done").length;
   const doing = roots.filter((item) => item.status === "doing").length;
   const overdue = roots.filter(
@@ -1166,6 +1189,27 @@ export function ProjectOverview() {
   const percent = roots.length ? Math.round((done / roots.length) * 100) : 0;
   return (
     <div className="tab-stack">
+      {!loading && !roots.length && (
+        <Card>
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="从第一个任务开始规划项目"
+          >
+            <Space wrap>
+              {canWrite(project) && (
+                <Button type="primary" onClick={() => openTask(null)}>
+                  新建任务
+                </Button>
+              )}
+              <Button onClick={() => navigateToTab("iterations")}>
+                {canWrite(project)
+                  ? "配置里程碑和 Sprint"
+                  : "查看计划设置"}
+              </Button>
+            </Space>
+          </Empty>
+        </Card>
+      )}
       <Row gutter={[16, 16]}>
         <Col xs={12} xl={6}>
           <Card loading={loading}>
@@ -1273,7 +1317,7 @@ function MilestoneCard({
   editable?: boolean;
 }) {
   const { message } = App.useApp();
-  const { reload } = useProjectWork();
+  const { reload, navigateToTab } = useProjectWork();
   const [open, setOpen] = useState(false);
   const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(
     null,
@@ -1381,7 +1425,13 @@ function MilestoneCard({
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description="还没有里程碑"
-        />
+        >
+          {!editable && roots.length > 0 && (
+            <Button onClick={() => navigateToTab("iterations")}>
+              {canWrite(project) ? "前往计划设置" : "查看计划设置"}
+            </Button>
+          )}
+        </Empty>
       )}
       <Modal
         title={editingMilestone ? "编辑里程碑" : "新增里程碑"}
@@ -1894,7 +1944,22 @@ export function ProjectPlan() {
         ))
       ) : (
         <Card>
-          <Empty description="没有符合条件的任务" />
+          <Empty
+            description={
+              roots.length ? "没有符合条件的任务" : "还没有任务"
+            }
+          >
+            <Space wrap>
+              {!roots.length && canWrite(project) && (
+                <Button type="primary" onClick={() => openTask(null)}>
+                  新建第一个任务
+                </Button>
+              )}
+              {roots.length > 0 && hasPlanFilters && (
+                <Button onClick={clearPlanFilters}>清除筛选</Button>
+              )}
+            </Space>
+          </Empty>
         </Card>
       )}
 
@@ -2032,6 +2097,9 @@ export function ProjectTasks() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [assignee, setAssignee] = useState("");
+  const [priority, setPriority] = useState("");
+  const [milestoneId, setMilestoneId] = useState("");
+  const [sprintId, setSprintId] = useState("");
   const [batchStatus, setBatchStatus] = useState<WorkItem["status"]>("doing");
   const orderedItems = useMemo(() => orderTasksForTable(items), [items]);
   const filtered = orderedItems.filter(
@@ -2041,8 +2109,26 @@ export function ProjectTasks() {
           .toLowerCase()
           .includes(search.toLowerCase())) &&
       (!status || item.status === status) &&
-      (!assignee || item.assignee === assignee),
+      (!assignee || item.assignee === assignee) &&
+      (!priority ||
+        (priority === "__none__"
+          ? !item.priority
+          : item.priority === priority)) &&
+      (!milestoneId || item.milestone_id === milestoneId) &&
+      (!sprintId || item.sprint_id === sprintId),
   );
+  const hasTaskFilters = Boolean(
+    search || status || assignee || priority || milestoneId || sprintId,
+  );
+
+  function clearTaskFilters() {
+    setSearch("");
+    setStatus("");
+    setAssignee("");
+    setPriority("");
+    setMilestoneId("");
+    setSprintId("");
+  }
   const columns: ProColumns<WorkItem>[] = [
     {
       title: "任务",
@@ -2233,14 +2319,36 @@ export function ProjectTasks() {
   ];
   return (
     <div className="project-task-table">
+      <Typography.Paragraph className="table-scroll-hint" type="secondary">
+        表格可左右滑动查看计划、日期和工时等全部字段。
+      </Typography.Paragraph>
       <ProTable<WorkItem>
         rowKey="id"
         columns={columns}
         dataSource={filtered}
         loading={loading}
         search={false}
-        pagination={{ pageSize: 15 }}
+        pagination={{
+          pageSize: 15,
+          showTotal: (total) => `共 ${total} 项`,
+        }}
         scroll={{ x: 1600 }}
+        locale={{
+          emptyText: (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={items.length ? "没有符合条件的任务" : "还没有任务"}
+            >
+              {items.length && hasTaskFilters ? (
+                <Button onClick={clearTaskFilters}>清除筛选</Button>
+              ) : canWrite(project) ? (
+                <Button type="primary" onClick={() => openTask(null)}>
+                  新建第一个任务
+                </Button>
+              ) : null}
+            </Empty>
+          ),
+        }}
         options={{ reload: () => void reload(), density: true, setting: true }}
         rowSelection={
           canWrite(project)
@@ -2252,14 +2360,16 @@ export function ProjectTasks() {
         }
         toolbar={{
           title: (
-            <Space wrap>
+            <Space wrap className="project-task-filters">
               <Input.Search
+                aria-label="搜索任务"
                 allowClear
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="搜索任务"
               />
               <Select
+                aria-label="状态筛选"
                 allowClear
                 value={status || undefined}
                 placeholder="全部状态"
@@ -2267,6 +2377,7 @@ export function ProjectTasks() {
                 options={[...STATUS_OPTIONS]}
               />
               <Select
+                aria-label="负责人筛选"
                 allowClear
                 value={assignee || undefined}
                 placeholder="全部负责人"
@@ -2276,6 +2387,47 @@ export function ProjectTasks() {
                   label: member.name,
                 }))}
               />
+              <Select
+                aria-label="优先级筛选"
+                allowClear
+                value={priority || undefined}
+                placeholder="全部优先级"
+                onChange={(value) => setPriority(value || "")}
+                options={[
+                  { value: "__none__", label: "无优先级" },
+                  ...PRIORITY_OPTIONS.filter((item) => item.value),
+                ]}
+              />
+              <Select
+                aria-label="里程碑筛选"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                value={milestoneId || undefined}
+                placeholder="全部里程碑"
+                onChange={(value) => setMilestoneId(value || "")}
+                options={milestones.map((milestone) => ({
+                  value: milestone.id,
+                  label: milestone.name,
+                }))}
+              />
+              <Select
+                aria-label="Sprint 筛选"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                value={sprintId || undefined}
+                placeholder="全部 Sprint"
+                onChange={(value) => setSprintId(value || "")}
+                options={sprints.map((sprint) => ({
+                  value: sprint.id,
+                  label: sprint.name,
+                }))}
+              />
+              <Tag>{filtered.length}/{items.length} 项</Tag>
+              {hasTaskFilters && (
+                <Button onClick={clearTaskFilters}>清除筛选</Button>
+              )}
             </Space>
           ),
           actions: canWrite(project)
@@ -2729,7 +2881,8 @@ interface WorkloadRow {
 }
 
 export function ProjectWorkload() {
-  const { roots, members, loading } = useProjectWork();
+  const { project, roots, members, loading, navigateToTab, openTask } =
+    useProjectWork();
   const rows = useMemo<WorkloadRow[]>(() => {
     const people = [
       ...members.map((member) => ({
@@ -2783,6 +2936,25 @@ export function ProjectWorkload() {
         dataSource={rows}
         pagination={false}
         scroll={{ x: 760 }}
+        locale={{
+          emptyText: (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description="还没有可统计的任务负载"
+            >
+              <Space wrap>
+                <Button onClick={() => navigateToTab("tasks")}>
+                  查看任务列表
+                </Button>
+                {canWrite(project) && (
+                  <Button type="primary" onClick={() => openTask(null)}>
+                    新建任务
+                  </Button>
+                )}
+              </Space>
+            </Empty>
+          ),
+        }}
         columns={[
           {
             title: "成员",
@@ -2858,7 +3030,7 @@ function daysBetween(from: Date, to: Date): number {
 }
 
 export function ProjectGantt() {
-  const { roots, loading, openTask } = useProjectWork();
+  const { project, roots, loading, navigateToTab, openTask } = useProjectWork();
   const dated = useMemo<GanttTask[]>(
     () =>
       roots
@@ -2879,7 +3051,18 @@ export function ProjectGantt() {
   if (!dated.length)
     return (
       <Card>
-        <Empty description="暂无带开始或截止日期的任务" />
+        <Empty description="暂无带开始或截止日期的任务">
+          <Space wrap>
+            <Button onClick={() => navigateToTab("tasks")}>
+              前往任务列表
+            </Button>
+            {canWrite(project) && !roots.length && (
+              <Button type="primary" onClick={() => openTask(null)}>
+                新建任务
+              </Button>
+            )}
+          </Space>
+        </Empty>
       </Card>
     );
   const min = new Date(Math.min(...dated.map((item) => item.start.getTime())));
