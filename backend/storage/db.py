@@ -727,6 +727,29 @@ def init_db() -> None:
             PRIMARY KEY (owner_id, key)
         );
 
+        -- WB-291：整台本机 App 生效的运行配置，与按 owner 的偏好分开。
+        CREATE TABLE IF NOT EXISTS device_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS device_secrets (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS device_settings_audit (
+            id TEXT PRIMARY KEY,
+            setting_key TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            before_value TEXT NOT NULL DEFAULT '',
+            after_value TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_device_settings_audit_created
+            ON device_settings_audit(created_at DESC);
+
         -- 安全审计日志（WB-152）：真记录工具执行/拦截（run_command、网络访问等）。按 owner 隔离。
         -- action: 'executed'(已执行) / 'blocked'(被策略拦截)。
         CREATE TABLE IF NOT EXISTS audit_log (
@@ -4079,6 +4102,63 @@ def set_user_setting(owner_id: str, key: str, value: Optional[str]) -> None:
             "DELETE FROM user_settings WHERE owner_id=? AND key=?", (owner_id, key)
         )
     get_conn().commit()
+
+
+def get_device_setting(key: str) -> Optional[str]:
+    row = get_conn().execute("SELECT value FROM device_settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_device_setting(key: str, value: Optional[str]) -> None:
+    conn = get_conn()
+    if value is not None:
+        conn.execute(
+            "INSERT INTO device_settings (key,value,updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+            (key, value, time.time()),
+        )
+    else:
+        conn.execute("DELETE FROM device_settings WHERE key=?", (key,))
+    conn.commit()
+
+
+def get_device_secret(key: str) -> Optional[str]:
+    row = get_conn().execute("SELECT value FROM device_secrets WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_device_secret(key: str, value: Optional[str]) -> None:
+    conn = get_conn()
+    if value:
+        conn.execute(
+            "INSERT INTO device_secrets (key,value,updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+            (key, value, time.time()),
+        )
+    else:
+        conn.execute("DELETE FROM device_secrets WHERE key=?", (key,))
+    conn.commit()
+
+
+def add_device_setting_audit(
+    *, setting_key: str, actor_id: str, action: str,
+    before_value: str, after_value: str,
+) -> None:
+    get_conn().execute(
+        "INSERT INTO device_settings_audit "
+        "(id,setting_key,actor_id,action,before_value,after_value,created_at) VALUES (?,?,?,?,?,?,?)",
+        (new_uuid(), setting_key, actor_id, action, before_value, after_value, time.time()),
+    )
+    get_conn().commit()
+
+
+def list_device_settings_audit(limit: int = 100) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT id,setting_key,actor_id,action,before_value,after_value,created_at "
+        "FROM device_settings_audit ORDER BY created_at DESC LIMIT ?",
+        (max(1, min(int(limit), 200)),),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 _DEFAULT_MODEL_KEY = "default_model"

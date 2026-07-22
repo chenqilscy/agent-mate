@@ -91,6 +91,11 @@ Server snapshot 并原子替换本机 `catalog_downlink` 的 Server scope，未�
 | workspace 文件 | App 本地 | 不自动同步；仅用户显式 `knowledge_add` 的目标文件可进入项目中央知识库 |
 | LLM/连接器 secret | App 本地 backend | 永不上云、永不进前端 |
 
+配置也按同一归属治理：平台级中央 WeKnora 与协作策略由 Console 写入 Server；设备级 Langfuse、ASR、
+Server 连接和时间线上报由 App 设置中心写入本地 backend。数据库值优先于环境变量，清除页面覆盖后回退
+环境变量；密钥只写不回显并记录脱敏审计。数据库路径、监听端口、密码学启动材料和发布版本仍为
+deployment-only，不能通过通用设置 API 伪装成热更新。
+
 详细冲突规则、离线行为和红线见数据分层规范，本文不再复制一套容易漂移的表。
 
 ## 5. 当前同步契约

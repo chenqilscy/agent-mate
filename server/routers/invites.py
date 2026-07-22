@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 import db
 from auth import CurrentAccount, parse_member_role
-from config import settings
+import platform_settings
 from models import Account, can_manage
 
 router = APIRouter(prefix="/api", tags=["invites"])
@@ -26,7 +26,10 @@ def create_invite(project_id: str, body: CreateInviteBody, account: Account = Cu
     if not can_manage(role_here):
         raise HTTPException(403, "requires Admin/Owner")
     role = parse_member_role(body.role)
-    inv = db.create_invite(project_id=project_id, role=role, created_by=account.id, ttl=settings.INVITE_TTL)
+    inv = db.create_invite(
+        project_id=project_id, role=role, created_by=account.id,
+        ttl=int(platform_settings.effective("collaboration.invite_ttl_seconds")),
+    )
     return inv.to_dict()
 
 

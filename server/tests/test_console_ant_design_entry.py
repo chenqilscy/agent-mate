@@ -40,7 +40,7 @@ class ConsoleAntDesignEntryTests(unittest.TestCase):
         for route in (
             "/", "/projects", "/organizations", "/notifications", "/catalog/experts",
             "/catalog/connectors", "/catalog/skills", "/catalog/knowledge", "/users",
-            "/settings/catalog",
+            "/settings/platform", "/settings/catalog",
         ):
             self.assertIn(f'"{route}"', app)
         self.assertIn("ProjectDetailPage", app)
@@ -52,6 +52,16 @@ class ConsoleAntDesignEntryTests(unittest.TestCase):
         self.assertIn("migrateKnowledgeBase", page)
         self.assertNotIn("Embedding-3-pro", page)
         self.assertNotIn("向量化由本地执行面完成", page)
+
+    def test_platform_settings_page_keeps_secrets_write_only(self) -> None:
+        page = (ROOT / "console" / "src" / "pages" / "PlatformSettingsPage.tsx").read_text(encoding="utf-8")
+        api = (ROOT / "server" / "routers" / "platform_settings.py").read_text(encoding="utf-8")
+
+        self.assertIn("API Key", page)
+        self.assertIn("保存后不会回显", page)
+        self.assertIn("platformSettings", page)
+        self.assertIn('"value": None if defn.secret else value', (ROOT / "server" / "platform_settings.py").read_text(encoding="utf-8"))
+        self.assertIn("_admin(account)", api)
 
 
 if __name__ == "__main__":

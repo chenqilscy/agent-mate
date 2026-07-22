@@ -412,6 +412,25 @@ def init_db() -> None:
             v TEXT NOT NULL DEFAULT '',
             updated_at REAL NOT NULL DEFAULT 0
         );
+
+        -- WB-291：平台敏感配置与普通 settings 分表。API 只写不回读；审计永不保存密钥值。
+        CREATE TABLE IF NOT EXISTS platform_secrets (
+            k TEXT PRIMARY KEY,
+            v TEXT NOT NULL,
+            updated_at REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS platform_settings_audit (
+            id TEXT PRIMARY KEY,
+            setting_key TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            before_value TEXT NOT NULL DEFAULT '',
+            after_value TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_platform_settings_audit_created
+            ON platform_settings_audit(created_at DESC);
         """
     )
     conn.commit()
@@ -1510,6 +1529,45 @@ def delete_setting(k: str) -> bool:
     cur = get_conn().execute("DELETE FROM settings WHERE k=?", (k,))
     get_conn().commit()
     return cur.rowcount > 0
+
+
+def get_platform_secret(k: str) -> Optional[str]:
+    row = get_conn().execute("SELECT v FROM platform_secrets WHERE k=?", (k,)).fetchone()
+    return row["v"] if row else None
+
+
+def set_platform_secret(k: str, value: Optional[str]) -> None:
+    conn = get_conn()
+    if value:
+        conn.execute(
+            "INSERT INTO platform_secrets (k,v,updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(k) DO UPDATE SET v=excluded.v,updated_at=excluded.updated_at",
+            (k, value, time.time()),
+        )
+    else:
+        conn.execute("DELETE FROM platform_secrets WHERE k=?", (k,))
+    conn.commit()
+
+
+def add_platform_setting_audit(
+    *, setting_key: str, actor_id: str, action: str,
+    before_value: str, after_value: str,
+) -> None:
+    get_conn().execute(
+        "INSERT INTO platform_settings_audit "
+        "(id,setting_key,actor_id,action,before_value,after_value,created_at) VALUES (?,?,?,?,?,?,?)",
+        (new_uuid(), setting_key, actor_id, action, before_value, after_value, time.time()),
+    )
+    get_conn().commit()
+
+
+def list_platform_settings_audit(limit: int = 100) -> list[dict[str, Any]]:
+    rows = get_conn().execute(
+        "SELECT id,setting_key,actor_id,action,before_value,after_value,created_at "
+        "FROM platform_settings_audit ORDER BY created_at DESC LIMIT ?",
+        (max(1, min(int(limit), 200)),),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 # ---- 团队计划/任务 work_items（WB-081；专业化字段 WB-104）-----------------

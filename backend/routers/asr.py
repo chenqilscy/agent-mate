@@ -31,6 +31,14 @@ _load_error: str | None = None
 _load_lock = threading.Lock()
 
 
+def reset_model() -> None:
+    """Release the cached model after a device-setting change."""
+    global _model, _load_error
+    with _load_lock:
+        _model = None
+        _load_error = None
+
+
 def _load_model():
     """懒加载 faster-whisper 模型（阻塞，只该在线程池里调）。返回模型或抛异常。"""
     global _model, _load_error

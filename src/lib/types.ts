@@ -422,6 +422,40 @@ export interface SystemSettings {
   startup_page: 'home' | 'projects' | 'knowledge' | 'automation'
 }
 
+export interface DeviceSettingItem {
+  key: string
+  group: 'observability' | 'voice' | 'collaboration' | string
+  label: string
+  description: string
+  value_type: 'string' | 'boolean' | 'number' | 'secret' | 'choice'
+  env_name: string
+  secret: boolean
+  minimum?: number | null
+  maximum?: number | null
+  choices: string[]
+  placeholder?: string
+  source: 'database' | 'environment' | 'default'
+  configured: boolean
+  value: string | number | boolean | null
+  hot_reload: boolean
+}
+
+export interface DeviceSettingAudit {
+  id: string
+  setting_key: string
+  actor_id: string
+  action: string
+  before_value: string
+  after_value: string
+  created_at: number
+}
+
+export interface DeviceSettingsPayload {
+  items: DeviceSettingItem[]
+  deployment_only: string[]
+  audit: DeviceSettingAudit[]
+}
+
 // 设置 · 记忆（WB-148）：长期事实，注入之后对话。source: conversation(自动) / manual(手动)。
 export interface MemoryItem {
   id: string

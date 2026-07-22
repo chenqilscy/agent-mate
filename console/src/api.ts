@@ -1,7 +1,7 @@
 import type {
   Account, Activity, AuthResponse, CatalogData, CatalogItem, CommentRecord,
   KnowledgeBase, KnowledgeDocument, Member, Milestone, NotificationRecord,
-  Organization, Project, ProjectCustomField, SkillData, SkillRelease, SkillTool, Sprint, TimelineEvent, ToolCatalogAudit, WorkItem, BurndownPoint,
+  Organization, PlatformSettingsPayload, Project, ProjectCustomField, SkillData, SkillRelease, SkillTool, Sprint, TimelineEvent, ToolCatalogAudit, WorkItem, BurndownPoint,
 } from "./types";
 
 const TOKEN_KEY = "agentmate.console.token";
@@ -161,6 +161,11 @@ export const consoleApi = {
   deleteAccount: (id: string) => apiRequest<{ ok: boolean }>("DELETE", `/accounts/${encodeURIComponent(id)}`),
   notifications: () => apiRequest<{ notifications: NotificationRecord[]; unread: number }>("GET", "/notifications"),
   markNotificationsRead: (ids?: string[]) => apiRequest<{ ok: boolean }>("POST", "/notifications/read", ids ? { ids } : {}),
+  platformSettings: () => apiRequest<PlatformSettingsPayload>("GET", "/admin/settings"),
+  savePlatformSettings: (values: Record<string, unknown>, clear: string[] = []) =>
+    apiRequest<PlatformSettingsPayload>("PUT", "/admin/settings", { values, clear }),
+  testPlatformSettings: (group: string) =>
+    apiRequest<{ ok: boolean; version?: string; embedding_models?: number; error?: string }>("POST", "/admin/settings/test", { group }),
   catalog: <T extends CatalogData = CatalogData>(category?: string, all = false) => apiRequest<{ items: CatalogItem<T>[] }>("GET", `/catalog${category ? `/${encodeURIComponent(category)}` : ""}${all ? "?all=true" : ""}`),
   createCatalogItem: <T extends CatalogData>(category: string, data: T, sort = 0) => apiRequest<{ id: string }>("POST", "/catalog", { category, data, sort }),
   updateCatalogItem: <T extends CatalogData>(id: string, patch: { data?: T; sort?: number; enabled?: boolean }) => apiRequest<{ ok: boolean }>("PATCH", `/catalog/item/${encodeURIComponent(id)}`, patch),

@@ -15,9 +15,10 @@ AgentMate 从纯 local-first 走向「本地执行 + 云端控制平面」重构
 cd server
 python main.py            # 默认 127.0.0.1:8100
 # 可覆盖：AGENTMATE_SERVER_PORT=8100  AGENTMATE_SERVER_DB=/path/to/server.db  AGENTMATE_SERVER_HOST=0.0.0.0
-# 中央知识库：AGENTMATE_SERVER_WEKNORA_URL=https://weknora.internal
-#              AGENTMATE_SERVER_WEKNORA_API_KEY=sk-...（只进 Server 进程环境）
-#              AGENTMATE_SERVER_WEKNORA_EMBEDDING_MODEL_ID=...（可选，空则自动取第一个 embedding 模型）
+# 首次启动/灾备可继续用环境变量；启动后由 Console「设置 → 平台设置」管理中央 WeKnora。
+# AGENTMATE_SERVER_WEKNORA_URL=https://weknora.internal
+# AGENTMATE_SERVER_WEKNORA_API_KEY=sk-...
+# AGENTMATE_SERVER_WEKNORA_EMBEDDING_MODEL_ID=...（可选，空则自动取第一个 embedding 模型）
 ```
 
 依赖 `fastapi` + `uvicorn`（见 `requirements.txt`）。与 backend 同族，本地可复用同一 venv。
@@ -43,6 +44,8 @@ pnpm dev:console         # 可选：:8103 开发服务，/api 代理到 Server :
   成员 `GET/POST /projects/{id}/members`、`PATCH/DELETE /projects/{id}/members/{account_id}`。
 - **项目知识库**：`GET/POST /projects/{id}/knowledge-bases`，文档上传/删除/显式旧库迁移，
   以及 `POST /projects/{id}/knowledge-search`。所有 WeKnora provider ID 与 API Key 都留在 Server。
+- **平台设置**：平台管理员通过 `GET/PUT /admin/settings` 管中央 WeKnora 与邀请策略，
+  `POST /admin/settings/test` 测试连接。敏感值只写不回显，修改带审计；数据库值优先、环境变量兜底。
 - **邀请**：`POST /projects/{id}/invites`、`GET /invites/{code}`、`POST /invites/{code}/accept`。
 - **目录**（预埋，供 P3 下发）：`GET /catalog/{category}`。
 

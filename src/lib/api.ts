@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, OpsSummary, Orchestration, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, OpsSummary, Orchestration, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -48,6 +48,11 @@ export const api = {
   systemSettings: () => get<SystemSettings>('/settings/system'),
   saveSystemSettings: (body: Partial<SystemSettings>) =>
     send<SystemSettings>('PUT', '/settings/system', body),
+  runtimeSettings: () => get<DeviceSettingsPayload>('/settings/runtime'),
+  saveRuntimeSettings: (values: Record<string, unknown>, clear: string[] = []) =>
+    send<DeviceSettingsPayload>('PUT', '/settings/runtime', { values, clear }),
+  testRuntimeSettings: (group: string) =>
+    send<{ ok: boolean; error?: string; [key: string]: unknown }>('POST', '/settings/runtime/test', { group }),
 
   // 设置 · 记忆（WB-148；WB-166/167 认知记忆；WB-168 白盒管理）。
   memory: (status?: string) => get<MemoryData>(status ? `/memory?status=${status}` : '/memory'),

@@ -71,6 +71,12 @@ pnpm dev                             # http://127.0.0.1:8102
 Open `http://127.0.0.1:8102`. LLM provider credentials may be supplied through `backend/.env` or the local per-owner
 model settings stored by the backend; they are never placed in frontend code.
 
+Settings follow explicit ownership: Console manages platform-wide WeKnora and collaboration policy; the App's
+Settings dialog manages device-wide Langfuse, local ASR and Server/timeline behavior; existing model, connector,
+assistant, user and project settings keep their narrower scopes. Runtime settings are persisted by the owning backend,
+take effect without a service restart, keep secrets write-only, and fall back to environment variables when cleared.
+Database paths, bind ports, cryptographic bootstrap material and release versions remain deployment-only.
+
 ### Optional Server and Console
 
 ```powershell

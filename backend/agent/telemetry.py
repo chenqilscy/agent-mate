@@ -317,13 +317,19 @@ def tool_observation(
 
 def shutdown() -> None:
     """Flush and stop the background exporter during application shutdown."""
-    global _client
+    global _client, _client_initialized
     client = _client
-    if client is None:
-        return
-    try:
-        client.shutdown()
-    except Exception as exc:  # noqa: BLE001
-        _log.warning("Langfuse shutdown failed: %s", type(exc).__name__)
-    finally:
-        _client = None
+    if client is not None:
+        try:
+            client.shutdown()
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("Langfuse shutdown failed: %s", type(exc).__name__)
+    _client = None
+    _client_initialized = False
+
+
+def reconfigure() -> None:
+    """Apply hot-reloaded device settings to the next observation."""
+    global _init_warning_emitted
+    shutdown()
+    _init_warning_emitted = False

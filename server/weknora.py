@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from config import settings
+import platform_settings
 
 TIMEOUT = 60.0
 MIN_SAFE_URL_IMPORT_VERSION = (0, 2, 12)
@@ -23,19 +23,23 @@ class WeKnoraError(RuntimeError):
 
 
 def configured() -> bool:
-    return bool(settings.WEKNORA_API_KEY)
+    return bool(platform_settings.effective("knowledge.weknora_api_key"))
 
 
 def public_config() -> dict[str, Any]:
+    url, url_source = platform_settings.effective_with_source("knowledge.weknora_url")
+    model, model_source = platform_settings.effective_with_source("knowledge.weknora_embedding_model_id")
+    _key, key_source = platform_settings.effective_with_source("knowledge.weknora_api_key")
     return {
         "configured": configured(),
-        "url": settings.WEKNORA_URL,
-        "embedding_model_configured": bool(settings.WEKNORA_EMBEDDING_MODEL_ID),
+        "url": url,
+        "embedding_model_configured": bool(model),
+        "source": {"url": url_source, "api_key": key_source, "embedding_model_id": model_source},
     }
 
 
 def _headers(extra: Optional[dict[str, str]] = None) -> dict[str, str]:
-    headers = {"X-API-Key": settings.WEKNORA_API_KEY}
+    headers = {"X-API-Key": str(platform_settings.effective("knowledge.weknora_api_key"))}
     if extra:
         headers.update(extra)
     return headers
@@ -87,15 +91,16 @@ def request(method: str, path: str, **kwargs: Any) -> Any:
             "AGENTMATE_SERVER_WEKNORA_API_KEY。"
         )
     try:
+        base_url = str(platform_settings.effective("knowledge.weknora_url"))
         response = httpx.request(
             method,
-            f"{settings.WEKNORA_URL}/api/v1{path}",
+            f"{base_url}/api/v1{path}",
             headers=_headers(kwargs.pop("_headers", None)),
             timeout=TIMEOUT,
             **kwargs,
         )
     except httpx.HTTPError as exc:
-        raise WeKnoraError(f"连接中央 WeKnora 失败（{settings.WEKNORA_URL}）：{exc}") from exc
+        raise WeKnoraError(f"连接中央 WeKnora 失败（{base_url}）：{exc}") from exc
     return _unwrap(response)
 
 
@@ -115,8 +120,9 @@ def list_models() -> list[dict[str, Any]]:
 
 
 def default_embedding_model_id() -> str:
-    if settings.WEKNORA_EMBEDDING_MODEL_ID:
-        return settings.WEKNORA_EMBEDDING_MODEL_ID
+    configured_model = str(platform_settings.effective("knowledge.weknora_embedding_model_id"))
+    if configured_model:
+        return configured_model
     for model in list_models():
         if str(model.get("type", "")).lower() == "embedding" and model.get("id"):
             return str(model["id"])

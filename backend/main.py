@@ -40,7 +40,7 @@ from agent import scheduler, skills as agent_skills, telemetry
 from auth.middleware import AuthMiddleware
 from channels import manager as channel_manager
 from config import FROZEN, settings
-from routers import asr, auth, automations, catalog, channels, chat, data, experts, files, server, kdocs, knowledge, me, memory, milestones, models, notifications, ops, orchestrations, prefs, projects, runs, security, sessions, skills, work_items
+from routers import asr, auth, automations, catalog, channels, chat, data, device_settings, experts, files, server, kdocs, knowledge, me, memory, milestones, models, notifications, ops, orchestrations, prefs, projects, runs, security, sessions, skills, work_items
 from storage import db, orchestration_store
 
 app = FastAPI(title="AgentMate API", version="1.0.0")
@@ -106,6 +106,8 @@ app.add_middleware(
 @app.on_event("startup")
 def _startup() -> None:
     db.init_db()
+    import device_settings as runtime_device_settings
+    runtime_device_settings.apply_all()
     orchestration_store.ensure_tables()
     migrated = db.migrate_skill_identities(agent_skills.canonical_skill_key)
     if migrated["changed"] or migrated["dropped"]:
@@ -173,6 +175,7 @@ app.include_router(channels.router)
 app.include_router(asr.router)
 app.include_router(knowledge.router)
 app.include_router(prefs.router)
+app.include_router(device_settings.router)
 app.include_router(memory.router)
 app.include_router(data.router)
 app.include_router(security.router)

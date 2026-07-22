@@ -23,6 +23,7 @@ const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const UsersPage = lazy(() => import("./pages/UsersPage"));
 const CatalogPage = lazy(() => import("./pages/CatalogPage"));
 const RawCatalogPage = lazy(() => import("./pages/RawCatalogPage"));
+const PlatformSettingsPage = lazy(() => import("./pages/PlatformSettingsPage"));
 const SkillsPage = lazy(() => import("./SkillsPage"));
 
 const THEME_KEY = "agentmate.console.theme";
@@ -31,7 +32,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/": "概览", "/projects": "项目", "/organizations": "组织与成员",
   "/notifications": "通知", "/catalog/experts": "专家", "/catalog/connectors": "连接器",
   "/catalog/skills": "技能", "/catalog/knowledge": "知识库", "/users": "用户",
-  "/settings/catalog": "高级 JSON",
+  "/settings/platform": "平台设置", "/settings/catalog": "高级 JSON",
 };
 
 const baseRoutes = [
@@ -47,7 +48,10 @@ const adminRoutes = [
     { path: "/catalog/knowledge", name: "知识库", icon: <BookOutlined /> },
   ] },
   { path: "/users", name: "用户", icon: <UserOutlined /> },
-  { path: "/settings/catalog", name: "高级 JSON", icon: <SettingOutlined /> },
+  { path: "/settings", name: "设置", icon: <SettingOutlined />, children: [
+    { path: "/settings/platform", name: "平台设置", icon: <SettingOutlined /> },
+    { path: "/settings/catalog", name: "高级 JSON", icon: <SettingOutlined /> },
+  ] },
 ];
 
 function CurrentPage({ account, pathname, onUnreadChange }: { account: Account; pathname: string; onUnreadChange: (count: number) => void }) {
@@ -64,6 +68,7 @@ function CurrentPage({ account, pathname, onUnreadChange }: { account: Account; 
     case "/catalog/skills": return <SkillsPage />;
     case "/catalog/knowledge": return <CatalogPage section="knowledge" />;
     case "/users": return <UsersPage current={account} />;
+    case "/settings/platform": return <PlatformSettingsPage />;
     case "/settings/catalog": return <RawCatalogPage />;
     default: return <Result status="404" title="页面不存在" extra={<Button type="primary" onClick={() => navigate("/")}>返回概览</Button>} />;
   }

@@ -13,6 +13,7 @@ import { useSystemSettingsStore } from '../../stores/systemSettingsStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
 import { App as AntApp, Card, Empty, Menu, Segmented, Select, Spin, Switch } from 'antd'
 import { DesktopUpdateSettings } from './DesktopUpdateSettings'
+import { DeviceRuntimeSettings } from './DeviceRuntimeSettings'
 
 
 type Tab = { id: SettingsTab; label: string; icon: ReactNode }
@@ -29,6 +30,7 @@ const TAB_GROUPS: TabGroup[] = [
   ] },
   { label: 'AI 与能力', items: [
     { id: 'agent', label: '智能体设置', icon: <><rect x="5" y="7" width="14" height="11" rx="2" /><path d="M12 3v4M9 12h.01M15 12h.01M9 16h6" /></> },
+    { id: 'runtime', label: '运行服务', icon: <><path d="M4 7h16M4 12h16M4 17h10" /><circle cx="18" cy="17" r="2" /></> },
     { id: 'model', label: '模型管理', icon: <><path d="M4 7h11M4 12h16M4 17h7" /><circle cx="18" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></> },
     { id: 'assistant', label: '助理配置', icon: <><circle cx="12" cy="12" r="9" /><path d="M8 13q4 3 8 0M9 9h.01M15 9h.01" /></> },
     { id: 'memory', label: '记忆', icon: <><path d="M12 3a5 5 0 00-5 5v1a4 4 0 00-2 3.5A3.5 3.5 0 008 16v2a2 2 0 004 0" /><path d="M12 3a5 5 0 015 5v1a4 4 0 012 3.5A3.5 3.5 0 0116 16v2a2 2 0 01-4 0" /></> },
@@ -751,6 +753,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             {tab === 'system' && <SystemPanel />}
 
             {tab === 'agent' && <AgentPanel />}
+
+            {tab === 'runtime' && <DeviceRuntimeSettings />}
 
             {tab === 'shortcuts' && (
               <Soon

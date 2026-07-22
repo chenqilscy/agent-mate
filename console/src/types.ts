@@ -14,6 +14,39 @@ export interface AuthResponse {
   account: Account;
 }
 
+export interface PlatformSettingItem {
+  key: string;
+  group: "knowledge" | "collaboration" | string;
+  label: string;
+  description: string;
+  value_type: "string" | "integer" | "secret";
+  env_name: string;
+  secret: boolean;
+  minimum?: number | null;
+  maximum?: number | null;
+  placeholder?: string;
+  source: "database" | "environment" | "default";
+  configured: boolean;
+  value: string | number | null;
+  hot_reload: boolean;
+}
+
+export interface PlatformSettingAudit {
+  id: string;
+  setting_key: string;
+  actor_id: string;
+  action: string;
+  before_value: string;
+  after_value: string;
+  created_at: number;
+}
+
+export interface PlatformSettingsPayload {
+  items: PlatformSettingItem[];
+  deployment_only: string[];
+  audit: PlatformSettingAudit[];
+}
+
 export interface SkillFile {
   path: string;
   content: string;
