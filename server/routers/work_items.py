@@ -5,6 +5,9 @@
 """
 from __future__ import annotations
 
+from datetime import date
+from math import isfinite
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -30,6 +33,8 @@ def _access(project_id: str, account: Account) -> Role:
 def _require_write(project_id: str, account: Account) -> None:
     if not can_write(_access(project_id, account)):
         raise HTTPException(403, "Viewer is read-only")
+    if db.project_is_archived(project_id):
+        raise HTTPException(409, "archived project is read-only")
 
 
 # 负责人强映射（WB-112c-B）：assignee 权威值 = 成员 account_id；写时把「名字/id」归一到 id，
@@ -45,7 +50,45 @@ def _norm_assignee(raw: str, by_id: dict, by_name: dict) -> str:
     a = (raw or "").strip()
     if not a or a in by_id:
         return a
-    return by_name.get(a.lower(), a)
+    normalized = by_name.get(a.lower())
+    if normalized:
+        return normalized
+    raise HTTPException(400, "assignee must be an existing project member")
+
+
+def _validate_date(value: str, name: str) -> None:
+    if not value:
+        return
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(400, f"invalid {name}") from exc
+
+
+def _validate_scalar(changes: dict, current: dict | None = None) -> None:
+    if "title" in changes:
+        changes["title"] = str(changes["title"] or "").strip()
+        if not changes["title"]:
+            raise HTTPException(400, "empty work item title")
+    for key in ("due_date", "start_date"):
+        if key in changes:
+            changes[key] = str(changes[key] or "").strip()
+            _validate_date(changes[key], key)
+    start = str(changes.get("start_date", (current or {}).get("start_date", "")) or "")
+    due = str(changes.get("due_date", (current or {}).get("due_date", "")) or "")
+    if start and due and date.fromisoformat(due) < date.fromisoformat(start):
+        raise HTTPException(400, "due_date must be on or after start_date")
+    for key in ("estimate_h", "spent_h"):
+        if key in changes:
+            value = float(changes[key])
+            if not isfinite(value) or value < 0 or value > 1_000_000:
+                raise HTTPException(400, f"{key} must be between 0 and 1000000")
+            changes[key] = value
+    if "labels" in changes:
+        raw = changes.get("labels") or []
+        if len(raw) > 50:
+            raise HTTPException(400, "too many labels")
+        changes["labels"] = list(dict.fromkeys(str(value).strip()[:80] for value in raw if str(value).strip()))
 
 
 def _decorate(item: dict, by_id: dict) -> dict:
@@ -54,7 +97,10 @@ def _decorate(item: dict, by_id: dict) -> dict:
     return item
 
 
-def _sanitize_refs(project_id: str, self_id: str | None, changes: dict) -> None:
+def _sanitize_refs(
+    project_id: str, self_id: str | None, changes: dict,
+    current_custom_fields: dict | None = None,
+) -> None:
     """把 parent_id/milestone_id 归一到「同项目存在的行」，否则置空 —— 防跨项目引用（删除时
     会跨租户级联）与指向不存在/自身导致任务从所有视图消失的幽灵父任务（WB-157）。"""
     if "parent_id" in changes:
@@ -94,10 +140,32 @@ def _sanitize_refs(project_id: str, self_id: str | None, changes: dict) -> None:
         values = raw if isinstance(raw, dict) else {}
         if len(values) > 50:
             raise HTTPException(400, "too many custom field values")
-        changes["custom_fields"] = {
-            str(key): value for key, value in values.items()
-            if str(key) in definitions and isinstance(value, (str, int, float, bool))
-        }
+        unknown = [str(key) for key in values if str(key) not in definitions]
+        if unknown:
+            raise HTTPException(400, f"unknown custom field: {unknown[0]}")
+        clean: dict[str, str | int | float | bool] = {}
+        for raw_key, value in values.items():
+            key = str(raw_key)
+            definition = definitions[key]
+            kind = definition["field_type"]
+            valid = (
+                (kind in {"text", "date", "select"} and isinstance(value, str))
+                or (kind == "number" and isinstance(value, (int, float)) and not isinstance(value, bool))
+                or (kind == "boolean" and isinstance(value, bool))
+            )
+            if not valid:
+                raise HTTPException(400, f"invalid value for custom field {definition['name']}")
+            if kind == "date":
+                _validate_date(value, f"custom field {definition['name']}")
+            if kind == "select" and value not in definition["options"]:
+                raise HTTPException(400, f"invalid option for custom field {definition['name']}")
+            clean[key] = value
+        merged = dict((current_custom_fields or {}))
+        merged.update(clean)
+        for key, definition in definitions.items():
+            if definition["required"] and (key not in merged or merged[key] in ("", None)):
+                raise HTTPException(400, f"required custom field missing: {definition['name']}")
+        changes["custom_fields"] = clean
 
 
 def _critical_path_ids(items: list[dict]) -> set[str]:
@@ -132,13 +200,13 @@ def list_items(project_id: str, account: Account = CurrentAccount) -> dict:
 class CreateBody(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     status: str = "todo"
-    source: str = "手动"
+    source: str = Field(default="手动", max_length=80)
     assignee: str = ""
-    description: str = ""
+    description: str = Field(default="", max_length=20000)
     priority: str = ""            # '' | low | medium | high | urgent
     due_date: str = ""            # YYYY-MM-DD
     start_date: str = ""
-    labels: list[str] = Field(default_factory=list)
+    labels: list[str] = Field(default_factory=list, max_length=50)
     parent_id: str = ""           # 自引用 → 子任务
     milestone_id: str = ""
     estimate_h: float = 0.0       # 工时预估/投入（WB-117）
@@ -151,20 +219,24 @@ class CreateBody(BaseModel):
 @router.post("/projects/{project_id}/work-items")
 def create_item(project_id: str, body: CreateBody, account: Account = CurrentAccount) -> dict:
     _require_write(project_id, account)
-    status = body.status if body.status in _STATUSES else "todo"
-    priority = body.priority if body.priority in _PRIORITIES else ""
+    if body.status not in _STATUSES:
+        raise HTTPException(400, "invalid status")
+    if body.priority not in _PRIORITIES:
+        raise HTTPException(400, "invalid priority")
     by_id, by_name = _members_maps(project_id)
+    values = body.model_dump()
+    _validate_scalar(values)
     refs = {"parent_id": body.parent_id, "milestone_id": body.milestone_id,
             "custom_fields": body.custom_fields, "dependency_ids": body.dependency_ids,
             "sprint_id": body.sprint_id}
     _sanitize_refs(project_id, None, refs)
     item = db.create_work_item(
-        project_id=project_id, title=body.title.strip(), status=status,
+        project_id=project_id, title=values["title"], status=body.status,
         source=body.source, assignee=_norm_assignee(body.assignee, by_id, by_name),
         description=body.description,
-        priority=priority, due_date=body.due_date, start_date=body.start_date,
-        labels=body.labels, parent_id=refs["parent_id"], milestone_id=refs["milestone_id"],
-        estimate_h=body.estimate_h, spent_h=body.spent_h,
+        priority=body.priority, due_date=values["due_date"], start_date=values["start_date"],
+        labels=values["labels"], parent_id=refs["parent_id"], milestone_id=refs["milestone_id"],
+        estimate_h=values["estimate_h"], spent_h=values["spent_h"],
         custom_fields=refs["custom_fields"], dependency_ids=refs["dependency_ids"], sprint_id=refs["sprint_id"],
     )
     db.log_work_item_activity(project_id=project_id, work_item_id=item["id"],
@@ -173,16 +245,16 @@ def create_item(project_id: str, body: CreateBody, account: Account = CurrentAcc
 
 
 class UpdateBody(BaseModel):
-    title: str | None = None
+    title: str | None = Field(default=None, max_length=300)
     status: str | None = None
-    source: str | None = None
+    source: str | None = Field(default=None, max_length=80)
     assignee: str | None = None
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=20000)
     sort: int | None = None
     priority: str | None = None
     due_date: str | None = None
     start_date: str | None = None
-    labels: list[str] | None = None
+    labels: list[str] | None = Field(default=None, max_length=50)
     parent_id: str | None = None
     milestone_id: str | None = None
     estimate_h: float | None = None    # 工时预估/投入（WB-116）
@@ -202,8 +274,9 @@ def update_item(project_id: str, wid: str, body: UpdateBody, account: Account = 
         raise HTTPException(404, "work item not found")
     changes = body.model_dump(exclude_unset=True)
     if "priority" in changes and changes["priority"] not in _PRIORITIES:
-        changes["priority"] = ""    # 宽松：非法优先级归空，不打断 App 同步
-    _sanitize_refs(project_id, wid, changes)  # 跨项目/幽灵父任务引用归空（WB-157）
+        raise HTTPException(400, "invalid priority")
+    _validate_scalar(changes, it)
+    _sanitize_refs(project_id, wid, changes, it.get("custom_fields") or {})
     by_id, by_name = _members_maps(project_id)
     if "assignee" in changes:
         changes["assignee"] = _norm_assignee(changes["assignee"], by_id, by_name)

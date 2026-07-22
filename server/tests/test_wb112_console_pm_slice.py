@@ -11,7 +11,8 @@ class WB112ConsolePMSliceContractTests(unittest.TestCase):
         source = WORKSPACE.read_text(encoding="utf-8")
 
         for marker in (
-            "agentmate.console.pm.templates.${project.id}",
+            "consoleApi.pmPreferences(project.id)",
+            "consoleApi.updatePmPreferences",
             "存为任务模板",
             "使用模板",
             "删除任务模板",
@@ -20,6 +21,7 @@ class WB112ConsolePMSliceContractTests(unittest.TestCase):
             self.assertIn(marker, source)
 
         self.assertNotIn("localStorage.setItem(\"work_items\"", source)
+        self.assertNotIn("agentmate.console.pm.templates", source)
 
 
 if __name__ == "__main__":

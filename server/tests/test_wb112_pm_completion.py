@@ -45,6 +45,7 @@ class PMCompletionTest(unittest.TestCase):
         ), self.account)
         second = create_item(self.project.id, CreateBody(
             title="Build", estimate_h=5, sprint_id=sprint["id"], dependency_ids=[first["id"]],
+            custom_fields={field["id"]: "Low"},
         ), self.account)
         listed = list_items(self.project.id, self.account)["items"]
         self.assertEqual({first["id"], second["id"]}, {item["id"] for item in listed if item["critical_path"]})
@@ -60,13 +61,12 @@ class PMCompletionTest(unittest.TestCase):
         self.assertIn("Design", body)
         self.assertIn("Sprint 1", body)
 
-    def test_cross_project_references_and_unknown_custom_values_are_dropped(self) -> None:
+    def test_cross_project_references_are_dropped_and_unknown_custom_values_rejected(self) -> None:
         other = db.create_project(name="Other", owner_id=self.account.id)
         foreign = db.create_work_item(project_id=other.id, title="Foreign")
-        item = create_item(self.project.id, CreateBody(
-            title="Safe", dependency_ids=[foreign["id"]], sprint_id="missing",
-            custom_fields={"unknown": "value"},
-        ), self.account)
+        with self.assertRaisesRegex(HTTPException, "unknown custom field"):
+            create_item(self.project.id, CreateBody(title="Unsafe", custom_fields={"unknown": "value"}), self.account)
+        item = create_item(self.project.id, CreateBody(title="Safe", dependency_ids=[foreign["id"]], sprint_id="missing"), self.account)
         self.assertEqual([], item["dependency_ids"])
         self.assertEqual("", item["sprint_id"])
         self.assertEqual({}, item["custom_fields"])

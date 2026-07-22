@@ -30,6 +30,8 @@ def post_event(project_id: str, body: TimelineEventBody, account: Account = Curr
         raise HTTPException(404, "project not found")
     if not can_write(role):
         raise HTTPException(403, "只读成员不能上报时间线")
+    if db.project_is_archived(project_id):
+        raise HTTPException(409, "archived project is read-only")
     created = db.add_timeline_event(
         project_id=project_id, actor_id=account.id, actor_name=account.name,
         kind=body.kind, title=body.title, summary=body.summary, ext_id=body.ext_id,

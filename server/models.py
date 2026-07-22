@@ -66,6 +66,7 @@ class Project:
     skills: list[str]
     created_at: float
     updated_at: float
+    archived_at: float = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

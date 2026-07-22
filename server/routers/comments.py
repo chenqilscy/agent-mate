@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 import db
 from auth import CurrentAccount
-from models import Account
+from models import Account, can_write
 
 router = APIRouter(prefix="/api", tags=["collab"])
 
@@ -43,8 +43,13 @@ def _post_comment(project_id: str, account: Account, text: str, work_item_id: st
 
 @router.post("/projects/{project_id}/comments")
 def post_comment(project_id: str, body: CommentBody, account: Account = CurrentAccount) -> dict:
-    if db.project_access_role(project_id, account.id) is None:
+    role = db.project_access_role(project_id, account.id)
+    if role is None:
         raise HTTPException(404, "project not found")
+    if not can_write(role):
+        raise HTTPException(403, "Viewer is read-only")
+    if db.project_is_archived(project_id):
+        raise HTTPException(409, "archived project is read-only")
     return _post_comment(project_id, account, body.body.strip())
 
 
@@ -74,6 +79,13 @@ def get_item_comments(project_id: str, wid: str, account: Account = CurrentAccou
 @router.post("/projects/{project_id}/work-items/{wid}/comments")
 def post_item_comment(project_id: str, wid: str, body: CommentBody, account: Account = CurrentAccount) -> dict:
     _require_item(project_id, wid, account)
+    role = db.project_access_role(project_id, account.id)
+    if role is None:
+        raise HTTPException(404, "project not found")
+    if not can_write(role):
+        raise HTTPException(403, "Viewer is read-only")
+    if db.project_is_archived(project_id):
+        raise HTTPException(409, "archived project is read-only")
     return _post_comment(project_id, account, body.body.strip(), work_item_id=wid)
 
 

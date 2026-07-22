@@ -120,7 +120,14 @@ export interface ToolCatalogAudit {
   created_at: number;
 }
 
-export type SkillReleaseState = "draft" | "testing" | "approved" | "rolling_out" | "published" | "withdrawn" | "superseded";
+export type SkillReleaseState =
+  | "draft"
+  | "testing"
+  | "approved"
+  | "rolling_out"
+  | "published"
+  | "withdrawn"
+  | "superseded";
 
 export interface SkillRelease {
   id: string;
@@ -154,7 +161,13 @@ export interface SkillRelease {
     run_failures: number;
     rollbacks: number;
   };
-  audit: Array<{ id: string; action: string; actor_id: string; details: Record<string, unknown>; created_at: number }>;
+  audit: Array<{
+    id: string;
+    action: string;
+    actor_id: string;
+    details: Record<string, unknown>;
+    created_at: number;
+  }>;
   created_at: number;
   published_at?: number;
 }
@@ -174,6 +187,7 @@ export interface Project {
   role: Role;
   created_at: number;
   updated_at: number;
+  archived_at: number;
 }
 
 export interface Organization {
@@ -238,13 +252,18 @@ export interface Sprint {
   sort: number;
 }
 
-export interface BurndownPoint { date: string; ideal_remaining: number; actual_remaining: number }
+export interface BurndownPoint {
+  date: string;
+  ideal_remaining: number;
+  actual_remaining: number;
+}
 
 export interface Milestone {
   id: string;
   project_id: string;
   name: string;
   status: string;
+  description: string;
   due_date?: string;
   created_at?: number;
 }
@@ -307,6 +326,24 @@ export interface KnowledgeDocument {
   parse_status: string;
   fail_msg?: string;
   created_at?: number;
+}
+
+export interface TaskTemplate {
+  id: string;
+  name: string;
+  values: Partial<WorkItem>;
+}
+export interface SavedPlanView {
+  id: string;
+  name: string;
+  filters: Record<string, string>;
+}
+export interface PmPreferences {
+  templates: TaskTemplate[];
+  wip: Partial<Record<WorkItem["status"], number>>;
+  views: SavedPlanView[];
+  shared_updated_at: number;
+  views_updated_at: number;
 }
 
 export interface KnowledgeSearchHit {

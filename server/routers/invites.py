@@ -25,6 +25,8 @@ def create_invite(project_id: str, body: CreateInviteBody, account: Account = Cu
         raise HTTPException(404, "project not found")
     if not can_manage(role_here):
         raise HTTPException(403, "requires Admin/Owner")
+    if db.project_is_archived(project_id):
+        raise HTTPException(409, "archived project is read-only")
     role = parse_member_role(body.role)
     inv = db.create_invite(
         project_id=project_id, role=role, created_by=account.id,
@@ -55,6 +57,8 @@ def accept_invite(code: str, account: Account = CurrentAccount) -> dict:
     p = db.get_project(inv.project_id)
     if not p:
         raise HTTPException(404, "project no longer exists")
+    if p.archived_at:
+        raise HTTPException(409, "project is archived")
     if account.id == p.owner_id:
         raise HTTPException(400, "you already own this project")
     db.add_project_member(inv.project_id, account.id, inv.role)

@@ -117,7 +117,8 @@ def init_db() -> None:
             experts TEXT NOT NULL DEFAULT '[]',
             skills TEXT NOT NULL DEFAULT '[]',
             created_at REAL NOT NULL,
-            updated_at REAL NOT NULL
+            updated_at REAL NOT NULL,
+            archived_at REAL NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_id, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_projects_org ON projects(org_id);
@@ -341,6 +342,25 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_sprints_project ON sprints(project_id, sort);
 
+        -- WB-295：项目共享 PM 配置（模板/WIP）与用户私有保存视图分层持久化。
+        CREATE TABLE IF NOT EXISTS project_pm_settings (
+            project_id TEXT PRIMARY KEY,
+            templates TEXT NOT NULL DEFAULT '[]',
+            wip TEXT NOT NULL DEFAULT '{}',
+            updated_by TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS project_pm_views (
+            project_id TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            views TEXT NOT NULL DEFAULT '[]',
+            updated_at REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (project_id, account_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_pm_views_account
+            ON project_pm_views(account_id, updated_at DESC);
+
         CREATE TABLE IF NOT EXISTS milestones (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
@@ -440,6 +460,9 @@ def init_db() -> None:
         conn.execute("ALTER TABLE accounts ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0")
     if "last_seen" not in have_acct:
         conn.execute("ALTER TABLE accounts ADD COLUMN last_seen REAL NOT NULL DEFAULT 0")
+    have_project = {r["name"] for r in conn.execute("PRAGMA table_info(projects)").fetchall()}
+    if "archived_at" not in have_project:
+        conn.execute("ALTER TABLE projects ADD COLUMN archived_at REAL NOT NULL DEFAULT 0")
     # 幂等补列（老库）：work_items 专业化字段（WB-104）。
     have_wi = {r["name"] for r in conn.execute("PRAGMA table_info(work_items)").fetchall()}
     for _col, _ddl in (
@@ -954,6 +977,7 @@ def _row_to_project(r: sqlite3.Row) -> Project:
         instruction=r["instruction"], connectors=json.loads(r["connectors"]),
         experts=json.loads(r["experts"]), skills=json.loads(r["skills"]),
         created_at=r["created_at"], updated_at=r["updated_at"],
+        archived_at=float(r["archived_at"] or 0) if "archived_at" in r.keys() else 0,
     )
 
 
@@ -966,7 +990,7 @@ def create_project(
     p = Project(
         id=new_uuid(), name=name[:120], org_id=org_id, owner_id=owner_id, instruction=instruction,
         connectors=connectors or [], experts=experts or [], skills=skills or [],
-        created_at=now, updated_at=now,
+        created_at=now, updated_at=now, archived_at=0,
     )
     get_conn().execute(
         """INSERT INTO projects (id,name,org_id,owner_id,instruction,connectors,experts,skills,created_at,updated_at)
@@ -1001,14 +1025,21 @@ def project_access_role(project_id: str, account_id: str) -> Optional[Role]:
     return project_member_role(project_id, account_id)
 
 
+def project_is_archived(project_id: str) -> bool:
+    row = get_conn().execute("SELECT archived_at FROM projects WHERE id=?", (project_id,)).fetchone()
+    return bool(row and float(row["archived_at"] or 0) > 0)
+
+
 def update_project(project_id: str, **fields: Any) -> Optional[Project]:
-    cols = {"name", "instruction", "connectors", "experts", "skills"}
+    cols = {"name", "org_id", "instruction", "connectors", "experts", "skills", "archived_at"}
     sets, vals = [], []
     for k, v in fields.items():
-        if k not in cols or v is None:
+        if k not in cols:
             continue
         if k in ("connectors", "experts", "skills"):
             sets.append(f"{k}=?"); vals.append(json.dumps(v, ensure_ascii=False))
+        elif k == "org_id":
+            sets.append("org_id=?"); vals.append(v or None)
         else:
             sets.append(f"{k}=?"); vals.append(v[:120] if k == "name" else v)
     if not sets:
@@ -1026,19 +1057,126 @@ def touch_project(project_id: str) -> None:
     get_conn().commit()
 
 
-def list_projects_for(account_id: str) -> list[tuple[Project, Role]]:
+def list_projects_for(account_id: str, *, include_archived: bool = False) -> list[tuple[Project, Role]]:
+    active = "" if include_archived else " AND p.archived_at=0"
     rows = get_conn().execute(
-        """
-        SELECT p.*, 'Owner' AS _role FROM projects p WHERE p.owner_id=?
+        f"""
+        SELECT p.*, 'Owner' AS _role FROM projects p WHERE p.owner_id=?{active}
         UNION
         SELECT p.*, m.role AS _role FROM projects p
           JOIN project_members m ON m.project_id=p.id
-          WHERE m.account_id=? AND p.owner_id<>?
+          WHERE m.account_id=? AND p.owner_id<>?{active}
         ORDER BY updated_at DESC
         """,
         (account_id, account_id, account_id),
     ).fetchall()
     return [(_row_to_project(r), Role(r["_role"])) for r in rows]
+
+
+def transfer_project_owner(project_id: str, current_owner_id: str, next_owner_id: str) -> Optional[Project]:
+    conn = get_conn()
+    row = conn.execute("SELECT owner_id FROM projects WHERE id=?", (project_id,)).fetchone()
+    if not row or row["owner_id"] != current_owner_id:
+        return None
+    member = conn.execute(
+        "SELECT role FROM project_members WHERE project_id=? AND account_id=?",
+        (project_id, next_owner_id),
+    ).fetchone()
+    if not member or member["role"] not in {Role.ADMIN.value, Role.MEMBER.value}:
+        return None
+    now = time.time()
+    conn.execute("UPDATE projects SET owner_id=?,updated_at=? WHERE id=?", (next_owner_id, now, project_id))
+    conn.execute("DELETE FROM project_members WHERE project_id=? AND account_id=?", (project_id, next_owner_id))
+    conn.execute(
+        "INSERT INTO project_members (project_id,account_id,role,created_at,updated_at) VALUES (?,?,?,?,?) "
+        "ON CONFLICT(project_id,account_id) DO UPDATE SET role=excluded.role,updated_at=excluded.updated_at",
+        (project_id, current_owner_id, Role.ADMIN.value, now, now),
+    )
+    conn.commit()
+    return get_project(project_id)
+
+
+def project_delete_counts(project_id: str) -> dict[str, int]:
+    conn = get_conn()
+    tables = {
+        "members": "project_members", "tasks": "work_items", "knowledge_bases": "knowledge_bases",
+        "milestones": "milestones", "sprints": "sprints", "comments": "comments",
+    }
+    return {
+        key: int(conn.execute(f"SELECT COUNT(*) FROM {table} WHERE project_id=?", (project_id,)).fetchone()[0])
+        for key, table in tables.items()
+    }
+
+
+def delete_project(project_id: str) -> bool:
+    """Delete an archived project after external knowledge resources have been removed."""
+    conn = get_conn()
+    project = conn.execute("SELECT archived_at FROM projects WHERE id=?", (project_id,)).fetchone()
+    if not project or float(project["archived_at"] or 0) <= 0:
+        return False
+    if conn.execute("SELECT 1 FROM knowledge_bases WHERE project_id=? LIMIT 1", (project_id,)).fetchone():
+        raise ValueError("project still has knowledge bases")
+    for table in (
+        "project_members", "invites", "timeline_events", "comments", "server_notifications",
+        "work_item_activity", "work_items", "project_custom_fields", "sprints", "milestones",
+        "kb_documents", "project_pm_settings", "project_pm_views",
+    ):
+        conn.execute(f"DELETE FROM {table} WHERE project_id=?", (project_id,))
+    cur = conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_project_pm_preferences(project_id: str, account_id: str) -> dict[str, Any]:
+    conn = get_conn()
+    shared = conn.execute(
+        "SELECT templates,wip,updated_at FROM project_pm_settings WHERE project_id=?", (project_id,)
+    ).fetchone()
+    personal = conn.execute(
+        "SELECT views,updated_at FROM project_pm_views WHERE project_id=? AND account_id=?",
+        (project_id, account_id),
+    ).fetchone()
+    def decoded(row: Optional[sqlite3.Row], key: str, fallback: Any) -> Any:
+        if not row:
+            return fallback
+        try:
+            return json.loads(row[key] or "")
+        except (json.JSONDecodeError, TypeError):
+            return fallback
+    return {
+        "templates": decoded(shared, "templates", []),
+        "wip": decoded(shared, "wip", {}),
+        "views": decoded(personal, "views", []),
+        "shared_updated_at": float(shared["updated_at"] or 0) if shared else 0,
+        "views_updated_at": float(personal["updated_at"] or 0) if personal else 0,
+    }
+
+
+def save_project_pm_shared(
+    project_id: str, account_id: str, *, templates: Optional[list[dict]] = None,
+    wip: Optional[dict[str, int]] = None,
+) -> None:
+    current = get_project_pm_preferences(project_id, account_id)
+    next_templates = current["templates"] if templates is None else templates
+    next_wip = current["wip"] if wip is None else wip
+    now = time.time()
+    get_conn().execute(
+        "INSERT INTO project_pm_settings (project_id,templates,wip,updated_by,updated_at) VALUES (?,?,?,?,?) "
+        "ON CONFLICT(project_id) DO UPDATE SET templates=excluded.templates,wip=excluded.wip,"
+        "updated_by=excluded.updated_by,updated_at=excluded.updated_at",
+        (project_id, json.dumps(next_templates, ensure_ascii=False), json.dumps(next_wip, ensure_ascii=False), account_id, now),
+    )
+    get_conn().commit()
+
+
+def save_project_pm_views(project_id: str, account_id: str, views: list[dict]) -> None:
+    now = time.time()
+    get_conn().execute(
+        "INSERT INTO project_pm_views (project_id,account_id,views,updated_at) VALUES (?,?,?,?) "
+        "ON CONFLICT(project_id,account_id) DO UPDATE SET views=excluded.views,updated_at=excluded.updated_at",
+        (project_id, account_id, json.dumps(views, ensure_ascii=False), now),
+    )
+    get_conn().commit()
 
 
 def add_project_member(project_id: str, account_id: str, role: Role) -> None:
@@ -1693,6 +1831,31 @@ def create_project_custom_field(*, project_id: str, name: str, field_type: str,
     )
     get_conn().commit()
     return next(item for item in list_project_custom_fields(project_id) if item["id"] == field_id)
+
+
+def update_project_custom_field(field_id: str, project_id: str, **fields: Any) -> Optional[dict]:
+    allowed = {"name", "field_type", "options", "required", "sort"}
+    sets: list[str] = []
+    values: list[Any] = []
+    for key, value in fields.items():
+        if key not in allowed or value is None:
+            continue
+        if key == "options":
+            value = json.dumps(value, ensure_ascii=False)
+        elif key == "required":
+            value = int(bool(value))
+        sets.append(f"{key}=?")
+        values.append(value)
+    if not sets:
+        return next((item for item in list_project_custom_fields(project_id) if item["id"] == field_id), None)
+    sets.append("updated_at=?"); values.extend((time.time(), field_id, project_id))
+    cur = get_conn().execute(
+        f"UPDATE project_custom_fields SET {', '.join(sets)} WHERE id=? AND project_id=?", values
+    )
+    get_conn().commit()
+    if not cur.rowcount:
+        return None
+    return next((item for item in list_project_custom_fields(project_id) if item["id"] == field_id), None)
 
 
 def delete_project_custom_field(field_id: str, project_id: str) -> bool:

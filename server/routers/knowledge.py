@@ -41,6 +41,8 @@ def _require_write(project_id: str, account: Account) -> Role:
     role = _access(project_id, account)
     if not can_write(role):
         raise HTTPException(403, "Viewer is read-only")
+    if db.project_is_archived(project_id):
+        raise HTTPException(409, "archived project is read-only")
     return role
 
 
@@ -48,6 +50,8 @@ def _require_manage(project_id: str, account: Account) -> Role:
     role = _access(project_id, account)
     if not can_manage(role):
         raise HTTPException(403, "requires Admin/Owner")
+    if db.project_is_archived(project_id):
+        raise HTTPException(409, "archived project is read-only")
     return role
 
 
