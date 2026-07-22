@@ -1,15 +1,32 @@
 """Owner-scoped multi-agent DAG API (WB-258)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+import asyncio
+import time
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from agent import orchestrator
+from agent import events, orchestrator
 from auth.deps import current_user
 from storage import db, orchestration_store as store
 from storage.models import Role
 
 router = APIRouter(prefix="/api", tags=["orchestrations"])
+TERMINAL = {"completed", "failed", "cancelled"}
+SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+def _with_artifact(item: dict, user_id: str) -> dict:
+    if item.get("artifact_id"):
+        artifact = db.get_artifact_for(item["artifact_id"], user_id)
+        item["artifact"] = artifact.to_dict() if artifact else None
+    return item
 
 
 class CreateBody(BaseModel):
@@ -23,7 +40,7 @@ class CreateBody(BaseModel):
 
 
 @router.post("/orchestrations", status_code=202)
-def create(body: CreateBody) -> dict:
+async def create(body: CreateBody) -> dict:
     user = current_user()
     team = orchestrator.resolve_team(body.team_name)
     if not team:
@@ -56,18 +73,55 @@ def get(orchestration_id: str) -> dict:
     item = store.get(orchestration_id, user.id)
     if not item:
         raise HTTPException(404, "orchestration not found")
-    if item.get("artifact_id"):
-        artifact = db.get_artifact_for(item["artifact_id"], user.id)
-        item["artifact"] = artifact.to_dict() if artifact else None
-    return {"orchestration": item}
+    return {"orchestration": _with_artifact(item, user.id)}
+
+
+@router.get("/orchestrations/{orchestration_id}/events")
+async def stream_events(orchestration_id: str, request: Request):
+    """Push authoritative snapshots on change; comments keep proxies from timing out."""
+    user = current_user()
+    if not store.get(orchestration_id, user.id):
+        raise HTTPException(404, "orchestration not found")
+
+    async def event_stream():
+        last_updated = -1.0
+        last_heartbeat = time.monotonic()
+        while not await request.is_disconnected():
+            current_version = store.version(orchestration_id, user.id)
+            if not current_version:
+                yield events.error("orchestration not found")
+                return
+            updated, status = current_version
+            if updated != last_updated:
+                item = store.get(orchestration_id, user.id)
+                if not item:
+                    yield events.error("orchestration not found")
+                    return
+                item = _with_artifact(item, user.id)
+                yield events.sse("orchestration", {"orchestration": item})
+                last_updated = updated
+                last_heartbeat = time.monotonic()
+                if status in TERMINAL:
+                    yield events.done()
+                    return
+            elif time.monotonic() - last_heartbeat >= 15:
+                yield ": keep-alive\n\n"
+                last_heartbeat = time.monotonic()
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @router.post("/orchestrations/{orchestration_id}/cancel")
-def cancel(orchestration_id: str) -> dict:
-    item = store.get(orchestration_id, current_user().id)
+async def cancel(orchestration_id: str) -> dict:
+    user = current_user()
+    item = store.get(orchestration_id, user.id)
     if not item:
         raise HTTPException(404, "orchestration not found")
-    if item["status"] in {"completed", "failed", "cancelled"}:
+    if item["status"] in TERMINAL:
         raise HTTPException(409, "orchestration is already terminal")
-    orchestrator.cancel(orchestration_id)
-    return {"cancelled": True}
+    await orchestrator.cancel_and_wait(orchestration_id)
+    current = store.get(orchestration_id, user.id)
+    if not current:
+        raise HTTPException(404, "orchestration not found")
+    return {"cancelled": current["status"] == "cancelled", "orchestration": _with_artifact(current, user.id)}

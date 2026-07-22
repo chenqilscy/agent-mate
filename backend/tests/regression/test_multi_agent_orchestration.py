@@ -1,13 +1,16 @@
 """Multi-agent DAG validation and durable state regression (WB-258)."""
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from agent import orchestrator
+from agent import events, orchestrator
 from config import settings
+from routers import orchestrations as orchestration_router
 from storage import db, orchestration_store as store
 from storage.models import LOCAL_USER_ID
 
@@ -55,6 +58,9 @@ class MultiAgentOrchestrationTest(unittest.TestCase):
         self.assertEqual(2, len(routed))
         self.assertNotEqual(routed[0]["expert_slug"], routed[1]["expert_slug"])
         self.assertTrue(all(not item["depends_on"] for item in routed))
+        parallel = orchestrator.build_role_plan(self.team, 3)
+        self.assertEqual(3, len(parallel))
+        self.assertEqual(3, len({item["expert_slug"] for item in parallel}))
 
     def test_idempotent_orchestration_and_node_cost_rollup(self) -> None:
         first, created = store.create(
@@ -134,6 +140,107 @@ class MultiAgentOrchestrationTest(unittest.TestCase):
         self.assertEqual(2, len(node["attempts"]))
         self.assertEqual(140, node["prompt_tokens"] + node["completion_tokens"])
         self.assertEqual(140, saved["prompt_tokens"] + saved["completion_tokens"])
+
+    def test_detail_bulk_loads_attempts_without_node_n_plus_one(self) -> None:
+        item, _ = store.create(
+            owner_id=LOCAL_USER_ID, project_id=None, team_name="深度研究团队", goal="目标",
+            idempotency_key=None, max_nodes=6, max_parallel=3, max_total_tokens=12000,
+        )
+        for index in range(3):
+            key = f"member_{index}"
+            store.add_node(
+                item["id"], node_key=key, title=key, role="成员",
+                expert_slug="data-report-analyst", instruction="分析", depends_on=[],
+            )
+            session = db.create_session(owner_id=LOCAL_USER_ID, title=key)
+            attempt = store.start_attempt(item["id"], key, session.id)
+            store.finish_attempt(attempt["id"], status="failed", run_id=None, error="failure")
+        statements: list[str] = []
+        conn = db.get_conn()
+        conn.set_trace_callback(statements.append)
+        try:
+            saved = store.get(item["id"], LOCAL_USER_ID)
+        finally:
+            conn.set_trace_callback(None)
+        self.assertEqual(3, len(saved["nodes"]))
+        attempt_queries = [
+            sql for sql in statements
+            if sql.lstrip().upper().startswith("SELECT") and "orchestration_attempts" in sql
+        ]
+        self.assertEqual(1, len(attempt_queries), statements)
+
+    def test_cancel_converges_parent_nodes_and_attempts(self) -> None:
+        item, _ = store.create(
+            owner_id=LOCAL_USER_ID, project_id=None, team_name="深度研究团队", goal="目标",
+            idempotency_key=None, max_nodes=6, max_parallel=3, max_total_tokens=12000,
+        )
+        store.add_node(
+            item["id"], node_key="active", title="执行", role="成员",
+            expert_slug="data-report-analyst", instruction="分析", depends_on=[],
+        )
+        store.add_node(
+            item["id"], node_key="pending", title="等待", role="成员",
+            expert_slug="data-report-analyst", instruction="分析", depends_on=["active"],
+        )
+        session = db.create_session(owner_id=LOCAL_USER_ID, title="active")
+        store.start_attempt(item["id"], "active", session.id)
+        store.set_status(item["id"], "running")
+        store.cancel_nonterminal(item["id"])
+        saved = store.get(item["id"], LOCAL_USER_ID)
+        self.assertEqual("cancelled", saved["status"])
+        self.assertTrue(all(node["status"] == "cancelled" for node in saved["nodes"]))
+        self.assertEqual("cancelled", saved["nodes"][0]["attempts"][0]["status"])
+
+    def test_retry_deducts_actual_usage_from_node_budget(self) -> None:
+        item, _ = store.create(
+            owner_id=LOCAL_USER_ID, project_id=None, team_name="深度研究团队", goal="目标",
+            idempotency_key=None, max_nodes=6, max_parallel=3, max_total_tokens=12000,
+        )
+        node = store.add_node(
+            item["id"], node_key="member", title="执行", role="成员",
+            expert_slug="data-report-analyst", instruction="分析", depends_on=[],
+        )
+        budgets: list[int] = []
+
+        async def fake_run_chat(session, user, prompt, **kwargs):
+            budgets.append(kwargs["max_total_tokens"])
+            run, _ = db.create_run(
+                session_id=session.id, owner_id=user.id, project_id=None, mode="ask",
+                idempotency_key=kwargs["idempotency_key"],
+            )
+            if len(budgets) == 1:
+                db.update_run_runtime(run.id, prompt_tokens=240, completion_tokens=60)
+                db.set_run_status(run.id, "failed", error_code="llm_error", error_message="LLM 429")
+                yield events.error("LLM 429")
+            else:
+                db.update_run_runtime(run.id, prompt_tokens=80, completion_tokens=20)
+                db.set_run_status(run.id, "completed")
+                yield events.text("完成")
+
+        user = db.get_user(LOCAL_USER_ID)
+        with patch.object(orchestrator.runtime, "run_chat", fake_run_chat), patch.object(
+            orchestrator, "_retry_delay", return_value=0,
+        ):
+            result = asyncio.run(orchestrator._execute_node(item, user, node, "目标", token_budget=1000))
+        self.assertEqual([1000, 700], budgets)
+        self.assertEqual("completed", result["status"])
+        self.assertEqual(400, result["prompt_tokens"] + result["completion_tokens"])
+
+    def test_create_api_starts_scheduler_on_event_loop(self) -> None:
+        started: list[str] = []
+
+        def fake_start(orchestration_id, user, team):
+            asyncio.get_running_loop()
+            started.append(orchestration_id)
+
+        body = orchestration_router.CreateBody(
+            team_name="深度研究团队", goal="目标", idempotency_key="api-event-loop",
+            max_nodes=5, max_parallel=3, max_total_tokens=6000,
+        )
+        with patch.object(orchestration_router.orchestrator, "start", fake_start):
+            result = asyncio.run(orchestration_router.create(body))
+        self.assertTrue(result["created"])
+        self.assertEqual([result["orchestration"]["id"]], started)
 
 
 if __name__ == "__main__":

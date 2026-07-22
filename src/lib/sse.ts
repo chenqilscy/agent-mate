@@ -7,7 +7,7 @@
 // (the /stop endpoint stops it server-side too).
 
 import { API_BASE, authHeaders } from './api'
-import type { SSEEvent } from './types'
+import type { Orchestration, SSEEvent } from './types'
 
 export interface ChatStreamOptions {
   text: string
@@ -101,18 +101,72 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
 }
 
 function dispatchFrame(frame: string, onEvent: (ev: SSEEvent) => void): void {
+  const parsed = parseFrame(frame)
+  if (!parsed) return
+  onEvent({ type: parsed.event, data: parsed.data } as SSEEvent)
+}
+
+function parseFrame(frame: string): { event: string; data: unknown } | null {
   let event = 'message'
   const dataLines: string[] = []
   for (const line of frame.split('\n')) {
     if (line.startsWith('event:')) event = line.slice(6).trim()
     else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
   }
-  if (!dataLines.length) return
+  if (!dataLines.length) return null
   let data: unknown
   try {
     data = JSON.parse(dataLines.join('\n'))
   } catch {
-    return
+    return null
   }
-  onEvent({ type: event, data } as SSEEvent)
+  return { event, data }
+}
+
+export async function streamOrchestration(
+  id: string,
+  opts: { signal?: AbortSignal; onSnapshot: (item: Orchestration) => void },
+): Promise<void> {
+  const resp = await fetch(`${API_BASE}/orchestrations/${encodeURIComponent(id)}/events`, {
+    headers: authHeaders(), signal: opts.signal,
+  })
+  if (!resp.ok || !resp.body) throw new Error(`专家团状态流不可用（HTTP ${resp.status}）`)
+
+  const decoder = new TextDecoder()
+  const reader = resp.body.getReader()
+  let buffer = ''
+  let completed = false
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let idx: number
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const parsed = parseFrame(buffer.slice(0, idx))
+        buffer = buffer.slice(idx + 2)
+        if (!parsed) continue
+        if (parsed.event === 'orchestration') {
+          const payload = parsed.data as { orchestration?: Orchestration }
+          if (payload?.orchestration) opts.onSnapshot(payload.orchestration)
+        } else if (parsed.event === 'error') {
+          const payload = parsed.data as { message?: string }
+          throw new Error(payload?.message || '专家团状态流错误')
+        } else if (parsed.event === 'done') {
+          completed = true
+        }
+      }
+    }
+    buffer += decoder.decode()
+    if (buffer.trim()) {
+      const parsed = parseFrame(buffer)
+      if (parsed?.event === 'orchestration') {
+        const payload = parsed.data as { orchestration?: Orchestration }
+        if (payload?.orchestration) opts.onSnapshot(payload.orchestration)
+      } else if (parsed?.event === 'done') completed = true
+    }
+    if (!completed && !opts.signal?.aborted) throw new Error('专家团状态流意外断开')
+  } finally {
+    reader.releaseLock()
+  }
 }

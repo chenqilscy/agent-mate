@@ -17,7 +17,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from agent import orchestrator, runtime
+from agent import orchestrator, runtime, telemetry
 from config import settings
 from storage import db, orchestration_store as store
 from storage.models import LOCAL_USER_ID
@@ -109,7 +109,7 @@ async def multi_agent(user, scenario: dict[str, Any], budget: int) -> dict[str, 
     team = orchestrator.resolve_team(scenario["team"])
     item, _ = store.create(
         owner_id=user.id, project_id=None, team_name=scenario["team"], goal=scenario["goal"],
-        idempotency_key=f"benchmark:multi:{scenario['id']}", max_nodes=4, max_parallel=2,
+        idempotency_key=f"benchmark:multi:v2:{scenario['id']}", max_nodes=5, max_parallel=3,
         max_total_tokens=budget,
     )
     started = time.perf_counter()
@@ -117,10 +117,24 @@ async def multi_agent(user, scenario: dict[str, Any], budget: int) -> dict[str, 
     result = store.get(item["id"], user.id)
     reviewer = next((node for node in result["nodes"] if node["node_key"] == "reviewer"), None)
     text = reviewer["output"] if reviewer else ""
+    intervals = sorted(
+        (float(node["started_at"]), float(node["ended_at"]))
+        for node in result["nodes"]
+        if node["node_key"] != "reviewer" and node.get("started_at") and node.get("ended_at")
+    )
+    peak_parallel = 0
+    active = 0
+    for _, delta in sorted(
+        [(started, 1) for started, _ in intervals] + [(ended, -1) for _, ended in intervals],
+        key=lambda event: (event[0], event[1]),
+    ):
+        active += delta
+        peak_parallel = max(peak_parallel, active)
     return {
         "status": result["status"], "error": result["error"], "output": text,
         "prompt_tokens": result["prompt_tokens"], "completion_tokens": result["completion_tokens"],
         "seconds": round(time.perf_counter() - started, 3), "score": score(text, scenario["criteria"]),
+        "peak_parallel": peak_parallel,
         "nodes": [
             {
                 **{key: node.get(key) for key in ("node_key", "role", "status", "run_id", "prompt_tokens", "completion_tokens", "error")},
@@ -135,9 +149,13 @@ async def multi_agent(user, scenario: dict[str, Any], budget: int) -> dict[str, 
     }
 
 
-async def main(output: Path, budget: int, *, resume: bool = False) -> int:
+async def main(
+    output: Path, budget: int, *, resume: bool = False,
+    rerun_scenarios: set[str] | None = None,
+) -> int:
     original_db = settings.DB_PATH
     original_workspace = settings.WORKSPACE_ROOT
+    original_langfuse_enabled = settings.LANGFUSE_ENABLED
     source_user = db.get_user(LOCAL_USER_ID)
     default_ref = db.get_default_model(source_user.id)
     if not default_ref:
@@ -158,6 +176,10 @@ async def main(output: Path, budget: int, *, resume: bool = False) -> int:
         try:
             settings.DB_PATH = Path(temp) / "agentmate.db"
             settings.WORKSPACE_ROOT = Path(temp) / "workspace"
+            # A model-quality benchmark must not wait on an optional local trace sink.
+            settings.LANGFUSE_ENABLED = False
+            telemetry._client = None
+            telemetry._client_initialized = False
             db._local = threading.local()
             db.init_db(); store.ensure_tables()
             user = db.get_user(LOCAL_USER_ID)
@@ -182,7 +204,7 @@ async def main(output: Path, budget: int, *, resume: bool = False) -> int:
             if resume and output.exists():
                 prior_report = json.loads(output.read_text(encoding="utf-8"))
                 if (
-                    prior_report.get("gate") != "multi-agent-admission-v1"
+                    prior_report.get("gate") != "multi-agent-admission-v2"
                     or prior_report.get("provider_model") != default_ref
                 ):
                     raise RuntimeError("续跑报告的门禁或模型与当前评测不一致")
@@ -193,6 +215,7 @@ async def main(output: Path, budget: int, *, resume: bool = False) -> int:
 
             results = []
             for scenario in SCENARIOS:
+                force_rerun = scenario["id"] in (rerun_scenarios or set())
                 prior = prior_by_scenario.get(scenario["id"], {})
                 prior_baseline = prior.get("baseline", {})
                 prior_multi = prior.get("multi", {})
@@ -201,7 +224,7 @@ async def main(output: Path, budget: int, *, resume: bool = False) -> int:
                     else await single_agent(user, scenario, budget)
                 )
                 multi = (
-                    prior_multi if prior_multi.get("status") == "completed"
+                    prior_multi if not force_rerun and prior.get("passed") and prior_multi.get("status") == "completed"
                     else await multi_agent(user, scenario, budget * 5)
                 )
                 base_ratio = baseline["score"]["ratio"]
@@ -220,6 +243,7 @@ async def main(output: Path, budget: int, *, resume: bool = False) -> int:
                 passed = (
                     baseline["status"] == "completed" and multi["status"] == "completed"
                     and quality_passed
+                    and multi.get("peak_parallel", 0) >= 3
                     and token_ratio <= 5.0
                 )
                 results.append({
@@ -228,12 +252,13 @@ async def main(output: Path, budget: int, *, resume: bool = False) -> int:
                     "quality_passed": quality_passed, "passed": passed,
                 })
             report = {
-                "gate": "multi-agent-admission-v1", "provider_model": default_ref,
+                "gate": "multi-agent-admission-v2", "provider_model": default_ref,
                 "threshold": {
                     "standard": {"quality_gain": 0.10, "minimum_extra_hits": 2},
                     "ceiling_when_baseline_at_least": 0.90,
                     "ceiling_rule": {"minimum_multi_score": 0.98, "must_not_regress": True},
                     "maximum_token_ratio": 5.0,
+                    "minimum_peak_parallel": 3,
                 },
                 "passed": all(item["passed"] for item in results), "results": results,
             }
@@ -254,6 +279,7 @@ async def main(output: Path, budget: int, *, resume: bool = False) -> int:
                 conn.close()
             settings.DB_PATH = original_db
             settings.WORKSPACE_ROOT = original_workspace
+            settings.LANGFUSE_ENABLED = original_langfuse_enabled
             db._local = threading.local()
 
 
@@ -262,5 +288,9 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--single-budget", type=int, default=5000)
     parser.add_argument("--resume", action="store_true", help="reuse completed arms from an existing report")
+    parser.add_argument("--rerun-scenario", action="append", choices=[item["id"] for item in SCENARIOS], default=[])
     args = parser.parse_args()
-    raise SystemExit(asyncio.run(main(args.output, args.single_budget, resume=args.resume)))
+    raise SystemExit(asyncio.run(main(
+        args.output, args.single_budget, resume=args.resume,
+        rerun_scenarios=set(args.rerun_scenario),
+    )))

@@ -197,7 +197,8 @@ export const api = {
   }) => send<{ orchestration: Orchestration; created: boolean }>('POST', '/orchestrations', body),
   getOrchestration: (id: string) => get<{ orchestration: Orchestration }>(`/orchestrations/${id}`),
   listOrchestrations: () => get<{ orchestrations: Orchestration[] }>('/orchestrations'),
-  cancelOrchestration: (id: string) => send<{ cancelled: boolean }>('POST', `/orchestrations/${id}/cancel`),
+  cancelOrchestration: (id: string) =>
+    send<{ cancelled: boolean; orchestration: Orchestration }>('POST', `/orchestrations/${id}/cancel`),
 
   renameSession: (id: string, title: string) =>
     send<{ ok: boolean }>('PATCH', `/sessions/${id}`, { title }),

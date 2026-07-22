@@ -85,18 +85,18 @@ def validate_plan(raw: dict[str, Any], team: dict[str, Any], max_tasks: int) -> 
     return normalized
 
 
-def build_role_plan(team: dict[str, Any], max_tasks: int = 2) -> list[dict[str, Any]]:
+def build_role_plan(team: dict[str, Any], max_tasks: int = 3) -> list[dict[str, Any]]:
     """Build a low-variance DAG from the authoritative team catalog.
 
     The goal is supplied at execution time; routing itself should not spend an LLM call or
-    hallucinate member slugs. The lead is reserved for review, while up to two catalog members
-    independently examine the goal from complementary roles.
+    hallucinate member slugs. The lead is reserved for review, while the configured number of
+    catalog members independently examine the goal from complementary roles.
     """
     members = [
         member for member in team.get("members", [])
         if isinstance(member, dict) and member.get("expert_slug") and not member.get("lead")
     ]
-    selected = members[:max(1, min(2, max_tasks))]
+    selected = members[:max(1, min(max_tasks, len(members)))]
     if not selected:
         raise ValueError("expert team has no specialist members")
     return [
@@ -132,10 +132,12 @@ def _sse(chunk: str) -> tuple[str, dict[str, Any]]:
 
 async def _execute_node(
     orchestration: dict[str, Any], user: User, node: dict[str, Any], prompt: str,
-    *, token_budget: int,
+    *, token_budget: int, max_attempts: int = 3,
 ) -> dict[str, Any]:
     workspace = f"projects/{orchestration['project_id']}" if orchestration.get("project_id") else "default"
-    for attempt_index in range(3):
+    remaining_budget = max(256, token_budget)
+    bounded_attempts = max(1, min(max_attempts, 3))
+    for attempt_index in range(bounded_attempts):
         session = db.create_session(
             owner_id=user.id, title=f"{orchestration['team_name']} · {node['title']}",
             kind="projexec" if orchestration.get("project_id") else "chat",
@@ -157,8 +159,14 @@ async def _execute_node(
                 idempotency_key=(
                     f"orchestration:{orchestration['id']}:{node['node_key']}:{attempt['attempt']}"
                 ),
-                max_total_tokens=max(256, token_budget),
-                max_output_tokens=min(3000, max(768, token_budget // 2)),
+                max_total_tokens=remaining_budget,
+                # Specialists provide bounded evidence briefs; the reviewer keeps more
+                # room for the user-facing synthesis. This avoids paying four full-size
+                # answers while keeping three-way orchestration below the 5x gate.
+                max_output_tokens=max(64, min(
+                    2800 if node["node_key"] == "reviewer" else 2200,
+                    remaining_budget // 2,
+                )),
             ):
                 event, data = _sse(chunk)
                 if event == "text":
@@ -174,10 +182,18 @@ async def _execute_node(
             _ACTIVE_SESSIONS.get(orchestration["id"], set()).discard(session.id)
         runs = db.list_runs(user.id, session_id=session.id, limit=5)
         run = runs[0] if runs else None
-        status = "completed" if run and run.status == "completed" and not event_error else "failed"
+        text = "".join(output).strip()
+        status = "completed" if run and run.status == "completed" and not event_error and text else "failed"
         if cancelled:
             status = "cancelled"
         error = event_error or (run.error_message if run else "run was not created") or ""
+        if status == "failed" and run and run.status == "completed" and not text and not error:
+            error = "agent completed without deliverable output"
+        attempt_tokens = (run.prompt_tokens + run.completion_tokens) if run else 0
+        remaining_budget = max(0, remaining_budget - attempt_tokens)
+        retryable = status == "failed" and attempt_index + 1 < bounded_attempts and _is_transient(error)
+        if retryable and remaining_budget < 256:
+            error = f"{error}; node token budget exhausted".strip("; ")
         store.finish_attempt(
             attempt["id"], status=status, run_id=run.id if run else None, error=error,
             prompt_tokens=run.prompt_tokens if run else 0,
@@ -189,10 +205,9 @@ async def _execute_node(
                 run_id=run.id if run else None, error=error,
             )
             raise asyncio.CancelledError
-        if status == "failed" and attempt_index < 2 and _is_transient(error):
+        if retryable and remaining_budget >= 256:
             await asyncio.sleep(_retry_delay(error, attempt_index))
             continue
-        text = "".join(output).strip()
         store.finish_node(
             orchestration["id"], node["node_key"], status=status, run_id=run.id if run else None,
             output=text, error=error,
@@ -310,7 +325,10 @@ async def run_orchestration(orchestration_id: str, user: User, team: dict[str, A
         lead = next((m for m in members if m.get("lead")), members[0] if members else None)
         if not lead:
             raise ValueError("expert team has no executable members")
-        plan = build_role_plan(team, max(1, orchestration["max_nodes"] - 1))
+        specialist_limit = min(
+            orchestration["max_parallel"], max(1, orchestration["max_nodes"] - 1),
+        )
+        plan = build_role_plan(team, specialist_limit)
         for item in plan:
             store.add_node(
                 orchestration_id, node_key=item["id"], title=item["title"], role=item["role"],
@@ -357,7 +375,7 @@ async def run_orchestration(orchestration_id: str, user: User, team: dict[str, A
                     orchestration, user, node,
                     f"原始目标：{orchestration['goal']}\n\n你的子任务：{node['instruction']}\n\n"
                     + _dependency_context(node, nodes),
-                    token_budget=per_node,
+                    token_budget=per_node, max_attempts=1,
                 )
                 for node in batch
             ))
@@ -366,12 +384,21 @@ async def run_orchestration(orchestration_id: str, user: User, team: dict[str, A
             # transiently failed node sequentially and preserve every earlier attempt.
             for failed in batch_results:
                 if failed.get("status") == "failed" and _is_transient(str(failed.get("error") or "")):
+                    latest = store.get(orchestration_id, user.id) or {}
+                    recovery_remaining = (
+                        orchestration["max_total_tokens"]
+                        - latest.get("prompt_tokens", 0) - latest.get("completion_tokens", 0)
+                    )
+                    # Keep half of the remaining global budget for the mandatory reviewer.
+                    recovery_budget = recovery_remaining // 2
+                    if recovery_budget < 256:
+                        continue
                     store.reset_node(orchestration_id, failed["node_key"])
                     await _execute_node(
                         orchestration, user, failed,
                         f"原始目标：{orchestration['goal']}\n\n你的子任务：{failed['instruction']}\n\n"
                         + _dependency_context(failed, store.list_nodes(orchestration_id)),
-                        token_budget=per_node,
+                        token_budget=recovery_budget,
                     )
         store.set_status(orchestration_id, "reviewing")
         nodes = store.list_nodes(orchestration_id)
@@ -391,11 +418,17 @@ async def run_orchestration(orchestration_id: str, user: User, team: dict[str, A
             # The reviewer is the only node without a later sibling that can trigger
             # the sequential provider-recovery path. Give it one fresh round while
             # retaining all failed attempts and their cost in the audit trail.
-            store.reset_node(orchestration_id, "reviewer")
-            reviewer = await _execute_node(
-                orchestration, user, reviewer, _review_prompt(orchestration, nodes),
-                token_budget=remaining,
+            latest = store.get(orchestration_id, user.id) or {}
+            retry_budget = (
+                orchestration["max_total_tokens"]
+                - latest.get("prompt_tokens", 0) - latest.get("completion_tokens", 0)
             )
+            if retry_budget >= 256:
+                store.reset_node(orchestration_id, "reviewer")
+                reviewer = await _execute_node(
+                    orchestration, user, reviewer, _review_prompt(orchestration, nodes),
+                    token_budget=retry_budget,
+                )
         if reviewer["status"] != "completed" or not reviewer["output"]:
             raise RuntimeError(f"reviewer failed: {reviewer['error']}")
         final_output = (
@@ -433,3 +466,16 @@ def cancel(orchestration_id: str) -> None:
     task = _TASKS.get(orchestration_id)
     if task and not task.done():
         task.cancel()
+
+
+async def cancel_and_wait(orchestration_id: str, timeout: float = 5.0) -> dict[str, Any] | None:
+    """Cancel active child Runs and return only after durable state has converged."""
+    task = _TASKS.get(orchestration_id)
+    cancel(orchestration_id)
+    if task and not task.done():
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=max(0.1, timeout))
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+    store.cancel_nonterminal(orchestration_id)
+    return store.get(orchestration_id)

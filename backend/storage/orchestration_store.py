@@ -109,11 +109,20 @@ def _loads(value: str) -> list[str]:
         return []
 
 
-def _node(row: Any) -> dict[str, Any]:
+def _node(row: Any, attempts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     item = dict(row)
     item["depends_on"] = _loads(item["depends_on"])
-    item["attempts"] = list_attempts(item["orchestration_id"], item["node_key"])
+    item["attempts"] = attempts if attempts is not None else list_attempts(
+        item["orchestration_id"], item["node_key"],
+    )
     return item
+
+
+def _touch(conn: Any, orchestration_id: str, now: float | None = None) -> None:
+    conn.execute(
+        "UPDATE orchestrations SET updated_at=? WHERE id=?",
+        (now if now is not None else time.time(), orchestration_id),
+    )
 
 
 def _orchestration(row: Any, *, include_nodes: bool = True) -> dict[str, Any] | None:
@@ -169,6 +178,14 @@ def get(orchestration_id: str, owner_id: str | None = None) -> dict[str, Any] | 
     return _orchestration(row)
 
 
+def version(orchestration_id: str, owner_id: str) -> tuple[float, str] | None:
+    row = db.get_conn().execute(
+        "SELECT updated_at,status FROM orchestrations WHERE id=? AND owner_id=?",
+        (orchestration_id, owner_id),
+    ).fetchone()
+    return (float(row["updated_at"]), str(row["status"])) if row else None
+
+
 def list_for(owner_id: str, limit: int = 50) -> list[dict[str, Any]]:
     rows = db.get_conn().execute(
         "SELECT * FROM orchestrations WHERE owner_id=? ORDER BY created_at DESC LIMIT ?",
@@ -198,19 +215,50 @@ def request_cancel(orchestration_id: str) -> None:
     db.get_conn().commit()
 
 
+def cancel_nonterminal(orchestration_id: str, error: str = "cancelled_by_user") -> None:
+    """Atomically converge an interrupted orchestration and all active children."""
+    conn = db.get_conn()
+    now = time.time()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "UPDATE orchestration_attempts SET status='cancelled',error=?,ended_at=? "
+            "WHERE orchestration_id=? AND status='running'",
+            (error[:2000], now, orchestration_id),
+        )
+        conn.execute(
+            "UPDATE orchestration_nodes SET status='cancelled',error=?,ended_at=? "
+            "WHERE orchestration_id=? AND status IN ('pending','running')",
+            (error[:2000], now, orchestration_id),
+        )
+        conn.execute(
+            "UPDATE orchestrations SET status='cancelled',cancel_requested=1,error=?,"
+            "ended_at=COALESCE(ended_at,?),updated_at=? WHERE id=? "
+            "AND status IN ('planning','running','reviewing')",
+            (error[:1000], now, now, orchestration_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def add_node(
     orchestration_id: str, *, node_key: str, title: str, role: str, expert_slug: str,
     instruction: str, depends_on: list[str], status: str = "pending",
 ) -> dict[str, Any]:
     node_id = str(uuid.uuid4())
-    db.get_conn().execute(
+    conn = db.get_conn()
+    now = time.time()
+    conn.execute(
         "INSERT INTO orchestration_nodes "
         "(id,orchestration_id,node_key,title,role,expert_slug,instruction,depends_on,status,created_at) "
         "VALUES (?,?,?,?,?,?,?,?,?,?)",
         (node_id, orchestration_id, node_key, title[:160], role[:80], expert_slug[:120],
-         instruction[:12000], json.dumps(depends_on, ensure_ascii=False), status, time.time()),
+         instruction[:12000], json.dumps(depends_on, ensure_ascii=False), status, now),
     )
-    db.get_conn().commit()
+    _touch(conn, orchestration_id, now)
+    conn.commit()
     return get_node(orchestration_id, node_key) or {}
 
 
@@ -223,19 +271,31 @@ def get_node(orchestration_id: str, node_key: str) -> dict[str, Any] | None:
 
 
 def list_nodes(orchestration_id: str) -> list[dict[str, Any]]:
-    return [_node(row) for row in db.get_conn().execute(
+    conn = db.get_conn()
+    rows = conn.execute(
         "SELECT * FROM orchestration_nodes WHERE orchestration_id=? ORDER BY created_at",
         (orchestration_id,),
-    ).fetchall()]
+    ).fetchall()
+    attempts_by_node: dict[str, list[dict[str, Any]]] = {}
+    for attempt in conn.execute(
+        "SELECT * FROM orchestration_attempts WHERE orchestration_id=? ORDER BY node_key,attempt",
+        (orchestration_id,),
+    ).fetchall():
+        item = dict(attempt)
+        attempts_by_node.setdefault(str(item["node_key"]), []).append(item)
+    return [_node(row, attempts_by_node.get(str(row["node_key"]), [])) for row in rows]
 
 
 def start_node(orchestration_id: str, node_key: str, session_id: str) -> None:
-    db.get_conn().execute(
+    conn = db.get_conn()
+    now = time.time()
+    conn.execute(
         "UPDATE orchestration_nodes SET status='running',session_id=?,started_at=? "
         "WHERE orchestration_id=? AND node_key=? AND status='pending'",
-        (session_id, time.time(), orchestration_id, node_key),
+        (session_id, now, orchestration_id, node_key),
     )
-    db.get_conn().commit()
+    _touch(conn, orchestration_id, now)
+    conn.commit()
 
 
 def start_attempt(orchestration_id: str, node_key: str, session_id: str) -> dict[str, Any]:
@@ -258,6 +318,7 @@ def start_attempt(orchestration_id: str, node_key: str, session_id: str) -> dict
         "ended_at=NULL WHERE orchestration_id=? AND node_key=?",
         (session_id, now, orchestration_id, node_key),
     )
+    _touch(conn, orchestration_id, now)
     conn.commit()
     return {"id": attempt_id, "attempt": attempt}
 
@@ -268,13 +329,20 @@ def finish_attempt(
 ) -> None:
     if status not in {"completed", "failed", "cancelled"}:
         raise ValueError("invalid attempt status")
-    db.get_conn().execute(
+    conn = db.get_conn()
+    now = time.time()
+    row = conn.execute(
+        "SELECT orchestration_id FROM orchestration_attempts WHERE id=?", (attempt_id,),
+    ).fetchone()
+    conn.execute(
         "UPDATE orchestration_attempts SET status=?,run_id=?,error=?,prompt_tokens=?,"
         "completion_tokens=?,ended_at=? WHERE id=?",
         (status, run_id, error[:2000], max(0, prompt_tokens), max(0, completion_tokens),
-         time.time(), attempt_id),
+         now, attempt_id),
     )
-    db.get_conn().commit()
+    if row:
+        _touch(conn, str(row["orchestration_id"]), now)
+    conn.commit()
 
 
 def list_attempts(orchestration_id: str, node_key: str) -> list[dict[str, Any]]:
@@ -285,12 +353,15 @@ def list_attempts(orchestration_id: str, node_key: str) -> list[dict[str, Any]]:
 
 
 def reset_node(orchestration_id: str, node_key: str) -> None:
-    db.get_conn().execute(
+    conn = db.get_conn()
+    now = time.time()
+    conn.execute(
         "UPDATE orchestration_nodes SET status='pending',output='',error='',ended_at=NULL "
         "WHERE orchestration_id=? AND node_key=?",
         (orchestration_id, node_key),
     )
-    db.get_conn().commit()
+    _touch(conn, orchestration_id, now)
+    conn.commit()
 
 
 def finish_node(

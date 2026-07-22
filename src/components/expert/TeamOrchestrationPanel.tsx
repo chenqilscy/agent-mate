@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Input, Tag } from 'antd'
 import { api } from '../../lib/api'
+import { streamOrchestration } from '../../lib/sse'
 import type { Orchestration } from '../../lib/types'
 import { toast } from '../../stores/toastStore'
 import { WbButton } from '../ui/Primitives'
@@ -26,17 +27,34 @@ export function TeamOrchestrationPanel({ teamName, suggestedGoal }: { teamName: 
   useEffect(() => {
     if (!active || !item) return
     let alive = true
-    const refresh = async () => {
+    let retryTimer: number | undefined
+    let controller = new AbortController()
+    let warned = false
+    const connect = async () => {
       try {
-        const result = await api.getOrchestration(item.id)
-        if (alive) setItem(result.orchestration)
-      } catch {
-        if (alive) toast('专家团状态刷新失败，将继续重试')
+        await streamOrchestration(item.id, {
+          signal: controller.signal,
+          onSnapshot: (snapshot) => { if (alive) setItem(snapshot) },
+        })
+        warned = false
+      } catch (error) {
+        if (!alive || (error as Error).name === 'AbortError') return
+        if (!warned) {
+          toast('专家团状态流已断开，正在自动重连')
+          warned = true
+        }
+        retryTimer = window.setTimeout(() => {
+          controller = new AbortController()
+          void connect()
+        }, 1500)
       }
     }
-    const timer = window.setInterval(() => { void refresh() }, 2000)
-    void refresh()
-    return () => { alive = false; window.clearInterval(timer) }
+    void connect()
+    return () => {
+      alive = false
+      controller.abort()
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    }
   }, [active, item?.id])
 
   const finalOutput = useMemo(
@@ -65,10 +83,9 @@ export function TeamOrchestrationPanel({ teamName, suggestedGoal }: { teamName: 
     if (!item) return
     setBusy(true)
     try {
-      await api.cancelOrchestration(item.id)
-      const result = await api.getOrchestration(item.id)
+      const result = await api.cancelOrchestration(item.id)
       setItem(result.orchestration)
-      toast('已取消专家团执行')
+      toast(result.cancelled ? '已取消专家团执行' : '专家团执行已结束')
     } catch { toast('取消失败，执行可能已结束') } finally { setBusy(false) }
   }
 
