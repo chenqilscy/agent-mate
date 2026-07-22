@@ -1294,30 +1294,33 @@ def list_server_timeline(project_id: str, limit: int = 100) -> list[dict]:
 def mirror_server_project(
     *, id: str, name: str, owner_id: str, instruction: str = "",
     connectors: Optional[list] = None, experts: Optional[list] = None, skills: Optional[list] = None,
+    knowledge_ids: Optional[list] = None,
     created_at: Optional[float] = None, updated_at: Optional[float] = None,
 ) -> None:
     """按 ``id + updated_at`` 合并 Server 项目元数据。
 
     Server 更新且本地未改时应用远端；本地离线改动存在时保留本地值并登记冲突，避免 pull
-    静默覆盖。``knowledge_ids`` 是本机字段，不参与比较或覆盖。
+    静默覆盖。``knowledge_ids`` 对 server-origin 项目是 Server 权威绑定，始终刷新；它不参与
+    本地离线配置冲突比较，因为 AgentMate 不允许本地编辑中央知识库绑定。
     """
     conn = get_conn()
     remote_ts = float(updated_at or time.time())
     remote = {
         "name": name[:120], "owner_id": owner_id, "instruction": instruction,
         "connectors": list(connectors or []), "experts": list(experts or []),
-        "skills": list(skills or []),
+        "skills": list(skills or []), "knowledge_ids": list(dict.fromkeys(knowledge_ids or []))[:20],
     }
     row = conn.execute("SELECT * FROM projects WHERE id=?", (id,)).fetchone()
     if row is None:
         conn.execute(
             """INSERT INTO projects
-               (id,name,owner_id,instruction,connectors,experts,skills,created_at,updated_at,origin,server_updated_at,server_dirty)
-               VALUES (?,?,?,?,?,?,?,?,?,'server',?,0)""",
+               (id,name,owner_id,instruction,connectors,experts,skills,knowledge_ids,created_at,updated_at,origin,server_updated_at,server_dirty)
+               VALUES (?,?,?,?,?,?,?,?,?,?,'server',?,0)""",
             (id, remote["name"], owner_id, instruction,
              json.dumps(remote["connectors"], ensure_ascii=False),
              json.dumps(remote["experts"], ensure_ascii=False),
              json.dumps(remote["skills"], ensure_ascii=False),
+             json.dumps(remote["knowledge_ids"], ensure_ascii=False),
              float(created_at or remote_ts), remote_ts, remote_ts),
         )
         _clear_server_conflict("project", id, commit=False)
@@ -1328,30 +1331,32 @@ def mirror_server_project(
         "connectors": _json_list(row["connectors"]), "experts": _json_list(row["experts"]),
         "skills": _json_list(row["skills"]),
     }
+    remote_compare = {k: v for k, v in remote.items() if k != "knowledge_ids"}
     if row["origin"] != "server":
         _record_server_conflict("project", id, id, "id_collision", row["updated_at"], remote_ts, local, remote, commit=False)
         conn.commit()
         return
     baseline = float(row["server_updated_at"] or 0)
     dirty = bool(row["server_dirty"])
-    if baseline == 0 and local != remote and float(row["updated_at"] or 0) > remote_ts:
+    if baseline == 0 and local != remote_compare and float(row["updated_at"] or 0) > remote_ts:
         dirty = True  # 老版本没有 dirty 标志时，以 updated_at 保护可能的离线改动。
-    if dirty and local != remote:
+    if dirty and local != remote_compare:
         reason = "concurrent_update" if remote_ts > baseline else "local_ahead"
         # owner_id 是权限边界，始终服从 Server；其余协作字段保留本地待人工处理。
         conn.execute(
-            "UPDATE projects SET owner_id=?,server_updated_at=?,server_dirty=1 WHERE id=?",
-            (owner_id, remote_ts, id),
+            "UPDATE projects SET owner_id=?,knowledge_ids=?,server_updated_at=?,server_dirty=1 WHERE id=?",
+            (owner_id, json.dumps(remote["knowledge_ids"], ensure_ascii=False), remote_ts, id),
         )
-        _record_server_conflict("project", id, id, reason, row["updated_at"], remote_ts, local, remote, commit=False)
+        _record_server_conflict("project", id, id, reason, row["updated_at"], remote_ts, local, remote_compare, commit=False)
     else:
         conn.execute(
-            """UPDATE projects SET name=?,owner_id=?,instruction=?,connectors=?,experts=?,skills=?,
+            """UPDATE projects SET name=?,owner_id=?,instruction=?,connectors=?,experts=?,skills=?,knowledge_ids=?,
                updated_at=?,origin='server',server_updated_at=?,server_dirty=0 WHERE id=?""",
             (remote["name"], owner_id, instruction,
              json.dumps(remote["connectors"], ensure_ascii=False),
              json.dumps(remote["experts"], ensure_ascii=False),
-             json.dumps(remote["skills"], ensure_ascii=False), remote_ts, remote_ts, id),
+             json.dumps(remote["skills"], ensure_ascii=False),
+             json.dumps(remote["knowledge_ids"], ensure_ascii=False), remote_ts, remote_ts, id),
         )
         _clear_server_conflict("project", id, commit=False)
     conn.commit()

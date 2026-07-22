@@ -2,8 +2,8 @@
 
 Server 是中心控制平面服务（账号/组织/项目/成员/邀请的权威源）。可自托管的单体：
 默认 SQLite（server.db），规模上来可换 Postgres。绝不承载 LLM 凭据（那永远只在本地）。
-唯一落盘的用户内容是知识库文档（WB-171，STORAGE_DIR）——那是用户**显式**放入共享控制面的
-团队资料（类比 WB-093 把连接器 token 存 Server），不同于绝不上云的 agent 沙箱工作区文件。
+WB-290 起它同时是项目级知识库的安全网关：WeKnora 服务凭据只存在 Server 进程环境，
+AgentMate/Console 仅持 Server token。旧 WB-171 文档字节只用于显式迁移与回滚，不是 agent 沙箱同步。
 """
 from __future__ import annotations
 
@@ -25,5 +25,12 @@ class Settings:
     # 邀请码有效期（秒）；默认 7 天，避免久留可被反复利用的活码（WB-156，配合单次使用）。
     # 显式设 AGENTMATE_SERVER_INVITE_TTL=0 可回到永不过期（部署自担风险）。
     INVITE_TTL: int = int(os.getenv("AGENTMATE_SERVER_INVITE_TTL", "604800"))
+    # 中央项目知识库（WB-290）。使用专用变量，避免误读本地 backend 的 owner 级 WEKNORA_*。
+    # API Key 是 WeKnora 租户服务凭据：只在 Server 进程内使用，任何 API 都不得回传。
+    WEKNORA_URL: str = os.getenv("AGENTMATE_SERVER_WEKNORA_URL", "http://localhost:8080").strip().rstrip("/")
+    WEKNORA_API_KEY: str = os.getenv("AGENTMATE_SERVER_WEKNORA_API_KEY", "").strip()
+    WEKNORA_EMBEDDING_MODEL_ID: str = os.getenv(
+        "AGENTMATE_SERVER_WEKNORA_EMBEDDING_MODEL_ID", ""
+    ).strip()
 
 settings = Settings()

@@ -3,7 +3,8 @@
 Server 项目落本地 `projects`(origin='server')，成员落 `project_members`——WB-050 的
 `project_access_role` 读同一批表，故镜像后本地访问控制「自动」认它（owner/成员按 Server 侧 id 对齐，
 与鉴权桥镜像的账号 id 一致）。**只拉控制平面元数据**（项目名/指令/loadout/成员），
-绝不涉及 LLM 凭据 / 连接器 secret / 沙箱工作区文件（铁律 4/11）。Server 不可达 → 返回 0、不报错。
+绝不涉及 LLM 凭据 / 连接器 secret / 沙箱工作区文件（铁律 4/11）。项目级 knowledge_ids
+是 Server 内部稳定绑定 ID，不含 WeKnora provider ID 或 API Key。Server 不可达 → 返回 0、不报错。
 
 这些是**同步阻塞**调用——放在 FastAPI 的**同步路由**里跑（自动走线程池，不占事件循环）。
 """
@@ -51,6 +52,7 @@ def pull(token: str) -> dict:
             id=pid, name=p.get("name", ""), owner_id=p.get("owner_id", ""),
             instruction=p.get("instruction", ""), connectors=p.get("connectors", []),
             experts=p.get("experts", []), skills=canonical_skill_keys(p.get("skills", [])),
+            knowledge_ids=p.get("knowledge_ids", []),
             created_at=p.get("created_at"), updated_at=p.get("updated_at"),
         )
         members = server_client.list_project_members(token, pid)

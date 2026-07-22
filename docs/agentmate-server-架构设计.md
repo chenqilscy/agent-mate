@@ -84,10 +84,11 @@ Server snapshot 并原子替换本机 `catalog_downlink` 的 Server scope，未�
 | 工作项、里程碑、评论、presence、通知 | Server | App backend 代理，必要时本地镜像 |
 | AgentMate 专家/团队/连接器/Skill 定义与推荐位 | Server | Server → App 条件全量快照 pull |
 | 内置工具运营目录 | Server `tool_catalog`；App 实现注册表作执行裁决 | Console 管策略；App 上报真实 capability |
+| server-origin 项目知识库与 WeKnora 服务凭据 | Server | Console 管理；App 按项目 token 代理检索/显式上传，不下发 provider ID/Key |
 | 第三方 SkillHub 市场、Key、技能包 | App 本地/第三方 | App 直连，不经过 Server |
 | 本机安装 Skill 与自造专家 | App 本地 | 不同步；可上报非敏感能力元数据的目标尚未落地 |
 | 会话、消息、trace、工具参数 | App 本地 | 不上云；只可上报最小时间线元数据 |
-| workspace 文件 | App 本地 | 永不上云 |
+| workspace 文件 | App 本地 | 不自动同步；仅用户显式 `knowledge_add` 的目标文件可进入项目中央知识库 |
 | LLM/连接器 secret | App 本地 backend | 永不上云、永不进前端 |
 
 详细冲突规则、离线行为和红线见数据分层规范，本文不再复制一套容易漂移的表。

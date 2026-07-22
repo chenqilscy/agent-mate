@@ -137,6 +137,7 @@ export interface Project {
   connectors: string[];
   experts: string[];
   skills: string[];
+  knowledge_ids: string[];
   role: Role;
   created_at: number;
   updated_at: number;
@@ -257,12 +258,10 @@ export interface KnowledgeBase {
   name: string;
   description: string;
   icon: string;
-  embedding_id: number;
-  embedding_dim: number;
-  knowledge_type: number;
-  sentence_size: number;
-  contextual: number;
   tags: string[];
+  provider: "weknora" | "legacy";
+  provider_status: "ready" | "legacy_pending" | "migrating" | "unavailable";
+  provider_error?: string;
   doc_count: number;
 }
 
@@ -272,6 +271,7 @@ export interface KnowledgeDocument {
   size: number;
   doc_type: string;
   vector_status: number;
+  parse_status: string;
   fail_msg?: string;
   created_at?: number;
 }

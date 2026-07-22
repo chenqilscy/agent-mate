@@ -55,6 +55,7 @@ def _mirror_project(p: dict) -> None:
         id=p.get("id", ""), name=p.get("name", ""), owner_id=p.get("owner_id", ""),
         instruction=p.get("instruction", ""), connectors=p.get("connectors"),
         experts=p.get("experts"), skills=canonical_skill_keys(p.get("skills") or []),
+        knowledge_ids=p.get("knowledge_ids") or [],
         created_at=p.get("created_at"), updated_at=p.get("updated_at"),
     )
 
@@ -171,19 +172,19 @@ def get_project(project_id: str) -> dict:
 @router.patch("/projects/{project_id}")
 def update_project(project_id: str, body: UpdateProjectBody, authorization: str = Header(default="")) -> dict:
     role = _require_manage(project_id, current_user().id)
+    current = db.get_project(project_id)
+    central_knowledge = bool(current and current.origin == "server")
     tok = _server_token(project_id, authorization)
     if tok:
         patch = body.model_dump(exclude_unset=True)
         if "skills" in patch:
             patch["skills"] = canonical_skill_keys(patch["skills"] or [])
-        # knowledge_ids 是本机 WeKnora 执行配置，绝不上云；Console 只收协作元数据。
-        local_knowledge = patch.pop("knowledge_ids", None)
+        # server-origin 项目的知识库绑定由 Console/Server 权威关系表维护，不允许本地改写。
+        patch.pop("knowledge_ids", None)
         up = server_client.update_project(tok, project_id, patch) if patch else db.get_project(project_id).to_dict()
         if up:
             if patch:
                 _mirror_project(up)
-            if local_knowledge is not None:
-                db.update_project(project_id, knowledge_ids=list(dict.fromkeys(local_knowledge))[:20])
             return _view(db.get_project(project_id), role)
         # Console 不可达 → 回退本地
     updated = db.update_project(
@@ -193,7 +194,10 @@ def update_project(project_id: str, body: UpdateProjectBody, authorization: str 
         connectors=body.connectors,
         experts=body.experts,
         skills=canonical_skill_keys(body.skills) if body.skills is not None else None,
-        knowledge_ids=list(dict.fromkeys(body.knowledge_ids))[:20] if body.knowledge_ids is not None else None,
+        knowledge_ids=(
+            None if central_knowledge else
+            (list(dict.fromkeys(body.knowledge_ids))[:20] if body.knowledge_ids is not None else None)
+        ),
     )
     return _view(updated, role)
 

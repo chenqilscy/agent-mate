@@ -140,6 +140,7 @@ export function ProjectHomeView() {
   }
 
   const openPicker = (k: Kind) => {
+    if (k === 'kb' && project.origin === 'server') { toast('中央项目知识库由 Console 统一管理'); return }
     if (!canManage) { toast('只有管理员或所有者可以修改项目配置'); return }
     setPickerSet(new Set(project[FIELD[k]] ?? []))
     setPicker(k)
@@ -208,20 +209,20 @@ export function ProjectHomeView() {
   const cfgSection = (k: Kind, label: string) => {
     const items = project[FIELD[k]] ?? []
     const labelOf = (name: string) => k === 'kb'
-      ? (kbs.find((kb) => kb.id === name)?.name ?? '已删除知识库')
+      ? (project.origin === 'server' ? `中央项目知识库 ${name.slice(0, 8)}` : (kbs.find((kb) => kb.id === name)?.name ?? '已删除知识库'))
       : k === 'skill' ? skillDisplayName(name) : name
     return (
       <ProCard className="pjcfg-sec" styles={{ body: { display: 'contents' } }}>
         <div className="pjcfg-h">
           {label}<span className="n">{items.length}</span>
-          {canManage && <span className="add" {...clickable} onClick={() => openPicker(k)}>{IC_ADD}</span>}
+          {canManage && !(k === 'kb' && project.origin === 'server') && <span className="add" {...clickable} onClick={() => openPicker(k)}>{IC_ADD}</span>}
         </div>
         {items.length ? (
           <Avatar.Group className="pjcfg-icons">
             {items.map((n) => <Tooltip title={labelOf(n)} key={n}><Avatar className="pjcfg-ic">{iconOf(k, n)}</Avatar></Tooltip>)}
           </Avatar.Group>
         ) : (
-          <div className="pjcfg-sub">未配置，点 ＋ 添加</div>
+          <div className="pjcfg-sub">{k === 'kb' && project.origin === 'server' ? '由 Console 统一管理' : '未配置，点 ＋ 添加'}</div>
         )}
       </ProCard>
     )

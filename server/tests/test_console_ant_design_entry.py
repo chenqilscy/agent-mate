@@ -46,6 +46,13 @@ class ConsoleAntDesignEntryTests(unittest.TestCase):
         self.assertIn("ProjectDetailPage", app)
         self.assertNotIn("/legacy", app)
 
+    def test_project_knowledge_ui_uses_central_weknora_contract(self) -> None:
+        page = (ROOT / "console" / "src" / "pages" / "ProjectDetailPage.tsx").read_text(encoding="utf-8")
+        self.assertIn("中央 WeKnora", page)
+        self.assertIn("migrateKnowledgeBase", page)
+        self.assertNotIn("Embedding-3-pro", page)
+        self.assertNotIn("向量化由本地执行面完成", page)
+
 
 if __name__ == "__main__":
     unittest.main()

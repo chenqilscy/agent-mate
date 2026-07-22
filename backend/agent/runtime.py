@@ -53,12 +53,14 @@ class RuntimeBudgetExceeded(RuntimeError):
     """Raised before another tool/LLM round once the configured token cap is reached."""
 
 
-def _knowledge_tools(owner_id: str, active_knowledge: list[str], *, ask: bool) -> list[Tool]:
-    """按 owner 的真实 WeKnora 配置组装工具；不能只看进程级 .env（WB-188/193）。"""
+def _knowledge_tools(
+    owner_id: str, active_knowledge: list[str], *, ask: bool, remote_project: bool = False,
+) -> list[Tool]:
+    """Local projects use owner config; Server projects use the central guarded gateway."""
     if ask:
         return []
     out = [knowledge_retrieve] if active_knowledge else []
-    if weknora.configured(owner_id):
+    if remote_project or weknora.configured(owner_id):
         out.append(knowledge_add)
     return out
 
@@ -380,6 +382,7 @@ async def _run_chat_inner(
 
     # Loadout = the project's experts/skills/connectors ∪ what the ＋ menu picked.
     proj_experts, proj_skills, proj_connectors, proj_knowledge = [], [], [], []
+    project = None
     if session.project_id:
         project = db.get_project(session.project_id)
         if project:
@@ -393,12 +396,30 @@ async def _run_chat_inner(
     # 由下方 skills_skipped 诚实报告，持久化项目/助理则在写入时直接清理（WB-183 Phase B）。
     active_skills = canonical_skill_keys(_dedup(proj_skills + (skills or [])), keep_unknown=True)
     active_connectors = _dedup(proj_connectors + (connectors or []))
-    # 项目固定知识库 ∪ 本轮临时知识库；后端合并保证执行不依赖前端内存态（WB-198）。
-    active_knowledge = _dedup(proj_knowledge + (knowledge_ids or []))
-    # owner + 选中库 → knowledge_* 工具读的 contextvar。ask 模式无工具，置空。
-    # owner 无条件带上（WB-188）：连接配置按 owner 存 DB，且 knowledge_add 不要求挂库（WB-175），
-    # 「有没有挂库」由 knowledge_ids 是否为空表达，不能靠把 owner 置 None 来表达。
-    set_knowledge_context(None if ask else user.id, active_knowledge if not ask else None)
+    is_server_project = bool(project and project.origin == "server")
+    server_token = db.get_server_identity(user.id) if is_server_project else None
+    # Console 可能在上次全量 pull 后新增/删除 KB；每次项目执行前轻量读取当前绑定，避免要求
+    # 每个成员手动同步。不可达时保留 last-known ids，真正调用仍会诚实失败且不回退本地。
+    if is_server_project and server_token and project:
+        current_kbs = await asyncio.to_thread(
+            server_client.list_project_knowledge, server_token, project.id,
+        )
+        if current_kbs is not None:
+            proj_knowledge = [
+                str(kb["id"]) for kb in current_kbs
+                if kb.get("id") and kb.get("provider_status") == "ready"
+            ]
+    # Server 项目只认 Console 下发绑定，拒绝把客户端临时 id 混进中央租户；local 项目保留
+    # “项目固定 ∪ 本轮临时挂载”语义（WB-198）。
+    active_knowledge = _dedup(
+        proj_knowledge if is_server_project else (proj_knowledge + (knowledge_ids or []))
+    )
+    set_knowledge_context(
+        None if ask else user.id,
+        active_knowledge if not ask else None,
+        server_project_id=(project.id if is_server_project and not ask else None),
+        server_token=(server_token if not ask else None),
+    )
 
     # Tell the model about the plan-item tools when this run is inside a project
     # (WB-030). Plan mode is read-only, so it only gets the viewing tool.
@@ -496,6 +517,12 @@ async def _run_chat_inner(
             "遇到需要事实性/资料性依据的问题，先用 knowledge_retrieve 检索知识库，"
             "再基于命中内容作答并注明来源；检索不到再用你自己的知识回答。"
             "需要把工作区里的文件或网页 URL 沉淀进知识库（用户说「加入/上传/添加到知识库」）时，用 knowledge_add。"
+        )
+    elif is_server_project and not ask:
+        system_prompt += (
+            "\n\n# 中央项目知识库\n本项目的知识库由 Console/Server 统一管理，不需要本机配置 WeKnora。"
+            "用户要加入工作区文件或网页 URL 时用 knowledge_add；如果项目还没有知识库，明确引导到 Console 创建。"
+            "Server 不可达时如实报告，不得改用用户本地知识库。"
         )
     elif weknora.configured(user.id) and not ask:
         system_prompt += (
@@ -612,7 +639,9 @@ async def _run_chat_inner(
         wi_tools = work_item_tools(plan) if (session.project_id and not ask) else []
         # 知识库工具（ask 模式无工具）：检索按会话挂载的库（active_knowledge）给；
         # 加入文件只要后端接了 WeKnora（配了 key）就给——不要求先挂载（WB-175）。
-        kb_tools = _knowledge_tools(user.id, active_knowledge, ask=ask)
+        kb_tools = _knowledge_tools(
+            user.id, active_knowledge, ask=ask, remote_project=is_server_project,
+        )
         # WB-186：skill_tools / kb_tools 从前**完全绕过 plan 过滤**（只有 base_tools 和
         # wi_tools 认 plan）。技能侧当时恰好 3 个工具全只读所以没暴雷；知识库侧却是真漏：
         # knowledge_add 是写（灌文件进库 + 解析/切片/向量化），计划模式下 agent 真能调它。

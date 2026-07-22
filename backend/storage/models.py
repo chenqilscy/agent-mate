@@ -124,7 +124,8 @@ class Project:
     connectors: list[str]
     experts: list[str]
     skills: list[str]
-    # 本机执行面挂载的 WeKnora 知识库；不上传 Server（知识库与凭据均属本地能力）。
+    # local 项目：本机 owner 级 WeKnora id；server 项目：Console 下发的稳定项目 KB id。
+    # 两者由 origin 区分，provider id 与凭据从不下发。
     knowledge_ids: list[str]
     created_at: float
     updated_at: float

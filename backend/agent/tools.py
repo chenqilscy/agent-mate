@@ -25,6 +25,7 @@ from typing import Any, Callable, Literal
 from agent import browser, office, security
 from agent.sandbox import SandboxError, current_root, relpath, resolve_in_sandbox
 from config import scrubbed_env
+import server_client
 from storage import db
 
 MAX_OUTPUT = 6000
@@ -574,11 +575,23 @@ def work_item_tools(plan: bool = False) -> list[Tool]:
 _kb_ctx: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("kb_ctx", default=None)
 
 
-def set_knowledge_context(owner_id: str | None, knowledge_ids: list[str] | None) -> None:
+def set_knowledge_context(
+    owner_id: str | None,
+    knowledge_ids: list[str] | None,
+    *,
+    server_project_id: str | None = None,
+    server_token: str | None = None,
+) -> None:
     """Set the active owner + mounted knowledge base ids for this run (run_chat calls it).
 
-    owner 无条件携带（knowledge_add 不需要挂库也要用它解析连接配置）；未挂库 → knowledge_ids=[]。"""
-    _kb_ctx.set({"owner_id": owner_id, "knowledge_ids": knowledge_ids or []} if owner_id else None)
+    local project 使用 owner 级 WeKnora；server_project_id 非空时所有知识操作经 Server 项目门禁代理，
+    server_token 只留在 contextvar，不进入工具 schema、trace 或 LLM 上下文。"""
+    _kb_ctx.set({
+        "owner_id": owner_id,
+        "knowledge_ids": knowledge_ids or [],
+        "server_project_id": server_project_id or "",
+        "server_token": server_token or "",
+    } if owner_id else None)
 
 
 def _kb_owner() -> str | None:
@@ -596,14 +609,27 @@ def _knowledge_retrieve_run(args: dict[str, Any]) -> ToolOutcome:
     if not query:
         return ToolOutcome(text="请提供检索问题（query）。")
     owner = ctx["owner_id"]
-    if not weknora.configured(owner):
+    remote_project = str(ctx.get("server_project_id") or "")
+    remote_token = str(ctx.get("server_token") or "")
+    if remote_project:
+        if not remote_token:
+            return ToolOutcome(text="中央项目知识库不可用：当前账号缺少有效的 Server 登录凭据，请重新登录后重试。")
+    elif not weknora.configured(owner):
         return ToolOutcome(text=weknora.NOT_CONFIGURED)
     try:
         top_k = int(args.get("top_k") or 8)
     except (TypeError, ValueError):
         top_k = 8
     try:
-        hits = weknora.search(owner, query=query, knowledge_ids=ctx["knowledge_ids"], top_k=max(1, min(top_k, 20)))
+        if remote_project:
+            hits = server_client.search_project_knowledge(
+                remote_token, remote_project, query=query,
+                knowledge_ids=ctx["knowledge_ids"], top_k=max(1, min(top_k, 20)),
+            )
+            if hits is None:
+                return ToolOutcome(text="中央项目知识库检索失败：Server/WeKnora 不可达、无权访问或请求被拒绝；未回退到本地知识库。")
+        else:
+            hits = weknora.search(owner, query=query, knowledge_ids=ctx["knowledge_ids"], top_k=max(1, min(top_k, 20)))
     except weknora.WeKnoraError as e:
         return ToolOutcome(text=f"知识库检索失败：{e}")
     if not hits:
@@ -653,6 +679,24 @@ def _fmt_kbs(kbs: dict[str, str]) -> str:
     return "；".join(f"{n or '(无名)'}={i}" for i, n in kbs.items()) or "（无）"
 
 
+class _CentralKnowledgeUnavailable(RuntimeError):
+    pass
+
+
+def _available_kbs(weknora, owner: str | None) -> list[dict[str, Any]]:
+    ctx = _kb_ctx.get() or {}
+    project_id = str(ctx.get("server_project_id") or "")
+    if not project_id:
+        return weknora.list_kb(owner)
+    token = str(ctx.get("server_token") or "")
+    if not token:
+        raise _CentralKnowledgeUnavailable("当前账号缺少有效的 Server 登录凭据。")
+    rows = server_client.list_project_knowledge(token, project_id)
+    if rows is None:
+        raise _CentralKnowledgeUnavailable("Server/WeKnora 不可达、无权访问或请求被拒绝。")
+    return [row for row in rows if row.get("provider_status") == "ready"]
+
+
 def _resolve_add_kb(weknora, owner: str | None, args: dict[str, Any], mounted: list[str]) -> tuple[str | None, str]:
     """定位要加入的知识库。返回 (kb_id, note)。kb_id=None → 需用户澄清（note 是提示文案）。
     优先级：显式 knowledge_id > 显式 kb_name > 会话挂载的唯一库 > 现存唯一库 > 让用户指定。"""
@@ -660,7 +704,7 @@ def _resolve_add_kb(weknora, owner: str | None, args: dict[str, Any], mounted: l
     want_name = str(args.get("kb_name") or "").strip()
 
     def _load() -> dict[str, str]:
-        return {str(k.get("id")): (k.get("name") or "") for k in weknora.list_kb(owner) if k.get("id")}
+        return {str(k.get("id")): (k.get("name") or "") for k in _available_kbs(weknora, owner) if k.get("id")}
 
     if want_id:
         kbs = _load()
@@ -692,7 +736,12 @@ def _knowledge_add_run(args: dict[str, Any]) -> ToolOutcome:
     from agent import weknora  # 延迟导入
 
     owner = _kb_owner()
-    if not weknora.configured(owner):
+    ctx = _kb_ctx.get() or {}
+    remote_project = str(ctx.get("server_project_id") or "")
+    remote_token = str(ctx.get("server_token") or "")
+    if remote_project and not remote_token:
+        return ToolOutcome(text="中央项目知识库不可用：当前账号缺少有效的 Server 登录凭据，请重新登录后重试。")
+    if not remote_project and not weknora.configured(owner):
         return ToolOutcome(text=weknora.NOT_CONFIGURED)
     path = str(args.get("path") or "").strip()
     url = str(args.get("url") or "").strip()
@@ -722,7 +771,7 @@ def _knowledge_add_run(args: dict[str, Any]) -> ToolOutcome:
     mounted = (_kb_ctx.get() or {}).get("knowledge_ids") or []
     try:
         kb_id, note = _resolve_add_kb(weknora, owner, args, mounted)
-    except weknora.WeKnoraError as e:
+    except (weknora.WeKnoraError, _CentralKnowledgeUnavailable) as e:
         return ToolOutcome(text=f"读取知识库列表失败：{e}")
     if kb_id is None:
         return ToolOutcome(text=note)  # 需用户指定 / 知识库为空
@@ -731,12 +780,30 @@ def _knowledge_add_run(args: dict[str, Any]) -> ToolOutcome:
         if target is not None:
             content = target.read_bytes()
             ct = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-            weknora.upload_file(owner, kb_id, filename=target.name, content=content, content_type=ct)
+            if remote_project:
+                if server_client.upload_project_knowledge_file(
+                    remote_token, remote_project, kb_id,
+                    filename=target.name, content=content, content_type=ct,
+                ) is None:
+                    return ToolOutcome(text="加入中央项目知识库失败：Server/WeKnora 不可达、无权写入或请求被拒绝；文件未加入本地知识库。")
+            else:
+                weknora.upload_file(owner, kb_id, filename=target.name, content=content, content_type=ct)
         else:
-            weknora.create_from_url(owner, kb_id, url=url)
+            if remote_project:
+                if server_client.import_project_knowledge_url(
+                    remote_token, remote_project, kb_id, url=url,
+                ) is None:
+                    return ToolOutcome(text="URL 加入中央项目知识库失败：Server/WeKnora 不可达、安全策略拒绝或无权写入；未回退到本地知识库。")
+            else:
+                weknora.create_from_url(owner, kb_id, url=url)
     except weknora.WeKnoraError as e:
         return ToolOutcome(text=f"加入知识库失败：{e}")
-    tail = "" if (kb_id in mounted) else "（该库未挂载到本会话；如需在对话中检索它，去「知识库」页点『挂载到对话』）"
+    if kb_id in mounted:
+        tail = ""
+    elif remote_project:
+        tail = "（中央项目绑定将在下次项目同步或执行时自动刷新）"
+    else:
+        tail = "（该库未挂载到本会话；如需在对话中检索它，去「知识库」页点『挂载到对话』）"
     source = f"「{target.name}」" if target is not None else f"URL「{url[:120]}」"
     return ToolOutcome(
         text=f"已把{source}加入知识库{note}（正在后台解析并向量化，稍后即可用 knowledge_retrieve 检索到）。{tail}"

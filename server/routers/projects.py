@@ -12,6 +12,15 @@ from models import Account, Role, can_manage, can_write
 router = APIRouter(prefix="/api", tags=["projects"])
 
 
+def _view(project, role: Role) -> dict:
+    """Project downlink includes only ready project-scoped central KB bindings."""
+    return {
+        **project.to_dict(),
+        "role": role.value,
+        "knowledge_ids": db.list_ready_kb_ids(project.id),
+    }
+
+
 class CreateProjectBody(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     org_id: str | None = None
@@ -36,12 +45,12 @@ def create_project(body: CreateProjectBody, account: Account = CurrentAccount) -
         name=name, owner_id=account.id, org_id=body.org_id, instruction=body.instruction,
         connectors=body.connectors, experts=body.experts, skills=db.canonical_skill_keys(body.skills),
     )
-    return {**p.to_dict(), "role": Role.OWNER.value}
+    return _view(p, Role.OWNER)
 
 
 @router.get("/projects")
 def list_projects(account: Account = CurrentAccount) -> dict:
-    return {"projects": [{**p.to_dict(), "role": r.value} for p, r in db.list_projects_for(account.id)]}
+    return {"projects": [_view(p, r) for p, r in db.list_projects_for(account.id)]}
 
 
 def _require_access(project_id: str, account: Account) -> Role:
@@ -56,7 +65,7 @@ def get_project(project_id: str, account: Account = CurrentAccount) -> dict:
     role = _require_access(project_id, account)
     p = db.get_project(project_id)
     assert p is not None
-    return {**p.to_dict(), "role": role.value}
+    return _view(p, role)
 
 
 class UpdateProjectBody(BaseModel):
@@ -77,7 +86,7 @@ def update_project(project_id: str, body: UpdateProjectBody, account: Account = 
         patch["skills"] = db.canonical_skill_keys(patch["skills"])
     p = db.update_project(project_id, **patch)
     assert p is not None
-    return {**p.to_dict(), "role": role.value}
+    return _view(p, role)
 
 
 @router.get("/projects/{project_id}/members")

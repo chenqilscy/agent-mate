@@ -2,8 +2,9 @@
 
 所有调用 **guarded**：未接 Server（AGENTMATE_SERVER_URL 空）/ 不可达 / 非 200 → 返回 None，**从不抛异常**，
 保证离线/未登录纯本地照跑（架构设计 §6「回退优先」）。这些是**同步阻塞**调用（httpx.get）——
-调用方必须在工作线程里跑它，别占事件循环（WB-002 教训）。同步 payload 绝不含 LLM 凭据 /
-连接器 secret / 沙箱工作区文件（铁律 4/11）。
+调用方必须在工作线程里跑它，别占事件循环（WB-002 教训）。同步 payload 绝不含 LLM 凭据或
+连接器 secret。WB-290 的知识库上传是唯一例外：只在用户显式调用 knowledge_add 时，把目标文件
+发送到已鉴权的项目知识库路由；绝不自动同步沙箱。
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ import httpx
 from config import settings
 
 _TIMEOUT = 5.0
+_KNOWLEDGE_TIMEOUT = 120.0
 
 
 def server_enabled() -> bool:
@@ -305,6 +307,83 @@ def update_project(token: str, project_id: str, patch: dict[str, Any]) -> Option
     """代理项目配置更新（name/instruction/connectors/experts/skills）到 Console。"""
     d = _patch(f"/api/projects/{project_id}", token, patch)
     return d if isinstance(d, dict) else None
+
+
+# ---- 中央项目知识库（WB-290）--------------------------------------------
+
+def list_project_knowledge(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
+    if not token or not settings.AGENTMATE_SERVER_URL:
+        return None
+    try:
+        response = httpx.get(
+            f"{settings.AGENTMATE_SERVER_URL}/api/projects/{project_id}/knowledge-bases",
+            headers={"Authorization": f"Bearer {token}"}, timeout=_KNOWLEDGE_TIMEOUT,
+            params={"include_counts": "false"},
+        )
+        if response.status_code != 200:
+            return None
+        data = response.json()
+        rows = data.get("items") if isinstance(data, dict) else None
+        return rows if isinstance(rows, list) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def search_project_knowledge(
+    token: str, project_id: str, *, query: str, knowledge_ids: list[str], top_k: int = 8,
+) -> Optional[list[dict[str, Any]]]:
+    if not token or not settings.AGENTMATE_SERVER_URL:
+        return None
+    try:
+        response = httpx.post(
+            f"{settings.AGENTMATE_SERVER_URL}/api/projects/{project_id}/knowledge-search",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"query": query, "knowledge_ids": knowledge_ids, "top_k": top_k},
+            timeout=_KNOWLEDGE_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return None
+        data = response.json()
+        hits = data.get("hits") if isinstance(data, dict) else None
+        return hits if isinstance(hits, list) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def upload_project_knowledge_file(
+    token: str, project_id: str, kb_id: str, *, filename: str, content: bytes,
+    content_type: str = "application/octet-stream",
+) -> Optional[dict[str, Any]]:
+    if not token or not settings.AGENTMATE_SERVER_URL:
+        return None
+    try:
+        response = httpx.post(
+            f"{settings.AGENTMATE_SERVER_URL}/api/projects/{project_id}/knowledge-bases/{kb_id}/documents",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": content_type,
+            },
+            params={"filename": filename}, content=content, timeout=_KNOWLEDGE_TIMEOUT,
+        )
+        return response.json() if response.status_code == 200 else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def import_project_knowledge_url(
+    token: str, project_id: str, kb_id: str, *, url: str,
+) -> Optional[dict[str, Any]]:
+    if not token or not settings.AGENTMATE_SERVER_URL:
+        return None
+    try:
+        response = httpx.post(
+            f"{settings.AGENTMATE_SERVER_URL}/api/projects/{project_id}/knowledge-bases/{kb_id}/documents/url",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"url": url}, timeout=_KNOWLEDGE_TIMEOUT,
+        )
+        return response.json() if response.status_code == 200 else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def add_member(token: str, project_id: str, name: str, role: str) -> Optional[dict[str, Any]]:

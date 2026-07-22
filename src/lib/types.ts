@@ -502,6 +502,7 @@ export interface ProjectInfo {
   experts: string[]
   skills: string[]
   knowledge_ids: string[]
+  origin?: 'local' | 'server'
   ago?: string
   role?: string // the current user's role in this project (M7 C2): Owner|Admin|Member|Viewer
   sync_conflicts?: number // Server 镜像分叉数；>0 时 UI 必须显式提示，不能静默覆盖。

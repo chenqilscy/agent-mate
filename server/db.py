@@ -365,8 +365,8 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_wi_activity_item ON work_item_activity(work_item_id, created_at);
 
-        -- 真·知识库 + 文档（WB-171）：项目级团队知识库。Console 只管理元数据+文档字节，
-        -- 绝不算向量（向量化是执行面的事）。embedding_dim 服务端由 embedding_id 派生。
+        -- 项目级团队知识库。WB-290 起本表保存稳定项目 ID 到 WeKnora provider ID 的绑定；
+        -- 旧 WB-171 行 provider_id 为空并保持 legacy_pending，等待显式迁移。
         CREATE TABLE IF NOT EXISTS knowledge_bases (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
@@ -379,6 +379,10 @@ def init_db() -> None:
             sentence_size INTEGER NOT NULL DEFAULT 300,
             contextual INTEGER NOT NULL DEFAULT 0,
             tags TEXT NOT NULL DEFAULT '[]',
+            provider TEXT NOT NULL DEFAULT 'legacy',
+            provider_id TEXT NOT NULL DEFAULT '',
+            provider_status TEXT NOT NULL DEFAULT 'legacy_pending',
+            provider_error TEXT NOT NULL DEFAULT '',
             sort INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
@@ -396,6 +400,7 @@ def init_db() -> None:
             content_type TEXT NOT NULL DEFAULT '',
             doc_type TEXT NOT NULL DEFAULT '',
             storage_path TEXT NOT NULL DEFAULT '',
+            provider_id TEXT NOT NULL DEFAULT '',
             vector_status INTEGER NOT NULL DEFAULT 0,
             fail_msg TEXT NOT NULL DEFAULT '',
             created_at REAL NOT NULL
@@ -437,6 +442,19 @@ def init_db() -> None:
     have_cm = {r["name"] for r in conn.execute("PRAGMA table_info(comments)").fetchall()}
     if "work_item_id" not in have_cm:
         conn.execute("ALTER TABLE comments ADD COLUMN work_item_id TEXT NOT NULL DEFAULT ''")
+    # WB-290：旧 Console 自建知识库升级为中央 WeKnora 绑定。旧行绝不假装已迁移。
+    have_kb = {r["name"] for r in conn.execute("PRAGMA table_info(knowledge_bases)").fetchall()}
+    for _col, _ddl in (
+        ("provider", "provider TEXT NOT NULL DEFAULT 'legacy'"),
+        ("provider_id", "provider_id TEXT NOT NULL DEFAULT ''"),
+        ("provider_status", "provider_status TEXT NOT NULL DEFAULT 'legacy_pending'"),
+        ("provider_error", "provider_error TEXT NOT NULL DEFAULT ''"),
+    ):
+        if _col not in have_kb:
+            conn.execute(f"ALTER TABLE knowledge_bases ADD COLUMN {_ddl}")
+    have_kbd = {r["name"] for r in conn.execute("PRAGMA table_info(kb_documents)").fetchall()}
+    if "provider_id" not in have_kbd:
+        conn.execute("ALTER TABLE kb_documents ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''")
     if _table_exists(conn, "catalog_skills"):
         conn.execute("UPDATE catalog_skills SET source='Server' WHERE source='Hub'")
     # 新 App 版本可补充真实实现，但绝不覆盖 Console 已管理的运营字段。
@@ -981,6 +999,12 @@ def update_project(project_id: str, **fields: Any) -> Optional[Project]:
     get_conn().execute(f"UPDATE projects SET {', '.join(sets)} WHERE id=?", vals)
     get_conn().commit()
     return get_project(project_id)
+
+
+def touch_project(project_id: str) -> None:
+    """Knowledge bindings are part of the project downlink contract."""
+    get_conn().execute("UPDATE projects SET updated_at=? WHERE id=?", (time.time(), project_id))
+    get_conn().commit()
 
 
 def list_projects_for(account_id: str) -> list[tuple[Project, Role]]:
@@ -1713,18 +1737,21 @@ def _row_to_kb(r: sqlite3.Row) -> dict:
 
 def create_kb(*, project_id: str, name: str, description: str = "", icon: str = "📚",
               embedding_id: int = 11, knowledge_type: int = 5, sentence_size: int = 300,
-              contextual: int = 0, tags: Optional[list[str]] = None) -> dict:
+              contextual: int = 0, tags: Optional[list[str]] = None,
+              provider: str = "legacy", provider_id: str = "",
+              provider_status: str = "legacy_pending", provider_error: str = "") -> dict:
     kid = new_uuid(); now = time.time()
     mx = get_conn().execute(
         "SELECT COALESCE(MAX(sort),0) FROM knowledge_bases WHERE project_id=?", (project_id,)
     ).fetchone()[0]
     get_conn().execute(
         "INSERT INTO knowledge_bases (id,project_id,name,description,icon,embedding_id,embedding_dim,"
-        "knowledge_type,sentence_size,contextual,tags,sort,created_at,updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "knowledge_type,sentence_size,contextual,tags,provider,provider_id,provider_status,provider_error,"
+        "sort,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (kid, project_id, name, description, icon, int(embedding_id), kb_embedding_dim(embedding_id),
-         int(knowledge_type), int(sentence_size), 1 if contextual else 0,
-         json.dumps(tags or [], ensure_ascii=False), mx + 1, now, now),
+          int(knowledge_type), int(sentence_size), 1 if contextual else 0,
+          json.dumps(tags or [], ensure_ascii=False), provider, provider_id, provider_status, provider_error,
+          mx + 1, now, now),
     )
     get_conn().commit()
     return get_kb(kid)  # type: ignore[return-value]
@@ -1742,6 +1769,15 @@ def list_kbs(project_id: str) -> list[dict]:
     return out
 
 
+def list_ready_kb_ids(project_id: str) -> list[str]:
+    rows = get_conn().execute(
+        "SELECT id FROM knowledge_bases WHERE project_id=? AND provider='weknora' "
+        "AND provider_id<>'' AND provider_status='ready' ORDER BY sort,created_at",
+        (project_id,),
+    ).fetchall()
+    return [str(row["id"]) for row in rows]
+
+
 def get_kb(kid: str) -> Optional[dict]:
     r = get_conn().execute("SELECT * FROM knowledge_bases WHERE id=?", (kid,)).fetchone()
     if not r:
@@ -1753,7 +1789,8 @@ def get_kb(kid: str) -> Optional[dict]:
 
 def update_kb(kid: str, **fields: Any) -> Optional[dict]:
     allowed = {"name", "description", "icon", "embedding_id", "knowledge_type",
-               "sentence_size", "contextual", "tags", "sort"}
+               "sentence_size", "contextual", "tags", "sort", "provider", "provider_id",
+               "provider_status", "provider_error"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed and v is not None:
@@ -1796,12 +1833,12 @@ def count_kb_documents(kid: str) -> int:
 
 def create_kb_document(*, kb_id: str, project_id: str, filename: str, size: int,
                        content_type: str = "", doc_type: str = "", storage_path: str = "",
-                       doc_id: Optional[str] = None) -> dict:
+                       provider_id: str = "", doc_id: Optional[str] = None) -> dict:
     did = doc_id or new_uuid(); now = time.time()
     get_conn().execute(
         "INSERT INTO kb_documents (id,kb_id,project_id,filename,size,content_type,doc_type,"
-        "storage_path,vector_status,fail_msg,created_at) VALUES (?,?,?,?,?,?,?,?,0,'',?)",
-        (did, kb_id, project_id, filename, int(size), content_type, doc_type, storage_path, now),
+        "storage_path,provider_id,vector_status,fail_msg,created_at) VALUES (?,?,?,?,?,?,?,?,?,0,'',?)",
+        (did, kb_id, project_id, filename, int(size), content_type, doc_type, storage_path, provider_id, now),
     )
     get_conn().commit()
     return get_kb_document(did)  # type: ignore[return-value]
@@ -1817,6 +1854,14 @@ def list_kb_documents(kb_id: str) -> list[dict]:
 def get_kb_document(did: str) -> Optional[dict]:
     r = get_conn().execute("SELECT * FROM kb_documents WHERE id=?", (did,)).fetchone()
     return dict(r) if r else None
+
+
+def update_kb_document_provider(did: str, provider_id: str) -> None:
+    get_conn().execute(
+        "UPDATE kb_documents SET provider_id=?,vector_status=0,fail_msg='' WHERE id=?",
+        (provider_id, did),
+    )
+    get_conn().commit()
 
 
 def delete_kb_document(did: str) -> Optional[str]:
