@@ -158,6 +158,15 @@ body {
 .project-task-table .ant-select { min-width: 130px; }
 .project-task-link { height: auto; max-width: 100%; padding: 0; text-align: left; white-space: normal; }
 .project-task-link > span { min-width: 0; display: grid; gap: 2px; }
+.project-task-child { padding-inline-start: 20px; }
+.project-task-child::before { content: "↳"; margin-inline-end: 7px; color: var(--console-muted); }
+
+.task-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.task-editor-column { min-width: 0; display: grid; gap: 16px; }
+.task-editor-section { border-color: var(--console-border); background: var(--console-panel); }
+.task-editor-section .ant-card-body { padding-bottom: 4px; }
+.task-plan-create { margin-top: 4px; border-top: 1px solid var(--console-border); border-radius: 0; color: var(--console-brand); }
+.task-blocks-summary { display: grid; gap: 6px; margin: -4px 0 14px; }
 
 .project-gantt-scroll { max-width: 100%; overflow-x: auto; }
 .project-gantt { display: grid; grid-template-columns: 230px minmax(530px, 1fr); overflow: hidden; border: 1px solid var(--console-border); border-radius: 10px; }
@@ -254,6 +263,7 @@ body {
   .project-plan-toolbar-row > .ant-space { width: 100%; }
   .project-plan-toolbar .ant-input-search { width: min(100%, 260px); }
   .project-kanban { grid-template-columns: repeat(4, 260px); }
+  .task-editor-layout { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {

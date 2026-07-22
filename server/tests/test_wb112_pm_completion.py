@@ -16,7 +16,9 @@ from fastapi import HTTPException  # noqa: E402
 from routers.pm import (  # noqa: E402
     CustomFieldBody, SprintBody, create_custom_field, create_sprint, export_pm_csv, sprint_burndown,
 )
-from routers.work_items import CreateBody, UpdateBody, create_item, list_items, update_item  # noqa: E402
+from routers.work_items import (  # noqa: E402
+    CreateBody, UpdateBody, create_item, delete_item, list_items, update_item,
+)
 
 
 class PMCompletionTest(unittest.TestCase):
@@ -70,6 +72,23 @@ class PMCompletionTest(unittest.TestCase):
         self.assertEqual([], item["dependency_ids"])
         self.assertEqual("", item["sprint_id"])
         self.assertEqual({}, item["custom_fields"])
+
+    def test_parent_cycle_is_rejected_and_delete_promotes_children_and_cleans_dependencies(self) -> None:
+        parent = create_item(self.project.id, CreateBody(title="Parent"), self.account)
+        child = create_item(
+            self.project.id, CreateBody(title="Child", parent_id=parent["id"]), self.account,
+        )
+        dependent = create_item(
+            self.project.id, CreateBody(title="Dependent", dependency_ids=[parent["id"]]), self.account,
+        )
+        with self.assertRaisesRegex(HTTPException, "parent cycle"):
+            update_item(
+                self.project.id, parent["id"], UpdateBody(parent_id=child["id"]), self.account,
+            )
+
+        delete_item(self.project.id, parent["id"], self.account)
+        self.assertEqual("", db.get_work_item(child["id"])["parent_id"])
+        self.assertEqual([], db.get_work_item(dependent["id"])["dependency_ids"])
 
 
 if __name__ == "__main__":

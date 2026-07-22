@@ -5,6 +5,8 @@ import asyncio
 import time
 import uuid
 
+from datetime import date
+from math import isfinite
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
@@ -50,6 +52,87 @@ def _clean_attachments(raw: Any) -> list[dict]:
         path = a.get("path")
         out.append({"name": name, "kind": kind, "path": str(path)[:500] if path else None})
     return out
+
+
+def _validate_local_fields(changes: dict, current=None) -> None:
+    """Local projects enforce the same scalar PM rules as the Server authority."""
+    if "title" in changes:
+        changes["title"] = str(changes["title"] or "").strip()
+        if not changes["title"]:
+            raise HTTPException(400, "empty work item title")
+    for key in ("due_date", "start_date"):
+        if key not in changes:
+            continue
+        value = str(changes[key] or "").strip()
+        if value:
+            try:
+                date.fromisoformat(value)
+            except ValueError as exc:
+                raise HTTPException(400, f"invalid {key}") from exc
+        changes[key] = value or None
+    current_start = getattr(current, "start_date", None) if current else None
+    current_due = getattr(current, "due_date", None) if current else None
+    start = changes.get("start_date", current_start)
+    due = changes.get("due_date", current_due)
+    if start and due and date.fromisoformat(due) < date.fromisoformat(start):
+        raise HTTPException(400, "due_date must be on or after start_date")
+    for key in ("estimate_h", "spent_h"):
+        if key in changes and changes[key] is not None:
+            value = float(changes[key])
+            if not isfinite(value) or value < 0 or value > 1_000_000:
+                raise HTTPException(400, f"{key} must be between 0 and 1000000")
+            changes[key] = value
+    if "labels" in changes and changes["labels"] is not None:
+        changes["labels"] = _clean_labels(changes["labels"])
+
+
+def _sanitize_local_refs(project_id: str, self_id: str | None, changes: dict) -> None:
+    items = db.list_work_items(project_id)
+    by_id = {item.id: item for item in items}
+    if "parent_id" in changes:
+        parent_id = str(changes.get("parent_id") or "").strip()
+        changes["parent_id"] = parent_id if parent_id in by_id and parent_id != self_id else ""
+        if self_id and changes["parent_id"]:
+            parents = {item.id: item.parent_id for item in items}
+            parents[self_id] = changes["parent_id"]
+            cursor = changes["parent_id"]
+            seen: set[str] = set()
+            while cursor:
+                if cursor == self_id or cursor in seen:
+                    raise HTTPException(409, "work item parent cycle")
+                seen.add(cursor)
+                cursor = parents.get(cursor, "")
+    if "milestone_id" in changes:
+        milestone_id = str(changes.get("milestone_id") or "").strip()
+        milestone = db.get_milestone(milestone_id) if milestone_id else None
+        changes["milestone_id"] = (
+            milestone_id if milestone and milestone["project_id"] == project_id else ""
+        )
+    if "sprint_id" in changes:
+        # Local storage has no Sprint authority; accepting an arbitrary ID would create a ghost reference.
+        changes["sprint_id"] = ""
+    if "dependency_ids" in changes:
+        dependencies: list[str] = []
+        for raw in changes.get("dependency_ids") or []:
+            dependency_id = str(raw).strip()
+            if dependency_id in by_id and dependency_id != self_id and dependency_id not in dependencies:
+                dependencies.append(dependency_id)
+        if len(dependencies) > 100:
+            raise HTTPException(400, "too many dependencies")
+        changes["dependency_ids"] = dependencies
+        if self_id:
+            graph = {item.id: list(item.dependency_ids) for item in items}
+            graph[self_id] = dependencies
+
+            def reaches_self(node: str, seen: set[str]) -> bool:
+                if node == self_id:
+                    return True
+                if node in seen:
+                    return False
+                return any(reaches_self(child, seen | {node}) for child in graph.get(node, []))
+
+            if any(reaches_self(dependency, set()) for dependency in dependencies):
+                raise HTTPException(409, "work item dependency cycle")
 
 
 class CreateWorkItemBody(BaseModel):
@@ -232,14 +315,18 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
         # server-origin 项目 + Server 不可达：别造一条会被下次 list 的镜像 DELETE 抹掉的本地行
         # （静默数据丢失 + 假成功，违反铁律#1）。如实报错让前端提示重试（WB-158）。
         raise HTTPException(503, "Server 暂不可达，任务未创建，请稍后重试")
+    local_values = body.model_dump()
+    _validate_local_fields(local_values)
+    _sanitize_local_refs(body.project_id, None, local_values)
     wi = db.create_work_item(
-        project_id=body.project_id, owner_id=user.id, title=title, status=status, source=body.source,
-        description=(body.description or "").strip(), due_date=(body.due_date or None),
+        project_id=body.project_id, owner_id=user.id, title=local_values["title"], status=status, source=body.source,
+        description=(body.description or "").strip(), due_date=local_values["due_date"],
         attachments=_clean_attachments(body.attachments),
-        priority=priority, start_date=(body.start_date or None), labels=labels,
-        parent_id=(body.parent_id or ""), milestone_id=(body.milestone_id or ""),
-        estimate_h=body.estimate_h or 0, spent_h=body.spent_h or 0,
-        custom_fields=body.custom_fields, dependency_ids=body.dependency_ids, sprint_id=body.sprint_id,
+        priority=priority, start_date=local_values["start_date"], labels=local_values["labels"],
+        parent_id=local_values["parent_id"], milestone_id=local_values["milestone_id"],
+        estimate_h=local_values["estimate_h"], spent_h=local_values["spent_h"],
+        custom_fields=body.custom_fields, dependency_ids=local_values["dependency_ids"],
+        sprint_id=local_values["sprint_id"],
     )
     return _view(wi, user)
 
@@ -278,25 +365,28 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
         # patch 为空（仅本地字段如附件）→ 落到下方本地更新即可。
     # due_date / start_date nullable: 显式 null 清空，省略则不动。
     fields = body.model_fields_set
+    local_changes = body.model_dump(exclude_unset=True)
+    _validate_local_fields(local_changes, existing)
+    _sanitize_local_refs(existing.project_id, item_id, local_changes)
     wi = db.update_work_item(
         item_id,
-        title=body.title,
-        status=body.status,
-        description=body.description,
-        due_date=body.due_date if "due_date" in fields else None,
-        clear_due_date="due_date" in fields and body.due_date is None,
+        title=local_changes.get("title"),
+        status=local_changes.get("status"),
+        description=local_changes.get("description"),
+        due_date=local_changes.get("due_date") if "due_date" in fields else None,
+        clear_due_date="due_date" in fields and not local_changes.get("due_date"),
         attachments=_clean_attachments(body.attachments) if body.attachments is not None else None,
-        priority=(body.priority if body.priority in PRIORITIES else "") if body.priority is not None else None,
-        start_date=body.start_date if "start_date" in fields else None,
-        clear_start_date="start_date" in fields and body.start_date is None,
-        labels=_clean_labels(body.labels) if body.labels is not None else None,
-        parent_id=body.parent_id,
-        milestone_id=body.milestone_id,
-        estimate_h=body.estimate_h,
-        spent_h=body.spent_h,
-        custom_fields=body.custom_fields,
-        dependency_ids=body.dependency_ids,
-        sprint_id=body.sprint_id,
+        priority=(local_changes.get("priority") if local_changes.get("priority") in PRIORITIES else "") if "priority" in fields else None,
+        start_date=local_changes.get("start_date") if "start_date" in fields else None,
+        clear_start_date="start_date" in fields and not local_changes.get("start_date"),
+        labels=local_changes.get("labels") if "labels" in fields else None,
+        parent_id=local_changes.get("parent_id") if "parent_id" in fields else None,
+        milestone_id=local_changes.get("milestone_id") if "milestone_id" in fields else None,
+        estimate_h=local_changes.get("estimate_h") if "estimate_h" in fields else None,
+        spent_h=local_changes.get("spent_h") if "spent_h" in fields else None,
+        custom_fields=local_changes.get("custom_fields") if "custom_fields" in fields else None,
+        dependency_ids=local_changes.get("dependency_ids") if "dependency_ids" in fields else None,
+        sprint_id=local_changes.get("sprint_id") if "sprint_id" in fields else None,
     )
     if not wi:
         raise HTTPException(404, "work item not found")

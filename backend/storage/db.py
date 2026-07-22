@@ -3593,7 +3593,28 @@ def update_work_item(
 
 def delete_work_item(item_id: str) -> None:
     conn = get_conn()
-    conn.execute("DELETE FROM work_items WHERE parent_id=?", (item_id,))  # 连带子任务（本地项目）
+    row = conn.execute("SELECT project_id FROM work_items WHERE id=?", (item_id,)).fetchone()
+    if row is not None:
+        project_id = row["project_id"]
+        now = time.time()
+        conn.execute(
+            "UPDATE work_items SET parent_id='',updated_at=? WHERE parent_id=? AND project_id=?",
+            (now, item_id, project_id),
+        )
+        for dependent in conn.execute(
+            "SELECT id,dependency_ids FROM work_items WHERE project_id=? AND id!=?",
+            (project_id, item_id),
+        ).fetchall():
+            try:
+                dependencies = json.loads(dependent["dependency_ids"] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                dependencies = []
+            cleaned = [value for value in dependencies if value != item_id]
+            if cleaned != dependencies:
+                conn.execute(
+                    "UPDATE work_items SET dependency_ids=?,updated_at=? WHERE id=?",
+                    (json.dumps(cleaned, ensure_ascii=False), now, dependent["id"]),
+                )
     conn.execute("DELETE FROM work_items WHERE id=?", (item_id,))
     conn.commit()
 

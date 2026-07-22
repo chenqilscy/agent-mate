@@ -158,7 +158,7 @@ export default function ProjectDetailPage({
               { key: "gantt", label: "甘特", children: <ProjectGantt /> },
               {
                 key: "iterations",
-                label: "周期与字段",
+                label: "计划设置",
                 children: <ProjectIterations />,
               },
               {

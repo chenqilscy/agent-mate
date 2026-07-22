@@ -89,6 +89,16 @@ const STATUS_META: Record<
 };
 
 type TaskDraft = Partial<WorkItem> & { title: string };
+type QuickPlanKind = "milestone" | "sprint";
+interface QuickPlanDraft {
+  name: string;
+  description?: string;
+  due_date?: string;
+  goal?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: string;
+}
 interface TaskTemplate {
   id: string;
   name: string;
@@ -145,6 +155,18 @@ function canWrite(project: Project): boolean {
   return project.role !== "Viewer" && !project.archived_at;
 }
 
+function isDescendant(items: WorkItem[], parentId: string, candidateId: string): boolean {
+  const parents = new Map(items.map((item) => [item.id, item.parent_id]));
+  let cursor = candidateId;
+  const seen = new Set<string>();
+  while (cursor && !seen.has(cursor)) {
+    if (cursor === parentId) return true;
+    seen.add(cursor);
+    cursor = parents.get(cursor) || "";
+  }
+  return false;
+}
+
 function useProjectWork(): ProjectWorkContextValue {
   const value = useContext(ProjectWorkContext);
   if (!value)
@@ -174,6 +196,7 @@ export function ProjectWorkProvider({
     undefined,
   );
   const [templateOpen, setTemplateOpen] = useState(false);
+  const [quickPlanKind, setQuickPlanKind] = useState<QuickPlanKind | null>(null);
   const [taskComments, setTaskComments] = useState<CommentRecord[]>([]);
   const [taskActivity, setTaskActivity] = useState<Activity[]>([]);
   const [templates, setTemplates] = useState<TaskTemplate[]>([]);
@@ -184,6 +207,7 @@ export function ProjectWorkProvider({
   const [form] = Form.useForm<TaskDraft>();
   const [templateForm] = Form.useForm<{ name: string }>();
   const [commentForm] = Form.useForm<{ body: string }>();
+  const [quickPlanForm] = Form.useForm<QuickPlanDraft>();
 
   async function reload() {
     setLoading(true);
@@ -281,6 +305,42 @@ export function ProjectWorkProvider({
   function openChild(parent: WorkItem) {
     openTask(null);
     form.setFieldValue("parent_id", parent.id);
+  }
+
+  function openQuickPlan(kind: QuickPlanKind) {
+    quickPlanForm.resetFields();
+    quickPlanForm.setFieldsValue({ status: kind === "milestone" ? "open" : "planned" });
+    setQuickPlanKind(kind);
+  }
+
+  async function saveQuickPlan(values: QuickPlanDraft) {
+    try {
+      if (quickPlanKind === "milestone") {
+        const created = await consoleApi.createMilestone(project.id, {
+          name: values.name,
+          description: values.description || "",
+          due_date: values.due_date || "",
+          status: values.status || "open",
+        });
+        setMilestones((current) => [...current, created]);
+        form.setFieldValue("milestone_id", created.id);
+        message.success("里程碑已创建并选中");
+      } else if (quickPlanKind === "sprint") {
+        const created = await consoleApi.createSprint(project.id, {
+          name: values.name,
+          goal: values.goal || "",
+          start_date: values.start_date || "",
+          end_date: values.end_date || "",
+          status: (values.status as Sprint["status"]) || "planned",
+        });
+        setSprints((current) => [...current, created]);
+        form.setFieldValue("sprint_id", created.id);
+        message.success("Sprint 已创建并选中");
+      }
+      setQuickPlanKind(null);
+    } catch (reason) {
+      message.error(errorText(reason, "计划对象创建失败"));
+    }
   }
 
   function openTemplate(templateId: string) {
@@ -412,6 +472,11 @@ export function ProjectWorkProvider({
         labels: Array.isArray(values.labels) ? values.labels : [],
         assignee: values.assignee || "",
         milestone_id: values.milestone_id || "",
+        sprint_id: values.sprint_id || "",
+        parent_id: values.parent_id || "",
+        dependency_ids: Array.isArray(values.dependency_ids) ? values.dependency_ids : [],
+        start_date: values.start_date || "",
+        due_date: values.due_date || "",
       };
       if (editing)
         await consoleApi.updateWorkItem(project.id, editing.id, body);
@@ -471,7 +536,7 @@ export function ProjectWorkProvider({
     <ProjectWorkContext.Provider value={value}>
       {children}
       <Drawer
-        width={640}
+        width="min(860px, 100vw)"
         open={editing !== undefined}
         title={editing ? `任务 · ${editing.title}` : "新建任务"}
         onClose={() => setEditing(undefined)}
@@ -500,147 +565,227 @@ export function ProjectWorkProvider({
           disabled={!canWrite(project)}
           onFinish={saveTask}
         >
-          <Form.Item
-            name="title"
-            label="标题"
-            rules={[{ required: true, whitespace: true }]}
-          >
-            <Input maxLength={300} />
-          </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={5} />
-          </Form.Item>
-          <Row gutter={12}>
-            <Col xs={24} sm={12}>
-              <Form.Item name="status" label="状态">
-                <Select options={[...STATUS_OPTIONS]} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item name="priority" label="优先级">
-                <Select options={[...PRIORITY_OPTIONS]} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={12}>
-            <Col xs={24} sm={12}>
-              <Form.Item name="assignee" label="负责人">
-                <Select
-                  allowClear
-                  options={members.map((member) => ({
-                    value: member.account_id,
-                    label: member.name,
-                  }))}
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item name="milestone_id" label="里程碑">
-                <Select
-                  allowClear
-                  options={milestones.map((milestone) => ({
-                    value: milestone.id,
-                    label: milestone.name,
-                  }))}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={12}>
-            <Col xs={24} sm={12}>
-              <Form.Item name="start_date" label="开始日期">
-                <Input type="date" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item name="due_date" label="截止日期">
-                <Input type="date" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={12}>
-            <Col xs={24} sm={12}>
-              <Form.Item name="estimate_h" label="预估工时">
-                <InputNumber min={0} className="full-width" addonAfter="h" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item name="spent_h" label="投入工时">
-                <InputNumber min={0} className="full-width" addonAfter="h" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item name="source" label="来源">
-            <Input maxLength={80} />
-          </Form.Item>
-          <Form.Item name="labels" label="标签">
-            <Select mode="tags" tokenSeparators={[","]} />
-          </Form.Item>
-          <Form.Item name="parent_id" label="父任务">
-            <Select
-              allowClear
-              options={items
-                .filter((item) => !item.parent_id && item.id !== editing?.id)
-                .map((item) => ({ value: item.id, label: item.title }))}
-            />
-          </Form.Item>
-          <Row gutter={12}>
-            <Col xs={24} sm={12}>
-              <Form.Item name="sprint_id" label="Sprint / 周期">
-                <Select
-                  allowClear
-                  options={sprints.map((sprint) => ({
-                    value: sprint.id,
-                    label: sprint.name,
-                  }))}
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item name="dependency_ids" label="前置依赖">
-                <Select
-                  mode="multiple"
-                  allowClear
-                  options={items
-                    .filter((item) => item.id !== editing?.id)
-                    .map((item) => ({ value: item.id, label: item.title }))}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-          {customFields.map((field) => (
-            <Form.Item
-              key={field.id}
-              name={["custom_fields", field.id]}
-              label={field.name}
-              rules={field.required ? [{ required: true }] : undefined}
-            >
-              {field.field_type === "number" ? (
-                <InputNumber className="full-width" />
-              ) : field.field_type === "boolean" ? (
-                <Select
-                  allowClear
-                  options={[
-                    { value: true, label: "是" },
-                    { value: false, label: "否" },
-                  ]}
-                />
-              ) : field.field_type === "select" ? (
-                <Select
-                  allowClear
-                  options={field.options.map((value) => ({
-                    value,
-                    label: value,
-                  }))}
-                />
-              ) : (
-                <Input
-                  type={field.field_type === "date" ? "date" : "text"}
-                  maxLength={500}
-                />
-              )}
-            </Form.Item>
-          ))}
+          <div className="task-editor-layout">
+            <div className="task-editor-column">
+              <Card size="small" title="核心信息" className="task-editor-section">
+                <Form.Item
+                  name="title"
+                  label="标题"
+                  rules={[{ required: true, whitespace: true }]}
+                >
+                  <Input maxLength={300} />
+                </Form.Item>
+                <Form.Item name="description" label="描述">
+                  <Input.TextArea rows={6} />
+                </Form.Item>
+                <Row gutter={12}>
+                  <Col xs={24} sm={8}>
+                    <Form.Item name="status" label="状态">
+                      <Select options={[...STATUS_OPTIONS]} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={8}>
+                    <Form.Item name="priority" label="优先级">
+                      <Select options={[...PRIORITY_OPTIONS]} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={8}>
+                    <Form.Item name="assignee" label="负责人">
+                      <Select
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        options={members.map((member) => ({
+                          value: member.account_id,
+                          label: member.name,
+                        }))}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </Card>
+
+              <Card size="small" title="执行信息" className="task-editor-section">
+                <Row gutter={12}>
+                  <Col xs={24} sm={12}>
+                    <Form.Item name="estimate_h" label="预估工时">
+                      <InputNumber min={0} className="full-width" addonAfter="h" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item name="spent_h" label="投入工时">
+                      <InputNumber min={0} className="full-width" addonAfter="h" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Form.Item name="labels" label="标签">
+                  <Select mode="tags" tokenSeparators={[","]} />
+                </Form.Item>
+              </Card>
+            </div>
+
+            <div className="task-editor-column">
+              <Card size="small" title="计划与关系" className="task-editor-section">
+                <Row gutter={12}>
+                  <Col xs={24} sm={12}>
+                    <Form.Item name="milestone_id" label="里程碑">
+                      <Select
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        options={milestones.map((milestone) => ({
+                          value: milestone.id,
+                          label: milestone.name,
+                        }))}
+                        popupRender={(menu) => (
+                          <>
+                            {menu}
+                            {canWrite(project) && (
+                              <Button
+                                type="text"
+                                block
+                                icon={<PlusOutlined />}
+                                className="task-plan-create"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => openQuickPlan("milestone")}
+                              >
+                                新建里程碑
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item name="sprint_id" label="Sprint / 周期">
+                      <Select
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        options={sprints.map((sprint) => ({
+                          value: sprint.id,
+                          label: sprint.name,
+                        }))}
+                        popupRender={(menu) => (
+                          <>
+                            {menu}
+                            {canWrite(project) && (
+                              <Button
+                                type="text"
+                                block
+                                icon={<PlusOutlined />}
+                                className="task-plan-create"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => openQuickPlan("sprint")}
+                              >
+                                新建 Sprint
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Row gutter={12}>
+                  <Col xs={24} sm={12}>
+                    <Form.Item name="start_date" label="开始日期">
+                      <Input type="date" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item name="due_date" label="截止日期">
+                      <Input type="date" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Form.Item name="parent_id" label="父任务">
+                  <Select
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    options={items
+                      .filter(
+                        (item) =>
+                          item.id !== editing?.id &&
+                          (!editing || !isDescendant(items, editing.id, item.id)),
+                      )
+                      .map((item) => ({
+                        value: item.id,
+                        label: `${item.title} · ${STATUS_META[item.status].label}`,
+                      }))}
+                  />
+                </Form.Item>
+                <Form.Item
+                  name="dependency_ids"
+                  label="前置依赖"
+                  extra="所选任务完成后，本任务才具备开始条件。系统会拒绝依赖环。"
+                >
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    options={items
+                      .filter((item) => item.id !== editing?.id)
+                      .map((item) => ({
+                        value: item.id,
+                        label: `${item.title} · ${STATUS_META[item.status].label} · ${item.assignee_name || "未指派"}${item.due_date ? ` · ${item.due_date}` : ""}`,
+                      }))}
+                  />
+                </Form.Item>
+                {editing && items.some((item) => item.dependency_ids?.includes(editing.id)) && (
+                  <div className="task-blocks-summary">
+                    <Typography.Text type="secondary">本任务阻塞：</Typography.Text>
+                    <Space size={[4, 4]} wrap>
+                      {items
+                        .filter((item) => item.dependency_ids?.includes(editing.id))
+                        .map((item) => (
+                          <Tag key={item.id}>{item.title}</Tag>
+                        ))}
+                    </Space>
+                  </div>
+                )}
+              </Card>
+
+              <Card size="small" title="补充信息" className="task-editor-section">
+                <Form.Item name="source" label="来源">
+                  <Input maxLength={80} />
+                </Form.Item>
+                {customFields.map((field) => (
+                  <Form.Item
+                    key={field.id}
+                    name={["custom_fields", field.id]}
+                    label={field.name}
+                    rules={field.required ? [{ required: true }] : undefined}
+                  >
+                    {field.field_type === "number" ? (
+                      <InputNumber className="full-width" />
+                    ) : field.field_type === "boolean" ? (
+                      <Select
+                        allowClear
+                        options={[
+                          { value: true, label: "是" },
+                          { value: false, label: "否" },
+                        ]}
+                      />
+                    ) : field.field_type === "select" ? (
+                      <Select
+                        allowClear
+                        options={field.options.map((value) => ({ value, label: value }))}
+                      />
+                    ) : (
+                      <Input
+                        type={field.field_type === "date" ? "date" : "text"}
+                        maxLength={500}
+                      />
+                    )}
+                  </Form.Item>
+                ))}
+              </Card>
+            </div>
+          </div>
           {editing && (
             <Card
               size="small"
@@ -808,6 +953,70 @@ export function ProjectWorkProvider({
           </Form.Item>
         </Form>
       </Modal>
+      <Modal
+        title={quickPlanKind === "milestone" ? "新建里程碑" : "新建 Sprint"}
+        open={quickPlanKind !== null}
+        onCancel={() => setQuickPlanKind(null)}
+        onOk={() => quickPlanForm.submit()}
+        destroyOnHidden
+      >
+        <Form form={quickPlanForm} layout="vertical" onFinish={saveQuickPlan}>
+          <Form.Item
+            name="name"
+            label="名称"
+            rules={[{ required: true, whitespace: true }]}
+          >
+            <Input maxLength={120} autoFocus />
+          </Form.Item>
+          {quickPlanKind === "milestone" ? (
+            <>
+              <Form.Item name="description" label="说明">
+                <Input.TextArea rows={3} maxLength={1000} />
+              </Form.Item>
+              <Form.Item name="due_date" label="截止日期">
+                <Input type="date" />
+              </Form.Item>
+            </>
+          ) : (
+            <>
+              <Form.Item name="goal" label="Sprint 目标">
+                <Input.TextArea rows={3} maxLength={1000} />
+              </Form.Item>
+              <Row gutter={12}>
+                <Col span={12}>
+                  <Form.Item
+                    name="start_date"
+                    label="开始日期"
+                    rules={[{ required: true }]}
+                  >
+                    <Input type="date" />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    name="end_date"
+                    label="结束日期"
+                    dependencies={["start_date"]}
+                    rules={[
+                      { required: true },
+                      ({ getFieldValue }) => ({
+                        validator(_, value) {
+                          const start = getFieldValue("start_date");
+                          return !value || !start || value >= start
+                            ? Promise.resolve()
+                            : Promise.reject(new Error("结束日期不能早于开始日期"));
+                        },
+                      }),
+                    ]}
+                  >
+                    <Input type="date" />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </>
+          )}
+        </Form>
+      </Modal>
     </ProjectWorkContext.Provider>
   );
 }
@@ -880,6 +1089,7 @@ export function ProjectOverview() {
             project={project}
             roots={roots}
             milestones={milestones}
+            editable={false}
           />
         </Col>
         <Col xs={24} xl={12}>
@@ -921,10 +1131,12 @@ function MilestoneCard({
   project,
   roots,
   milestones,
+  editable = true,
 }: {
   project: Project;
   roots: WorkItem[];
   milestones: Milestone[];
+  editable?: boolean;
 }) {
   const { message } = App.useApp();
   const { reload } = useProjectWork();
@@ -938,7 +1150,7 @@ function MilestoneCard({
       title="里程碑"
       className="project-overview-card"
       extra={
-        canWrite(project) && (
+        editable && canWrite(project) && (
           <Button
             type="link"
             icon={<PlusOutlined />}
@@ -967,7 +1179,7 @@ function MilestoneCard({
             return (
               <List.Item
                 actions={
-                  canWrite(project)
+                  editable && canWrite(project)
                     ? [
                         <Button
                           key="edit"
@@ -1570,11 +1782,31 @@ function makeLanes(
   return [...groups.values()];
 }
 
+function orderTasksForTable(items: WorkItem[]): WorkItem[] {
+  const children = new Map<string, WorkItem[]>();
+  for (const item of items) {
+    const bucket = children.get(item.parent_id) || [];
+    bucket.push(item);
+    children.set(item.parent_id, bucket);
+  }
+  const ordered: WorkItem[] = [];
+  const visited = new Set<string>();
+  const append = (item: WorkItem) => {
+    if (visited.has(item.id)) return;
+    visited.add(item.id);
+    ordered.push(item);
+    for (const child of children.get(item.id) || []) append(child);
+  };
+  for (const root of children.get("") || []) append(root);
+  // 兼容修复前留下的孤儿或异常关系，确保它们不会从管理界面消失。
+  for (const item of items) append(item);
+  return ordered;
+}
+
 export function ProjectTasks() {
   const {
     project,
     items,
-    roots,
     members,
     milestones,
     sprints,
@@ -1591,7 +1823,8 @@ export function ProjectTasks() {
   const [status, setStatus] = useState("");
   const [assignee, setAssignee] = useState("");
   const [batchStatus, setBatchStatus] = useState<WorkItem["status"]>("doing");
-  const filtered = roots.filter(
+  const orderedItems = useMemo(() => orderTasksForTable(items), [items]);
+  const filtered = orderedItems.filter(
     (item) =>
       (!search ||
         `${item.title} ${item.description || ""}`
@@ -1600,8 +1833,6 @@ export function ProjectTasks() {
       (!status || item.status === status) &&
       (!assignee || item.assignee === assignee),
   );
-  const milestoneName = (id: string) =>
-    milestones.find((milestone) => milestone.id === id)?.name || "-";
   const columns: ProColumns<WorkItem>[] = [
     {
       title: "任务",
@@ -1610,7 +1841,7 @@ export function ProjectTasks() {
       render: (_value, item) => (
         <Button
           type="link"
-          className="project-task-link"
+          className={`project-task-link${item.parent_id ? " project-task-child" : ""}`}
           onClick={() => openTask(item)}
         >
           <span>
@@ -1642,34 +1873,76 @@ export function ProjectTasks() {
     {
       title: "优先级",
       dataIndex: "priority",
-      width: 100,
-      render: (value) =>
-        value ? (
-          <Tag color={PRIORITY_COLORS[String(value)]}>
-            {PRIORITY_OPTIONS.find((option) => option.value === value)?.label}
-          </Tag>
-        ) : (
-          "-"
-        ),
+      width: 120,
+      render: (_value, item) => (
+        <Select
+          size="small"
+          value={item.priority}
+          disabled={!canWrite(project)}
+          options={[...PRIORITY_OPTIONS]}
+          onChange={(value) => void patchTask(item, { priority: value })}
+        />
+      ),
     },
     {
       title: "负责人",
       dataIndex: "assignee_name",
-      width: 130,
-      render: (value) => value || "未指派",
+      width: 150,
+      render: (_value, item) => (
+        <Select
+          size="small"
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          value={item.assignee || undefined}
+          placeholder="未指派"
+          disabled={!canWrite(project)}
+          options={members.map((member) => ({
+            value: member.account_id,
+            label: member.name,
+          }))}
+          onChange={(value) => void patchTask(item, { assignee: value || "" })}
+        />
+      ),
     },
     {
       title: "里程碑",
       dataIndex: "milestone_id",
-      width: 150,
-      render: (value) => milestoneName(String(value || "")),
+      width: 160,
+      render: (_value, item) => (
+        <Select
+          size="small"
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          value={item.milestone_id || undefined}
+          placeholder="无里程碑"
+          disabled={!canWrite(project)}
+          options={milestones.map((milestone) => ({
+            value: milestone.id,
+            label: milestone.name,
+          }))}
+          onChange={(value) => void patchTask(item, { milestone_id: value || "" })}
+        />
+      ),
     },
     {
       title: "Sprint",
       dataIndex: "sprint_id",
-      width: 140,
-      render: (value) =>
-        sprints.find((sprint) => sprint.id === value)?.name || "-",
+      width: 160,
+      render: (_value, item) => (
+        <Select
+          size="small"
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          value={item.sprint_id || undefined}
+          placeholder="无 Sprint"
+          disabled={!canWrite(project)}
+          options={sprints.map((sprint) => ({ value: sprint.id, label: sprint.name }))}
+          onChange={(value) => void patchTask(item, { sprint_id: value || "" })}
+        />
+      ),
     },
     {
       title: "关键路径",
@@ -1680,17 +1953,16 @@ export function ProjectTasks() {
     {
       title: "截止",
       dataIndex: "due_date",
-      width: 120,
-      render: (value, item) => (
-        <Typography.Text
-          type={
-            item.status !== "done" && value && String(value) < today()
-              ? "danger"
-              : undefined
-          }
-        >
-          {String(value || "-")}
-        </Typography.Text>
+      width: 150,
+      render: (_value, item) => (
+        <Input
+          size="small"
+          type="date"
+          value={item.due_date || ""}
+          disabled={!canWrite(project)}
+          status={item.status !== "done" && item.due_date && item.due_date < today() ? "error" : undefined}
+          onChange={(event) => void patchTask(item, { due_date: event.target.value })}
+        />
       ),
     },
     {
@@ -1720,7 +1992,9 @@ export function ProjectTasks() {
               onClick={() =>
                 Modal.confirm({
                   title: "删除此任务？",
-                  content: item.title,
+                  content: items.some((child) => child.parent_id === item.id)
+                    ? `“${item.title}”的直接子任务会保留，并提升为根任务；其他任务中的前置依赖会自动清理。`
+                    : `“${item.title}”将被删除；其他任务中的前置依赖会自动清理。`,
                   okButtonProps: { danger: true },
                   onOk: () => deleteTask(item),
                 })
@@ -1742,7 +2016,7 @@ export function ProjectTasks() {
         loading={loading}
         search={false}
         pagination={{ pageSize: 15 }}
-        scroll={{ x: 1340 }}
+        scroll={{ x: 1600 }}
         options={{ reload: () => void reload(), density: true, setting: true }}
         rowSelection={
           canWrite(project)
@@ -1820,7 +2094,7 @@ export function ProjectTasks() {
 }
 
 export function ProjectIterations() {
-  const { project, customFields, sprints, reload } = useProjectWork();
+  const { project, roots, milestones, customFields, sprints, reload } = useProjectWork();
   const { message } = App.useApp();
   const [fieldOpen, setFieldOpen] = useState(false);
   const [sprintOpen, setSprintOpen] = useState(false);
@@ -1843,6 +2117,7 @@ export function ProjectIterations() {
     >();
   return (
     <div className="tab-stack">
+      <MilestoneCard project={project} roots={roots} milestones={milestones} />
       <Card
         title="Sprint / 周期"
         extra={

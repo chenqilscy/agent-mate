@@ -107,6 +107,19 @@ def _sanitize_refs(
         pid = (changes.get("parent_id") or "").strip()
         p = db.get_work_item(pid) if pid and pid != self_id else None
         changes["parent_id"] = pid if (p and p["project_id"] == project_id) else ""
+        if self_id and changes["parent_id"]:
+            parents = {
+                item["id"]: str(item.get("parent_id") or "")
+                for item in db.list_work_items(project_id)
+            }
+            parents[self_id] = changes["parent_id"]
+            cursor = changes["parent_id"]
+            seen: set[str] = set()
+            while cursor:
+                if cursor == self_id or cursor in seen:
+                    raise HTTPException(409, "work item parent cycle")
+                seen.add(cursor)
+                cursor = parents.get(cursor, "")
     if "milestone_id" in changes:
         mid = (changes.get("milestone_id") or "").strip()
         m = db.get_milestone(mid) if mid else None

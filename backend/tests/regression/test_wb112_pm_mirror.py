@@ -11,6 +11,8 @@ BACKEND = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BACKEND))
 
 from config import settings  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
+from backend.routers.work_items import _sanitize_local_refs, _validate_local_fields  # noqa: E402
 from storage import db  # noqa: E402
 
 
@@ -41,6 +43,24 @@ class PMMirrorTest(unittest.TestCase):
         self.assertEqual({"risk": "high"}, item.custom_fields)
         self.assertEqual(["dep"], item.dependency_ids)
         self.assertEqual("sprint-1", item.sprint_id)
+
+    def test_local_relationship_rules_match_server_and_delete_is_non_destructive(self) -> None:
+        project = db.create_project(owner_id="owner", name="Local")
+        parent = db.create_work_item(project_id=project.id, owner_id="owner", title="Parent")
+        child = db.create_work_item(
+            project_id=project.id, owner_id="owner", title="Child", parent_id=parent.id,
+        )
+        dependent = db.create_work_item(
+            project_id=project.id, owner_id="owner", title="Dependent", dependency_ids=[parent.id],
+        )
+        with self.assertRaisesRegex(HTTPException, "parent cycle"):
+            _sanitize_local_refs(project.id, parent.id, {"parent_id": child.id})
+        with self.assertRaisesRegex(HTTPException, "due_date"):
+            _validate_local_fields({"start_date": "2026-07-24", "due_date": "2026-07-23"})
+
+        db.delete_work_item(parent.id)
+        self.assertEqual("", db.get_work_item(child.id).parent_id)
+        self.assertEqual([], db.get_work_item(dependent.id).dependency_ids)
 
 
 if __name__ == "__main__":

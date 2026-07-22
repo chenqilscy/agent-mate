@@ -1929,8 +1929,28 @@ def delete_work_item(wid: str) -> bool:
     conn = get_conn()
     row = conn.execute("SELECT project_id FROM work_items WHERE id=?", (wid,)).fetchone()
     if row is not None:
-        # 只在同项目内连带子任务，绝不跨项目级联（WB-157）。
-        conn.execute("DELETE FROM work_items WHERE parent_id=? AND project_id=?", (wid, row["project_id"]))
+        project_id = row["project_id"]
+        now = time.time()
+        # 删除父项默认提升直接子任务为根任务，避免一个普通删除动作静默吞掉整组工作。
+        conn.execute(
+            "UPDATE work_items SET parent_id='',updated_at=? WHERE parent_id=? AND project_id=?",
+            (now, wid, project_id),
+        )
+        # dependency_ids 是 JSON 列，删除目标后显式清除悬空引用。
+        for dependent in conn.execute(
+            "SELECT id,dependency_ids FROM work_items WHERE project_id=? AND id!=?",
+            (project_id, wid),
+        ).fetchall():
+            try:
+                dependencies = json.loads(dependent["dependency_ids"] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                dependencies = []
+            cleaned = [item for item in dependencies if item != wid]
+            if cleaned != dependencies:
+                conn.execute(
+                    "UPDATE work_items SET dependency_ids=?,updated_at=? WHERE id=?",
+                    (json.dumps(cleaned, ensure_ascii=False), now, dependent["id"]),
+                )
     conn.execute("DELETE FROM work_item_activity WHERE work_item_id=?", (wid,))
     cur = conn.execute("DELETE FROM work_items WHERE id=?", (wid,))
     conn.commit()
