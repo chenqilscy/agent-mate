@@ -1,6 +1,6 @@
 import type {
   Account, Activity, AuthResponse, CatalogData, CatalogItem, CommentRecord,
-  KnowledgeBase, KnowledgeDocument, Member, Milestone, NotificationRecord,
+  KnowledgeBase, KnowledgeDocument, KnowledgeSearchHit, Member, Milestone, NotificationRecord,
   Organization, PlatformSettingsPayload, Project, ProjectCustomField, SkillData, SkillRelease, SkillTool, Sprint, TimelineEvent, ToolCatalogAudit, WorkItem, BurndownPoint,
 } from "./types";
 
@@ -175,7 +175,12 @@ export const consoleApi = {
   updateKnowledgeBase: (id: string, kbId: string, body: Partial<KnowledgeBase>) => apiRequest<KnowledgeBase>("PATCH", `/projects/${encodeURIComponent(id)}/knowledge-bases/${encodeURIComponent(kbId)}`, body),
   deleteKnowledgeBase: (id: string, kbId: string) => apiRequest<{ ok: boolean }>("DELETE", `/projects/${encodeURIComponent(id)}/knowledge-bases/${encodeURIComponent(kbId)}`),
   migrateKnowledgeBase: (id: string, kbId: string) => apiRequest<KnowledgeBase>("POST", `/projects/${encodeURIComponent(id)}/knowledge-bases/${encodeURIComponent(kbId)}/migrate`, {}),
-  knowledgeDocuments: (id: string, kbId: string) => apiRequest<{ items: KnowledgeDocument[] }>("GET", `/projects/${encodeURIComponent(id)}/knowledge-bases/${encodeURIComponent(kbId)}/documents`),
+  knowledgeDocuments: (id: string, kbId: string, page = 1, pageSize = 20, keyword = "") => {
+    const query = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    if (keyword) query.set("keyword", keyword);
+    return apiRequest<{ items: KnowledgeDocument[]; total: number; page: number; page_size: number }>("GET", `/projects/${encodeURIComponent(id)}/knowledge-bases/${encodeURIComponent(kbId)}/documents?${query}`);
+  },
   uploadKnowledgeDocument: (id: string, kbId: string, file: File) => apiUpload<KnowledgeDocument>(`/projects/${encodeURIComponent(id)}/knowledge-bases/${encodeURIComponent(kbId)}/documents`, file),
   deleteKnowledgeDocument: (id: string, kbId: string, docId: string) => apiRequest<{ ok: boolean }>("DELETE", `/projects/${encodeURIComponent(id)}/knowledge-bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`),
+  searchProjectKnowledge: (id: string, body: { query: string; knowledge_ids: string[]; top_k?: number }) => apiRequest<{ hits: KnowledgeSearchHit[] }>("POST", `/projects/${encodeURIComponent(id)}/knowledge-search`, body),
 };

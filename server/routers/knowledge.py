@@ -9,9 +9,9 @@ from __future__ import annotations
 import mimetypes
 import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -325,16 +325,42 @@ def migrate_legacy_kb(project_id: str, kb_id: str, account: Account = CurrentAcc
 
 
 @router.get("/projects/{project_id}/knowledge-bases/{kb_id}/documents")
-def list_documents(project_id: str, kb_id: str, account: Account = CurrentAccount) -> dict[str, Any]:
+def list_documents(
+    project_id: str,
+    kb_id: str,
+    account: Account = CurrentAccount,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    keyword: Annotated[str, Query(max_length=200)] = "",
+) -> dict[str, Any]:
     _access(project_id, account)
     kb = _kb_or_404(project_id, kb_id)
+    normalized_keyword = keyword.strip()
     if kb.get("provider_status") != "ready":
-        return {"items": [_present_legacy_doc(doc) for doc in db.list_kb_documents(kb_id)]}
+        rows = db.list_kb_documents(kb_id)
+        if normalized_keyword:
+            needle = normalized_keyword.casefold()
+            rows = [row for row in rows if needle in str(row.get("filename") or "").casefold()]
+        total = len(rows)
+        offset = (page - 1) * page_size
+        return {
+            "items": [_present_legacy_doc(doc) for doc in rows[offset:offset + page_size]],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
     try:
-        remote = weknora.list_docs(_provider_id(kb))
+        remote = weknora.list_docs(
+            _provider_id(kb), page=page, page_size=page_size, keyword=normalized_keyword,
+        )
     except weknora.WeKnoraError as exc:
         raise _weknora_error(exc) from exc
-    return {"items": [_present_doc(row) for row in remote["items"]]}
+    return {
+        "items": [_present_doc(row) for row in remote["items"]],
+        "total": int(remote["total"]),
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.post("/projects/{project_id}/knowledge-bases/{kb_id}/documents")

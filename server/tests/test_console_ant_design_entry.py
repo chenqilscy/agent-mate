@@ -48,8 +48,13 @@ class ConsoleAntDesignEntryTests(unittest.TestCase):
 
     def test_project_knowledge_ui_uses_central_weknora_contract(self) -> None:
         page = (ROOT / "console" / "src" / "pages" / "ProjectDetailPage.tsx").read_text(encoding="utf-8")
+        api = (ROOT / "console" / "src" / "api.ts").read_text(encoding="utf-8")
         self.assertIn("中央 WeKnora", page)
         self.assertIn("migrateKnowledgeBase", page)
+        self.assertIn("解析中 · 自动刷新", page)
+        self.assertIn("<Pagination", page)
+        self.assertIn("检索测试", page)
+        self.assertIn("searchProjectKnowledge", api)
         self.assertNotIn("Embedding-3-pro", page)
         self.assertNotIn("向量化由本地执行面完成", page)
 

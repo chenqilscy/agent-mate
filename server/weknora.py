@@ -170,10 +170,15 @@ def upload_file(provider_id: str, *, filename: str, content: bytes, content_type
     return data if isinstance(data, dict) else {"id": data}
 
 
-def list_docs(provider_id: str, *, page: int = 1, page_size: int = 100) -> dict[str, Any]:
+def list_docs(
+    provider_id: str, *, page: int = 1, page_size: int = 100, keyword: str = "",
+) -> dict[str, Any]:
+    params: dict[str, Any] = {"page": page, "page_size": page_size}
+    if keyword:
+        params["keyword"] = keyword
     data = request(
         "GET", f"/knowledge-bases/{provider_id}/knowledge",
-        params={"page": page, "page_size": page_size},
+        params=params,
     )
     rows = as_list(data)
     total = data.get("total", len(rows)) if isinstance(data, dict) else len(rows)

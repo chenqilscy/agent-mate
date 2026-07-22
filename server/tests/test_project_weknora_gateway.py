@@ -119,6 +119,34 @@ class ProjectWeKnoraGatewayTest(unittest.TestCase):
                 self.project.id, created["id"], request(), "shared.md", self.viewer,
             ))
 
+    @patch.object(knowledge.weknora, "list_docs", return_value={
+        "items": [{
+            "id": "provider-doc-2", "file_name": "guide-two.md", "parse_status": "processing",
+        }],
+        "total": 11,
+    })
+    @patch.object(knowledge.weknora, "create_kb", return_value={"id": "provider-kb-page"})
+    def test_document_list_forwards_pagination_and_keyword(
+        self, _create_remote, list_remote,
+    ) -> None:
+        created = knowledge.create_kb(
+            self.project.id, knowledge.CreateKbBody(name="Paged docs"), self.owner,
+        )
+
+        result = knowledge.list_documents(
+            self.project.id, created["id"], self.viewer,
+            page=2, page_size=10, keyword=" guide ",
+        )
+
+        self.assertEqual(11, result["total"])
+        self.assertEqual(2, result["page"])
+        self.assertEqual(10, result["page_size"])
+        self.assertEqual("guide-two.md", result["items"][0]["filename"])
+        self.assertEqual("processing", result["items"][0]["parse_status"])
+        list_remote.assert_called_once_with(
+            "provider-kb-page", page=2, page_size=10, keyword="guide",
+        )
+
     @patch.object(knowledge.weknora, "upload_file", return_value={"id": "provider-doc-1"})
     @patch.object(knowledge.weknora, "create_kb", return_value={"id": "provider-kb-migrated"})
     def test_legacy_migration_is_explicit_and_retains_source_bytes(self, _create_remote, upload_remote) -> None:

@@ -309,4 +309,13 @@ export interface KnowledgeDocument {
   created_at?: number;
 }
 
+export interface KnowledgeSearchHit {
+  text: string;
+  score?: number | null;
+  metadata?: {
+    doc_name?: string;
+    doc_id?: string;
+  };
+}
+
 export type CatalogData = Record<string, unknown> | string;

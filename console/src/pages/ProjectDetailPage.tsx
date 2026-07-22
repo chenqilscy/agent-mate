@@ -1,6 +1,6 @@
 import {
   Alert, App, Avatar, Button, Card, Col, Descriptions, Drawer, Empty, Form, Input,
-  Modal, Popconfirm, Row, Select, Space, Tabs, Tag,
+  Modal, Pagination, Popconfirm, Row, Select, Space, Spin, Tabs, Tag,
   Timeline, Typography, Upload,
 } from "antd";
 import { CompatList as List } from "../components/CompatList";
@@ -11,7 +11,7 @@ import {
 } from "@ant-design/icons";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { consoleApi } from "../api";
 import {
   ProjectGantt, ProjectIterations, ProjectOverview, ProjectPlan, ProjectTasks, ProjectWorkload,
@@ -19,7 +19,7 @@ import {
 } from "../components/project/ProjectWorkspace";
 import { navigate } from "../router";
 import type {
-  CatalogData, CatalogItem, CommentRecord, KnowledgeBase, KnowledgeDocument,
+  CatalogData, CatalogItem, CommentRecord, KnowledgeBase, KnowledgeDocument, KnowledgeSearchHit,
   Member, Project, TimelineEvent,
 } from "../types";
 
@@ -80,22 +80,92 @@ function KnowledgeTab({ project }: { project: Project }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<KnowledgeBase | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const [docLoading, setDocLoading] = useState(false);
+  const [docError, setDocError] = useState("");
+  const [docPage, setDocPage] = useState(1);
+  const [docPageSize, setDocPageSize] = useState(10);
+  const [docTotal, setDocTotal] = useState(0);
+  const [docSearch, setDocSearch] = useState("");
+  const [docKeyword, setDocKeyword] = useState("");
+  const [testQuery, setTestQuery] = useState("");
+  const [testLoading, setTestLoading] = useState(false);
+  const [testHits, setTestHits] = useState<KnowledgeSearchHit[]>([]);
+  const [testRan, setTestRan] = useState(false);
+  const docRequest = useRef(0);
   const [form] = Form.useForm<Partial<KnowledgeBase> & { name: string }>();
   async function load() { setLoading(true); try { const result = await consoleApi.knowledgeBases(project.id); setItems(result.items || []); setConfigured(result.configured); } catch (reason) { message.error(errorText(reason, "知识库加载失败")); } finally { setLoading(false); } }
-  async function loadDocs(kb: KnowledgeBase) { setSelected(kb); try { setDocuments((await consoleApi.knowledgeDocuments(project.id, kb.id)).items || []); } catch (reason) { message.error(errorText(reason, "文档加载失败")); } }
+  const fetchDocuments = useCallback(async (kbId: string, page: number, pageSize: number, keyword: string, silent = false) => {
+    const requestId = ++docRequest.current;
+    if (!silent) { setDocLoading(true); setDocError(""); }
+    try {
+      const result = await consoleApi.knowledgeDocuments(project.id, kbId, page, pageSize, keyword);
+      if (requestId !== docRequest.current) return;
+      setDocuments(result.items || []);
+      setDocTotal(result.total || 0);
+      setDocError("");
+    } catch (reason) {
+      if (requestId !== docRequest.current) return;
+      const detail = errorText(reason, "文档加载失败");
+      setDocError(detail);
+      if (!silent) message.error(detail);
+    } finally {
+      if (requestId === docRequest.current && !silent) setDocLoading(false);
+    }
+  }, [message, project.id]);
+  function openDocs(kb: KnowledgeBase) {
+    setSelected(kb); setDocuments([]); setDocTotal(0); setDocPage(1); setDocPageSize(10);
+    setDocSearch(""); setDocKeyword(""); setDocError(""); setTestQuery(""); setTestHits([]); setTestRan(false);
+    void fetchDocuments(kb.id, 1, 10, "");
+  }
+  function closeDocs() {
+    docRequest.current += 1;
+    setSelected(null); setDocuments([]); setTestHits([]); setTestRan(false);
+  }
+  const hasPendingDocuments = documents.some((doc) => doc.vector_status === 0 && doc.parse_status !== "legacy_pending");
+  useEffect(() => {
+    if (!selected || !hasPendingDocuments) return;
+    const timer = window.setInterval(() => {
+      void fetchDocuments(selected.id, docPage, docPageSize, docKeyword, true);
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [docKeyword, docPage, docPageSize, fetchDocuments, hasPendingDocuments, selected?.id]);
+  async function runKnowledgeTest() {
+    const query = testQuery.trim();
+    if (!selected || !query) { message.warning("请输入要检索的问题"); return; }
+    setTestLoading(true); setTestRan(false);
+    try {
+      const result = await consoleApi.searchProjectKnowledge(project.id, { query, knowledge_ids: [selected.id], top_k: 8 });
+      setTestHits(result.hits || []); setTestRan(true);
+    } catch (reason) {
+      setTestHits([]); setTestRan(false); message.error(errorText(reason, "检索测试失败"));
+    } finally { setTestLoading(false); }
+  }
   useEffect(() => { void load(); }, [project.id]);
   const columns: ProColumns<KnowledgeBase>[] = [
     { title: "知识库", dataIndex: "name", render: (_value, item) => <Space><Avatar shape="square">{item.icon || "📚"}</Avatar><div><Typography.Text strong>{item.name}</Typography.Text><div><Typography.Text type="secondary">{item.description || "暂无简介"}</Typography.Text></div></div></Space> },
     { title: "状态", width: 140, render: (_value, item) => item.provider_status === "ready" ? <Tag color="green">WeKnora 已就绪</Tag> : item.provider_status === "legacy_pending" ? <Tag color="orange">旧库待迁移</Tag> : item.provider_status === "migrating" ? <Tag color="processing">迁移中</Tag> : <Tag color="red">暂不可用</Tag> },
     { title: "文档", dataIndex: "doc_count", width: 80 },
-    { title: "操作", valueType: "option", width: 220, render: (_value, item) => <Space><Button type="link" size="small" onClick={() => void loadDocs(item)}>打开</Button>{canManage(project) && item.provider_status === "legacy_pending" && <Button type="link" size="small" onClick={async () => { try { await consoleApi.migrateKnowledgeBase(project.id, item.id); message.success("旧知识库已提交到中央 WeKnora"); await load(); } catch (reason) { message.error(errorText(reason, "迁移失败")); } }}>迁移</Button>}{canManage(project) && <Popconfirm title={`删除知识库“${item.name}”及全部文档？`} onConfirm={async () => { try { await consoleApi.deleteKnowledgeBase(project.id, item.id); message.success("知识库已删除"); await load(); } catch (reason) { message.error(errorText(reason, "删除失败")); } }}><Button type="link" danger size="small">删除</Button></Popconfirm>}</Space> },
+    { title: "操作", valueType: "option", width: 220, render: (_value, item) => <Space><Button type="link" size="small" onClick={() => openDocs(item)}>打开</Button>{canManage(project) && item.provider_status === "legacy_pending" && <Button type="link" size="small" onClick={async () => { try { await consoleApi.migrateKnowledgeBase(project.id, item.id); message.success("旧知识库已提交到中央 WeKnora"); await load(); } catch (reason) { message.error(errorText(reason, "迁移失败")); } }}>迁移</Button>}{canManage(project) && <Popconfirm title={`删除知识库“${item.name}”及全部文档？`} onConfirm={async () => { try { await consoleApi.deleteKnowledgeBase(project.id, item.id); message.success("知识库已删除"); await load(); } catch (reason) { message.error(errorText(reason, "删除失败")); } }}><Button type="link" danger size="small">删除</Button></Popconfirm>}</Space> },
   ];
   return <>
     {!configured && <Alert type="warning" showIcon message="中央 WeKnora 尚未配置" description="请让平台管理员在 AgentMate Server 部署环境配置 WeKnora 服务凭据；密钥不会下发到 Console 或 AgentMate。" />}
     <ProTable<KnowledgeBase> rowKey="id" columns={columns} dataSource={items} loading={loading} search={false} options={{ reload: () => void load(), density: true }} toolBarRender={() => canManage(project) ? [<Button key="new" type="primary" disabled={!configured} icon={<PlusOutlined />} onClick={() => { form.setFieldsValue({ icon: "📚" }); setCreateOpen(true); }}>新建知识库</Button>] : []} />
     <Modal title="新建中央知识库" open={createOpen} onCancel={() => setCreateOpen(false)} onOk={() => form.submit()} destroyOnHidden><Form form={form} layout="vertical" onFinish={async (values) => { try { await consoleApi.createKnowledgeBase(project.id, values); message.success("知识库已在 WeKnora 创建"); setCreateOpen(false); form.resetFields(); await load(); } catch (reason) { message.error(errorText(reason, "创建失败")); } }}><Row gutter={12}><Col span={6}><Form.Item name="icon" label="图标"><IconPicker ariaLabel="选择知识库图标" /></Form.Item></Col><Col span={18}><Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item></Col></Row><Form.Item name="description" label="用途简介"><Input.TextArea rows={3} /></Form.Item><Alert type="info" showIcon message="解析、切片、嵌入与检索均由中央 WeKnora 完成，项目成员无需再配置 API Key。" /></Form></Modal>
-    <Drawer width={680} open={Boolean(selected)} title={selected ? `${selected.icon || "📚"} ${selected.name}` : "知识库"} onClose={() => setSelected(null)} destroyOnHidden>
-      {selected && <><Descriptions column={1} bordered size="small" items={[{ key: "desc", label: "用途", children: selected.description || "-" }, { key: "provider", label: "知识服务", children: selected.provider_status === "ready" ? "中央 WeKnora（已就绪）" : selected.provider_error || "旧库待迁移" }, { key: "boundary", label: "凭据边界", children: "WeKnora API Key 仅保存在 AgentMate Server" }]} /><Card className="drawer-card" title="文档" extra={canWrite(project) && selected.provider_status === "ready" && <Upload showUploadList={false} beforeUpload={(file) => { void (async () => { try { await consoleApi.uploadKnowledgeDocument(project.id, selected.id, file); message.success("文档已上传，WeKnora 正在解析"); await loadDocs(selected); await load(); } catch (reason) { message.error(errorText(reason, "上传失败")); } })(); return false; }}><Button icon={<CloudUploadOutlined />}>上传文档</Button></Upload>}><List dataSource={documents} locale={{ emptyText: "还没有文档" }} renderItem={(doc) => <List.Item actions={canWrite(project) ? [<Popconfirm key="delete" title="删除此文档？" onConfirm={async () => { await consoleApi.deleteKnowledgeDocument(project.id, selected.id, doc.id); await loadDocs(selected); await load(); }}><Button danger type="link" size="small">删除</Button></Popconfirm>] : []}><List.Item.Meta avatar={<FileTextOutlined />} title={doc.filename} description={`${doc.size ? `${(doc.size / 1024).toFixed(1)} KB · ` : ""}${doc.vector_status === 1 ? "解析完成" : doc.vector_status === 2 ? `失败：${doc.fail_msg || "未知"}` : doc.parse_status === "legacy_pending" ? "旧文档待迁移" : "解析中"}`} /></List.Item>} /></Card></>}
+    <Drawer width={720} open={Boolean(selected)} title={selected ? `${selected.icon || "📚"} ${selected.name}` : "知识库"} onClose={closeDocs} destroyOnHidden>
+      {selected && <><Descriptions column={1} bordered size="small" items={[{ key: "desc", label: "用途", children: selected.description || "-" }, { key: "provider", label: "知识服务", children: selected.provider_status === "ready" ? "中央 WeKnora（已就绪）" : selected.provider_error || "旧库待迁移" }, { key: "boundary", label: "凭据边界", children: "WeKnora API Key 仅保存在 AgentMate Server" }]} /><Card className="drawer-card" title={<Space>文档<Typography.Text type="secondary">{docTotal}</Typography.Text>{hasPendingDocuments && <Tag color="processing">解析中 · 自动刷新</Tag>}</Space>} extra={canWrite(project) && selected.provider_status === "ready" && <Upload showUploadList={false} beforeUpload={(file) => { void (async () => { try { await consoleApi.uploadKnowledgeDocument(project.id, selected.id, file); message.success("文档已上传，WeKnora 正在解析"); setDocPage(1); setDocSearch(""); setDocKeyword(""); await Promise.all([fetchDocuments(selected.id, 1, docPageSize, ""), load()]); } catch (reason) { message.error(errorText(reason, "上传失败")); } })(); return false; }}><Button icon={<CloudUploadOutlined />}>上传文档</Button></Upload>}>
+        <Space direction="vertical" size={12} className="full-width">
+          <Input.Search value={docSearch} allowClear placeholder="搜索文档名称" onChange={(event) => setDocSearch(event.target.value)} onSearch={(value) => { const keyword = value.trim(); setDocKeyword(keyword); setDocPage(1); void fetchDocuments(selected.id, 1, docPageSize, keyword); }} />
+          {docError && <Alert type="error" showIcon message="文档状态刷新失败" description={docError} />}
+          <Spin spinning={docLoading}><List rowKey="id" dataSource={documents} locale={{ emptyText: docKeyword ? "没有匹配的文档" : "还没有文档" }} renderItem={(doc) => <List.Item actions={canWrite(project) ? [<Popconfirm key="delete" title="删除此文档？" onConfirm={async () => { try { await consoleApi.deleteKnowledgeDocument(project.id, selected.id, doc.id); message.success("文档已删除"); const nextPage = documents.length === 1 && docPage > 1 ? docPage - 1 : docPage; setDocPage(nextPage); await Promise.all([fetchDocuments(selected.id, nextPage, docPageSize, docKeyword), load()]); } catch (reason) { message.error(errorText(reason, "删除失败")); } }}><Button danger type="link" size="small">删除</Button></Popconfirm>] : []}><List.Item.Meta avatar={<FileTextOutlined />} title={doc.filename} description={`${doc.size ? `${(doc.size / 1024).toFixed(1)} KB · ` : ""}${doc.vector_status === 1 ? "解析完成" : doc.vector_status === 2 ? `失败：${doc.fail_msg || "未知"}` : doc.parse_status === "legacy_pending" ? "旧文档待迁移" : `解析中${doc.parse_status ? `（${doc.parse_status}）` : ""}`}`} /></List.Item>} /></Spin>
+          {docTotal > 0 && <Pagination current={docPage} pageSize={docPageSize} total={docTotal} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} showTotal={(total) => `共 ${total} 个文档`} onChange={(page, pageSize) => { setDocPage(page); setDocPageSize(pageSize); void fetchDocuments(selected.id, page, pageSize, docKeyword); }} />}
+        </Space>
+      </Card>{selected.provider_status === "ready" && <Card className="drawer-card" title="检索测试">
+        <Space direction="vertical" size={12} className="full-width">
+          <Typography.Text type="secondary">用真实项目检索链路验证当前知识库是否能召回正确内容。</Typography.Text>
+          <Input.Search value={testQuery} allowClear enterButton="检索" loading={testLoading} placeholder="输入问题或关键词" onChange={(event) => setTestQuery(event.target.value)} onSearch={() => void runKnowledgeTest()} />
+          {testRan && <List rowKey={(hit, index) => `${hit.metadata?.doc_id || "hit"}-${index}`} dataSource={testHits} locale={{ emptyText: "未检索到匹配内容" }} renderItem={(hit) => <List.Item><List.Item.Meta title={<Space><Typography.Text strong>{hit.metadata?.doc_name || "未知来源"}</Typography.Text>{typeof hit.score === "number" && <Tag>得分 {hit.score.toFixed(3)}</Tag>}</Space>} description={<Typography.Paragraph ellipsis={{ rows: 5, expandable: "collapsible" }}>{hit.text}</Typography.Paragraph>} /></List.Item>} />}
+        </Space>
+      </Card>}</>}
     </Drawer>
   </>;
 }
