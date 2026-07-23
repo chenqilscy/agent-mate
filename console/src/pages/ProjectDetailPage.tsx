@@ -75,6 +75,38 @@ const PROJECT_TABS: readonly ProjectWorkspaceTab[] = [
   "collab",
   "config",
 ];
+type ProjectWorkspaceSection =
+  | "overview"
+  | "work"
+  | "planning"
+  | "team"
+  | "knowledge"
+  | "config";
+const PROJECT_SECTION_BY_TAB: Record<
+  ProjectWorkspaceTab,
+  ProjectWorkspaceSection
+> = {
+  overview: "overview",
+  plan: "work",
+  tasks: "work",
+  workload: "team",
+  gantt: "planning",
+  iterations: "planning",
+  knowledge: "knowledge",
+  collab: "team",
+  config: "config",
+};
+const PROJECT_SECTION_DEFAULT: Record<
+  ProjectWorkspaceSection,
+  ProjectWorkspaceTab
+> = {
+  overview: "overview",
+  work: "plan",
+  planning: "gantt",
+  team: "workload",
+  knowledge: "knowledge",
+  config: "config",
+};
 
 function requestedProjectTab(): ProjectWorkspaceTab {
   const requested = new URLSearchParams(window.location.search).get("tab");
@@ -147,6 +179,46 @@ export default function ProjectDetailPage({
     },
     [tab],
   );
+  const renderProjectView = (view: ProjectWorkspaceTab) => {
+    switch (view) {
+      case "overview":
+        return <ProjectOverview />;
+      case "plan":
+        return <ProjectPlan />;
+      case "tasks":
+        return <ProjectTasks />;
+      case "workload":
+        return <ProjectWorkload />;
+      case "gantt":
+        return <ProjectGantt />;
+      case "iterations":
+        return <ProjectIterations />;
+      case "knowledge":
+        return project ? <KnowledgeTab project={project} /> : null;
+      case "collab":
+        return project ? <CollaborationTab project={project} /> : null;
+      case "config":
+        return project ? <ConfigTab project={project} onSaved={load} /> : null;
+    }
+  };
+  const renderProjectSection = (
+    views: Array<{ key: ProjectWorkspaceTab; label: string }>,
+  ) =>
+    views.length === 1 ? (
+      renderProjectView(views[0].key)
+    ) : (
+      <Tabs
+        className="project-workspace-subtabs"
+        activeKey={tab}
+        onChange={(key) => selectProjectTab(key as ProjectWorkspaceTab)}
+        more={{ trigger: "click" }}
+        items={views.map((view) => ({
+          ...view,
+          children: renderProjectView(view.key),
+        }))}
+      />
+    );
+  const activeSection = PROJECT_SECTION_BY_TAB[tab];
   return (
     <PageContainer
       title={project?.name || "项目"}
@@ -188,35 +260,59 @@ export default function ProjectDetailPage({
         >
           <Tabs
             className="project-workspace-tabs"
-            activeKey={tab}
-            onChange={(key) => selectProjectTab(key as ProjectWorkspaceTab)}
+            activeKey={activeSection}
+            onChange={(key) =>
+              selectProjectTab(
+                PROJECT_SECTION_DEFAULT[key as ProjectWorkspaceSection],
+              )
+            }
             more={{ trigger: "click" }}
             tabBarExtraContent={<ProjectWorkspaceActions activeTab={tab} />}
             items={[
-              { key: "overview", label: "概览", children: <ProjectOverview /> },
-              { key: "plan", label: "看板", children: <ProjectPlan /> },
-              { key: "tasks", label: "任务列表", children: <ProjectTasks /> },
-              { key: "workload", label: "负载", children: <ProjectWorkload /> },
-              { key: "gantt", label: "甘特", children: <ProjectGantt /> },
               {
-                key: "iterations",
-                label: "周期与字段",
-                children: <ProjectIterations />,
+                key: "overview",
+                label: "概览",
+                children: renderProjectSection([
+                  { key: "overview", label: "概览" },
+                ]),
+              },
+              {
+                key: "work",
+                label: "任务",
+                children: renderProjectSection([
+                  { key: "plan", label: "看板" },
+                  { key: "tasks", label: "列表" },
+                ]),
+              },
+              {
+                key: "planning",
+                label: "计划",
+                children: renderProjectSection([
+                  { key: "gantt", label: "时间线" },
+                  { key: "iterations", label: "周期与字段" },
+                ]),
+              },
+              {
+                key: "team",
+                label: "团队",
+                children: renderProjectSection([
+                  { key: "workload", label: "负载" },
+                  { key: "collab", label: "协作" },
+                ]),
               },
               {
                 key: "knowledge",
-                label: "知识库",
-                children: <KnowledgeTab project={project} />,
-              },
-              {
-                key: "collab",
-                label: "协作",
-                children: <CollaborationTab project={project} />,
+                label: "知识",
+                children: renderProjectSection([
+                  { key: "knowledge", label: "知识库" },
+                ]),
               },
               {
                 key: "config",
-                label: "配置",
-                children: <ConfigTab project={project} onSaved={load} />,
+                label: "设置",
+                children: renderProjectSection([
+                  { key: "config", label: "项目设置" },
+                ]),
               },
             ]}
           />

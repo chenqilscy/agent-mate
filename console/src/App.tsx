@@ -5,7 +5,7 @@ import {
 import { UI_CONTROL_FONT_WEIGHT, uiTypographyToken } from "../../src/theme/typography";
 import {
   AppstoreOutlined, BellOutlined, BookOutlined, DashboardOutlined, LogoutOutlined,
-  MoonOutlined, ProjectOutlined, SafetyCertificateOutlined, SettingOutlined, SunOutlined,
+  MoonOutlined, PlusOutlined, ProjectOutlined, SafetyCertificateOutlined, SettingOutlined, SunOutlined,
   TeamOutlined, ToolOutlined, UserOutlined,
 } from "@ant-design/icons";
 import { ProLayout } from "@ant-design/pro-components";
@@ -36,27 +36,30 @@ const PAGE_TITLES: Record<string, string> = {
 };
 
 const baseRoutes = [
-  { path: "/", name: "概览", icon: <DashboardOutlined /> },
-  { path: "/projects", name: "项目", icon: <ProjectOutlined /> },
-  { path: "/organizations", name: "组织与成员", icon: <TeamOutlined /> },
+  { path: "/workspace", name: "工作区", icon: <DashboardOutlined />, children: [
+    { path: "/", name: "概览", icon: <DashboardOutlined /> },
+    { path: "/projects", name: "项目", icon: <ProjectOutlined /> },
+    { path: "/organizations", name: "组织与成员", icon: <TeamOutlined /> },
+  ] },
 ];
 const adminRoutes = [
-  { path: "/catalog", name: "目录", icon: <AppstoreOutlined />, children: [
+  { path: "/capabilities", name: "能力中心", icon: <AppstoreOutlined />, children: [
     { path: "/catalog/experts", name: "专家", icon: <UserOutlined /> },
     { path: "/catalog/connectors", name: "连接器", icon: <ToolOutlined /> },
     { path: "/catalog/skills", name: "技能", icon: <SafetyCertificateOutlined /> },
     { path: "/catalog/knowledge", name: "知识库", icon: <BookOutlined /> },
   ] },
-  { path: "/users", name: "用户", icon: <UserOutlined /> },
-  { path: "/settings", name: "设置", icon: <SettingOutlined />, children: [
+  { path: "/administration", name: "系统管理", icon: <SettingOutlined />, children: [
+    { path: "/users", name: "用户与权限", icon: <UserOutlined /> },
     { path: "/settings/platform", name: "平台设置", icon: <SettingOutlined /> },
-    { path: "/settings/catalog", name: "高级 JSON", icon: <SettingOutlined /> },
+    { path: "/settings/catalog", name: "高级配置", icon: <ToolOutlined /> },
   ] },
 ];
 
 function CurrentPage({ account, pathname, onUnreadChange }: { account: Account; pathname: string; onUnreadChange: (count: number) => void }) {
   const projectMatch = pathname.match(/^\/projects\/([^/]+)$/);
   if (!account.is_platform_admin && ADMIN_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return <Result status="403" title="需要平台管理员权限" subTitle="当前账号无权访问平台目录或系统设置。" extra={<Button type="primary" onClick={() => navigate("/")}>返回概览</Button>} />;
+  if (pathname === "/projects/new") return <ProjectsPage createOnMount />;
   if (projectMatch) return <ProjectDetailPage projectId={decodeURIComponent(projectMatch[1])} />;
   switch (pathname) {
     case "/": return <OverviewPage account={account} />;
@@ -93,6 +96,7 @@ function ConsoleContent({ account, mode, onToggleTheme, onLogout }: { account: A
       breakpoint="lg"
       location={{ pathname: pathname.match(/^\/projects\/[^/]+$/) ? "/projects" : pathname }}
       route={{ path: "/", routes }}
+      menu={{ type: "group", collapsedShowGroupTitle: true }}
       menuItemRender={(item, dom) => <a href={item.path} onClick={(event) => { event.preventDefault(); navigate(item.path || "/"); }}>{dom}</a>}
       avatarProps={{
         src: <Avatar size="small" icon={<UserOutlined />} />,
@@ -103,6 +107,37 @@ function ConsoleContent({ account, mode, onToggleTheme, onLogout }: { account: A
         ] }}>{dom}</Dropdown>,
       }}
       actionsRender={() => [
+        <Dropdown
+          key="create"
+          trigger={["click"]}
+          menu={{
+            items: [
+              {
+                key: "project",
+                icon: <ProjectOutlined />,
+                label: "新建项目",
+                onClick: () => navigate("/projects/new"),
+              },
+              {
+                key: "organization",
+                icon: <TeamOutlined />,
+                label: "管理组织",
+                onClick: () => navigate("/organizations"),
+              },
+            ],
+          }}
+        >
+          <Tooltip title="快速新建">
+            <Button
+              type="primary"
+              className="console-create-action"
+              icon={<PlusOutlined />}
+              aria-label="快速新建"
+            >
+              <span className="console-create-action-label">新建</span>
+            </Button>
+          </Tooltip>
+        </Dropdown>,
         <Tooltip title={mode === "dark" ? "切换浅色主题" : "切换深色主题"} key="theme"><Switch aria-label="切换主题" checked={mode === "dark"} checkedChildren={<MoonOutlined />} unCheckedChildren={<SunOutlined />} onChange={onToggleTheme} /></Tooltip>,
         <Tooltip title="通知" key="notifications"><Badge count={unread} size="small"><Button type="text" icon={<BellOutlined />} aria-label="通知" onClick={() => navigate("/notifications")} /></Badge></Tooltip>,
       ]}

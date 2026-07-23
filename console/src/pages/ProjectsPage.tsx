@@ -20,7 +20,11 @@ import { navigate } from "../router";
 import { formatEpoch } from "../format";
 import type { Organization, Project } from "../types";
 
-export default function ProjectsPage() {
+export default function ProjectsPage({
+  createOnMount = false,
+}: {
+  createOnMount?: boolean;
+}) {
   const { message } = App.useApp();
   const [items, setItems] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,6 +58,14 @@ export default function ProjectsPage() {
   useEffect(() => {
     void load();
   }, []);
+  useEffect(() => {
+    if (createOnMount) setOpen(true);
+  }, [createOnMount]);
+
+  function closeCreate() {
+    setOpen(false);
+    if (createOnMount) navigate("/projects", true);
+  }
 
   const columns: ProColumns<Project>[] = [
     {
@@ -204,7 +216,7 @@ export default function ProjectsPage() {
         confirmLoading={saving}
         okText="创建"
         cancelText="取消"
-        onCancel={() => setOpen(false)}
+        onCancel={closeCreate}
         onOk={() => form.submit()}
         destroyOnHidden
       >
