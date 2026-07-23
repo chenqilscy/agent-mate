@@ -40,7 +40,7 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
       <Card className="login-card" bordered={false}>
         <LoginForm<{ name: string; password: string }>
           title="欢迎回来"
-          subTitle="管理项目、成员与 AgentMate 能力目录"
+          subTitle="管理项目、成员与 AgentMate 平台能力"
           submitter={{ searchConfig: { submitText: mode === "login" ? "登录" : "创建账号" } }}
           onFinish={submit}
         >

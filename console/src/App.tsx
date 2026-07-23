@@ -31,8 +31,8 @@ const ADMIN_PREFIXES = ["/catalog/", "/users", "/settings/"];
 const PAGE_TITLES: Record<string, string> = {
   "/": "概览", "/projects": "项目", "/organizations": "组织与成员",
   "/notifications": "通知", "/catalog/experts": "专家", "/catalog/connectors": "连接器",
-  "/catalog/skills": "技能", "/catalog/knowledge": "知识库", "/users": "用户",
-  "/settings/platform": "平台设置", "/settings/catalog": "高级 JSON",
+  "/catalog/skills": "技能", "/catalog/knowledge": "知识库模板", "/users": "用户",
+  "/settings/platform": "平台设置", "/settings/catalog": "能力定义 JSON",
 };
 
 const baseRoutes = [
@@ -47,18 +47,18 @@ const adminRoutes = [
     { path: "/catalog/experts", name: "专家", icon: <UserOutlined /> },
     { path: "/catalog/connectors", name: "连接器", icon: <ToolOutlined /> },
     { path: "/catalog/skills", name: "技能", icon: <SafetyCertificateOutlined /> },
-    { path: "/catalog/knowledge", name: "知识库", icon: <BookOutlined /> },
+    { path: "/catalog/knowledge", name: "知识库模板", icon: <BookOutlined /> },
   ] },
   { path: "/administration", name: "系统管理", icon: <SettingOutlined />, children: [
     { path: "/users", name: "用户与权限", icon: <UserOutlined /> },
     { path: "/settings/platform", name: "平台设置", icon: <SettingOutlined /> },
-    { path: "/settings/catalog", name: "高级配置", icon: <ToolOutlined /> },
+    { path: "/settings/catalog", name: "能力定义 JSON", icon: <ToolOutlined /> },
   ] },
 ];
 
 function CurrentPage({ account, pathname, onUnreadChange }: { account: Account; pathname: string; onUnreadChange: (count: number) => void }) {
   const projectMatch = pathname.match(/^\/projects\/([^/]+)$/);
-  if (!account.is_platform_admin && ADMIN_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return <Result status="403" title="需要平台管理员权限" subTitle="当前账号无权访问平台目录或系统设置。" extra={<Button type="primary" onClick={() => navigate("/")}>返回概览</Button>} />;
+  if (!account.is_platform_admin && ADMIN_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return <Result status="403" title="需要平台管理员权限" subTitle="当前账号无权访问平台能力配置或系统设置。" extra={<Button type="primary" onClick={() => navigate("/")}>返回概览</Button>} />;
   if (pathname === "/projects/new") return <ProjectsPage createOnMount />;
   if (projectMatch) return <ProjectDetailPage projectId={decodeURIComponent(projectMatch[1])} />;
   switch (pathname) {

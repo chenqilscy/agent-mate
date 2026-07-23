@@ -191,7 +191,7 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
     const target = files[selectedIndex];
     modal.confirm({
       title: `删除 ${target.path}？`,
-      content: "文件将在保存技能后从 Server 目录定义中移除。",
+      content: "文件将在保存技能后从 Server 技能定义中移除。",
       okText: "删除",
       okButtonProps: { danger: true },
       cancelText: "取消",

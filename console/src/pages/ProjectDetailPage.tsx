@@ -1238,7 +1238,7 @@ function ConfigTab({
         setOrganizations(orgResult.orgs || []);
         setMembers(memberResult.members || []);
       })
-      .catch((reason) => message.error(errorText(reason, "目录选项加载失败")));
+      .catch((reason) => message.error(errorText(reason, "项目能力选项加载失败")));
   }, [project.id, project.updated_at]);
   const governs = project.role === "Owner" || project.role === "Admin";
   const owner = project.role === "Owner";

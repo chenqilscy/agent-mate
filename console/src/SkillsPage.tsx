@@ -75,7 +75,7 @@ export default function SkillsPage() {
       setTools(toolCatalog.tools || []);
       setReleases(releaseList.releases || []);
     } catch (reason) {
-      message.error(reason instanceof Error ? reason.message : "技能目录加载失败");
+      message.error(reason instanceof Error ? reason.message : "技能加载失败");
     } finally {
       setLoading(false);
     }
@@ -104,7 +104,7 @@ export default function SkillsPage() {
     setMutatingId(item.id);
     try {
       await Promise.all(ordered.map((candidate, position) => consoleApi.updateSkill(candidate.id, { sort: position * 10 })));
-      message.success("目录顺序已更新");
+      message.success("技能顺序已更新");
       await load();
     } catch (reason) {
       message.error(reason instanceof Error ? reason.message : "排序失败");
@@ -179,14 +179,14 @@ export default function SkillsPage() {
       title="技能"
       subTitle="维护 AgentMate 技能定义、版本与随技能安装的文本文件"
       extra={tab === "manage" ? <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditor({ item: null, tab: "info" })}>新增技能</Button> : undefined}
-      header={{ breadcrumb: { items: [{ title: "目录" }, { title: "技能" }] } }}
+      header={{ breadcrumb: { items: [{ title: "能力中心" }, { title: "技能" }] } }}
     >
       <Tabs
         activeKey={tab}
         className="catalog-tabs"
         items={[
-          { key: "gallery", label: "目录预览" },
-          { key: "manage", label: "目录管理" },
+          { key: "gallery", label: "技能浏览" },
+          { key: "manage", label: "技能管理" },
           { key: "categories", label: "分类管理" },
           { key: "tools", label: "内置工具" },
           { key: "releases", label: "发布治理" },
@@ -196,7 +196,7 @@ export default function SkillsPage() {
         onChange={(key) => { const next = key as SkillTab; setTab(next); const url = new URL(window.location.href); url.searchParams.set("tab", next); history.replaceState(null, "", url); }}
       />
       {tab === "gallery" ? (
-        <Card loading={loading} title="客户端生效预览" extra={<Input.Search allowClear placeholder="搜索技能" value={query} onChange={(event) => setQuery(event.target.value)} />}>
+        <Card loading={loading} title="App 当前可用技能" extra={<Input.Search allowClear placeholder="搜索技能" value={query} onChange={(event) => setQuery(event.target.value)} />}>
           {visibleItems.filter((item) => item.enabled).length ? <Row gutter={[16, 16]}>{visibleItems.filter((item) => item.enabled).map((item) => <Col xs={24} md={12} xl={8} key={item.id}><Card size="small" className="catalog-card"><Space align="start"><Avatar shape="square" size={44}>{item.data.icon || <SafetyCertificateOutlined />}</Avatar><div><Typography.Title level={5}>{item.data.name}</Typography.Title><Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }}>{item.data.description}</Typography.Paragraph><Space wrap><Tag>{item.data.slug}</Tag>{item.data.category && <Tag color="blue">{item.data.category}</Tag>}</Space></div></Space></Card></Col>)}</Row> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无生效技能" />}
         </Card>
       ) : tab === "skillhub-policy" ? <SkillHubPolicy /> : tab === "recommendations" ? <SkillRecommendations skills={items} categories={skillCategories} /> : tab === "categories" ? (
@@ -255,7 +255,7 @@ function SkillHubPolicy() {
   const columns: ProColumns<CatalogItem<SkillHubBlockData>>[] = [
     { title: "SkillHub slug", dataIndex: ["data", "slug"], width: 260, render: (value) => <Typography.Text code copyable>{String(value || "")}</Typography.Text> },
     { title: "下架原因", dataIndex: ["data", "reason"], render: (value) => String(value || "未填写") },
-    { title: "操作", valueType: "option", width: 100, render: (_value, item) => <Popconfirm title={`恢复 ${item.data.slug}？`} description="恢复后，App 下次目录同步即可再次展示和安装。" onConfirm={async () => { await consoleApi.deleteCatalogItem(item.id); message.success("下架策略已移除"); await load(); }}><Button type="link" size="small">恢复</Button></Popconfirm> },
+    { title: "操作", valueType: "option", width: 100, render: (_value, item) => <Popconfirm title={`恢复 ${item.data.slug}？`} description="恢复后，App 下次能力同步即可再次展示和安装。" onConfirm={async () => { await consoleApi.deleteCatalogItem(item.id); message.success("下架策略已移除"); await load(); }}><Button type="link" size="small">恢复</Button></Popconfirm> },
   ];
   return <>
     <Alert type="info" showIcon title="这里只管理第三方 SkillHub 商品的全局可见性" description="App 仍在本机直连 SkillHub；Manager 只下发 slug 策略，不代理第三方 SKILL.md、源码或安装包。" />
@@ -475,11 +475,11 @@ function ToolCatalogManager({
           setSaving(true);
           try {
             await consoleApi.updateTool(editing.name, values);
-            message.success("工具目录已更新");
+            message.success("内置工具已更新");
             setEditing(null);
             await reload();
           } catch (reason) {
-            message.error(reason instanceof Error ? reason.message : "工具目录更新失败");
+            message.error(reason instanceof Error ? reason.message : "内置工具更新失败");
           } finally {
             setSaving(false);
           }
@@ -492,7 +492,7 @@ function ToolCatalogManager({
             <Col span={6}><Form.Item name="sort" label="排序"><InputNumber min={0} precision={0} className="full-width" /></Form.Item></Col>
           </Row>
           <Row gutter={12}>
-            <Col span={12}><Form.Item name="enabled" label="目录状态" valuePropName="checked"><Switch checkedChildren="启用" unCheckedChildren="停用" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="enabled" label="可用状态" valuePropName="checked"><Switch checkedChildren="启用" unCheckedChildren="停用" /></Form.Item></Col>
             <Col span={12}><Form.Item name="bindable" label="允许普通 Skill 绑定" valuePropName="checked" extra={editing.exposure === "skill" ? undefined : "仅 Skill 可声明类型允许绑定。"}><Switch disabled={editing.exposure !== "skill"} /></Form.Item></Col>
           </Row>
         </Form>
