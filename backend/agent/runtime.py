@@ -37,6 +37,7 @@ from agent.tools import (
     knowledge_add,
     knowledge_retrieve,
     plan_filter,
+    server_tool_enabled,
     set_knowledge_context,
     set_work_context,
     Tool,
@@ -667,7 +668,7 @@ async def _run_chat_inner(
             # 运营（WB-183），重名风险上升；且 run_tool 本来就只认 active_tools 里的那个。
             [t.schema() for t in active_tools.values()]
             + [mcp_schema(t) for t in mcp_tools]
-            + ([] if ask else [ASK_USER_SCHEMA])
+            + ([] if ask or not server_tool_enabled("ask_user") else [ASK_USER_SCHEMA])
         )
         db.update_run_runtime(
             run_id,

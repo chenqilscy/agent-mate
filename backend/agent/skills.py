@@ -321,11 +321,37 @@ SKILL_BINDABLE_TOOL_NAMES = frozenset({
 _SKILL_RESOLVABLE_TOOL_NAMES = SKILL_BINDABLE_TOOL_NAMES | {"create_local_skill"}
 
 
+def _runtime_tool_registry() -> tuple[dict[str, Tool], set[str]]:
+    """Apply the last valid Server tool policy and add this OS's shell implementations."""
+    from agent.server_tools import build_shell_tools
+    from storage import db
+
+    rows = db.list_server_tool_catalog()
+    registry = dict(_TOOL_REGISTRY)
+    for tool in build_shell_tools():
+        # A Server script can never shadow a signed native implementation.
+        if tool.name not in registry:
+            registry[tool.name] = tool
+    if not rows:
+        return registry, set(_SKILL_RESOLVABLE_TOOL_NAMES)
+    resolvable: set[str] = set()
+    for item in rows:
+        name = str(item.get("name") or "")
+        if name not in registry or not item.get("enabled"):
+            continue
+        if item.get("exposure") == "skill" and item.get("bindable"):
+            resolvable.add(name)
+        elif name == "create_local_skill" and item.get("exposure") == "internal":
+            resolvable.add(name)
+    return registry, resolvable
+
+
 def _resolve_tools(names: list[str]) -> list[Tool]:
     """Skill 声明 → Tool；上下文/自动工具不能通过目录数据绕过 runtime 注入策略。"""
+    registry, resolvable = _runtime_tool_registry()
     return [
-        _TOOL_REGISTRY[name] for name in names
-        if name in _TOOL_REGISTRY and name in _SKILL_RESOLVABLE_TOOL_NAMES
+        registry[name] for name in names
+        if name in registry and name in resolvable
     ]
 
 

@@ -105,6 +105,11 @@ export interface SkillTool {
   exposure?: "skill" | "contextual" | "automatic" | "internal";
   enabled?: boolean;
   bindable?: boolean;
+  implementation_type?: "native" | "shell";
+  parameters?: Record<string, unknown>;
+  scripts?: Partial<Record<"windows" | "linux" | "macos", string>>;
+  timeout_seconds?: number;
+  output_limit?: number;
   sort?: number;
   created_at?: number;
   updated_at?: number;

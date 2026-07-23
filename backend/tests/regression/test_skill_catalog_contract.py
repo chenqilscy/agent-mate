@@ -382,6 +382,19 @@ class SkillCatalogContractTest(unittest.TestCase):
 
         snapshot = {
             "revision": "rev-1", "unchanged": False,
+            "tools": [{
+                "name": "web_fetch", "label": "网页抓取", "implementation_type": "native",
+                "exposure": "skill", "bindable": True, "enabled": True,
+                "permissions": ["network.read"], "parameters": {}, "scripts": {},
+                "timeout_seconds": 30, "output_limit": 65536,
+            }, {
+                "name": "server_echo", "label": "Server Echo", "implementation_type": "shell",
+                "exposure": "skill", "bindable": True, "enabled": True,
+                "permissions": ["process.execute"],
+                "parameters": {"type": "object", "properties": {}},
+                "scripts": {"windows": "Write-Output ok"},
+                "timeout_seconds": 10, "output_limit": 4096,
+            }],
             "items": [{
                 "id": "server-skill", "category": "APP_SKILLS", "sort": 0, "version": 3,
                 "withdrawn": False, "compatible": False,
@@ -395,6 +408,8 @@ class SkillCatalogContractTest(unittest.TestCase):
         with patch.object(server_sync.server_client, "pull_catalog_snapshot", return_value=snapshot) as call:
             result = server_sync.pull_catalog("token")
         self.assertEqual("rev-1", result["revision"])
+        self.assertEqual(2, result["tools"])
+        self.assertEqual({"web_fetch", "server_echo"}, {item["name"] for item in db.list_server_tool_catalog()})
         self.assertEqual("rev-1", db.get_user_setting(server_sync.LOCAL_USER_ID, "server.catalog_revision"))
         spec = db.skill_spec_for("future-skill")
         self.assertFalse(spec["compatible"])
@@ -410,6 +425,15 @@ class SkillCatalogContractTest(unittest.TestCase):
         }):
             unchanged = server_sync.pull_catalog("token")
         self.assertTrue(unchanged["unchanged"])
+        with patch.object(server_sync.server_client, "pull_catalog_snapshot", return_value={
+            "revision": "rev-corrupt", "unchanged": False, "items": [],
+            "tools": [{"name": "bad name", "implementation_type": "shell"}],
+        }):
+            corrupt = server_sync.pull_catalog("token")
+        self.assertFalse(corrupt["reachable"])
+        self.assertTrue(corrupt["tools_preserved"])
+        self.assertEqual("rev-1", db.get_user_setting(server_sync.LOCAL_USER_ID, "server.catalog_revision"))
+        self.assertEqual({"web_fetch", "server_echo"}, {item["name"] for item in db.list_server_tool_catalog()})
         with (
             patch.object(server_sync.server_client, "pull_catalog_snapshot", return_value=None),
             patch.object(server_sync.server_client, "list_all_catalog", return_value=None),

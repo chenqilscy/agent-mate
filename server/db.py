@@ -177,6 +177,11 @@ def init_db() -> None:
             bindable INTEGER NOT NULL DEFAULT 0,
             contract_version TEXT NOT NULL DEFAULT '1',
             min_app_version TEXT NOT NULL DEFAULT '1.0.0',
+            implementation_type TEXT NOT NULL DEFAULT 'native',
+            parameters TEXT NOT NULL DEFAULT '{}',
+            scripts TEXT NOT NULL DEFAULT '{}',
+            timeout_seconds INTEGER NOT NULL DEFAULT 30,
+            output_limit INTEGER NOT NULL DEFAULT 65536,
             sort INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
@@ -504,6 +509,16 @@ def init_db() -> None:
         conn.execute("ALTER TABLE kb_documents ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''")
     if _table_exists(conn, "catalog_skills"):
         conn.execute("UPDATE catalog_skills SET source='Server' WHERE source='Hub'")
+    have_tools = {r["name"] for r in conn.execute("PRAGMA table_info(tool_catalog)").fetchall()}
+    for _col, _ddl in (
+        ("implementation_type", "implementation_type TEXT NOT NULL DEFAULT 'native'"),
+        ("parameters", "parameters TEXT NOT NULL DEFAULT '{}'"),
+        ("scripts", "scripts TEXT NOT NULL DEFAULT '{}'"),
+        ("timeout_seconds", "timeout_seconds INTEGER NOT NULL DEFAULT 30"),
+        ("output_limit", "output_limit INTEGER NOT NULL DEFAULT 65536"),
+    ):
+        if _col not in have_tools:
+            conn.execute(f"ALTER TABLE tool_catalog ADD COLUMN {_ddl}")
     # 新 App 版本可补充真实实现，但绝不覆盖 Console 已管理的运营字段。
     # 因而本清单只是 bootstrap/migration 输入，不是运行时管理源。
     now = time.time()
@@ -511,8 +526,9 @@ def init_db() -> None:
         conn.execute(
             "INSERT OR IGNORE INTO tool_catalog "
             "(name,label,description,category,risk_level,exposure,permissions,enabled,bindable,"
-            "contract_version,min_app_version,sort,created_at,updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "contract_version,min_app_version,implementation_type,parameters,scripts,timeout_seconds,"
+            "output_limit,sort,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 tool["name"], tool["label"], tool["description"], tool["category"],
                 tool["risk_level"], tool["exposure"],
@@ -520,6 +536,10 @@ def init_db() -> None:
                 1 if tool.get("enabled", True) else 0,
                 1 if tool.get("bindable", False) else 0,
                 tool.get("contract_version", "1"), tool.get("min_app_version", "1.0.0"),
+                tool.get("implementation_type", "native"),
+                json.dumps(tool.get("parameters", {}), ensure_ascii=False),
+                json.dumps(tool.get("scripts", {}), ensure_ascii=False),
+                int(tool.get("timeout_seconds", 30)), int(tool.get("output_limit", 65536)),
                 int(tool.get("sort", 0)), now, now,
             ),
         )
@@ -1401,6 +1421,11 @@ def _decode_tool_catalog(row: sqlite3.Row | None) -> Optional[dict[str, Any]]:
         item["permissions"] = json.loads(item.get("permissions") or "[]")
     except (json.JSONDecodeError, TypeError):
         item["permissions"] = []
+    for key in ("parameters", "scripts"):
+        try:
+            item[key] = json.loads(item.get(key) or "{}")
+        except (json.JSONDecodeError, TypeError):
+            item[key] = {}
     item["permissions"] = [str(value) for value in item["permissions"] if str(value)]
     item["enabled"] = bool(item.get("enabled"))
     item["bindable"] = bool(item.get("bindable"))
@@ -1432,7 +1457,8 @@ def update_tool_catalog(name: str, *, actor_id: str, patch: dict[str, Any]) -> O
         return before
     allowed = {
         "label", "description", "category", "risk_level", "enabled", "bindable",
-        "min_app_version", "sort",
+        "min_app_version", "sort", "parameters", "scripts", "timeout_seconds",
+        "output_limit", "permissions", "contract_version",
     }
     values = {key: value for key, value in patch.items() if key in allowed}
     if not values:
@@ -1441,7 +1467,12 @@ def update_tool_catalog(name: str, *, actor_id: str, patch: dict[str, Any]) -> O
     params: list[Any] = []
     for key, value in values.items():
         sets.append(f"{key}=?")
-        params.append(1 if key in {"enabled", "bindable"} and value else 0 if key in {"enabled", "bindable"} else value)
+        if key in {"enabled", "bindable"}:
+            params.append(1 if value else 0)
+        elif key in {"permissions", "parameters", "scripts"}:
+            params.append(json.dumps(value, ensure_ascii=False))
+        else:
+            params.append(value)
     now = time.time()
     sets.append("updated_at=?")
     params.extend((now, name))
@@ -1460,9 +1491,62 @@ def update_tool_catalog(name: str, *, actor_id: str, patch: dict[str, Any]) -> O
     return after
 
 
+def create_shell_tool(*, actor_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    now = time.time()
+    conn = get_conn()
+    conn.execute(
+        """INSERT INTO tool_catalog
+           (name,label,description,category,risk_level,exposure,permissions,enabled,bindable,
+            contract_version,min_app_version,implementation_type,parameters,scripts,timeout_seconds,
+            output_limit,sort,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            data["name"], data["label"], data.get("description", ""), data.get("category", "脚本"),
+            data.get("risk_level", "high"), "skill",
+            json.dumps(data.get("permissions", []), ensure_ascii=False),
+            1 if data.get("enabled", True) else 0, 1 if data.get("bindable", True) else 0,
+            data.get("contract_version", "1"), data.get("min_app_version", "1.0.0"), "shell",
+            json.dumps(data.get("parameters", {}), ensure_ascii=False),
+            json.dumps(data.get("scripts", {}), ensure_ascii=False),
+            int(data.get("timeout_seconds", 30)), int(data.get("output_limit", 65536)),
+            int(data.get("sort", 0)), now, now,
+        ),
+    )
+    created = get_tool_catalog(data["name"]) or {}
+    conn.execute(
+        "INSERT INTO tool_catalog_audit "
+        "(id,tool_name,actor_id,action,before_data,after_data,created_at) VALUES (?,?,?,?,?,?,?)",
+        (
+            new_uuid(), data["name"], actor_id, "created", "{}",
+            json.dumps(created, ensure_ascii=False, sort_keys=True), now,
+        ),
+    )
+    conn.commit()
+    return created
+
+
+def delete_shell_tool(name: str, *, actor_id: str) -> bool:
+    before = get_tool_catalog(name)
+    if not before or before.get("implementation_type") != "shell":
+        return False
+    now = time.time()
+    conn = get_conn()
+    conn.execute("DELETE FROM tool_catalog WHERE name=?", (name,))
+    conn.execute(
+        "INSERT INTO tool_catalog_audit "
+        "(id,tool_name,actor_id,action,before_data,after_data,created_at) VALUES (?,?,?,?,?,?,?)",
+        (
+            new_uuid(), name, actor_id, "deleted",
+            json.dumps(before, ensure_ascii=False, sort_keys=True), "{}", now,
+        ),
+    )
+    conn.commit()
+    return True
+
+
 def list_tool_catalog_audit(name: str, limit: int = 50) -> list[dict[str, Any]]:
     rows = get_conn().execute(
-        "SELECT * FROM tool_catalog_audit WHERE tool_name=? ORDER BY created_at DESC LIMIT ?",
+        "SELECT * FROM tool_catalog_audit WHERE tool_name=? ORDER BY created_at DESC, rowid DESC LIMIT ?",
         (name, max(1, min(int(limit), 200))),
     ).fetchall()
     result: list[dict[str, Any]] = []

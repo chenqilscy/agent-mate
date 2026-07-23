@@ -622,6 +622,14 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_catalog_downlink_cat ON catalog_downlink(category, sort);
 
+        -- Server 工具目录镜像（WB-319）：native 行控制本机构建工具的启停/绑定，
+        -- shell 行携带跨平台脚本实现。只在完整快照校验成功后原子替换，离线保留最后可用版本。
+        CREATE TABLE IF NOT EXISTS server_tool_catalog (
+            name TEXT PRIMARY KEY,
+            data TEXT NOT NULL DEFAULT '{}',
+            updated_at REAL NOT NULL
+        );
+
         -- 外部渠道 ⇄ 会话映射（WB-072）：一个外部会话（如某个 Telegram chat）绑定到
         -- 一个长期 AgentMate 会话，续聊不断线。同时充当白名单：存在绑定 = 已授权。
         CREATE TABLE IF NOT EXISTS channel_sessions (
@@ -3179,6 +3187,115 @@ def replace_all_downlink(items: list[dict]) -> None:
           int(it.get("sort", 0)), now) for it in items],
     )
     conn.commit()
+
+
+_SERVER_TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+_SERVER_TOOL_PERMISSION_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
+_SERVER_TOOL_PLATFORMS = {"windows", "linux", "macos"}
+_SERVER_TOOL_MAX_SCHEMA_BYTES = 32 * 1024
+_SERVER_TOOL_MAX_SCRIPT_BYTES = 128 * 1024
+
+
+def replace_server_tool_catalog(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """校验并原子替换 Server 工具目录；损坏的非空快照不会覆盖最后可用版本。"""
+    if not isinstance(items, list):
+        return {"accepted": False, "inserted": 0, "skipped": 1, "preserved": True}
+    cleaned: list[dict[str, Any]] = []
+    skipped = 0
+    seen: set[str] = set()
+    for raw in items:
+        try:
+            if not isinstance(raw, dict):
+                raise ValueError
+            name = str(raw.get("name") or "").strip()
+            implementation_type = str(raw.get("implementation_type") or "native")
+            parameters = raw.get("parameters") if isinstance(raw.get("parameters"), dict) else {}
+            scripts = raw.get("scripts") if isinstance(raw.get("scripts"), dict) else {}
+            permissions = raw.get("permissions") if isinstance(raw.get("permissions"), list) else []
+            timeout_seconds = int(raw.get("timeout_seconds", 30))
+            output_limit = int(raw.get("output_limit", 65536))
+            if (
+                not _SERVER_TOOL_NAME_RE.fullmatch(name)
+                or name in seen
+                or implementation_type not in {"native", "shell"}
+                or any(key not in _SERVER_TOOL_PLATFORMS for key in scripts)
+                or any(
+                    not isinstance(value, str)
+                    or len(value.encode("utf-8")) > _SERVER_TOOL_MAX_SCRIPT_BYTES
+                    for value in scripts.values()
+                )
+                or len(json.dumps(parameters, ensure_ascii=False).encode("utf-8")) > _SERVER_TOOL_MAX_SCHEMA_BYTES
+                or any(
+                    not isinstance(value, str) or not _SERVER_TOOL_PERMISSION_RE.fullmatch(value)
+                    for value in permissions
+                )
+                or not 1 <= timeout_seconds <= 300
+                or not 1024 <= output_limit <= 262144
+            ):
+                raise ValueError
+            if implementation_type == "shell":
+                if parameters.get("type") != "object" or not isinstance(parameters.get("properties", {}), dict):
+                    raise ValueError
+                if bool(raw.get("enabled", True)) and not any(value.strip() for value in scripts.values()):
+                    raise ValueError
+                if "process.execute" not in permissions:
+                    raise ValueError
+            seen.add(name)
+            cleaned.append({
+                "name": name,
+                "label": str(raw.get("label") or name),
+                "description": str(raw.get("description") or ""),
+                "category": str(raw.get("category") or ""),
+                "risk_level": str(raw.get("risk_level") or "medium"),
+                "exposure": str(raw.get("exposure") or "skill"),
+                "permissions": list(dict.fromkeys(permissions)),
+                "enabled": bool(raw.get("enabled", True)),
+                "bindable": bool(raw.get("bindable", False)),
+                "contract_version": str(raw.get("contract_version") or "1"),
+                "min_app_version": str(raw.get("min_app_version") or "0.0.0"),
+                "implementation_type": implementation_type,
+                "parameters": parameters,
+                "scripts": {key: value for key, value in scripts.items() if value.strip()},
+                "timeout_seconds": timeout_seconds,
+                "output_limit": output_limit,
+                "sort": int(raw.get("sort", 0)),
+            })
+        except (TypeError, ValueError):
+            skipped += 1
+    if items and not cleaned:
+        return {"accepted": False, "inserted": 0, "skipped": skipped, "preserved": True}
+    conn = get_conn()
+    now = time.time()
+    with conn:
+        conn.execute("DELETE FROM server_tool_catalog")
+        conn.executemany(
+            "INSERT INTO server_tool_catalog (name,data,updated_at) VALUES (?,?,?)",
+            [
+                (item["name"], json.dumps(item, ensure_ascii=False, sort_keys=True), now)
+                for item in cleaned
+            ],
+        )
+    return {"accepted": True, "inserted": len(cleaned), "skipped": skipped, "preserved": False}
+
+
+def list_server_tool_catalog() -> list[dict[str, Any]]:
+    try:
+        rows = get_conn().execute(
+            "SELECT data FROM server_tool_catalog ORDER BY json_extract(data, '$.sort'), name"
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).lower():
+            return []
+        raise
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            value = json.loads(row["data"])
+            if isinstance(value, dict):
+                result.append(value)
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return result
 
 
 def downlink_by_category() -> dict[str, list]:

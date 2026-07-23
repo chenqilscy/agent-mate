@@ -399,7 +399,14 @@ const TOOL_EXPOSURE: Record<NonNullable<SkillTool["exposure"]>, string> = {
   internal: "系统内部",
 };
 
-type ToolFormValues = Pick<SkillTool, "label" | "description" | "category" | "risk_level" | "enabled" | "bindable" | "min_app_version" | "sort">;
+type ToolFormValues = Pick<SkillTool, "label" | "description" | "category" | "risk_level" | "enabled" | "bindable" | "min_app_version" | "contract_version" | "timeout_seconds" | "output_limit" | "sort"> & {
+  name: string;
+  parameters_json: string;
+  permissions_text: string;
+  windows_script: string;
+  linux_script: string;
+  macos_script: string;
+};
 
 function ToolCatalogManager({
   tools, loading, reload,
@@ -407,6 +414,7 @@ function ToolCatalogManager({
   const { message } = App.useApp();
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<SkillTool | null>(null);
+  const [creating, setCreating] = useState(false);
   const [audit, setAudit] = useState<ToolCatalogAudit[]>([]);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<ToolFormValues>();
@@ -417,8 +425,10 @@ function ToolCatalogManager({
   }, [query, tools]);
 
   async function open(tool: SkillTool) {
+    setCreating(false);
     setEditing(tool);
     form.setFieldsValue({
+      name: tool.name,
       label: tool.label || tool.name,
       description: tool.description || "",
       category: tool.category || "",
@@ -426,6 +436,14 @@ function ToolCatalogManager({
       enabled: tool.enabled !== false,
       bindable: tool.bindable === true,
       min_app_version: tool.min_app_version || "1.0.0",
+      contract_version: tool.contract_version || "1",
+      parameters_json: JSON.stringify(tool.parameters || { type: "object", properties: {} }, null, 2),
+      permissions_text: (tool.permissions || []).join("\n"),
+      windows_script: tool.scripts?.windows || "",
+      linux_script: tool.scripts?.linux || "",
+      macos_script: tool.scripts?.macos || "",
+      timeout_seconds: tool.timeout_seconds || 30,
+      output_limit: tool.output_limit || 65536,
       sort: tool.sort || 0,
     });
     try {
@@ -435,8 +453,27 @@ function ToolCatalogManager({
     }
   }
 
+  function openNew() {
+    setCreating(true);
+    setAudit([]);
+    setEditing({
+      name: "", implementation_type: "shell", exposure: "skill", enabled: true, bindable: true,
+      risk_level: "high", parameters: { type: "object", properties: {} }, scripts: {},
+    });
+    form.setFieldsValue({
+      name: "", label: "", description: "", category: "脚本", risk_level: "high",
+      enabled: true, bindable: true, min_app_version: "1.0.0", contract_version: "1",
+      parameters_json: JSON.stringify({ type: "object", properties: {} }, null, 2),
+      permissions_text: "workspace.read\nworkspace.write\nprocess.execute",
+      windows_script: "", linux_script: "", macos_script: "",
+      timeout_seconds: 30, output_limit: 65536, sort: 0,
+    });
+  }
+
   const columns: ProColumns<SkillTool>[] = [
     { title: "工具", dataIndex: "name", width: 250, fixed: "left", render: (_value, tool) => <div><Typography.Text strong>{tool.label || tool.name}</Typography.Text><div><Typography.Text code copyable>{tool.name}</Typography.Text></div></div> },
+    { title: "实现", dataIndex: "implementation_type", width: 90, render: (value) => value === "shell" ? <Tag color="purple">Shell</Tag> : <Tag>原生</Tag> },
+    { title: "系统", width: 155, render: (_value, tool) => tool.implementation_type === "shell" ? <Space size={4} wrap>{(["windows", "linux", "macos"] as const).map((key) => tool.scripts?.[key] ? <Tag key={key} color="blue">{key}</Tag> : null)}</Space> : <Typography.Text type="secondary">随 App</Typography.Text> },
     { title: "分类", dataIndex: "category", width: 110, render: (value) => <Tag>{String(value || "未分类")}</Tag> },
     { title: "注入方式", dataIndex: "exposure", width: 140, render: (value) => TOOL_EXPOSURE[value as NonNullable<SkillTool["exposure"]>] || String(value || "—") },
     { title: "风险", dataIndex: "risk_level", width: 80, render: (value) => { const risk = TOOL_RISK[value as NonNullable<SkillTool["risk_level"]>] || TOOL_RISK.low; return <Tag color={risk.color}>{risk.label}</Tag>; } },
@@ -451,22 +488,25 @@ function ToolCatalogManager({
     <Alert
       type="info"
       showIcon
-      title={`数据库已登记 ${tools.length} 项真实内置工具，其中 ${tools.filter((tool) => tool.enabled !== false && tool.bindable).length} 项可由普通 Skill 选择。`}
-      description="这里管理展示、风险、启停、Skill 绑定和兼容策略；工具名、权限、契约与注入方式来自已签名 App 实现，不能在 Console 伪造或删除。"
+      title={`Server 已登记 ${tools.length} 项工具，其中 ${tools.filter((tool) => tool.enabled !== false && tool.bindable).length} 项可由普通 Skill 选择。`}
+      description="原生工具由 App 提供签名实现，Server 下发启停与绑定策略；Shell 工具由 Server 下发 JSON 参数契约和 Windows、Linux、macOS 脚本，App 只执行当前系统对应版本。"
     />
     <ProTable<SkillTool>
       rowKey="name" columns={columns} dataSource={visible} loading={loading} search={false}
-      pagination={false} scroll={{ x: 1250 }} options={{ reload: () => void reload(), density: true, setting: true }}
-      toolBarRender={() => [<Input.Search key="search" allowClear className="skill-search" placeholder="搜索工具、分类或说明" value={query} onChange={(event) => setQuery(event.target.value)} />]}
+      pagination={false} scroll={{ x: 1500 }} options={{ reload: () => void reload(), density: true, setting: true }}
+      toolBarRender={() => [
+        <Input.Search key="search" allowClear className="skill-search" placeholder="搜索工具、分类或说明" value={query} onChange={(event) => setQuery(event.target.value)} />,
+        <Button key="create" type="primary" icon={<PlusOutlined />} onClick={openNew}>新增 Shell 工具</Button>,
+      ]}
     />
     <Drawer
-      width={660} open={Boolean(editing)} title={editing ? `管理内置工具 · ${editing.name}` : "管理内置工具"}
-      onClose={() => setEditing(null)} destroyOnHidden
+      width={780} open={Boolean(editing)} title={creating ? "新增 Shell 工具" : editing ? `管理内置工具 · ${editing.name}` : "管理内置工具"}
+      onClose={() => { setEditing(null); setCreating(false); }} destroyOnHidden
       extra={<Button type="primary" loading={saving} onClick={() => form.submit()}>保存</Button>}
     >
       {editing && <Space direction="vertical" size="large" className="full-width">
         <Descriptions bordered size="small" column={2} items={[
-          { key: "name", label: "实现名", children: <Typography.Text code copyable>{editing.name}</Typography.Text> },
+          { key: "name", label: "实现类型", children: editing.implementation_type === "shell" ? <Tag color="purple">Server Shell</Tag> : <Tag>App 原生</Tag> },
           { key: "exposure", label: "注入方式", children: TOOL_EXPOSURE[editing.exposure || "skill"] },
           { key: "contract", label: "工具契约", children: editing.contract_version || "1" },
           { key: "permissions", label: "实现权限", span: 2, children: <Space wrap>{(editing.permissions || []).map((permission) => <Tag key={permission}>{permission}</Tag>)}</Space> },
@@ -474,9 +514,45 @@ function ToolCatalogManager({
         <Form<ToolFormValues> form={form} layout="vertical" onFinish={async (values) => {
           setSaving(true);
           try {
-            await consoleApi.updateTool(editing.name, values);
-            message.success("内置工具已更新");
+            const common = {
+              label: values.label, description: values.description, category: values.category,
+              risk_level: values.risk_level, enabled: values.enabled, bindable: values.bindable,
+              min_app_version: values.min_app_version, sort: values.sort,
+            };
+            if (editing.implementation_type === "shell") {
+              let parameters: Record<string, unknown>;
+              try {
+                parameters = JSON.parse(values.parameters_json) as Record<string, unknown>;
+              } catch {
+                throw new Error("参数契约不是有效 JSON");
+              }
+              if (!parameters || Array.isArray(parameters) || parameters.type !== "object") {
+                throw new Error("参数契约必须是 type=object 的 JSON Schema");
+              }
+              const shell = {
+                ...common,
+                name: values.name.trim(),
+                implementation_type: "shell" as const,
+                exposure: "skill" as const,
+                parameters,
+                permissions: values.permissions_text.split(/[,\n]/).map((value) => value.trim()).filter(Boolean),
+                scripts: {
+                  windows: values.windows_script,
+                  linux: values.linux_script,
+                  macos: values.macos_script,
+                },
+                contract_version: values.contract_version,
+                timeout_seconds: values.timeout_seconds,
+                output_limit: values.output_limit,
+              };
+              if (creating) await consoleApi.createTool(shell);
+              else await consoleApi.updateTool(editing.name, shell);
+            } else {
+              await consoleApi.updateTool(editing.name, common);
+            }
+            message.success(creating ? "Shell 工具已创建并纳入下发" : "内置工具已更新");
             setEditing(null);
+            setCreating(false);
             await reload();
           } catch (reason) {
             message.error(reason instanceof Error ? reason.message : "内置工具更新失败");
@@ -484,10 +560,11 @@ function ToolCatalogManager({
             setSaving(false);
           }
         }}>
+          {editing.implementation_type === "shell" && <Form.Item name="name" label="工具名" rules={[{ required: true, whitespace: true }, { pattern: /^[a-z][a-z0-9_]{1,63}$/, message: "使用小写字母、数字和下划线，且以字母开头" }]}><Input disabled={!creating} maxLength={64} placeholder="例如 collect_project_stats" /></Form.Item>}
           <Row gutter={12}><Col span={14}><Form.Item name="label" label="显示名称" rules={[{ required: true, whitespace: true }]}><Input maxLength={120} /></Form.Item></Col><Col span={10}><Form.Item name="category" label="分类"><Input maxLength={80} /></Form.Item></Col></Row>
           <Form.Item name="description" label="说明"><Input.TextArea rows={3} maxLength={500} showCount /></Form.Item>
           <Row gutter={12}>
-            <Col span={8}><Form.Item name="risk_level" label="风险级别"><Select options={Object.entries(TOOL_RISK).map(([value, meta]) => ({ value, label: meta.label }))} /></Form.Item></Col>
+            <Col span={8}><Form.Item name="risk_level" label="风险级别"><Select options={Object.entries(TOOL_RISK).filter(([value]) => editing.implementation_type !== "shell" || value !== "low").map(([value, meta]) => ({ value, label: meta.label }))} /></Form.Item></Col>
             <Col span={10}><Form.Item name="min_app_version" label="最低 App 版本" rules={[{ required: true, pattern: /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/ }]}><Input /></Form.Item></Col>
             <Col span={6}><Form.Item name="sort" label="排序"><InputNumber min={0} precision={0} className="full-width" /></Form.Item></Col>
           </Row>
@@ -495,7 +572,33 @@ function ToolCatalogManager({
             <Col span={12}><Form.Item name="enabled" label="可用状态" valuePropName="checked"><Switch checkedChildren="启用" unCheckedChildren="停用" /></Form.Item></Col>
             <Col span={12}><Form.Item name="bindable" label="允许普通 Skill 绑定" valuePropName="checked" extra={editing.exposure === "skill" ? undefined : "仅 Skill 可声明类型允许绑定。"}><Switch disabled={editing.exposure !== "skill"} /></Form.Item></Col>
           </Row>
+          {editing.implementation_type === "shell" && <>
+            <Alert type="warning" showIcon title="脚本从标准输入读取 UTF-8 JSON 参数" description="AgentMate 不会把参数拼进命令行；脚本工作目录固定为当前项目工作区，后端密钥不会传入子进程环境。" />
+            <Form.Item name="parameters_json" label="参数契约（JSON Schema）" rules={[{ required: true, whitespace: true }]}><Input.TextArea rows={8} spellCheck={false} /></Form.Item>
+            <Form.Item name="permissions_text" label="权限（每行一个）" rules={[{ required: true, whitespace: true }]} extra="Shell 工具必须包含 process.execute。"><Input.TextArea rows={4} spellCheck={false} /></Form.Item>
+            <Tabs items={[
+              { key: "windows", label: "Windows · PowerShell 7", children: <Form.Item name="windows_script" extra="由 pwsh.exe -NoProfile -NonInteractive 执行。"><Input.TextArea rows={12} spellCheck={false} placeholder={'$raw = [Console]::In.ReadToEnd()\n$argsJson = $raw | ConvertFrom-Json'} /></Form.Item> },
+              { key: "linux", label: "Linux · bash", children: <Form.Item name="linux_script" extra="由 bash 执行。"><Input.TextArea rows={12} spellCheck={false} placeholder={'#!/usr/bin/env bash\npayload=$(cat)'} /></Form.Item> },
+              { key: "macos", label: "macOS · bash", children: <Form.Item name="macos_script" extra="由 bash 执行。"><Input.TextArea rows={12} spellCheck={false} placeholder={'#!/usr/bin/env bash\npayload=$(cat)'} /></Form.Item> },
+            ]} />
+            <Row gutter={12}>
+              <Col span={8}><Form.Item name="contract_version" label="契约版本" rules={[{ required: true, pattern: /^\d+(?:\.\d+){0,3}$/ }]}><Input /></Form.Item></Col>
+              <Col span={8}><Form.Item name="timeout_seconds" label="超时（秒）" rules={[{ required: true }]}><InputNumber min={1} max={300} precision={0} className="full-width" /></Form.Item></Col>
+              <Col span={8}><Form.Item name="output_limit" label="输出上限（字节）" rules={[{ required: true }]}><InputNumber min={1024} max={262144} precision={0} className="full-width" /></Form.Item></Col>
+            </Row>
+          </>}
         </Form>
+        {!creating && editing.implementation_type === "shell" && <Popconfirm
+          title={`删除 ${editing.name}？`}
+          description="删除后，下次同步会从所有 AgentMate 移除该工具；引用它的 Skill 将变为不兼容。"
+          okText="删除" okButtonProps={{ danger: true }}
+          onConfirm={async () => {
+            await consoleApi.deleteTool(editing.name);
+            message.success("Shell 工具已删除");
+            setEditing(null);
+            await reload();
+          }}
+        ><Button danger icon={<DeleteOutlined />}>删除 Shell 工具</Button></Popconfirm>}
         <Card size="small" title="变更审计">
           <List size="small" dataSource={audit} locale={{ emptyText: "暂无变更" }} renderItem={(entry) => <List.Item><Space><Tag>{entry.action}</Tag><Typography.Text>{entry.actor_id}</Typography.Text><Typography.Text type="secondary">{new Date(entry.created_at * 1000).toLocaleString()}</Typography.Text></Space></List.Item>} />
         </Card>

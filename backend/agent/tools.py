@@ -24,7 +24,7 @@ from typing import Any, Callable, Literal
 
 from agent import browser, office, security
 from agent.sandbox import SandboxError, current_root, relpath, resolve_in_sandbox
-from config import scrubbed_env
+from config import scrubbed_env, settings
 import server_client
 from storage import db
 
@@ -559,7 +559,8 @@ set_work_item_status = Tool(
 
 def work_item_tools(plan: bool = False) -> list[Tool]:
     """Work-item tools for a run. Plan mode is read-only, so no status writes."""
-    return [list_work_items] if plan else [list_work_items, set_work_item_status]
+    values = [list_work_items] if plan else [list_work_items, set_work_item_status]
+    return [tool for tool in values if server_tool_enabled(tool.name)]
 
 
 # ---- knowledge_retrieve（知识库检索）— WB-143/173 -------------------------
@@ -895,13 +896,27 @@ for _t in TOOLS:  # 建表期自检：名单与 plan_safe 必须一致，防止�
 
 
 def base_tools(plan: bool = False) -> list[Tool]:
-    return [t for t in TOOLS if t.plan_safe] if plan else list(TOOLS)
+    return plan_filter(TOOLS, plan)
 
 
 def plan_filter(tools: list[Tool], plan: bool) -> list[Tool]:
     """计划模式下滤掉非 plan-safe 的工具（WB-186）。供技能/知识库等**非 base** 工具集复用
     —— 它们从前完全绕过 plan 过滤。默认 plan_safe=False，故新工具不标注就进不了 plan 模式。"""
-    return [t for t in tools if t.plan_safe] if plan else list(tools)
+    return [
+        tool for tool in tools
+        if server_tool_enabled(tool.name) and (not plan or tool.plan_safe)
+    ]
+
+
+def server_tool_enabled(name: str) -> bool:
+    """Server 已下发目录时由其控制工具启停；纯本地/旧 Server 保持现有能力。"""
+    if not settings.DB_PATH.is_file():
+        return True
+    rows = db.list_server_tool_catalog()
+    if not rows:
+        return True
+    item = next((value for value in rows if value.get("name") == name), None)
+    return bool(item and item.get("enabled"))
 
 
 def build_schemas(tools: list[Tool]) -> list[dict[str, Any]]:

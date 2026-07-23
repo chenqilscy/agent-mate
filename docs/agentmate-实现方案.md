@@ -112,14 +112,17 @@ Markdown 输出按 `marked → highlight.js → DOMPurify` 处理。任何新增
   → 持久化消息、轨迹、状态与用量
 ```
 
-基础工具包括目录/文件读写、Office 产物、浏览器、命令、计划和向用户提问。App 的 Python 注册表只
-声明随签名构建交付的真实实现、权限、超时与隔离；Server 的 `tool_catalog` 数据库表权威管理显示名、
-分类、风险、启停、是否允许 Skill 绑定、最低 App 版本和排序。Console「技能 → 内置工具」直接维护
-数据库，不再以 JSON 文件管理目录；Skill 编辑器只展示 `enabled && bindable` 的投影。
+基础工具包括目录/文件读写、Office 产物、浏览器、命令、计划和向用户提问。Server 的 `tool_catalog`
+数据库表权威管理全部工具定义：`native` 工具由 App 的 Python 注册表承载签名实现，Server 下发启停与
+绑定策略；`shell` 工具由 Server 下发参数 JSON Schema、权限、超时、输出上限和 Windows/Linux/macOS
+脚本。AgentMate 校验并镜像工具快照，按实际系统选择 PowerShell 7 或 bash 执行，JSON 参数只走标准输入。
+Console「技能 → 内置工具」直接维护数据库，不再以 JSON 文件管理目录；Skill 编辑器只展示
+`enabled && bindable` 的投影。
 
 当前内置能力按注入方式分四层：`skill` 可显式绑定，`contextual` 随项目/知识库上下文注入，
-`automatic` 由 runtime 自动提供，`internal` 仅系统 Skill 可保留。数据库不能创建不存在的 Python
-实现，App capability report 也直接来自真实注册表，因此 Server 目录与本机执行采用交集裁决。
+`automatic` 由 runtime 自动提供，`internal` 仅系统 Skill 可保留。数据库不能创建不存在的 native
+实现；shell 实现必须通过跨平台脚本校验和运行边界。App capability report 对 native 枚举真实注册表、
+对 shell 报告通用工具契约，因此 Server 目录与本机系统/版本能力采用交集裁决。
 MCP 连接器工具属于动态外部能力，不混入内置工具目录，由 `backend/agent/mcp_client.py` 统一拉起。
 
 安全边界：

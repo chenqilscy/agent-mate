@@ -84,7 +84,7 @@ Server snapshot 并原子替换本机 `catalog_downlink` 的 Server scope，未�
 | 账号、组织、server-origin 项目、成员/角色、邀请 | Server | Server → App 镜像 |
 | 工作项、里程碑、评论、presence、通知 | Server | App backend 代理，必要时本地镜像 |
 | AgentMate 专家/团队/连接器/Skill 定义与推荐位 | Server | Server → App 条件全量快照 pull |
-| 内置工具运营目录 | Server `tool_catalog`；App 实现注册表作执行裁决 | Console 管策略；App 上报真实 capability |
+| 内置工具定义与运营目录 | Server `tool_catalog`；native 由 App 签名实现，shell 由 Server 下发 | Console 管策略/跨平台脚本；App 校验镜像并执行裁决 |
 | server-origin 项目知识库与 WeKnora 服务凭据 | Server | Console 管理；App 按项目 token 代理检索/显式上传，不下发 provider ID/Key |
 | 第三方 SkillHub 市场、Key、技能包 | App 本地/第三方 | App 直连，不经过 Server |
 | 本机安装 Skill 与自造专家 | App 本地 | 不同步；可上报非敏感能力元数据的目标尚未落地 |
@@ -135,13 +135,18 @@ Server 下发只改变控制面定义；App runtime 是本机最终执行裁决�
 
 ### 6.1 内置工具目录
 
-`tool_catalog` 是工具运营策略的唯一权威源。首次建库会从随版本交付的实现清单执行
+`tool_catalog` 是工具定义与运营策略的唯一权威源。首次建库会从随版本交付的实现清单执行
 `INSERT OR IGNORE`，之后 Server 查询、Skill 保存/发布校验、revision 计算和 Console 编辑全部读数据库；
 升级只补充新实现，不能覆盖运营已经修改的字段。旧 `shared/skill-tools.json` 已删除。
 
-当前目录登记 25 项内置能力，其中 16 项默认允许普通 Skill 绑定。其余按 `contextual`、`automatic`、
-`internal` 分层，由 runtime 决定何时注入。Console 允许管理显示名、说明、分类、风险、启停、绑定、
-最低 App 版本和排序，并记录 `tool_catalog_audit`；实现名、权限、契约和注入方式不可在网页伪造或删除。
+工具分为两类：`native` 只下发定义、启停与绑定策略，执行代码仍由 App 签名构建提供；`shell` 同时下发
+参数 JSON Schema、权限、超时、输出上限以及 `windows` / `linux` / `macos` 脚本。AgentMate 原子校验并
+镜像完整快照，离线或损坏时保留最后可用版本；运行时按实际操作系统选择，Windows 固定用 PowerShell 7，
+Linux/macOS 固定用 bash，参数只经 UTF-8 JSON 标准输入传入，工作目录固定为项目工作区且子进程环境剔除密钥。
+
+默认目录登记 25 项 native 能力，其中 16 项允许普通 Skill 绑定。其余按 `contextual`、`automatic`、
+`internal` 分层，由 runtime 决定何时注入。Console 可创建、编辑、删除 shell 工具并记录
+`tool_catalog_audit`；native 的实现名、权限、契约和注入方式不可在网页伪造或删除。
 
 发布校验只接受数据库中已启用且可绑定的工具。既有系统 Skill 可继续保留原有 internal 工具，但普通
 Skill 不能新增绑定。客户端 capability report 直接枚举 App 真实实现；Server 只有在“目录允许且客户端
@@ -207,8 +212,8 @@ Server 据此完成发布前兼容检查和下行门禁。不兼容版本可浏�
 Console 管账号、组织、项目协作和 AgentMate 自有目录。Skill 定义与推荐位已分离；Skill 编辑统一
 创建不可变 draft。发布治理页展示客户端 Test Run 证据、作者/审核者分离、定义/工具/权限 diff、
 灰度比例、暂停、撤回、回滚、审计及按 release 聚合的安装/运行指标。普通目录 CRUD 已禁止直接修改
-已纳管 Skill 的定义和启停状态。技能页另有「内置工具」管理视图，直接维护 Server 数据库策略；不提供
-任意工具创建/删除，以免把数据行误当成本机可执行实现。
+已纳管 Skill 的定义和启停状态。技能页另有「内置工具」管理视图，直接维护 Server 数据库。native 只能
+调整运营策略；新增/删除仅限具备参数契约和至少一个平台脚本的 shell 工具。
 
 ## 9. 部署与安全
 
@@ -230,6 +235,7 @@ Console 管账号、组织、项目协作和 AgentMate 自有目录。Skill 定�
 | Skill/连接器/专家推荐位分离 | 已完成 | WB-217、WB-220、WB-221 |
 | Skill 生产发布与客户端兼容闭环 | 已完成 | WB-245～WB-250 |
 | 内置工具目录入库、扩充与 Console 管理 | 已完成 | WB-266 |
+| 内置工具完整下发与跨平台 Shell 执行 | 已完成 | WB-319 |
 | Console 全站 React/Ant Design | 已完成 | WB-234、WB-236 |
 | 桌面更新代码链 | 已完成；本机真实 updater 签名升级/拒绝/回滚已演练，正式生产部署验收由外部条件项追踪 | WB-257、WB-283、[`desktop-build.md`](desktop-build.md) |
 

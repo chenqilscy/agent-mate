@@ -171,8 +171,10 @@ def import_local_to_server(token: str, account: dict) -> dict:
 # ---- 目录下发（WB-066）--------------------------------------------------
 
 def pull_catalog(token: str) -> dict:
-    """从 Server 拉全量 builtin 目录，幂等镜像进本地 catalog_downlink（覆盖本地 showcase 分类）。
-    Server 不可达 → 保留上次下发（不清空）；Server 空 → 清空 → 本地 builtin 兜底。"""
+    """从 Server 拉全量目录与工具定义并镜像到本地。
+
+    Server 不可达或工具快照损坏时保留最后可用版本；旧 Server 没有 tools 字段时也不清空。
+    """
     if not settings.server_enabled:
         return {"downlinked": 0, "reachable": False}
     revision = db.get_user_setting(LOCAL_USER_ID, _CATALOG_REVISION_KEY) or ""
@@ -187,7 +189,19 @@ def pull_catalog(token: str) -> dict:
         snapshot = {"items": legacy, "revision": f"legacy:{digest}", "unchanged": False}
     if snapshot.get("unchanged"):
         return {"downlinked": 0, "reachable": True, "unchanged": True, "revision": revision}
-    items = snapshot["items"]
+    items = snapshot.get("items")
+    if not isinstance(items, list):
+        return {"downlinked": 0, "reachable": False, "error": "invalid_catalog_snapshot"}
+    tool_result = {"accepted": True, "inserted": 0, "skipped": 0, "preserved": True}
+    if "tools" in snapshot:
+        if not isinstance(snapshot["tools"], list):
+            return {"downlinked": 0, "reachable": False, "error": "invalid_tool_snapshot"}
+        tool_result = db.replace_server_tool_catalog(snapshot["tools"])
+        if not tool_result["accepted"]:
+            return {
+                "downlinked": 0, "reachable": False, "error": "invalid_tool_snapshot",
+                "tools_skipped": tool_result["skipped"], "tools_preserved": True,
+            }
     skill_rows = [
         {
             **it["data"], "sort": it.get("sort", 0), "version": str(it.get("version", "")),
@@ -232,4 +246,6 @@ def pull_catalog(token: str) -> dict:
         "skills": skill_result["inserted"], "skills_skipped": skill_result["skipped"],
         "connectors": connector_result["inserted"], "connectors_skipped": connector_result["skipped"],
         "experts": expert_result["inserted"], "experts_skipped": expert_result["skipped"],
+        "tools": tool_result["inserted"], "tools_skipped": tool_result["skipped"],
+        "tools_preserved": tool_result["preserved"],
     }

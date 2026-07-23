@@ -24,6 +24,11 @@ router = APIRouter(prefix="/api", tags=["catalog"])
 _SKILL_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _PLACEMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _ENV_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+_TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+_TOOL_PERMISSION_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
+_SHELL_PLATFORMS = {"windows", "linux", "macos"}
+_MAX_TOOL_SCHEMA_BYTES = 32 * 1024
+_MAX_TOOL_SCRIPT_BYTES = 128 * 1024
 _BUILTIN_CONNECTOR_SERVERS = {"notes", "clock", "search", "telegram", "kdocs"}
 _RECOMMENDATION_CATEGORIES = {
     "SKILL_RECOMMENDATIONS", "CONNECTOR_RECOMMENDATIONS", "EXPERT_RECOMMENDATIONS",
@@ -69,13 +74,18 @@ def _skill_compatibility(data: dict[str, Any], report: "CatalogPullBody") -> dic
     tools = [str(item) for item in data.get("tools", []) if str(item)]
     required_app = str(data.get("min_app_version") or "0.0.0")
     unsupported: list[str] = []
+    platform_key = "macos" if report.platform.lower() == "darwin" else report.platform.lower()
     for name in tools:
         spec = tool_specs.get(name, {})
         minimum = str(spec.get("min_app_version") or "0.0.0")
         if _version_tuple(minimum) > _version_tuple(required_app):
             required_app = minimum
         required_contract = str(spec.get("contract_version") or "1")
-        supported_contract = str(report.supported_tools.get(name) or "0")
+        if spec.get("implementation_type") == "shell":
+            scripts = spec.get("scripts") if isinstance(spec.get("scripts"), dict) else {}
+            supported_contract = report.tool_contract_version if scripts.get(platform_key) else "0"
+        else:
+            supported_contract = str(report.supported_tools.get(name) or "0")
         if not spec.get("enabled", False) or _version_tuple(supported_contract) < _version_tuple(required_contract):
             unsupported.append(name)
     reasons: list[str] = []
@@ -175,6 +185,104 @@ class UpdateToolBody(BaseModel):
         default=None, pattern=r"^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$",
     )
     sort: int | None = Field(default=None, ge=0)
+    parameters: dict[str, Any] | None = None
+    scripts: dict[str, str] | None = None
+    permissions: list[str] | None = Field(default=None, max_length=30)
+    contract_version: str | None = Field(default=None, pattern=r"^\d+(?:\.\d+){0,3}$")
+    timeout_seconds: int | None = Field(default=None, ge=1, le=300)
+    output_limit: int | None = Field(default=None, ge=1024, le=262144)
+
+
+class CreateShellToolBody(BaseModel):
+    name: str = Field(min_length=2, max_length=64)
+    label: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    category: str = Field(default="脚本", max_length=80)
+    risk_level: str = Field(default="high", pattern=r"^(medium|high|critical)$")
+    enabled: bool = True
+    bindable: bool = True
+    min_app_version: str = Field(
+        default="1.0.0", pattern=r"^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$",
+    )
+    contract_version: str = Field(default="1", pattern=r"^\d+(?:\.\d+){0,3}$")
+    parameters: dict[str, Any] = Field(default_factory=lambda: {
+        "type": "object", "properties": {},
+    })
+    scripts: dict[str, str] = Field(default_factory=dict)
+    permissions: list[str] = Field(
+        default_factory=lambda: ["workspace.read", "workspace.write", "process.execute"],
+        max_length=30,
+    )
+    timeout_seconds: int = Field(default=30, ge=1, le=300)
+    output_limit: int = Field(default=65536, ge=1024, le=262144)
+    sort: int = Field(default=0, ge=0)
+
+
+def _validated_tool_schema(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or value.get("type") != "object":
+        raise HTTPException(400, "tool parameters must be a JSON Schema object")
+    if not isinstance(value.get("properties", {}), dict):
+        raise HTTPException(400, "tool parameters.properties must be an object")
+    required = value.get("required", [])
+    if not isinstance(required, list) or not all(isinstance(item, str) for item in required):
+        raise HTTPException(400, "tool parameters.required must be a string array")
+    if len(json.dumps(value, ensure_ascii=False).encode("utf-8")) > _MAX_TOOL_SCHEMA_BYTES:
+        raise HTTPException(400, "tool parameters schema is too large")
+    return value
+
+
+def _validated_tool_scripts(value: Any, *, enabled: bool) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise HTTPException(400, "tool scripts must be an object")
+    unknown = set(value) - _SHELL_PLATFORMS
+    if unknown:
+        raise HTTPException(400, f"unknown tool script platform: {sorted(unknown)[0]}")
+    scripts: dict[str, str] = {}
+    for platform_name, content in value.items():
+        if not isinstance(content, str):
+            raise HTTPException(400, f"{platform_name} tool script must be text")
+        normalized = content.strip()
+        if not normalized:
+            continue
+        if len(normalized.encode("utf-8")) > _MAX_TOOL_SCRIPT_BYTES:
+            raise HTTPException(400, f"{platform_name} tool script is too large")
+        scripts[platform_name] = normalized
+    if enabled and not scripts:
+        raise HTTPException(400, "enabled shell tool requires at least one platform script")
+    return scripts
+
+
+def _validated_tool_permissions(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        raise HTTPException(400, "tool permissions must be an array")
+    permissions = list(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
+    if not permissions or not all(_TOOL_PERMISSION_RE.fullmatch(item) for item in permissions):
+        raise HTTPException(400, "invalid tool permission")
+    if "process.execute" not in permissions:
+        permissions.append("process.execute")
+    return permissions
+
+
+def _validated_shell_tool(data: dict[str, Any]) -> dict[str, Any]:
+    name = str(data.get("name") or "").strip()
+    if not _TOOL_NAME_RE.fullmatch(name):
+        raise HTTPException(400, "invalid shell tool name")
+    return {
+        **data,
+        "name": name,
+        "parameters": _validated_tool_schema(data.get("parameters")),
+        "scripts": _validated_tool_scripts(data.get("scripts"), enabled=bool(data.get("enabled", True))),
+        "permissions": _validated_tool_permissions(data.get("permissions")),
+    }
+
+
+@router.post("/catalog/tools")
+def create_shell_tool(body: CreateShellToolBody, account: Account = CurrentAccount) -> dict:
+    _require_admin(account)
+    data = _validated_shell_tool(body.model_dump())
+    if db.get_tool_catalog(data["name"]) is not None:
+        raise HTTPException(409, "tool already exists")
+    return {"tool": db.create_shell_tool(actor_id=account.id, data=data)}
 
 
 @router.patch("/catalog/tools/{name}")
@@ -182,12 +290,33 @@ def update_tool(name: str, body: UpdateToolBody, account: Account = CurrentAccou
     _require_admin(account)
     current = db.get_tool_catalog(name)
     if current is None:
-        raise HTTPException(404, "tool not found; implementations cannot be created from Console")
+        raise HTTPException(404, "tool not found")
     patch = body.model_dump(exclude_none=True)
     if patch.get("bindable") is True and current.get("exposure") != "skill":
         raise HTTPException(409, "only skill exposure tools can be made bindable")
+    implementation_fields = {
+        "parameters", "scripts", "permissions", "contract_version", "timeout_seconds", "output_limit",
+    }
+    if current.get("implementation_type") != "shell" and implementation_fields.intersection(patch):
+        raise HTTPException(409, "native implementation contract is signed by AgentMate")
+    if current.get("implementation_type") == "shell":
+        merged = _validated_shell_tool({**current, **patch})
+        patch = {key: merged[key] for key in patch}
     updated = db.update_tool_catalog(name, actor_id=account.id, patch=patch)
     return {"tool": updated}
+
+
+@router.delete("/catalog/tools/{name}")
+def delete_tool(name: str, account: Account = CurrentAccount) -> dict:
+    _require_admin(account)
+    current = db.get_tool_catalog(name)
+    if current is None:
+        raise HTTPException(404, "tool not found")
+    if current.get("implementation_type") != "shell":
+        raise HTTPException(409, "native tools cannot be deleted")
+    if not db.delete_shell_tool(name, actor_id=account.id):
+        raise HTTPException(409, "tool cannot be deleted")
+    return {"ok": True}
 
 
 @router.get("/catalog/tools/{name}/audit")
@@ -457,7 +586,7 @@ def pull_catalog(body: CatalogPullBody, account: Account = CurrentAccount) -> di
     items = _project_skill_releases(_downlink_catalog_items(include_withdrawn=True), account)
     revision = _catalog_revision(items)
     if body.revision and body.revision == revision:
-        return {"revision": revision, "unchanged": True, "items": []}
+        return {"revision": revision, "unchanged": True, "items": [], "tools": []}
     rendered: list[dict[str, Any]] = []
     for item in items:
         row = dict(item)
@@ -473,7 +602,12 @@ def pull_catalog(body: CatalogPullBody, account: Account = CurrentAccount) -> di
         elif row.get("category") == "SKILL_RECOMMENDATIONS" and isinstance(row.get("data"), dict):
             row["data"] = _normalize_skill_recommendation(row["data"])
         rendered.append(row)
-    return {"revision": revision, "unchanged": False, "items": rendered}
+    return {
+        "revision": revision,
+        "unchanged": False,
+        "items": rendered,
+        "tools": db.list_tool_catalog(include_disabled=True),
+    }
 
 
 _MAX_SKILL_FILES = 128

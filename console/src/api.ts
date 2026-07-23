@@ -164,6 +164,12 @@ export const consoleApi = {
         | "enabled"
         | "bindable"
         | "min_app_version"
+        | "parameters"
+        | "scripts"
+        | "permissions"
+        | "contract_version"
+        | "timeout_seconds"
+        | "output_limit"
         | "sort"
       >
     >,
@@ -172,6 +178,13 @@ export const consoleApi = {
       "PATCH",
       `/catalog/tools/${encodeURIComponent(name)}`,
       patch,
+    ),
+  createTool: (tool: SkillTool) =>
+    apiRequest<{ tool: SkillTool }>("POST", "/catalog/tools", tool),
+  deleteTool: (name: string) =>
+    apiRequest<{ ok: boolean }>(
+      "DELETE",
+      `/catalog/tools/${encodeURIComponent(name)}`,
     ),
   toolAudit: (name: string) =>
     apiRequest<{ audit: ToolCatalogAudit[] }>(

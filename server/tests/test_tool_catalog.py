@@ -15,7 +15,9 @@ import db  # noqa: E402
 from config import settings  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 from routers.catalog import (  # noqa: E402
-    UpdateToolBody, _validate_app_skill, list_skill_tools, list_tools, update_tool,
+    CatalogPullBody, CreateShellToolBody, UpdateToolBody, _skill_compatibility,
+    _validate_app_skill, create_shell_tool, delete_tool, list_skill_tools, list_tools,
+    pull_catalog, update_tool,
 )
 
 
@@ -48,6 +50,12 @@ class ToolCatalogTest(unittest.TestCase):
         self.assertNotIn("create_local_skill", names)
         self.assertNotIn("knowledge_add", names)
         self.assertNotIn("ask_user", names)
+        pulled = pull_catalog(CatalogPullBody(
+            app_version="1.0.0",
+            supported_tools={item["name"]: "1" for item in all_tools},
+        ), self.admin)
+        self.assertEqual(25, len(pulled["tools"]))
+        self.assertEqual("native", pulled["tools"][0]["implementation_type"])
 
     def test_console_updates_database_without_bootstrap_overwrite_and_writes_audit(self) -> None:
         result = update_tool(
@@ -92,6 +100,64 @@ class ToolCatalogTest(unittest.TestCase):
                 "slug": "other", "name": "Other", "description": "Other",
                 "instructions": "Other", "tools": ["create_local_skill"], "files": [],
             })
+
+    def test_console_creates_updates_and_deletes_server_shell_tool(self) -> None:
+        created = create_shell_tool(CreateShellToolBody(
+            name="collect_project_stats",
+            label="收集项目统计",
+            description="从项目工作区收集统计。",
+            parameters={
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+            scripts={"windows": "$payload = [Console]::In.ReadToEnd(); Write-Output $payload"},
+        ), self.admin)["tool"]
+        self.assertEqual("shell", created["implementation_type"])
+        self.assertIn("process.execute", created["permissions"])
+        self.assertEqual({"windows"}, set(created["scripts"]))
+        self.assertIn("collect_project_stats", {item["name"] for item in list_skill_tools(self.admin)["tools"]})
+        _validate_app_skill({
+            "slug": "project-stats", "name": "Project Stats", "description": "统计",
+            "instructions": "执行统计。", "tools": ["collect_project_stats"], "files": [],
+        })
+
+        updated = update_tool(
+            "collect_project_stats",
+            UpdateToolBody(
+                scripts={"windows": "Write-Output 'v2'", "linux": "cat"},
+                timeout_seconds=12,
+                output_limit=4096,
+            ),
+            self.admin,
+        )["tool"]
+        self.assertEqual(12, updated["timeout_seconds"])
+        self.assertEqual({"windows", "linux"}, set(updated["scripts"]))
+        self.assertTrue(delete_tool("collect_project_stats", self.admin)["ok"])
+        self.assertIsNone(db.get_tool_catalog("collect_project_stats"))
+        self.assertEqual("deleted", db.list_tool_catalog_audit("collect_project_stats")[0]["action"])
+
+    def test_native_contract_is_immutable_and_shell_platform_controls_compatibility(self) -> None:
+        with self.assertRaisesRegex(HTTPException, "signed by AgentMate"):
+            update_tool("read_file", UpdateToolBody(scripts={"windows": "Write-Output nope"}), self.admin)
+        with self.assertRaisesRegex(HTTPException, "native tools cannot be deleted"):
+            delete_tool("read_file", self.admin)
+        create_shell_tool(CreateShellToolBody(
+            name="windows_only",
+            label="Windows Only",
+            parameters={"type": "object", "properties": {}},
+            scripts={"windows": "Write-Output ok"},
+        ), self.admin)
+        data = {"tools": ["windows_only"], "min_app_version": "1.0.0"}
+        windows = _skill_compatibility(
+            data, CatalogPullBody(app_version="1.0.0", platform="windows", tool_contract_version="1"),
+        )
+        macos = _skill_compatibility(
+            data, CatalogPullBody(app_version="1.0.0", platform="darwin", tool_contract_version="1"),
+        )
+        self.assertTrue(windows["compatible"])
+        self.assertFalse(macos["compatible"])
+        self.assertEqual(["windows_only"], macos["unsupported_tools"])
 
 
 if __name__ == "__main__":
