@@ -67,8 +67,11 @@ const ROLE_OPTIONS = ["Admin", "Member", "Viewer"].map((value) => ({
 const PROJECT_TABS: readonly ProjectWorkspaceTab[] = [
   "overview",
   "plan",
+  "backlog",
   "tasks",
   "workload",
+  "milestones",
+  "sprints",
   "gantt",
   "iterations",
   "knowledge",
@@ -88,8 +91,11 @@ const PROJECT_SECTION_BY_TAB: Record<
 > = {
   overview: "overview",
   plan: "work",
+  backlog: "work",
   tasks: "work",
   workload: "team",
+  milestones: "planning",
+  sprints: "planning",
   gantt: "planning",
   iterations: "planning",
   knowledge: "knowledge",
@@ -102,7 +108,7 @@ const PROJECT_SECTION_DEFAULT: Record<
 > = {
   overview: "overview",
   work: "plan",
-  planning: "gantt",
+  planning: "milestones",
   team: "workload",
   knowledge: "knowledge",
   config: "config",
@@ -185,12 +191,18 @@ export default function ProjectDetailPage({
         return <ProjectOverview />;
       case "plan":
         return <ProjectPlan />;
+      case "backlog":
+        return <ProjectTasks scope="backlog" />;
       case "tasks":
-        return <ProjectTasks />;
+        return <ProjectTasks scope="all" />;
       case "workload":
         return <ProjectWorkload />;
       case "gantt":
         return <ProjectGantt />;
+      case "milestones":
+        return <ProjectIterations sectionOnly="milestones" />;
+      case "sprints":
+        return <ProjectIterations sectionOnly="sprints" />;
       case "iterations":
         return <ProjectIterations sectionOnly="fields" />;
       case "knowledge":
@@ -280,16 +292,19 @@ export default function ProjectDetailPage({
                 key: "work",
                 label: "任务",
                 children: renderProjectSection([
-                  { key: "plan", label: "看板" },
-                  { key: "tasks", label: "列表" },
+                  { key: "plan", label: "当前 Sprint" },
+                  { key: "backlog", label: "Backlog" },
+                  { key: "tasks", label: "全部任务" },
                 ]),
               },
               {
                 key: "planning",
                 label: "计划",
                 children: renderProjectSection([
+                  { key: "milestones", label: "里程碑" },
+                  { key: "sprints", label: "Sprint" },
                   { key: "gantt", label: "时间线" },
-                  { key: "iterations", label: "字段配置" },
+                  { key: "iterations", label: "字段" },
                 ]),
               },
               {

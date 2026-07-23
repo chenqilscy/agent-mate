@@ -99,12 +99,15 @@ type TaskCreateDefaults = Partial<
 type QuickPlanKind = "milestone" | "sprint";
 type TaskEditorStep = "content" | "plan" | "advanced";
 type PlanningSettingsSection = "milestones" | "sprints" | "fields";
-type TaskCenterView = "tasks" | "milestones" | "sprints";
+type ProjectTaskListScope = "backlog" | "all";
 export type ProjectWorkspaceTab =
   | "overview"
   | "plan"
+  | "backlog"
   | "tasks"
   | "workload"
+  | "milestones"
+  | "sprints"
   | "gantt"
   | "iterations"
   | "knowledge"
@@ -151,6 +154,8 @@ interface ProjectWorkContextValue {
   milestones: Milestone[];
   customFields: ProjectCustomField[];
   sprints: Sprint[];
+  selectedSprintId: string;
+  setSelectedSprintId: (sprintId: string) => void;
   activity: Activity[];
   loading: boolean;
   savingTaskIds: ReadonlySet<string>;
@@ -170,7 +175,7 @@ interface ProjectWorkContextValue {
     wip?: Partial<Record<WorkItem["status"], number>>;
     views?: SavedPlanView[];
   }) => Promise<void>;
-  openTemplate: (templateId: string) => void;
+  openTemplate: (templateId: string, defaults?: TaskCreateDefaults) => void;
   deleteTemplate: (templateId: string) => Promise<void>;
 }
 
@@ -234,6 +239,7 @@ export function ProjectWorkProvider({
   const [activity, setActivity] = useState<Activity[]>([]);
   const [customFields, setCustomFields] = useState<ProjectCustomField[]>([]);
   const [sprints, setSprints] = useState<Sprint[]>([]);
+  const [selectedSprintId, setSelectedSprintId] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingTaskIds, setSavingTaskIds] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<string[]>([]);
@@ -326,8 +332,15 @@ export function ProjectWorkProvider({
       setActivity(activityResult.value.activity || []);
     if (fieldResult.status === "fulfilled")
       setCustomFields(fieldResult.value.fields || []);
-    if (sprintResult.status === "fulfilled")
-      setSprints(sprintResult.value.sprints || []);
+    if (sprintResult.status === "fulfilled") {
+      const nextSprints = sprintResult.value.sprints || [];
+      setSprints(nextSprints);
+      setSelectedSprintId((current) => {
+        if (current && nextSprints.some((sprint) => sprint.id === current))
+          return current;
+        return nextSprints.find((sprint) => sprint.status === "active")?.id || "";
+      });
+    }
     if (preferenceResult.status === "fulfilled") {
       setTemplates(preferenceResult.value.templates || []);
       setWip(preferenceResult.value.wip || {});
@@ -484,7 +497,10 @@ export function ProjectWorkProvider({
     }
   }
 
-  function openTemplate(templateId: string) {
+  function openTemplate(
+    templateId: string,
+    defaults: TaskCreateDefaults = {},
+  ) {
     const template = templates.find((item) => item.id === templateId);
     if (!template) return;
     const values = { ...template.values };
@@ -531,6 +547,7 @@ export function ProjectWorkProvider({
       dependency_ids: [],
       sprint_id: "",
       ...values,
+      ...defaults,
     });
     setTaskDirty(true);
   }
@@ -699,6 +716,8 @@ export function ProjectWorkProvider({
       milestones,
       customFields,
       sprints,
+      selectedSprintId,
+      setSelectedSprintId,
       activity,
       loading,
       savingTaskIds,
@@ -725,6 +744,7 @@ export function ProjectWorkProvider({
       milestones,
       customFields,
       sprints,
+      selectedSprintId,
       activity,
       loading,
       savingTaskIds,
@@ -1514,7 +1534,10 @@ export function ProjectWorkspaceActions({
   if (
     !canWrite(project) ||
     activeTab === "plan" ||
+    activeTab === "backlog" ||
     activeTab === "tasks" ||
+    activeTab === "milestones" ||
+    activeTab === "sprints" ||
     activeTab === "iterations"
   )
     return null;
@@ -1560,10 +1583,10 @@ export function ProjectOverview() {
                   新建任务
                 </Button>
               )}
-              <Button onClick={() => navigateToTab("iterations")}>
+              <Button onClick={() => navigateToTab("milestones")}>
                 {canWrite(project)
                   ? "配置里程碑和 Sprint"
-                  : "查看周期与字段"}
+                  : "查看里程碑和 Sprint"}
               </Button>
             </Space>
           </Empty>
@@ -1819,8 +1842,8 @@ function MilestoneCard({
           description="还没有里程碑"
         >
           {!editable && roots.length > 0 && (
-            <Button onClick={() => navigateToTab("tasks")}>
-              {canWrite(project) ? "前往任务中心规划" : "查看任务中心"}
+            <Button onClick={() => navigateToTab("backlog")}>
+              {canWrite(project) ? "前往 Backlog 规划" : "查看 Backlog"}
             </Button>
           )}
         </Empty>
@@ -1890,10 +1913,14 @@ export function ProjectPlan() {
     roots,
     members,
     milestones,
+    sprints,
     loading,
     savingTaskIds,
     selected,
     setSelected,
+    selectedSprintId,
+    setSelectedSprintId,
+    navigateToTab,
     openTask,
     patchTask,
     batchPatch,
@@ -1904,6 +1931,30 @@ export function ProjectPlan() {
     openTemplate,
     deleteTemplate,
   } = useProjectWork();
+  const selectedSprint = sprints.find(
+    (sprint) => sprint.id === selectedSprintId,
+  );
+  const selectedMilestone = milestones.find(
+    (milestone) => milestone.id === selectedSprint?.milestone_id,
+  );
+  const sprintItems = useMemo(
+    () =>
+      selectedSprint
+        ? items.filter((item) => item.sprint_id === selectedSprint.id)
+        : [],
+    [items, selectedSprint],
+  );
+  const sprintRoots = useMemo(
+    () => sprintItems.filter((item) => !item.parent_id),
+    [sprintItems],
+  );
+  const sprintDone = sprintRoots.filter((item) => item.status === "done").length;
+  const sprintPercent = sprintRoots.length
+    ? Math.round((sprintDone / sprintRoots.length) * 100)
+    : 0;
+  useEffect(() => {
+    setSelected([]);
+  }, [selectedSprintId]);
   const [group, setGroup] = useState<GroupMode>("none");
   const [assignee, setAssignee] = useState("");
   const [source, setSource] = useState("");
@@ -1915,12 +1966,12 @@ export function ProjectPlan() {
   const [selectedView, setSelectedView] = useState("");
   const [viewForm] = Form.useForm<{ name: string }>();
   const sources = useMemo(
-    () => [...new Set(roots.map((item) => item.source).filter(Boolean))],
-    [roots],
+    () => [...new Set(sprintRoots.map((item) => item.source).filter(Boolean))],
+    [sprintRoots],
   );
   const filtered = useMemo(
     () =>
-      roots.filter((item) => {
+      sprintRoots.filter((item) => {
         if (assignee && item.assignee !== assignee) return false;
         if (source && item.source !== source) return false;
         if (
@@ -1932,7 +1983,7 @@ export function ProjectPlan() {
           return false;
         return true;
       }),
-    [roots, assignee, source, search],
+    [sprintRoots, assignee, source, search],
   );
   const lanes = useMemo(
     () => makeLanes(filtered, group, members, milestones),
@@ -1978,8 +2029,86 @@ export function ProjectPlan() {
   }
 
   if (loading) return <Card loading />;
+  const sprintOptions = sprints.map((sprint) => ({
+    value: sprint.id,
+    label: `${sprint.name} · ${
+      sprint.status === "active"
+        ? "进行中"
+        : sprint.status === "closed"
+          ? "已关闭"
+          : "计划中"
+    }`,
+  }));
+  const sprintScopeHeader = (
+    <Card className="project-sprint-scope" styles={{ body: { padding: 14 } }}>
+      <div className="project-sprint-scope-head">
+        <div>
+          <Typography.Title level={5}>Sprint 执行范围</Typography.Title>
+          <Typography.Text type="secondary">
+            状态、WIP、拖拽和完成率只统计当前选择的 Sprint。
+          </Typography.Text>
+        </div>
+        <Space wrap>
+          <Select
+            aria-label="Sprint 执行范围"
+            showSearch
+            optionFilterProp="label"
+            value={selectedSprintId || undefined}
+            placeholder="选择 Sprint"
+            options={sprintOptions}
+            onChange={setSelectedSprintId}
+          />
+          <Button onClick={() => navigateToTab("sprints")}>管理 Sprint</Button>
+        </Space>
+      </div>
+      {selectedSprint && (
+        <div className="project-sprint-scope-summary">
+          <Space size={[6, 6]} wrap>
+            <Tag color={selectedSprint.status === "active" ? "green" : "default"}>
+              {selectedSprint.status === "active"
+                ? "进行中"
+                : selectedSprint.status === "closed"
+                  ? "已关闭"
+                  : "计划中"}
+            </Tag>
+            {selectedMilestone && <Tag>{selectedMilestone.name}</Tag>}
+            <Typography.Text type="secondary">
+              {selectedSprint.start_date} — {selectedSprint.end_date}
+            </Typography.Text>
+            <Typography.Text type="secondary">
+              {sprintDone}/{sprintRoots.length} 已完成
+            </Typography.Text>
+          </Space>
+          <Progress percent={sprintPercent} showInfo={false} />
+        </div>
+      )}
+    </Card>
+  );
+  if (!selectedSprint) {
+    return (
+      <div className="project-plan">
+        {sprintScopeHeader}
+        <Card>
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="尚无当前 Sprint"
+          >
+            <Space wrap>
+              <Typography.Text type="secondary">
+                项目看板不会回退到全项目任务，请先启用 Sprint 或从上方选择计划中的 Sprint。
+              </Typography.Text>
+              <Button type="primary" onClick={() => navigateToTab("sprints")}>
+                前往 Sprint 计划
+              </Button>
+            </Space>
+          </Empty>
+        </Card>
+      </div>
+    );
+  }
   return (
     <div className="project-plan">
+      {sprintScopeHeader}
       <Card className="project-plan-toolbar" styles={{ body: { padding: 12 } }}>
         <div className="project-plan-toolbar-row">
           <div
@@ -1998,9 +2127,14 @@ export function ProjectPlan() {
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
-                onClick={() => openTask(null)}
+                onClick={() =>
+                  openTask(null, {
+                    sprint_id: selectedSprint.id,
+                    milestone_id: selectedSprint.milestone_id,
+                  })
+                }
               >
-                新建任务
+                新建 Sprint 任务
               </Button>
             )}
             {canWrite(project) && (
@@ -2018,7 +2152,12 @@ export function ProjectPlan() {
             {canWrite(project) && (
               <Button
                 disabled={!templateId}
-                onClick={() => openTemplate(templateId)}
+                onClick={() =>
+                  openTemplate(templateId, {
+                    sprint_id: selectedSprint.id,
+                    milestone_id: selectedSprint.milestone_id,
+                  })
+                }
               >
                 使用模板
               </Button>
@@ -2148,7 +2287,9 @@ export function ProjectPlan() {
             )}
             {(project.role === "Owner" || project.role === "Admin") &&
               canWrite(project) && (
-                <Button onClick={() => setWipOpen(true)}>WIP 上限</Button>
+                <Button onClick={() => setWipOpen(true)}>
+                  当前 Sprint WIP
+                </Button>
               )}
             </Space>
           </div>
@@ -2203,7 +2344,7 @@ export function ProjectPlan() {
                     onDrop={(event) => {
                       if (!canWrite(project)) return;
                       const id = event.dataTransfer.getData("text/plain");
-                      const task = roots.find((item) => item.id === id);
+                      const task = sprintRoots.find((item) => item.id === id);
                       if (task && task.status !== status.value) {
                         const move = () =>
                           void patchTask(task, { status: status.value });
@@ -2280,7 +2421,7 @@ export function ProjectPlan() {
                           )}
                           <div className="project-task-card-meta">
                             <Space size={[4, 4]} wrap>
-                              {items.some((item) => item.parent_id === task.id) && <Tag>{items.filter((item) => item.parent_id === task.id && item.status === "done").length}/{items.filter((item) => item.parent_id === task.id).length} 子任务</Tag>}
+                              {sprintItems.some((item) => item.parent_id === task.id) && <Tag>{sprintItems.filter((item) => item.parent_id === task.id && item.status === "done").length}/{sprintItems.filter((item) => item.parent_id === task.id).length} 子任务</Tag>}
                               {task.priority && (
                                 <Tag color={PRIORITY_COLORS[task.priority]}>
                                   {
@@ -2338,16 +2479,24 @@ export function ProjectPlan() {
         <Card>
           <Empty
             description={
-              roots.length ? "没有符合条件的任务" : "还没有任务"
+              sprintRoots.length ? "没有符合条件的任务" : "此 Sprint 还没有任务"
             }
           >
             <Space wrap>
-              {!roots.length && canWrite(project) && (
-                <Button type="primary" onClick={() => openTask(null)}>
-                  新建第一个任务
-                </Button>
+              {!sprintRoots.length && canWrite(project) && (
+                <Button
+                  type="primary"
+                  onClick={() =>
+                    openTask(null, {
+                      sprint_id: selectedSprint.id,
+                      milestone_id: selectedSprint.milestone_id,
+                    })
+                  }
+                >
+                  新建第一个 Sprint 任务
+              </Button>
               )}
-              {roots.length > 0 && hasPlanFilters && (
+              {sprintRoots.length > 0 && hasPlanFilters && (
                 <Button onClick={clearPlanFilters}>清除筛选</Button>
               )}
             </Space>
@@ -2469,7 +2618,11 @@ function orderTasksForTable(items: WorkItem[]): WorkItem[] {
   return ordered;
 }
 
-export function ProjectTasks() {
+export function ProjectTasks({
+  scope = "all",
+}: {
+  scope?: ProjectTaskListScope;
+} = {}) {
   const {
     project,
     items,
@@ -2492,9 +2645,21 @@ export function ProjectTasks() {
   const [priority, setPriority] = useState("");
   const [milestoneId, setMilestoneId] = useState("");
   const [sprintId, setSprintId] = useState("");
-  const [view, setView] = useState<TaskCenterView>("tasks");
   const [batchStatus, setBatchStatus] = useState<WorkItem["status"]>("doing");
-  const orderedItems = useMemo(() => orderTasksForTable(items), [items]);
+  useEffect(() => {
+    setSelected([]);
+  }, [scope]);
+  const scopedItems = useMemo(
+    () =>
+      scope === "backlog"
+        ? items.filter((item) => !item.sprint_id)
+        : items,
+    [items, scope],
+  );
+  const orderedItems = useMemo(
+    () => orderTasksForTable(scopedItems),
+    [scopedItems],
+  );
   const filtered = orderedItems.filter(
     (item) =>
       (!search ||
@@ -2730,26 +2895,20 @@ export function ProjectTasks() {
     <div className="project-task-center">
       <div className="project-task-center-header">
         <div>
-          <Typography.Title level={5}>任务中心</Typography.Title>
+          <Typography.Title level={5}>
+            {scope === "backlog" ? "Backlog" : "全部任务"}
+          </Typography.Title>
           <Typography.Text type="secondary">
-            在同一处维护任务，并按里程碑或 Sprint 查看计划范围；未排期任务保留在待规划中。
+            {scope === "backlog"
+              ? "这里只保留尚未进入 Sprint 的任务，用于细化、排序并安排到后续 Sprint。"
+              : "跨里程碑、跨 Sprint 查询和批量维护项目任务；项目执行请使用当前 Sprint 看板。"}
           </Typography.Text>
         </div>
-        <Segmented<TaskCenterView>
-          value={view}
-          onChange={setView}
-          options={[
-            { value: "tasks", label: `全部任务 ${items.length}` },
-            {
-              value: "milestones",
-              label: `里程碑 ${milestones.length}`,
-            },
-            { value: "sprints", label: `Sprint ${sprints.length}` },
-          ]}
-        />
+        <Tag color={scope === "backlog" ? "gold" : "default"}>
+          {scopedItems.length} 项
+        </Tag>
       </div>
-      {view === "tasks" ? (
-        <div className="project-task-table">
+      <div className="project-task-table">
           <Typography.Paragraph className="table-scroll-hint" type="secondary">
             表格可左右滑动查看计划、日期和工时等全部字段。
           </Typography.Paragraph>
@@ -2768,13 +2927,19 @@ export function ProjectTasks() {
           emptyText: (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={items.length ? "没有符合条件的任务" : "还没有任务"}
+              description={
+                scopedItems.length
+                  ? "没有符合条件的任务"
+                  : scope === "backlog"
+                    ? "Backlog 已清空"
+                    : "还没有任务"
+              }
             >
-              {items.length && hasTaskFilters ? (
+              {scopedItems.length && hasTaskFilters ? (
                 <Button onClick={clearTaskFilters}>清除筛选</Button>
               ) : canWrite(project) ? (
                 <Button type="primary" onClick={() => openTask(null)}>
-                  新建第一个任务
+                  {scope === "backlog" ? "新建 Backlog 任务" : "新建第一个任务"}
                 </Button>
               ) : null}
             </Empty>
@@ -2842,23 +3007,25 @@ export function ProjectTasks() {
                   label: milestone.name,
                 }))}
               />
-              <Select
-                aria-label="Sprint 筛选"
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                value={sprintId || undefined}
-                placeholder="全部 Sprint"
-                onChange={(value) => setSprintId(value || "")}
-                options={[
-                  { value: "__unplanned__", label: "待规划" },
-                  ...sprints.map((sprint) => ({
-                    value: sprint.id,
-                    label: sprint.name,
-                  })),
-                ]}
-              />
-              <Tag>{filtered.length}/{items.length} 项</Tag>
+              {scope === "all" && (
+                <Select
+                  aria-label="Sprint 筛选"
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  value={sprintId || undefined}
+                  placeholder="全部 Sprint"
+                  onChange={(value) => setSprintId(value || "")}
+                  options={[
+                    { value: "__unplanned__", label: "待规划" },
+                    ...sprints.map((sprint) => ({
+                      value: sprint.id,
+                      label: sprint.name,
+                    })),
+                  ]}
+                />
+              )}
+              <Tag>{filtered.length}/{scopedItems.length} 项</Tag>
               {hasTaskFilters && (
                 <Button onClick={clearTaskFilters}>清除筛选</Button>
               )}
@@ -2872,7 +3039,7 @@ export function ProjectTasks() {
                   icon={<PlusOutlined />}
                   onClick={() => openTask(null)}
                 >
-                  新建任务
+                  {scope === "backlog" ? "新建 Backlog 任务" : "新建任务"}
                 </Button>,
               ]
             : [],
@@ -2899,12 +3066,7 @@ export function ProjectTasks() {
           </Space>
         )}
           />
-        </div>
-      ) : (
-        <ProjectIterations
-          sectionOnly={view === "milestones" ? "milestones" : "sprints"}
-        />
-      )}
+      </div>
     </div>
   );
 }

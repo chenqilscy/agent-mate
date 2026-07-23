@@ -132,6 +132,26 @@ body {
 .project-settings-progress .ant-progress { margin: 0; }
 
 .project-plan { display: grid; gap: 16px; }
+.project-sprint-scope { border-color: var(--console-border); }
+.project-sprint-scope-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 16px;
+}
+.project-sprint-scope-head .ant-typography { margin: 0; }
+.project-sprint-scope-head .ant-select { min-width: 230px; }
+.project-sprint-scope-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 280px);
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--console-border);
+}
+.project-sprint-scope-summary .ant-progress { margin: 0; }
 .project-plan-toolbar { position: sticky; top: 64px; z-index: 5; border-color: var(--console-border); }
 .project-plan-toolbar-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 20px; }
 .project-plan-toolbar-group { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -401,6 +421,8 @@ body {
   .project-settings-panel .ant-card-head-wrapper { align-items: stretch; flex-direction: column; padding-block: 12px; }
   .project-settings-panel .ant-card-extra { margin-inline-start: 0; }
   .project-task-center-header { align-items: stretch; flex-direction: column; }
+  .project-sprint-scope-head { align-items: stretch; flex-direction: column; }
+  .project-sprint-scope-summary { grid-template-columns: 1fr; }
   .project-task-filters { width: 100%; }
 }
 
@@ -423,6 +445,9 @@ body {
   .project-task-card-meta { align-items: stretch; flex-direction: column; }
   .project-task-card-meta > .ant-select { width: 100%; }
   .project-task-center-header .ant-segmented { width: 100%; }
+  .project-sprint-scope-head .ant-select,
+  .project-sprint-scope-head .ant-space,
+  .project-sprint-scope-head .ant-space-item { width: 100%; }
   .project-gantt { grid-template-columns: 170px minmax(530px, 1fr); }
   .markdown-editor-toolbar,
   .markdown-editor-footer { align-items: stretch; flex-direction: column; }
