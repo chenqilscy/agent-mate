@@ -397,6 +397,7 @@ export interface CustomModelInput {
 export interface Me {
   id: string
   name: string
+  authenticated: boolean
   role: string
   plan: string
   llm_configured: boolean

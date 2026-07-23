@@ -143,8 +143,8 @@ class Settings:
         os.getenv("ASR_MODEL_DIR", str(DATA_DIR / "models" / "whisper"))
     ).resolve()
 
-    # AgentMate Server（中心控制平面，WB-061/062）。AGENTMATE_SERVER_URL 空 = 未接 Server = 纯本地（离线优先）：
-    # 本地 backend 作为 Server 客户端持 Server token 调其 /api/auth/verify 等。凭据/工作区文件绝不上云。
+    # AgentMate Server（中心控制平面，WB-061/062）。账号只来自 Server；URL 空时仅保留匿名访客的
+    # 本地执行能力。本地 backend 持 Server token 调其 /api/auth/verify 等；凭据/工作区文件绝不上云。
     AGENTMATE_SERVER_URL: str = os.getenv("AGENTMATE_SERVER_URL", "").strip().rstrip("/")
     # 团队时间线上报开关（WB-062 Phase 3）。默认关——执行产出默认不上云（隐私，铁律 4）。
     AGENTMATE_SERVER_TIMELINE_UPLOAD: bool = os.getenv("AGENTMATE_SERVER_TIMELINE_UPLOAD", "0").strip().lower() in ("1", "true", "yes")

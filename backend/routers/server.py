@@ -1,7 +1,7 @@
 """Server 同步端点（WB-062）。客户端用其 Server token 触发下行 pull（项目/成员镜像）。
 
 同步 def 路由 → FastAPI 自动在线程池里跑，故内部的阻塞 Server 调用不占事件循环。
-未接 Server（AGENTMATE_SERVER_URL 空）→ 直接返回 server:false，纯本地照旧。
+未接 Server（AGENTMATE_SERVER_URL 空）→ 直接返回 server:false；本机访客执行能力不受影响。
 """
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import server_client
 import server_sync
 from auth.deps import current_user
 from storage import db
-from storage.models import LOCAL_USER_ID
 
 router = APIRouter(prefix="/api", tags=["server"])
 
@@ -52,21 +51,20 @@ def server_import(authorization: str = Header(default="")) -> dict:
 @router.get("/server/status")
 def server_status(authorization: str = Header(default="")) -> dict:
     """本地是否已接 Server、当前是否已以某 Server 账号连接（前端据此显示同步/导入入口 + 解锁协作 UI）。
-    未接 Server → enabled False，纯本地照旧——前端不应因此禁用任何本地功能。
-
-    linked 判定（WB-073）：连接模型 = 登录即以 Server 账号身份操作（app token = Server token），故先看
-    **当前请求携带的 token** 能否在 Server 校验通过；命中即已连接。再兜底 LOCAL_USER 的迁移绑定
-    （`server_link`，导入本地项目时才写）——两者任一即视为已连接。"""
+    linked 只代表当前 Bearer token 对应的 Server 身份；LOCAL_USER 的存量导入映射不是登录态。
+    Server 暂不可达或地址被清除时，已验证 token 仍从本地身份镜像恢复，避免把已登录用户误报为访客。"""
     enabled = server_client.server_enabled()
     linked = None
-    if enabled:
-        acct = server_client.verify_token(_bearer(authorization))
+    token = _bearer(authorization)
+    cached_user_id = db.user_id_for_token(token) if token else None
+    if cached_user_id and db.get_server_identity(cached_user_id) == token:
+        cached_user = db.get_user(cached_user_id)
+        if cached_user:
+            linked = {"account_id": cached_user.id, "name": cached_user.name}
+    if enabled and token:
+        acct = server_client.verify_token(token)
         if acct:
             linked = {"account_id": acct.get("id", ""), "name": acct.get("name", "")}
-    if linked is None:
-        link = db.get_server_link(LOCAL_USER_ID)
-        if link:
-            linked = {"account_id": link["server_account_id"], "name": link["server_account_name"]}
     return {"enabled": enabled, "linked": linked}
 
 

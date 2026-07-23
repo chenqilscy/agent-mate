@@ -2,7 +2,7 @@
 //
 // 「连接 Server」= 用 Server 账号登录：本地 backend 代理到 Server 拿 token，存为 app 自己的 token
 // （与 WB-070 syncFromServer 一致——app token 即 Server token，本地 auth 桥认它）。之后评论/在线/通知
-// 都经本地 backend 代理转发到 Server。未接 Server（AGENTMATE_SERVER_URL 空）→ enabled=false，前端隐藏协作入口、本机照旧。
+// 都经本地 backend 代理转发到 Server。Server 是唯一账号源；未接 Server 时仅保留匿名访客的本机能力。
 import { create } from 'zustand'
 import { api } from '../lib/api'
 import { TOKEN_KEY } from '../lib/api'
@@ -25,7 +25,7 @@ export const useServerStore = create<ServerState>((set) => ({
       const s = await api.serverStatus()
       set({ enabled: s.enabled, linked: s.linked, checked: true })
     } catch {
-      set({ checked: true }) // 后端未连：当作未接 Server，前端回退纯本地
+      set({ checked: true }) // 后端未连：保留访客态，不推断出本地账号
     }
   },
   connect: async (name, password, register) => {
@@ -39,5 +39,6 @@ export const useServerStore = create<ServerState>((set) => ({
   disconnect: () => {
     localStorage.removeItem(TOKEN_KEY)
     set({ linked: null })
+    window.location.reload()
   },
 }))

@@ -6,8 +6,8 @@ cancel scope — that wrapper crashes SSE endpoints which spawn nested task grou
 (learned the hard way with the request-size middleware, A2).
 
 Server 桥（WB-062）：本地缓存未命中且已接 Server 时，把 token 交给 Server 校验。那是**阻塞的网络调用**，
-所以丢进工作线程（anyio.to_thread），绝不在事件循环里跑（WB-002）。未接 Server / 无 token →
-零额外开销，纯本地照旧。
+所以丢进工作线程（anyio.to_thread），绝不在事件循环里跑（WB-002）。无 token 时使用匿名访客
+作用域；它不是本地账号。已缓存的 Server token 在断网时仍可本地解析。
 """
 from __future__ import annotations
 

@@ -127,7 +127,7 @@ def init_db() -> None:
         );
 
         -- Bearer tokens for real accounts (M7 C1). No token on a request → the
-        -- fixed local owner, so single-machine use keeps working without login.
+        -- anonymous guest scope used before Server login; this is not an account source.
         CREATE TABLE IF NOT EXISTS auth_tokens (
             token TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,

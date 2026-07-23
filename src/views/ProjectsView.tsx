@@ -5,6 +5,7 @@ import { useProjectStore } from '../stores/projectStore'
 import { useUIStore } from '../stores/uiStore'
 import { NewProjectModal } from '../components/project/NewProjectModal'
 import { MembersModal } from '../components/project/MembersModal'
+import { LoginModal } from '../components/auth/LoginModal'
 import { ServerConnectModal } from '../components/server/ServerConnectModal'
 import { useCatalog } from '../stores/catalogStore'
 import { useServerStore } from '../stores/serverStore'
@@ -24,10 +25,12 @@ export function ProjectsView() {
   const load = useProjectStore((s) => s.load)
   const setActive = useProjectStore((s) => s.setActive)
   const setView = useUIStore((s) => s.setView)
+  const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const [modalOpen, setModalOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<ProjectScope>('all')
   const [membersProject, setMembersProject] = useState<ProjectInfo | null>(null)
+  const [loginOpen, setLoginOpen] = useState(false)
   const [serverOpen, setServerOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const { PROJ_TPL } = useCatalog()
@@ -68,12 +71,14 @@ export function ProjectsView() {
   }
 
   const serverContext = !serverChecked
-    ? { title: '正在确认团队协作状态', detail: '本机项目仍可正常使用。', tone: 'checking' }
-    : !serverEnabled
-      ? { title: '当前为本机模式', detail: '项目、执行与文件保存在这台设备；配置 Server 后可启用团队协作。', tone: 'local' }
-      : serverLinked
-        ? { title: `已连接团队空间 · ${serverLinked.name}`, detail: '团队项目由 Console/Server 管理；同步会拉取最新项目、成员与计划。', tone: 'linked' }
-        : { title: 'Server 已配置，尚未连接账号', detail: '当前只显示本机项目；连接后可拉取 Console 项目、成员与计划。', tone: 'attention' }
+    ? { title: '正在确认账号与项目同步状态', detail: 'AgentMate 账号统一由 Server 提供。', tone: 'checking' }
+    : serverLinked
+      ? serverEnabled
+        ? { title: `已登录 Server 账号 · ${serverLinked.name}`, detail: '团队项目由 Console/Server 管理；同步会拉取最新项目、成员与计划。', tone: 'linked' }
+        : { title: `已登录 Server 账号 · ${serverLinked.name}`, detail: '当前缺少 Server 地址，账号身份来自本地验证缓存；配置后可恢复团队项目同步。', tone: 'attention' }
+      : !serverEnabled
+        ? { title: 'AgentMate Server 尚未配置', detail: '当前是匿名访客，不是本地账号；配置 Server 后才能登录并同步团队项目。', tone: 'attention' }
+        : { title: '尚未登录 AgentMate Server', detail: 'AgentMate 用户统一来自 Server；登录后可同步 Console 项目、成员与计划。', tone: 'attention' }
 
   return (
     <section className="view active" data-view="projects">
@@ -102,10 +107,19 @@ export function ProjectsView() {
             <b>{serverContext.title}</b>
             <span>{serverContext.detail}</span>
           </div>
-          {serverEnabled && (
+          {serverChecked && (
             <div className="projects-context-actions">
-              {serverLinked && <WbButton className="btn-ghost" disabled={syncing} onClick={syncProjects}>{syncing ? '同步中…' : '同步项目'}</WbButton>}
-              <WbButton className="btn-line" onClick={() => setServerOpen(true)}>{serverLinked ? '连接管理' : '连接 Server'}</WbButton>
+              {serverLinked && serverEnabled && <WbButton className="btn-ghost" disabled={syncing} onClick={syncProjects}>{syncing ? '同步中…' : '同步项目'}</WbButton>}
+              <WbButton
+                className="btn-line"
+                onClick={() => {
+                  if (!serverEnabled) setSettingsOpen(true, 'runtime')
+                  else if (serverLinked) setServerOpen(true)
+                  else setLoginOpen(true)
+                }}
+              >
+                {!serverEnabled ? '配置 Server' : serverLinked ? '账号与同步' : '登录 Server'}
+              </WbButton>
             </div>
           )}
         </div>
@@ -175,6 +189,7 @@ export function ProjectsView() {
 
       <NewProjectModal open={modalOpen} onClose={() => setModalOpen(false)} onCreated={(p) => { setModalOpen(false); openProject(p) }} />
       {membersProject && <MembersModal project={membersProject} onClose={() => setMembersProject(null)} onLeft={() => { setMembersProject(null); void load() }} />}
+      {loginOpen && <LoginModal onClose={() => { setLoginOpen(false); void refreshServer() }} />}
       {serverOpen && <ServerConnectModal onClose={() => { setServerOpen(false); void refreshServer(); void load() }} />}
     </section>
   )

@@ -38,15 +38,16 @@ Server 不能执行用户本地任务，不能读取工作区或会话正文，�
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-`AGENTMATE_SERVER_URL` 为空时，App 不创建 Server 依赖，使用 `LOCAL_USER` 与本地项目。Server 不可达时，
-App 保留本地执行能力并使用已有镜像；网络失败不能清空最后可用目录，也不能阻断本地会话。
+`AGENTMATE_SERVER_URL` 为空时，App 不创建 Server 依赖，使用匿名 `LOCAL_USER` 作用域与本地项目，
+但不会创建本地账号。Server 不可达时，App 保留本地执行能力并使用已验证 Server 身份的缓存与已有
+镜像；网络失败不能清空最后可用目录，也不能阻断已登录用户的本地会话。
 
 ## 3. 已实现边界
 
 ### 3.1 身份与项目
 
-- Server 签发 Bearer token，是连接模式下的账号权威。
-- App backend 代理登录/注册并缓存身份；前端仍只与 App backend 通信。
+- Server 是唯一账号权威并签发 Bearer token；App 不创建或认证本地口令账号。
+- App backend 代理登录/注册并缓存已验证的 Server 身份；前端仍只与 App backend 通信。
 - Server 管理组织、项目、成员、Owner/Admin/Member/Viewer 角色与邀请。
 - App 镜像 server-origin 项目与成员，并在本地路由执行同样的角色门禁；Viewer 只读。
 

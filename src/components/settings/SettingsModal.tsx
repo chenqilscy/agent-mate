@@ -708,15 +708,15 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 <Card className="set-card" variant="borderless">
                   <div className="set-row">
                     <span className="set-k">用户名</span>
-                    <span className="set-v">{me?.name ?? '奇'}</span>
+                    <span className="set-v">{loggedIn ? (me?.name ?? 'Server 用户') : '未登录'}</span>
                   </div>
                   <div className="set-row">
                     <span className="set-k">套餐</span>
-                    <span className="set-v">{me?.plan ?? '体验版'}</span>
+                    <span className="set-v">{loggedIn ? (me?.plan ?? '体验版') : '—'}</span>
                   </div>
                   <div className="set-row">
                     <span className="set-k">角色</span>
-                    <span className="set-v">{me?.role ?? '—'}</span>
+                    <span className="set-v">{loggedIn ? (me?.role ?? '—') : '访客'}</span>
                   </div>
                   <div className="set-row">
                     <span className="set-k">模型凭据</span>
@@ -726,7 +726,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 <div className="set-actions">
                   {loggedIn
                     ? <WbButton className="btn-ghost danger-b" onClick={() => { onClose(); void logout() }}>退出登录</WbButton>
-                    : <span className="set-pdesc">当前以本机默认身份使用，登录后可跨设备协作。</span>}
+                    : <span className="set-pdesc">当前是匿名访客，不是本地账号；AgentMate 账号统一由 Server 提供。</span>}
                 </div>
               </div>
             )}

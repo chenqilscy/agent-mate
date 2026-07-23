@@ -10,9 +10,9 @@ const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 export const API_BASE =
   import.meta.env.VITE_API_BASE ?? (isTauri ? 'http://127.0.0.1:8101/api' : '/api')
 
-// Bearer token for real accounts (M7 C1). Stored in localStorage so it survives
-// reloads and is readable by both api.ts and the SSE reader. No token → the
-// backend treats the request as the local owner.
+// Server-issued Bearer token for AgentMate accounts. Stored in localStorage so
+// it survives reloads and is readable by both api.ts and the SSE reader. No
+// token means anonymous guest scope, never a separate local account.
 export const TOKEN_KEY = 'wb.token'
 export function authHeaders(): Record<string, string> {
   const t = localStorage.getItem(TOKEN_KEY)

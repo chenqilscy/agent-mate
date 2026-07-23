@@ -25,7 +25,7 @@
 
 | 实体 | 权威源 | 上云 | 同步方向 | 离线行为 | 现状 |
 |---|---|---|---|---|---|
-| 账号 accounts | **Server** | ✅ | Server→App 镜像 | 回退本地匿名 `LOCAL_USER` | ✅ 已打通 |
+| 账号 accounts | **Server** | ✅ | Server→App 镜像 | 已登录身份读本地镜像；未登录使用匿名访客作用域 | ✅ 已打通 |
 | 组织 orgs / 成员 | **Server** | ✅ | Server→App 镜像 | 只读缓存 | ✅ |
 | 项目 projects（元信息/角色） | **Server**（server-origin） | ✅ | 双向：增量镜像+写代理 | 本地原生项目纯本地 | ✅ 成员/配置写已代理 |
 | 项目邀请 invites | **Server** | ✅ | Server 权威 | 无 | ✅ |
@@ -76,7 +76,8 @@
 ## 4. 统一用户与身份规范
 
 - **单一账号权威**：Server 是**唯一**账号系统。App 登录即用 Server 账号身份，**app token == Server token**；本地 `users` 表用 **Server account id 作本地 id** 镜像（`upsert_external_user`）。全端一个用户体系。
-- **本地匿名映射**：未登录 Server 时用本机 `LOCAL_USER`（`0000…0001`）。首次登录/导入时 `set_server_link` 记录 `LOCAL_USER ↔ Server account`，存量本地数据归到该云账号。
+- **禁止本地账号分叉**：App 不创建或认证本地口令账号；Server 未配置或不可达时不能注册/重新登录。已缓存的 Server token 可继续解析为原 Server account id，保证已登录会话离线可用。
+- **本地匿名映射**：未登录 Server 时用 `LOCAL_USER`（`0000…0001`）承载匿名访客数据作用域；它不是账号。首次登录/导入时 `set_server_link` 记录访客存量数据与 Server account 的归属，存量本地数据归到该云账号。
 - **人归属必须强映射**：任务负责人、动态 actor 等“谁”字段，**权威值一律是 Server `account_id`**，显示名由成员表解析。
   - `work_items.assignee` 已采用“写时名字/id 归一为 account_id、读时解析显示名、无法解析的历史文本不丢失”的兼容迁移。
 - **角色权威**：Owner/Admin/Member/Viewer 由 Server 定义，App 镜像后本地访问控制（`project_access_role`）自动生效；写操作按角色 gate，Viewer 只读。

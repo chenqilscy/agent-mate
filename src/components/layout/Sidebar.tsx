@@ -285,18 +285,18 @@ export function Sidebar() {
       {profileOpen && (
         <div className="profile open" role="dialog" aria-label="账号">
           <div className="pf-name">
-            {me?.name ?? '奇'}
+            {loggedIn ? (me?.name ?? 'Server 用户') : '访客模式'}
             <span {...clickable} aria-label="复制用户名" onClick={() => toast('已复制用户名')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 012-2h10" /></svg></span>
           </div>
           <div className="pf-row">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></svg>
-            {me?.plan ?? '体验版'}<span className="up">升级</span>
+            {loggedIn ? (me?.plan ?? '体验版') : '未登录 Server'}{loggedIn && <span className="up">升级</span>}
           </div>
           <div className="pf-div" />
           <div className="pf-row" {...clickable} onClick={() => { setSettingsOpen(true, 'account'); setProfileOpen(false) }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18" /></svg>设置中心
           </div>
-          {serverEnabled && (
+          {loggedIn && serverEnabled && (
             <div className="pf-row" {...clickable} onClick={() => { setProfileOpen(false); setServerOpen(true) }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 17H7A5 5 0 017 7h2M15 7h2a5 5 0 010 10h-2M8 12h8" /></svg>
               {serverLinked ? `已连接 AgentMate Server · ${serverLinked.name}` : '连接 AgentMate Server'}
@@ -309,7 +309,7 @@ export function Sidebar() {
             </div>
           ) : (
             <div className="pf-row" {...clickable} onClick={() => { setProfileOpen(false); setLoginOpen(true) }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" /></svg>登录 / 注册账号
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" /></svg>登录 / 注册 Server 账号
             </div>
           )}
         </div>

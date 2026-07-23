@@ -93,7 +93,7 @@ export function ServerConnectModal({ onClose }: { onClose: () => void }) {
               <WbInput className="np-input" value={name} autoFocus placeholder="你的 Server 用户名" onChange={(e) => setName(e.target.value)} onKeyDown={onKey} />
               <div className="np-lbl">密码</div>
               <WbInput className="np-input" type="password" value={password} placeholder={mode === 'register' ? '至少 4 位' : '密码'} onChange={(e) => setPassword(e.target.value)} onKeyDown={onKey} />
-              <div className="auth-switch">连接后以 Server 账号身份协作；不连接则一切照常本地运行。</div>
+              <div className="auth-switch">AgentMate 账号统一由 Server 提供；未登录时仅使用匿名访客模式，不会创建本地账号。</div>
             </div>
             <div className="np-foot">
               <span className="np-hint">中心服务 · 团队协作</span>

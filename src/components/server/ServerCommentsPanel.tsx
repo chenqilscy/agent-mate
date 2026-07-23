@@ -1,7 +1,7 @@
 import { WbButton, WbInput } from '../ui/Primitives'
 // 项目讨论面板（WB-067 Slice 2）：在线成员 + 评论 + @提及，全走本地 backend 代理到 Server。
 // v1 传输 = REST + 15s 轮询（无 WebSocket，见 WB-065 决策）。
-// 三态：未接入 Server（AGENTMATE_SERVER_URL 空）→ 本地模式提示；已接入未登录 → 连接引导；已登录 → 讨论。
+// 三态：未配置 Server → 访客模式提示；已配置未登录 → 登录引导；已登录 → 讨论。
 // 视觉：复用 .pj-empty / .msg-* / .np-input / .btn-dark，暗色天然继承；仅在线状态条用少量内联（与本仓库惯例一致）。
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
@@ -68,7 +68,7 @@ export function ServerCommentsPanel({ projectId }: { projectId: string }) {
   const onKey = (e: React.KeyboardEvent) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }
 
   if (!enabled) {
-    return <Result className="pj-empty" status="info" title="当前为本地模式" subTitle="讨论、@提及、在线状态需要连接 AgentMate Server。" />
+    return <Result className="pj-empty" status="info" title="AgentMate Server 未配置" subTitle="当前是匿名访客模式；讨论、@提及和在线状态需要先配置并登录 Server 账号。" />
   }
   if (!linked) {
     return (

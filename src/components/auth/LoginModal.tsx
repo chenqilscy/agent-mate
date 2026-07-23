@@ -5,9 +5,9 @@ import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
 import { clickable } from '../../lib/a11y'
 
-// Login / register for real accounts (M7 C1). On success the store persists the
-// token and reloads the app under the new identity. Not logging in keeps you as
-// the local owner.
+// Login / register against AgentMate Server, the only account authority. On
+// success the store persists the Server token and reloads under that identity.
+// Closing the dialog keeps an anonymous local guest scope, not a local account.
 export function LoginModal({ onClose }: { onClose: () => void }) {
   const login = useAuthStore((s) => s.login)
   const register = useAuthStore((s) => s.register)
@@ -24,7 +24,7 @@ export function LoginModal({ onClose }: { onClose: () => void }) {
       else await register(name.trim(), password)
       // success → the store reloads the app; nothing else to do here
     } catch {
-      toast(mode === 'login' ? '登录失败：用户名或密码错误' : '注册失败：用户名可能已被占用，或密码太短（≥4 位）')
+      toast(mode === 'login' ? '登录失败：请检查 Server 连接、用户名和密码' : '注册失败：请检查 Server 连接、用户名和密码')
       setBusy(false)
     }
   }
@@ -36,8 +36,8 @@ export function LoginModal({ onClose }: { onClose: () => void }) {
       <div className="np-modal auth-modal" role="dialog" aria-modal="true" aria-label={mode === 'login' ? '登录' : '注册'}>
         <div className="np-h">{mode === 'login' ? '登录' : '注册账号'}<WbButton className="np-x" onClick={onClose}>×</WbButton></div>
         <div className="np-body">
-          <div className="np-lbl">用户名</div>
-          <WbInput className="np-input" value={name} autoFocus placeholder="你的用户名" onChange={(e) => setName(e.target.value)} onKeyDown={onKey} />
+          <div className="np-lbl">AgentMate Server 用户名</div>
+          <WbInput className="np-input" value={name} autoFocus placeholder="你的 Server 用户名" onChange={(e) => setName(e.target.value)} onKeyDown={onKey} />
           <div className="np-lbl">密码</div>
           <WbInput className="np-input" type="password" value={password} placeholder={mode === 'register' ? '至少 4 位' : '密码'} onChange={(e) => setPassword(e.target.value)} onKeyDown={onKey} />
           <div className="auth-switch">
@@ -46,7 +46,7 @@ export function LoginModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="np-foot">
-          <span className="np-hint">不登录也可用（本地所有者）</span>
+          <span className="np-hint">账号由 Server 统一提供；关闭后保持匿名访客模式</span>
           <WbButton className="btn-ghost" onClick={onClose}>取消</WbButton>
           <WbButton className="btn-dark" disabled={!name.trim() || !password || busy} onClick={submit}>{mode === 'login' ? '登录' : '注册'}</WbButton>
         </div>

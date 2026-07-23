@@ -1,7 +1,7 @@
-// Current account (M7 C1: real accounts on the shared backend). A Bearer token
-// in localStorage identifies the user; no token → the backend's local owner, so
-// the app works without ever logging in. Switching account reloads the app so
-// every store re-fetches under the new identity.
+// Current Server-sourced account. A Server Bearer token in localStorage
+// identifies the user; without one the backend exposes only an anonymous guest
+// scope for local execution. Switching account reloads the app so every store
+// re-fetches under the new identity.
 import { create } from 'zustand'
 import { api, TOKEN_KEY } from '../lib/api'
 import type { Me } from '../lib/types'
@@ -21,7 +21,9 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   load: async () => {
     try {
-      set({ me: await api.me() })
+      const me = await api.me()
+      if (!me.authenticated) localStorage.removeItem(TOKEN_KEY)
+      set({ me, loggedIn: me.authenticated })
     } catch {
       // Backend not up yet — leave null; the UI degrades gracefully.
     }
