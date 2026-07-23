@@ -1,4 +1,5 @@
 import {
+  Alert,
   App,
   Avatar,
   Badge,
@@ -6,7 +7,6 @@ import {
   Card,
   Checkbox,
   Col,
-  Collapse,
   Drawer,
   Empty,
   Form,
@@ -20,6 +20,7 @@ import {
   Space,
   Statistic,
   Table,
+  Tabs,
   Tag,
   Timeline,
   Typography,
@@ -59,6 +60,7 @@ import type {
   WorkItem,
 } from "../../types";
 import { CompatList as List } from "../CompatList";
+import { MarkdownEditor } from "../MarkdownEditor";
 
 const STATUS_OPTIONS = [
   { value: "todo", label: "待办" },
@@ -91,6 +93,7 @@ const STATUS_META: Record<
 
 type TaskDraft = Partial<WorkItem> & { title: string };
 type QuickPlanKind = "milestone" | "sprint";
+type TaskEditorStep = "content" | "plan" | "advanced";
 export type ProjectWorkspaceTab =
   | "overview"
   | "plan"
@@ -168,6 +171,19 @@ function canWrite(project: Project): boolean {
   return project.role !== "Viewer" && !project.archived_at;
 }
 
+function taskDescriptionSummary(value: string): string {
+  return value
+    .replace(/```[\s\S]*?```/g, " 代码 ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*+]\s+(?:\[[ xX]\]\s*)?/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/[*_~`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function isDescendant(items: WorkItem[], parentId: string, candidateId: string): boolean {
   const parents = new Map(items.map((item) => [item.id, item.parent_id]));
   let cursor = candidateId;
@@ -222,13 +238,21 @@ export function ProjectWorkProvider({
   const [savedViews, setSavedViews] = useState<SavedPlanView[]>([]);
   const [taskDirty, setTaskDirty] = useState(false);
   const [taskSaving, setTaskSaving] = useState(false);
-  const [taskAdvancedOpen, setTaskAdvancedOpen] = useState<string[]>([]);
+  const [taskEditorStep, setTaskEditorStep] =
+    useState<TaskEditorStep>("content");
   const [quickPlanSaving, setQuickPlanSaving] = useState(false);
   const [form] = Form.useForm<TaskDraft>();
   const [templateForm] = Form.useForm<{ name: string }>();
   const [commentForm] = Form.useForm<{ body: string }>();
   const [quickPlanForm] = Form.useForm<QuickPlanDraft>();
   const watchedTaskTitle = Form.useWatch("title", form);
+  const watchedMilestoneId = Form.useWatch("milestone_id", form);
+  const watchedSprintId = Form.useWatch("sprint_id", form);
+  const watchedStartDate = Form.useWatch("start_date", form);
+  const watchedDueDate = Form.useWatch("due_date", form);
+  const watchedParentId = Form.useWatch("parent_id", form);
+  const watchedDependencyIds =
+    Form.useWatch("dependency_ids", form) || [];
 
   async function reload() {
     setLoading(true);
@@ -296,9 +320,7 @@ export function ProjectWorkProvider({
 
   function loadTaskEditor(task: WorkItem | null) {
     setTaskDirty(false);
-    setTaskAdvancedOpen(
-      customFields.some((field) => field.required) ? ["advanced"] : [],
-    );
+    setTaskEditorStep("content");
     setEditing(task);
     form.resetFields();
     form.setFieldsValue(
@@ -668,7 +690,7 @@ export function ProjectWorkProvider({
     <ProjectWorkContext.Provider value={value}>
       {children}
       <Drawer
-        width="min(860px, 100vw)"
+        width="min(1120px, 100vw)"
         open={editing !== undefined}
         title={
           <Space size={8} wrap>
@@ -714,274 +736,415 @@ export function ProjectWorkProvider({
           disabled={!canWrite(project)}
           onValuesChange={() => setTaskDirty(true)}
           onFinishFailed={({ errorFields }) => {
-            if (
-              errorFields.some(
-                ({ name }) => String(name[0] || "") === "custom_fields",
+            const names = errorFields.map(({ name }) =>
+              String(name[0] || ""),
+            );
+            if (names.includes("title") || names.includes("description"))
+              setTaskEditorStep("content");
+            else if (
+              names.some((name) =>
+                [
+                  "milestone_id",
+                  "sprint_id",
+                  "start_date",
+                  "due_date",
+                  "parent_id",
+                  "dependency_ids",
+                ].includes(name),
               )
             )
-              setTaskAdvancedOpen(["advanced"]);
+              setTaskEditorStep("plan");
+            else setTaskEditorStep("advanced");
           }}
           onFinish={saveTask}
         >
-          <div className="task-editor-layout">
-            <div className="task-editor-column">
-              <Card size="small" title="核心信息" className="task-editor-section">
-                <Form.Item
-                  name="title"
-                  label="标题"
-                  rules={[{ required: true, whitespace: true }]}
-                >
-                  <Input maxLength={300} />
-                </Form.Item>
-                <Form.Item name="description" label="描述">
-                  <Input.TextArea rows={6} />
-                </Form.Item>
-                <Row gutter={12}>
-                  <Col xs={24} sm={8}>
-                    <Form.Item name="status" label="状态">
-                      <Select options={[...STATUS_OPTIONS]} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} sm={8}>
-                    <Form.Item name="priority" label="优先级">
-                      <Select options={[...PRIORITY_OPTIONS]} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} sm={8}>
-                    <Form.Item name="assignee" label="负责人">
-                      <Select
-                        allowClear
-                        showSearch
-                        optionFilterProp="label"
-                        options={members.map((member) => ({
-                          value: member.account_id,
-                          label: member.name,
-                        }))}
-                      />
-                    </Form.Item>
-                  </Col>
-                </Row>
-              </Card>
-
-            </div>
-
-            <div className="task-editor-column">
-              <Card size="small" title="计划与关系" className="task-editor-section">
-                <Row gutter={12}>
-                  <Col xs={24} sm={12}>
-                    <Form.Item name="milestone_id" label="里程碑">
-                      <Select
-                        allowClear
-                        showSearch
-                        optionFilterProp="label"
-                        options={milestones.map((milestone) => ({
-                          value: milestone.id,
-                          label: milestone.name,
-                        }))}
-                        popupRender={(menu) => (
-                          <>
-                            {menu}
-                            {canWrite(project) && (
-                              <Button
-                                type="text"
-                                block
-                                icon={<PlusOutlined />}
-                                className="task-plan-create"
-                                onMouseDown={(event) => event.preventDefault()}
-                                onClick={() => openQuickPlan("milestone")}
-                              >
-                                新建里程碑
-                              </Button>
-                            )}
-                          </>
-                        )}
-                      />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} sm={12}>
-                    <Form.Item name="sprint_id" label="Sprint / 周期">
-                      <Select
-                        allowClear
-                        showSearch
-                        optionFilterProp="label"
-                        options={sprints.map((sprint) => ({
-                          value: sprint.id,
-                          label: sprint.name,
-                        }))}
-                        popupRender={(menu) => (
-                          <>
-                            {menu}
-                            {canWrite(project) && (
-                              <Button
-                                type="text"
-                                block
-                                icon={<PlusOutlined />}
-                                className="task-plan-create"
-                                onMouseDown={(event) => event.preventDefault()}
-                                onClick={() => openQuickPlan("sprint")}
-                              >
-                                新建 Sprint
-                              </Button>
-                            )}
-                          </>
-                        )}
-                      />
-                    </Form.Item>
-                  </Col>
-                </Row>
-                <Row gutter={12}>
-                  <Col xs={24} sm={12}>
-                    <Form.Item name="start_date" label="开始日期">
-                      <Input type="date" />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} sm={12}>
-                    <Form.Item name="due_date" label="截止日期">
-                      <Input type="date" />
-                    </Form.Item>
-                  </Col>
-                </Row>
-                <Form.Item name="parent_id" label="父任务">
-                  <Select
-                    allowClear
-                    showSearch
-                    optionFilterProp="label"
-                    options={items
-                      .filter(
-                        (item) =>
-                          item.id !== editing?.id &&
-                          (!editing || !isDescendant(items, editing.id, item.id)),
-                      )
-                      .map((item) => ({
-                        value: item.id,
-                        label: `${item.title} · ${STATUS_META[item.status].label}`,
-                      }))}
-                  />
-                </Form.Item>
-                <Form.Item
-                  name="dependency_ids"
-                  label="前置依赖"
-                  extra="所选任务完成后，本任务才具备开始条件。系统会拒绝依赖环。"
-                >
-                  <Select
-                    mode="multiple"
-                    allowClear
-                    showSearch
-                    optionFilterProp="label"
-                    options={items
-                      .filter((item) => item.id !== editing?.id)
-                      .map((item) => ({
-                        value: item.id,
-                        label: `${item.title} · ${STATUS_META[item.status].label} · ${item.assignee_name || "未指派"}${item.due_date ? ` · ${item.due_date}` : ""}`,
-                      }))}
-                  />
-                </Form.Item>
-                {editing && items.some((item) => item.dependency_ids?.includes(editing.id)) && (
-                  <div className="task-blocks-summary">
-                    <Typography.Text type="secondary">本任务阻塞：</Typography.Text>
-                    <Space size={[4, 4]} wrap>
-                      {items
-                        .filter((item) => item.dependency_ids?.includes(editing.id))
-                        .map((item) => (
-                          <Tag key={item.id}>{item.title}</Tag>
-                        ))}
-                    </Space>
-                  </div>
-                )}
-              </Card>
-
-            </div>
-          </div>
-          <Collapse
-            className="task-editor-advanced"
-            activeKey={taskAdvancedOpen}
-            onChange={(keys) =>
-              setTaskAdvancedOpen(
-                (Array.isArray(keys) ? keys : [keys]).map(String),
-              )
-            }
+          <Tabs
+            className="task-editor-tabs"
+            activeKey={taskEditorStep}
+            onChange={(key) => setTaskEditorStep(key as TaskEditorStep)}
             items={[
               {
-                key: "advanced",
+                key: "content",
+                label: "1 内容与属性",
                 forceRender: true,
-                label: (
-                  <Space size={8} wrap>
-                    <Typography.Text strong>更多字段</Typography.Text>
-                    <Typography.Text type="secondary">
-                      工时、标签、来源与自定义字段
-                    </Typography.Text>
-                  </Space>
-                ),
                 children: (
-                  <div className="task-editor-advanced-grid">
-                    <div>
-                      <Row gutter={12}>
-                        <Col xs={24} sm={12}>
-                          <Form.Item name="estimate_h" label="预估工时">
-                            <InputNumber
-                              min={0}
-                              className="full-width"
-                              addonAfter="h"
-                            />
-                          </Form.Item>
-                        </Col>
-                        <Col xs={24} sm={12}>
-                          <Form.Item name="spent_h" label="投入工时">
-                            <InputNumber
-                              min={0}
-                              className="full-width"
-                              addonAfter="h"
-                            />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                      <Form.Item name="labels" label="标签">
-                        <Select mode="tags" tokenSeparators={[","]} />
+                  <div className="task-editor-content-layout">
+                    <Card
+                      size="small"
+                      title="任务内容"
+                      className="task-editor-section task-editor-content-card"
+                    >
+                      <Form.Item
+                        name="title"
+                        label="标题"
+                        rules={[{ required: true, whitespace: true }]}
+                      >
+                        <Input
+                          maxLength={300}
+                          placeholder="用一句话说明要完成什么"
+                        />
                       </Form.Item>
-                    </div>
-                    <div>
-                      <Form.Item name="source" label="来源">
-                        <Input maxLength={80} />
+                      <Form.Item
+                        name="description"
+                        label="任务内容"
+                        extra="建议写清背景、目标、实施要点和验收标准。"
+                      >
+                        <MarkdownEditor disabled={!canWrite(project)} />
                       </Form.Item>
-                      {customFields.map((field) => (
-                        <Form.Item
-                          key={field.id}
-                          name={["custom_fields", field.id]}
-                          label={field.name}
-                          rules={
-                            field.required ? [{ required: true }] : undefined
-                          }
-                        >
-                          {field.field_type === "number" ? (
-                            <InputNumber className="full-width" />
-                          ) : field.field_type === "boolean" ? (
-                            <Select
-                              allowClear
-                              options={[
-                                { value: true, label: "是" },
-                                { value: false, label: "否" },
-                              ]}
-                            />
-                          ) : field.field_type === "select" ? (
-                            <Select
-                              allowClear
-                              options={field.options.map((value) => ({
-                                value,
-                                label: value,
-                              }))}
-                            />
-                          ) : (
-                            <Input
-                              type={
-                                field.field_type === "date" ? "date" : "text"
-                              }
-                              maxLength={500}
-                            />
+                    </Card>
+                    <Card
+                      size="small"
+                      title="任务属性"
+                      className="task-editor-section"
+                    >
+                      <Form.Item name="status" label="状态">
+                        <Select options={[...STATUS_OPTIONS]} />
+                      </Form.Item>
+                      <Form.Item name="priority" label="优先级">
+                        <Select options={[...PRIORITY_OPTIONS]} />
+                      </Form.Item>
+                      <Form.Item name="assignee" label="负责人">
+                        <Select
+                          allowClear
+                          showSearch
+                          optionFilterProp="label"
+                          placeholder="未指派"
+                          options={members.map((member) => ({
+                            value: member.account_id,
+                            label: member.name,
+                          }))}
+                        />
+                      </Form.Item>
+                      <Alert
+                        type="info"
+                        showIcon
+                        message="先写清任务，再安排计划"
+                        description="标题和内容用于说明要做什么；负责人和优先级用于明确当前执行责任。"
+                      />
+                    </Card>
+                  </div>
+                ),
+              },
+              {
+                key: "plan",
+                label: "2 计划与关系",
+                forceRender: true,
+                children: (
+                  <div className="task-editor-plan">
+                    <Alert
+                      className="task-plan-summary"
+                      type="info"
+                      showIcon
+                      message="当前计划摘要"
+                      description={
+                        <Space size={[6, 6]} wrap>
+                          {watchedMilestoneId && (
+                            <Tag color="blue">
+                              里程碑：
+                              {milestones.find(
+                                (item) => item.id === watchedMilestoneId,
+                              )?.name || "未识别"}
+                            </Tag>
                           )}
+                          {watchedSprintId && (
+                            <Tag color="cyan">
+                              Sprint：
+                              {sprints.find(
+                                (item) => item.id === watchedSprintId,
+                              )?.name || "未识别"}
+                            </Tag>
+                          )}
+                          {(watchedStartDate || watchedDueDate) && (
+                            <Tag>
+                              时间：{watchedStartDate || "未设置"} →{" "}
+                              {watchedDueDate || "未设置"}
+                            </Tag>
+                          )}
+                          {watchedParentId && (
+                            <Tag color="purple">
+                              父任务：
+                              {items.find(
+                                (item) => item.id === watchedParentId,
+                              )?.title || "未识别"}
+                            </Tag>
+                          )}
+                          {watchedDependencyIds.length > 0 && (
+                            <Tag color="orange">
+                              前置依赖：{watchedDependencyIds.length} 项
+                            </Tag>
+                          )}
+                          {!watchedMilestoneId &&
+                            !watchedSprintId &&
+                            !watchedStartDate &&
+                            !watchedDueDate &&
+                            !watchedParentId &&
+                            watchedDependencyIds.length === 0 && (
+                              <Typography.Text type="secondary">
+                                尚未设置计划归属、时间或任务关系
+                              </Typography.Text>
+                            )}
+                        </Space>
+                      }
+                    />
+                    <div className="task-editor-plan-grid">
+                      <Card
+                        size="small"
+                        title="计划归属与时间"
+                        className="task-editor-section"
+                      >
+                        <Row gutter={12}>
+                          <Col xs={24} sm={12}>
+                            <Form.Item name="milestone_id" label="里程碑">
+                              <Select
+                                allowClear
+                                showSearch
+                                optionFilterProp="label"
+                                options={milestones.map((milestone) => ({
+                                  value: milestone.id,
+                                  label: milestone.name,
+                                }))}
+                                popupRender={(menu) => (
+                                  <>
+                                    {menu}
+                                    {canWrite(project) && (
+                                      <Button
+                                        type="text"
+                                        block
+                                        icon={<PlusOutlined />}
+                                        className="task-plan-create"
+                                        onMouseDown={(event) =>
+                                          event.preventDefault()
+                                        }
+                                        onClick={() =>
+                                          openQuickPlan("milestone")
+                                        }
+                                      >
+                                        新建里程碑
+                                      </Button>
+                                    )}
+                                  </>
+                                )}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col xs={24} sm={12}>
+                            <Form.Item name="sprint_id" label="Sprint / 周期">
+                              <Select
+                                allowClear
+                                showSearch
+                                optionFilterProp="label"
+                                options={sprints.map((sprint) => ({
+                                  value: sprint.id,
+                                  label: sprint.name,
+                                }))}
+                                popupRender={(menu) => (
+                                  <>
+                                    {menu}
+                                    {canWrite(project) && (
+                                      <Button
+                                        type="text"
+                                        block
+                                        icon={<PlusOutlined />}
+                                        className="task-plan-create"
+                                        onMouseDown={(event) =>
+                                          event.preventDefault()
+                                        }
+                                        onClick={() =>
+                                          openQuickPlan("sprint")
+                                        }
+                                      >
+                                        新建 Sprint
+                                      </Button>
+                                    )}
+                                  </>
+                                )}
+                              />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                        <Row gutter={12}>
+                          <Col xs={24} sm={12}>
+                            <Form.Item name="start_date" label="开始日期">
+                              <Input type="date" />
+                            </Form.Item>
+                          </Col>
+                          <Col xs={24} sm={12}>
+                            <Form.Item
+                              name="due_date"
+                              label="截止日期"
+                              dependencies={["start_date"]}
+                              rules={[
+                                ({ getFieldValue }) => ({
+                                  validator: async (_rule, dueDate) => {
+                                    const startDate =
+                                      getFieldValue("start_date");
+                                    if (
+                                      !startDate ||
+                                      !dueDate ||
+                                      startDate <= dueDate
+                                    )
+                                      return;
+                                    throw new Error(
+                                      "截止日期不能早于开始日期",
+                                    );
+                                  },
+                                }),
+                              ]}
+                            >
+                              <Input type="date" />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      </Card>
+                      <Card
+                        size="small"
+                        title="任务逻辑关系"
+                        className="task-editor-section"
+                      >
+                        <Form.Item
+                          name="parent_id"
+                          label="父任务"
+                          extra="父任务表示层级归属，不代表执行先后。"
+                        >
+                          <Select
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                            options={items
+                              .filter(
+                                (item) =>
+                                  item.id !== editing?.id &&
+                                  (!editing ||
+                                    !isDescendant(items, editing.id, item.id)),
+                              )
+                              .map((item) => ({
+                                value: item.id,
+                                label: `${item.title} · ${STATUS_META[item.status].label}`,
+                              }))}
+                          />
                         </Form.Item>
-                      ))}
+                        <Form.Item
+                          name="dependency_ids"
+                          label="前置依赖"
+                          extra="所选任务完成后，本任务才具备开始条件；系统会拒绝依赖环。"
+                        >
+                          <Select
+                            mode="multiple"
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                            options={items
+                              .filter((item) => item.id !== editing?.id)
+                              .map((item) => ({
+                                value: item.id,
+                                label: `${item.title} · ${STATUS_META[item.status].label} · ${item.assignee_name || "未指派"}${item.due_date ? ` · ${item.due_date}` : ""}`,
+                              }))}
+                          />
+                        </Form.Item>
+                        {editing &&
+                          items.some((item) =>
+                            item.dependency_ids?.includes(editing.id),
+                          ) && (
+                            <div className="task-blocks-summary">
+                              <Typography.Text type="secondary">
+                                本任务阻塞：
+                              </Typography.Text>
+                              <Space size={[4, 4]} wrap>
+                                {items
+                                  .filter((item) =>
+                                    item.dependency_ids?.includes(editing.id),
+                                  )
+                                  .map((item) => (
+                                    <Tag key={item.id}>{item.title}</Tag>
+                                  ))}
+                              </Space>
+                            </div>
+                          )}
+                      </Card>
                     </div>
                   </div>
+                ),
+              },
+              {
+                key: "advanced",
+                label: "3 更多信息",
+                forceRender: true,
+                children: (
+                  <Card
+                    size="small"
+                    title="执行与补充信息"
+                    className="task-editor-section"
+                  >
+                    <div className="task-editor-advanced-grid">
+                      <div>
+                        <Row gutter={12}>
+                          <Col xs={24} sm={12}>
+                            <Form.Item name="estimate_h" label="预估工时">
+                              <InputNumber
+                                min={0}
+                                className="full-width"
+                                addonAfter="h"
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col xs={24} sm={12}>
+                            <Form.Item name="spent_h" label="投入工时">
+                              <InputNumber
+                                min={0}
+                                className="full-width"
+                                addonAfter="h"
+                              />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                        <Form.Item name="labels" label="标签">
+                          <Select mode="tags" tokenSeparators={[","]} />
+                        </Form.Item>
+                      </div>
+                      <div>
+                        <Form.Item name="source" label="来源">
+                          <Input maxLength={80} />
+                        </Form.Item>
+                        {customFields.map((field) => (
+                          <Form.Item
+                            key={field.id}
+                            name={["custom_fields", field.id]}
+                            label={field.name}
+                            rules={
+                              field.required ? [{ required: true }] : undefined
+                            }
+                          >
+                            {field.field_type === "number" ? (
+                              <InputNumber className="full-width" />
+                            ) : field.field_type === "boolean" ? (
+                              <Select
+                                allowClear
+                                options={[
+                                  { value: true, label: "是" },
+                                  { value: false, label: "否" },
+                                ]}
+                              />
+                            ) : field.field_type === "select" ? (
+                              <Select
+                                allowClear
+                                options={field.options.map((fieldValue) => ({
+                                  value: fieldValue,
+                                  label: fieldValue,
+                                }))}
+                              />
+                            ) : (
+                              <Input
+                                type={
+                                  field.field_type === "date" ? "date" : "text"
+                                }
+                                maxLength={500}
+                              />
+                            )}
+                          </Form.Item>
+                        ))}
+                      </div>
+                    </div>
+                  </Card>
                 ),
               },
             ]}
@@ -1957,7 +2120,7 @@ export function ProjectPlan() {
                               type="secondary"
                               ellipsis={{ rows: 2 }}
                             >
-                              {task.description}
+                              {taskDescriptionSummary(task.description)}
                             </Typography.Paragraph>
                           )}
                           <div className="project-task-card-meta">
@@ -2223,7 +2386,7 @@ export function ProjectTasks() {
             {items.some((child) => child.parent_id === item.id) && <Tag>{items.filter((child) => child.parent_id === item.id && child.status === "done").length}/{items.filter((child) => child.parent_id === item.id).length} 子任务</Tag>}
             {item.description && (
               <Typography.Text type="secondary" ellipsis>
-                {item.description}
+                {taskDescriptionSummary(item.description)}
               </Typography.Text>
             )}
           </span>

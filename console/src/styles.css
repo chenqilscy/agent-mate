@@ -176,14 +176,84 @@ body {
 .project-task-child { padding-inline-start: 20px; }
 .project-task-child::before { content: "↳"; margin-inline-end: 7px; color: var(--console-muted); }
 
-.task-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.task-editor-column { min-width: 0; display: grid; gap: 16px; }
+.task-editor-tabs > .ant-tabs-nav { margin-bottom: 16px; }
+.task-editor-content-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; align-items: start; }
+.task-editor-plan { display: grid; gap: 16px; }
+.task-editor-plan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .task-editor-section { border-color: var(--console-border); background: var(--console-panel); }
 .task-editor-section .ant-card-body { padding-bottom: 4px; }
-.task-editor-advanced { margin-top: 16px; border-color: var(--console-border); background: var(--console-panel); }
 .task-editor-advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .task-plan-create { margin-top: 4px; border-top: 1px solid var(--console-border); border-radius: 0; color: var(--console-brand); }
 .task-blocks-summary { display: grid; gap: 6px; margin: -4px 0 14px; }
+
+.markdown-editor {
+  overflow: hidden;
+  border: 1px solid var(--console-border);
+  border-radius: 8px;
+  background: var(--console-panel);
+}
+.markdown-editor-toolbar,
+.markdown-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  background: var(--console-task-surface);
+}
+.markdown-editor-toolbar { border-bottom: 1px solid var(--console-border); }
+.markdown-editor-footer { border-top: 1px solid var(--console-border); font-size: 12px; }
+.markdown-editor-body.is-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.markdown-editor-input {
+  min-height: 350px !important;
+  padding: 14px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  resize: vertical;
+}
+.markdown-editor-preview {
+  min-height: 350px;
+  max-height: 560px;
+  overflow: auto;
+  padding: 14px 18px;
+  background: var(--console-panel);
+}
+.markdown-editor-body.is-split .markdown-editor-preview { border-inline-start: 1px solid var(--console-border); }
+.markdown-editor-preview-content { overflow-wrap: anywhere; }
+.markdown-editor-preview-content > :first-child { margin-top: 0; }
+.markdown-editor-preview-content > :last-child { margin-bottom: 0; }
+.markdown-editor-preview-content h1,
+.markdown-editor-preview-content h2,
+.markdown-editor-preview-content h3,
+.markdown-editor-preview-content h4 { margin: 1.1em 0 .55em; line-height: 1.3; }
+.markdown-editor-preview-content p,
+.markdown-editor-preview-content ul,
+.markdown-editor-preview-content ol { margin: .65em 0; }
+.markdown-editor-preview-content blockquote {
+  margin: .8em 0;
+  padding: 4px 12px;
+  color: var(--console-muted);
+  border-inline-start: 3px solid var(--console-brand);
+  background: var(--console-task-surface);
+}
+.markdown-editor-preview-content code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--console-code);
+}
+.markdown-editor-preview-content pre {
+  overflow: auto;
+  padding: 12px;
+  border-radius: 7px;
+  background: var(--console-code);
+}
+.markdown-editor-preview-content pre code { padding: 0; background: transparent; }
+.markdown-editor-preview-content table { width: 100%; border-collapse: collapse; }
+.markdown-editor-preview-content th,
+.markdown-editor-preview-content td { padding: 7px 9px; border: 1px solid var(--console-border); }
+.markdown-editor-preview-content a { color: var(--console-brand); }
 
 .project-gantt-scroll { max-width: 100%; overflow-x: auto; }
 .project-gantt { display: grid; grid-template-columns: 230px minmax(530px, 1fr); overflow: hidden; border: 1px solid var(--console-border); border-radius: 10px; }
@@ -283,8 +353,11 @@ body {
   .project-plan-toolbar-view { grid-column: auto; grid-row: auto; justify-content: flex-start; }
   .project-plan-toolbar .ant-input-search { width: min(100%, 260px); }
   .project-kanban { grid-template-columns: repeat(4, 260px); }
-  .task-editor-layout { grid-template-columns: 1fr; }
+  .task-editor-content-layout,
+  .task-editor-plan-grid { grid-template-columns: 1fr; }
   .task-editor-advanced-grid { grid-template-columns: 1fr; }
+  .markdown-editor-body.is-split { grid-template-columns: 1fr; }
+  .markdown-editor-body.is-split .markdown-editor-preview { border-inline-start: 0; border-top: 1px solid var(--console-border); }
   .project-task-filters { width: 100%; }
 }
 
@@ -306,4 +379,7 @@ body {
   .project-task-card-meta { align-items: stretch; flex-direction: column; }
   .project-task-card-meta > .ant-select { width: 100%; }
   .project-gantt { grid-template-columns: 170px minmax(530px, 1fr); }
+  .markdown-editor-toolbar,
+  .markdown-editor-footer { align-items: stretch; flex-direction: column; }
+  .markdown-editor-toolbar .ant-segmented { width: 100%; }
 }
