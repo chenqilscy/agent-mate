@@ -46,6 +46,12 @@ function relativeTime(timestamp: number): string {
   return `${Math.floor(seconds / 86400)}天前`
 }
 
+function projectWriteError(error: unknown): string {
+  return String((error as Error)?.message || '').includes('→ 503')
+    ? 'Server 暂不可达，本次修改未保存'
+    : '保存失败，请重试'
+}
+
 const IC_ADD = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
 const IC_EDIT = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" /></svg>
 
@@ -136,10 +142,14 @@ export function ProjectHomeView() {
   const onLeft = () => { setMembersOpen(false); toast('已退出项目'); reloadProjects(); setView('projects') }
 
   const saveInstruction = async () => {
-    setEditInstr(false)
-    const p = await api.updateProject(project.id, { instruction: instrDraft })
-    applyProject(p)
-    toast('指令已更新')
+    try {
+      const p = await api.updateProject(project.id, { instruction: instrDraft })
+      setEditInstr(false)
+      applyProject(p)
+      toast('指令已更新')
+    } catch (error) {
+      toast(projectWriteError(error))
+    }
   }
 
   const openPicker = (k: Kind) => {
@@ -150,11 +160,15 @@ export function ProjectHomeView() {
   }
   const closePicker = async () => {
     const k = picker!
-    setPicker(null)
-    const p = await api.updateProject(project.id, { [FIELD[k]]: [...pickerSet] })
-    applyProject(p)
-    if (k === 'kb') useLoadoutStore.getState().setKnowledgeIds(p.knowledge_ids ?? [])
-    toast('项目配置已更新')
+    try {
+      const p = await api.updateProject(project.id, { [FIELD[k]]: [...pickerSet] })
+      setPicker(null)
+      applyProject(p)
+      if (k === 'kb') useLoadoutStore.getState().setKnowledgeIds(p.knowledge_ids ?? [])
+      toast('项目配置已更新')
+    } catch (error) {
+      toast(projectWriteError(error))
+    }
   }
 
   const launch = (text: string) => {

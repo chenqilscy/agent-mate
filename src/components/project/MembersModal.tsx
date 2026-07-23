@@ -15,10 +15,17 @@ const ASSIGNABLE = ['Admin', 'Member', 'Viewer'] as const
 
 function addError(e: unknown): string {
   const m = String((e as Error)?.message || '')
+  if (m.includes('503')) return 'Server 暂不可达，成员未添加'
   if (m.includes('404')) return '找不到该用户名'
   if (m.includes('400')) return '无法添加：可能已是所有者，或角色无效'
   if (m.includes('403')) return '你没有管理成员的权限'
   return '操作失败，请重试'
+}
+
+function memberWriteError(e: unknown, fallback: string): string {
+  return String((e as Error)?.message || '').includes('503')
+    ? 'Server 暂不可达，成员信息未变更'
+    : fallback
 }
 
 export function MembersModal({ project, onClose, onLeft }: {
@@ -65,8 +72,8 @@ export function MembersModal({ project, onClose, onLeft }: {
     try {
       const r = await api.updateMemberRole(project.id, userId, next)
       setMembers(r.members)
-    } catch {
-      toast('修改角色失败')
+    } catch (e) {
+      toast(memberWriteError(e, '修改角色失败'))
     }
   }
 
@@ -77,8 +84,8 @@ export function MembersModal({ project, onClose, onLeft }: {
       if (isSelf) { onLeft(); return }
       setMembers((prev) => prev.filter((x) => x.user_id !== m.user_id))
       toast(`已移除「${m.name}」`)
-    } catch {
-      toast('移除失败')
+    } catch (e) {
+      toast(memberWriteError(e, '移除失败'))
     }
   }
 
@@ -87,8 +94,8 @@ export function MembersModal({ project, onClose, onLeft }: {
     try {
       await api.removeMember(project.id, meId)
       onLeft()
-    } catch {
-      toast('退出失败')
+    } catch (e) {
+      toast(memberWriteError(e, '退出失败'))
     }
   }
 

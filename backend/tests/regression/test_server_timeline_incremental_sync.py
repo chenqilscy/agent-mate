@@ -16,6 +16,7 @@ from auth.deps import set_current_user_id  # noqa: E402
 from config import settings  # noqa: E402
 import server_sync  # noqa: E402
 from routers import server as server_router  # noqa: E402
+from routers import projects as projects_router  # noqa: E402
 from storage import db  # noqa: E402
 from storage.models import LOCAL_USER_ID, Role  # noqa: E402
 
@@ -95,6 +96,54 @@ class ServerTimelineIncrementalSyncTest(unittest.TestCase):
             instruction="remote-v2", created_at=10, updated_at=200,
         )
         self.assertEqual(0, db.count_server_sync_conflicts("project-1"))
+
+    def test_server_project_writes_fail_closed_while_local_projects_stay_writable(self) -> None:
+        with patch.object(projects_router.server_client, "update_project", return_value=None):
+            with self.assertRaises(HTTPException) as update_error:
+                projects_router.update_project(
+                    "project-1", projects_router.UpdateProjectBody(instruction="local-offline"),
+                    authorization="Bearer token",
+                )
+        self.assertEqual(503, update_error.exception.status_code)
+        self.assertEqual("remote-v1", db.get_project("project-1").instruction)
+        self.assertEqual(0, db.count_server_sync_conflicts("project-1"))
+
+        teammate = db.create_user(name="teammate", password="pw")
+        with patch.object(projects_router.server_client, "add_member", return_value=None):
+            with self.assertRaises(HTTPException) as add_error:
+                projects_router.add_member(
+                    "project-1", projects_router.AddMemberBody(name="teammate", role="Member"),
+                    authorization="Bearer token",
+                )
+        self.assertEqual(503, add_error.exception.status_code)
+        self.assertIsNone(db.project_member_role("project-1", teammate.id))
+
+        db.add_project_member("project-1", teammate.id, Role.MEMBER)
+        with patch.object(projects_router.server_client, "update_member", return_value=None):
+            with self.assertRaises(HTTPException) as role_error:
+                projects_router.update_member(
+                    "project-1", teammate.id, projects_router.UpdateMemberBody(role="Admin"),
+                    authorization="Bearer token",
+                )
+        self.assertEqual(503, role_error.exception.status_code)
+        self.assertEqual(Role.MEMBER, db.project_member_role("project-1", teammate.id))
+
+        with patch.object(projects_router.server_client, "remove_member", return_value=False):
+            with self.assertRaises(HTTPException) as remove_error:
+                projects_router.remove_member(
+                    "project-1", teammate.id, authorization="Bearer token",
+                )
+        self.assertEqual(503, remove_error.exception.status_code)
+        self.assertEqual(Role.MEMBER, db.project_member_role("project-1", teammate.id))
+
+        local = db.create_project(owner_id=LOCAL_USER_ID, name="本机项目")
+        with patch.object(projects_router.server_client, "update_project") as remote_update:
+            updated = projects_router.update_project(
+                local.id, projects_router.UpdateProjectBody(instruction="local-ok"),
+                authorization="Bearer token",
+            )
+        remote_update.assert_not_called()
+        self.assertEqual("local-ok", updated["instruction"])
 
     def test_work_items_and_milestones_merge_by_id_without_table_replacement(self) -> None:
         first = {

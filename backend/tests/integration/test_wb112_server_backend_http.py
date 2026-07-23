@@ -121,7 +121,7 @@ class Wb112ServerBackendHttpTest(unittest.TestCase):
         self.assertIsInstance(data, dict)
         return data
 
-    def test_timeline_offline_cache_and_incremental_conflict(self) -> None:
+    def test_timeline_offline_cache_and_server_authority(self) -> None:
         owner = self._ok(self.client.post(
             f"{self.server_url}/api/auth/register",
             json={"name": "wb112-owner", "password": "owner-pass-123"},
@@ -161,11 +161,12 @@ class Wb112ServerBackendHttpTest(unittest.TestCase):
 
         self._stop(self.server)
         self.server = None
-        offline_patch = self._ok(self.client.patch(
+        offline_patch = self.client.patch(
             f"{self.backend_url}/api/projects/{project_id}", headers=app_headers,
             json={"instruction": "local-offline"},
-        ))
-        self.assertEqual("local-offline", offline_patch["instruction"])
+        )
+        self.assertEqual(503, offline_patch.status_code, offline_patch.text)
+        self.assertIn("项目配置未保存", offline_patch.json()["detail"])
         offline = self._ok(self.client.get(
             f"{self.backend_url}/api/server/projects/{project_id}/timeline", headers=app_headers,
         ))
@@ -185,10 +186,9 @@ class Wb112ServerBackendHttpTest(unittest.TestCase):
         conflicts = self._ok(self.client.get(
             f"{self.backend_url}/api/server/projects/{project_id}/sync-conflicts", headers=app_headers,
         ))
-        self.assertEqual("local-offline", app_project["instruction"])
-        self.assertEqual(1, conflicts["count"])
-        self.assertEqual("concurrent_update", conflicts["conflicts"][0]["reason"])
-        self.assertEqual(1, len(second_pull["conflicts"]))
+        self.assertEqual("remote-concurrent", app_project["instruction"])
+        self.assertEqual(0, conflicts["count"])
+        self.assertEqual([], second_pull["conflicts"])
 
 
 if __name__ == "__main__":

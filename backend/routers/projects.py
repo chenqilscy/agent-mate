@@ -21,7 +21,7 @@ _ROLE_CN = {"Owner": "所有者", "Admin": "管理员", "Member": "成员", "Vie
 
 # ---- Console 写代理（WB-112c）：server-origin 项目的成员/配置写以 Console 为权威 ----
 # 与 work_items 同模式：先本地角色 gate → 代理到 Console → 成功后刷新本地镜像；
-# Console 不可达 → 回退纯本地（离线优先）。只写本地会被下次 pull 覆盖 = 静默丢数据，故必须代理。
+# Server 不可达 → 显式失败。只写本地会制造跨端假成功并在下次 pull 时形成分叉，故禁止回退写镜像。
 
 def _bearer(authorization: str) -> str:
     return authorization[7:].strip() if authorization[:7].lower() == "bearer " else ""
@@ -186,7 +186,7 @@ def update_project(project_id: str, body: UpdateProjectBody, authorization: str 
             if patch:
                 _mirror_project(up)
             return _view(db.get_project(project_id), role)
-        # Console 不可达 → 回退本地
+        raise HTTPException(503, "Server 暂不可达，项目配置未保存，请稍后重试")
     updated = db.update_project(
         project_id,
         name=body.name,
@@ -242,7 +242,7 @@ def add_member(project_id: str, body: AddMemberBody, authorization: str = Header
         if res is not None:
             _mirror_members(tok, project_id, str((res.get("member") or {}).get("account_id") or ""))
             return {"members": db.list_project_members(project_id)}
-        # Console 不可达 → 回退本地
+        raise HTTPException(503, "Server 暂不可达，成员未添加，请稍后重试")
     found = db.get_user_by_name((body.name or "").strip())
     if not found:
         raise HTTPException(404, "用户不存在")
@@ -273,7 +273,7 @@ def update_member(project_id: str, user_id: str, body: UpdateMemberBody, authori
         if server_client.update_member(tok, project_id, user_id, role.value) is not None:
             _mirror_members(tok, project_id, user_id)
             return {"members": db.list_project_members(project_id)}
-        # Console 不可达 → 回退本地
+        raise HTTPException(503, "Server 暂不可达，成员角色未修改，请稍后重试")
     if db.project_member_role(project_id, user_id) is None:
         raise HTTPException(404, "成员不存在")
     db.add_project_member(project_id, user_id, role)  # upsert = change role
@@ -300,7 +300,7 @@ def remove_member(project_id: str, user_id: str, authorization: str = Header(def
         if server_client.remove_member(tok, project_id, user_id):
             _mirror_members(tok, project_id, user_id)
             return {"ok": True}
-        # Console 不可达 → 回退本地
+        raise HTTPException(503, "Server 暂不可达，成员未移除，请稍后重试")
     if user_id == me.id:
         db.remove_project_member(project_id, user_id)
         return {"ok": True}
