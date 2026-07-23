@@ -138,6 +138,7 @@ export function ProjectHomeView() {
   // The caller's role in this project (M7 C2) drives the badge + management access.
   const ROLE_LABEL: Record<string, string> = { Owner: '所有者', Admin: '管理员', Member: '成员', Viewer: '只读' }
   const canManage = project.role === 'Owner' || project.role === 'Admin'
+  const canWrite = project.role !== 'Viewer'
   const isShared = !!project.role && project.role !== 'Owner'
   const onLeft = () => { setMembersOpen(false); toast('已退出项目'); reloadProjects(); setView('projects') }
 
@@ -297,21 +298,25 @@ export function ProjectHomeView() {
               )
             )}
 
-            {tab === '计划' && <KanbanBoard />}
+            {tab === '计划' && <KanbanBoard canWrite={canWrite} />}
 
-            {tab === '任务' && <TaskList />}
+            {tab === '任务' && <TaskList canWrite={canWrite} />}
 
             {tab === '负载' && <WorkloadView />}
 
-            {tab === '甘特' && <GanttView />}
+            {tab === '甘特' && <GanttView canWrite={canWrite} />}
 
-            {tab === '资产' && <AssetsManager scope={{ project: project.id }} />}
+            {tab === '资产' && <AssetsManager scope={{ project: project.id }} canWrite={canWrite} />}
 
-            {tab === '讨论' && <ServerCommentsPanel projectId={project.id} />}
+            {tab === '讨论' && <ServerCommentsPanel projectId={project.id} canWrite={canWrite} />}
           </div>
 
           <div className="chat-foot">
-            <Composer variant="chat" onSend={launch} placeholder={`在「${project.name}」里开始一次执行…`} />
+            {canWrite ? (
+              <Composer variant="chat" onSend={launch} placeholder={`在「${project.name}」里开始一次执行…`} />
+            ) : (
+              <Tag className="pj-rolebadge">只读模式 · 可查看项目内容，不能发起执行或修改协作数据</Tag>
+            )}
             <div className="disc">内容由 AI 生成，请核实重要信息</div>
           </div>
         </div>

@@ -47,7 +47,7 @@ function entriesAt(entries: FileEntry[], cwd: string): FileEntry[] {
   return cur
 }
 
-export function AssetsManager({ scope }: { scope: FileScope }) {
+export function AssetsManager({ scope, canWrite = true }: { scope: FileScope; canWrite?: boolean }) {
   const viewerPath = useUIStore((s) => s.viewerPath)
   const openFile = useUIStore((s) => s.openFile)
   const closeFile = useUIStore((s) => s.closeFile)
@@ -112,9 +112,10 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
   return (
     <div>
       <div className="as-toolbar">
-        <WbButton className="cap-act" onClick={newFolder}>新建文件夹</WbButton>
-        <WbButton className="cap-act" onClick={() => fileInput.current?.click()}>上传文件</WbButton>
-        <WbInput ref={fileInput} type="file" multiple hidden onChange={(e) => onUpload(e.target.files)} />
+        {canWrite && <WbButton className="cap-act" onClick={newFolder}>新建文件夹</WbButton>}
+        {canWrite && <WbButton className="cap-act" onClick={() => fileInput.current?.click()}>上传文件</WbButton>}
+        {canWrite && <WbInput ref={fileInput} type="file" multiple hidden onChange={(e) => onUpload(e.target.files)} />}
+        {!canWrite && <span className="as-quota">只读模式 · 可预览和下载项目资产</span>}
         <span className="as-quota">存储空间已用 {fmtSize(usage.used)} / {fmtSize(usage.quota)} <Progress percent={Number(pct.toFixed(2))} size="small" showInfo={false} /></span>
         <span style={{ flex: 1 }} />
         <Input.Search className="search-box" allowClear style={{ margin: 0, width: 220 }} placeholder="搜索文件或文件夹" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -127,7 +128,7 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
         rowKey="path"
         dataSource={rows}
         pagination={false}
-        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无文件，点「上传文件」或让 Agent 在本项目里生成产物" /> }}
+        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={canWrite ? '暂无文件，点「上传文件」或让 Agent 在本项目里生成产物' : '暂无项目资产'} /> }}
         onRow={() => ({ className: 'as-row' })}
         columns={[
           { title: '名称', dataIndex: 'name', render: (_, e) => (
@@ -147,7 +148,13 @@ export function AssetsManager({ scope }: { scope: FileScope }) {
           { title: '类型', key: 'type', width: 90, className: 'as-col-t', render: (_, e) => typeLabel(e) },
           { title: '更新时间', dataIndex: 'mtime', width: 110, className: 'as-col-s', render: (value) => fmtTime(value) },
           { title: '大小', dataIndex: 'size', width: 90, className: 'as-col-s', render: (value) => fmtSize(value) },
-          { title: '', key: 'actions', width: 50, render: (_, e) => <Dropdown trigger={['click']} menu={{ items: [...(e.type === 'f' ? [{ key: 'download', label: '下载' }] : []), { key: 'rename', label: '重命名' }, { key: 'delete', label: '删除', danger: true }], onClick: ({ key, domEvent }) => { domEvent.stopPropagation(); if (key === 'download') void api.downloadFile(e.path, e.name, scope); else if (key === 'rename') { setRenaming(e.path); setRenameDraft(e.name) } else void doDelete(e) } }}><WbButton className="as-more" onClick={(event) => event.stopPropagation()}>⋯</WbButton></Dropdown> },
+          { title: '', key: 'actions', width: 50, render: (_, e) => {
+            const items = [
+              ...(e.type === 'f' ? [{ key: 'download', label: '下载' }] : []),
+              ...(canWrite ? [{ key: 'rename', label: '重命名' }, { key: 'delete', label: '删除', danger: true }] : []),
+            ]
+            return items.length ? <Dropdown trigger={['click']} menu={{ items, onClick: ({ key, domEvent }) => { domEvent.stopPropagation(); if (key === 'download') void api.downloadFile(e.path, e.name, scope); else if (key === 'rename') { setRenaming(e.path); setRenameDraft(e.name) } else void doDelete(e) } }}><WbButton className="as-more" onClick={(event) => event.stopPropagation()}>⋯</WbButton></Dropdown> : null
+          } },
         ]}
       />
     </div>

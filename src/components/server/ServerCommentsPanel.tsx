@@ -22,7 +22,7 @@ function ago(ts: number): string {
   return Math.floor(s / 86400) + ' 天前'
 }
 
-export function ServerCommentsPanel({ projectId }: { projectId: string }) {
+export function ServerCommentsPanel({ projectId, canWrite = true }: { projectId: string; canWrite?: boolean }) {
   const { enabled, linked, checked, refreshStatus } = useServerStore()
   const [comments, setComments] = useState<Comment[]>([])
   const [presence, setPresence] = useState<Presence[]>([])
@@ -94,11 +94,15 @@ export function ServerCommentsPanel({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      <div className="cap-cmt-box" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <WbInput className="np-input" style={{ flex: 1 }} value={draft} placeholder="写条评论…用 @用户名 提及成员"
-          onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} />
-        <WbButton className="btn-dark" disabled={!draft.trim() || sending} onClick={send}>发送</WbButton>
-      </div>
+      {canWrite ? (
+        <div className="cap-cmt-box" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <WbInput className="np-input" style={{ flex: 1 }} value={draft} placeholder="写条评论…用 @用户名 提及成员"
+            onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} />
+          <WbButton className="btn-dark" disabled={!draft.trim() || sending} onClick={send}>发送</WbButton>
+        </div>
+      ) : (
+        <Tag className="pj-rolebadge" style={{ marginBottom: 14 }}>只读成员可查看讨论，不能发表评论</Tag>
+      )}
 
       {comments.length === 0 ? (
         <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有评论。说点什么，开启这个项目的讨论。" />

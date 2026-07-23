@@ -300,7 +300,7 @@ function AttachmentChips({ list, projectId, onRemove }: {
 
 // ---- 待办详情 modal -------------------------------------------------------
 
-function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => void }) {
+function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClose: () => void; canWrite: boolean }) {
   const item = useWorkItemStore((s) => s.items.find((i) => i.id === itemId))
   const projectId = useWorkItemStore((s) => s.projectId)
   const update = useWorkItemStore((s) => s.update)
@@ -394,8 +394,8 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
         <div className="wb-td-top">
           <span className="wb-td-kicker">待办详情</span>
           <span style={{ flex: 1 }} />
-          <WbButton className="btn-ghost wb-td-addbtn" onClick={saveAsTemplate}>存为模板</WbButton>
-          <WbButton className="btn-ghost wb-td-addbtn" onClick={addToInput}>＋ 添加到输入框</WbButton>
+          {canWrite && <WbButton className="btn-ghost wb-td-addbtn" onClick={saveAsTemplate}>存为模板</WbButton>}
+          {canWrite && <WbButton className="btn-ghost wb-td-addbtn" onClick={addToInput}>＋ 添加到输入框</WbButton>}
           <WbButton className="np-x" onClick={onClose}>×</WbButton>
         </div>
         <div className="np-body">
@@ -407,7 +407,7 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
 
           <div className="wb-td-sec-h">
             描述
-            {!editDesc && <WbButton className="wb-td-editlink" onClick={startEdit}>✎ 编辑</WbButton>}
+            {canWrite && !editDesc && <WbButton className="wb-td-editlink" onClick={startEdit}>✎ 编辑</WbButton>}
           </div>
           {editDesc ? (
             <>
@@ -423,7 +423,7 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
 
           <div className="wb-td-sec-h">
             Agent 交付
-            {delivery?.can_write && (
+            {canWrite && delivery?.can_write && (
               <WbButton className="wb-td-editlink" disabled={deliveryBusy || deliveryActive} onClick={() => void executeWithAgent()}>
                 {deliveryActive ? '执行中…' : '交给 Agent 执行'}
               </WbButton>
@@ -447,7 +447,7 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
                       <Tag color={artifact.acceptance_status === 'accepted' ? 'success' : 'default'}>{artifact.acceptance_status === 'accepted' ? '已验收' : '待验收'}</Tag>
                     </div>
                   ))}
-                  {delivery.can_write && run.status === 'completed' && (run.artifacts?.length ?? 0) > 0 && (
+                  {canWrite && delivery.can_write && run.status === 'completed' && (run.artifacts?.length ?? 0) > 0 && (
                     <WbButton className="btn-dark" disabled={deliveryBusy} onClick={() => void acceptDelivery(run.id)}>验收全部产物并完成</WbButton>
                   )}
                 </ProCard>
@@ -461,23 +461,23 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
           )}
 
           <div className="wb-td-sec-h">标签</div>
-          <LabelsEditor labels={item.labels} onChange={(l) => void update(item.id, { labels: l })} />
+          {canWrite ? <LabelsEditor labels={item.labels} onChange={(l) => void update(item.id, { labels: l })} /> : <LabelBadges labels={item.labels} />}
 
           {item.attachments.length > 0 && <div className="wb-td-sec-h">附件 {item.attachments.length}</div>}
-          <AttachmentChips list={item.attachments} projectId={projectId} onRemove={rmAttach} />
-          <div style={{ marginTop: 10 }}>
+          <AttachmentChips list={item.attachments} projectId={projectId} onRemove={canWrite ? rmAttach : undefined} />
+          {canWrite && <div style={{ marginTop: 10 }}>
             <AttachmentAdder projectId={projectId} onAdd={addAttach} dir="up" />
-          </div>
+          </div>}
 
           <div className="wb-td-sec-h">工时（小时）</div>
           <div style={{ display: 'flex', gap: 12 }}>
             <label style={{ flex: 1, fontSize: 12, color: 'var(--wb-dim, #93a0b8)' }}>预估
-              <WbInput className="np-input" type="number" min={0} step={0.5} style={{ height: 30, marginTop: 4 }}
+              <WbInput className="np-input" type="number" min={0} step={0.5} style={{ height: 30, marginTop: 4 }} disabled={!canWrite}
                 defaultValue={item.estimate_h || ''} key={`est-${item.id}-${item.estimate_h}`}
                 onBlur={(e) => { const v = parseFloat(e.target.value) || 0; if (v !== item.estimate_h) void update(item.id, { estimate_h: v }) }} />
             </label>
             <label style={{ flex: 1, fontSize: 12, color: 'var(--wb-dim, #93a0b8)' }}>已投入
-              <WbInput className="np-input" type="number" min={0} step={0.5} style={{ height: 30, marginTop: 4 }}
+              <WbInput className="np-input" type="number" min={0} step={0.5} style={{ height: 30, marginTop: 4 }} disabled={!canWrite}
                 defaultValue={item.spent_h || ''} key={`spent-${item.id}-${item.spent_h}`}
                 onBlur={(e) => { const v = parseFloat(e.target.value) || 0; if (v !== item.spent_h) void update(item.id, { spent_h: v }) }} />
             </label>
@@ -488,11 +488,11 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
             <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="连接 AgentMate Server 账号后可在任务下评论、@ 队友。" />
           ) : (
             <>
-              <div className="cap-cmt-box" style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              {canWrite ? <div className="cap-cmt-box" style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <WbInput className="np-input" style={{ flex: 1 }} value={cbody} placeholder="写条评论…用 @用户名 提及成员"
                   onChange={(e) => setCbody(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void sendComment() }} />
                 <WbButton className="btn-dark" disabled={!cbody.trim()} onClick={() => void sendComment()}>发送</WbButton>
-              </div>
+              </div> : <Tag className="pj-rolebadge" style={{ marginBottom: 10 }}>只读成员可查看评论</Tag>}
               {comments.length === 0 ? (
                 <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有评论" />
               ) : (
@@ -511,10 +511,16 @@ function TodoDetailModal({ itemId, onClose }: { itemId: string; onClose: () => v
         </div>
         <div className="wb-td-foot">
           <span className="wb-av" title={item.assignee_name}>{item.assignee_name?.[0] ?? '奇'}</span>
-          <StatusPill status={item.status} dir="up" onPick={(s) => void update(item.id, { status: s })} />
-          <PriorityPill value={item.priority} dir="up" onPick={(p) => void update(item.id, { priority: p })} />
-          <DueDatePill value={item.due_date} dir="up" onChange={(v) => void update(item.id, { due_date: v })} />
-          <MilestonePill value={item.milestone_id} dir="up" onPick={(id) => void update(item.id, { milestone_id: id })} />
+          {canWrite ? (
+            <>
+              <StatusPill status={item.status} dir="up" onPick={(s) => void update(item.id, { status: s })} />
+              <PriorityPill value={item.priority} dir="up" onPick={(p) => void update(item.id, { priority: p })} />
+              <DueDatePill value={item.due_date} dir="up" onChange={(v) => void update(item.id, { due_date: v })} />
+              <MilestonePill value={item.milestone_id} dir="up" onPick={(id) => void update(item.id, { milestone_id: id })} />
+            </>
+          ) : (
+            <Tag className="pj-rolebadge">只读 · {STATUS_OPTS.find((status) => status.key === item.status)?.label} · {PRIO[item.priority].label}</Tag>
+          )}
         </div>
       </div>
     </AntModalBridge>
@@ -644,7 +650,7 @@ function BatchMove({ disabled, onPick }: { disabled: boolean; onPick: (s: WorkSt
 // 计划: kanban with HTML5 drag-and-drop between columns (drop → PATCH status),
 // per-card detail modal, a full new-todo modal, a top toolbar (filter/batch/search)
 // and a placeholder 添加数据源 picker.
-export function KanbanBoard() {
+export function KanbanBoard({ canWrite = true }: { canWrite?: boolean }) {
   const { message, modal } = AntApp.useApp()
   const items = useWorkItemStore((s) => s.items)
   const add = useWorkItemStore((s) => s.add)
@@ -749,9 +755,9 @@ export function KanbanBoard() {
           <div
             key={col.key}
             className={`pj-kcol ${dropCol === col.key ? 'drop' : ''}`.trim()}
-            onDragOver={(e) => { if (batch) return; e.preventDefault(); setDropCol(col.key) }}
+            onDragOver={(e) => { if (!canWrite || batch) return; e.preventDefault(); setDropCol(col.key) }}
             onDragLeave={() => setDropCol((c) => (c === col.key ? null : c))}
-            onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData('text/plain'); if (id) void move(id, col.key); setDropCol(null) }}
+            onDrop={(e) => { if (!canWrite) return; e.preventDefault(); const id = e.dataTransfer.getData('text/plain'); if (id) void move(id, col.key); setDropCol(null) }}
           >
             <div className="pj-kcol-h">
               <span className="wb-dot" style={{ background: DOT[col.key] }} />
@@ -759,7 +765,7 @@ export function KanbanBoard() {
               <span className="cnt" style={over ? { background: '#EF4444', color: '#fff' } : undefined}>{lim ? `${colItems.length}/${lim}` : colItems.length}</span>
               {wipEdit
                 ? <WbInput type="number" min={0} className="np-input" style={{ width: 46, height: 22, padding: '0 6px', marginLeft: 6, fontSize: 11 }} defaultValue={lim || ''} placeholder="∞" onBlur={(e) => saveWip(col.key, parseInt(e.target.value, 10) || 0)} />
-                : <span className="plus" {...clickable} onClick={() => { setQuickIn(col.key); setQuickDraft('') }}>＋</span>}
+                : canWrite ? <span className="plus" {...clickable} onClick={() => { setQuickIn(col.key); setQuickDraft('') }}>＋</span> : null}
             </div>
             {quickIn === col.key && (
               <WbInput
@@ -774,16 +780,16 @@ export function KanbanBoard() {
                 key={i.id}
                 className={`pj-card ${batch && sel.has(i.id) ? 'sel' : ''}`.trim()}
                 styles={{ body: { display: 'contents' } }}
-                draggable={!batch}
+                draggable={canWrite && !batch}
                 onDragStart={(e) => e.dataTransfer.setData('text/plain', i.id)}
                 {...clickable}
                 onClick={() => cardClick(i)}
               >
-                {batch ? (
+                {canWrite && batch ? (
                   <span className={`pj-card-chk ${sel.has(i.id) ? 'on' : ''}`.trim()}>{sel.has(i.id) ? '✓' : ''}</span>
-                ) : (
+                ) : canWrite ? (
                   <span className="del" {...clickable} onClick={(e) => { e.stopPropagation(); void remove(i.id) }}>×</span>
-                )}
+                ) : null}
                 <div className="t">
                   {i.priority && <span className="wb-dot" style={{ background: PRIO[i.priority].color, marginRight: 6, verticalAlign: 'middle' }} title={`优先级：${PRIO[i.priority].label}`} />}
                   {i.title}
@@ -809,20 +815,21 @@ export function KanbanBoard() {
   return (
     <>
       <div className="pj-plan-top">
-        <WbButton className="btn-dark" style={{ height: 34 }} onClick={() => { setNewIn('todo') }}>＋ 新建待办</WbButton>
-        <WbButton className="btn-ghost" style={{ height: 34 }} onClick={() => setDsOpen(true)}>＋ 添加数据源</WbButton>
+        {canWrite && <WbButton className="btn-dark" style={{ height: 34 }} onClick={() => { setNewIn('todo') }}>＋ 新建待办</WbButton>}
+        {canWrite && <WbButton className="btn-ghost" style={{ height: 34 }} onClick={() => setDsOpen(true)}>＋ 添加数据源</WbButton>}
+        {!canWrite && <Tag className="pj-rolebadge">只读模式</Tag>}
         <span style={{ flex: 1 }} />
         <FilterDropdown label={assigneeOpts.find((o) => o.key === fAssignee)?.label ?? '全部归属'} options={assigneeOpts} onPick={setFAssignee} />
         <FilterDropdown label={sourceOpts.find((o) => o.key === fSource)?.label ?? '全部来源'} options={sourceOpts} onPick={setFSource} />
-        {templates.length > 0 && <FilterDropdown label="🧩 从模板" options={templates.map((t, i) => ({ key: String(i), label: t.name }))} onPick={(k) => void newFromTpl(k)} />}
+        {canWrite && templates.length > 0 && <FilterDropdown label="🧩 从模板" options={templates.map((t, i) => ({ key: String(i), label: t.name }))} onPick={(k) => void newFromTpl(k)} />}
         <FilterDropdown label={group === 'none' ? '不分组' : group === 'assignee' ? '按负责人' : '按里程碑'} options={[{ key: 'none', label: '不分组' }, { key: 'assignee', label: '按负责人' }, { key: 'milestone', label: '按里程碑' }]} onPick={(k) => setGroup(k as 'none' | 'assignee' | 'milestone')} />
         {kviews.length > 0 && <FilterDropdown label="📑 视图" options={kviews.map((v, i) => ({ key: String(i), label: v.name }))} onPick={applyKView} />}
         <WbButton className="btn-ghost" style={{ height: 34 }} onClick={saveKView}>保存视图</WbButton>
         <WbButton className={`cap-act ${wipEdit ? 'on' : ''}`.trim()} onClick={() => setWipEdit((v) => !v)}>WIP</WbButton>
-        <WbButton className={`cap-act ${batch ? 'on' : ''}`.trim()} onClick={() => (batch ? exitBatch() : setBatch(true))}>
+        {canWrite && <WbButton className={`cap-act ${batch ? 'on' : ''}`.trim()} onClick={() => (batch ? exitBatch() : setBatch(true))}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" /></svg>
           批量操作
-        </WbButton>
+        </WbButton>}
         <WbButton className="cap-act wb-icon-btn" aria-label="搜索待办" onClick={() => setShowSearch((v) => !v)}>{IcSearch}</WbButton>
       </div>
 
@@ -855,9 +862,9 @@ export function KanbanBoard() {
           ))
           : <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="无任务" />)}
 
-      {detailId && <TodoDetailModal itemId={detailId} onClose={() => setDetailId(null)} />}
-      {newIn && <NewTodoModal status={newIn} onClose={() => setNewIn(null)} onCreated={(wi) => setDetailId(wi.id)} />}
-      {dsOpen && <DataSourceModal onClose={() => setDsOpen(false)} />}
+      {detailId && <TodoDetailModal itemId={detailId} canWrite={canWrite} onClose={() => setDetailId(null)} />}
+      {canWrite && newIn && <NewTodoModal status={newIn} onClose={() => setNewIn(null)} onCreated={(wi) => setDetailId(wi.id)} />}
+      {canWrite && dsOpen && <DataSourceModal onClose={() => setDsOpen(false)} />}
     </>
   )
 }
@@ -907,7 +914,7 @@ export function WorkloadView() {
 }
 
 // 甘特: 按 start/due 相对时间画横条（对齐 Console pmViewGantt，WB-121）。今天线 + 月度刻度 + 优先级色条。
-export function GanttView() {
+export function GanttView({ canWrite = true }: { canWrite?: boolean }) {
   const items = useWorkItemStore((s) => s.items).filter((i) => !i.parent_id)
   const [detailId, setDetailId] = useState<string | null>(null)
   const dated = items.filter((i) => i.due_date || i.start_date)
@@ -946,13 +953,13 @@ export function GanttView() {
           </div>
         )
       })}
-      {detailId && <TodoDetailModal itemId={detailId} onClose={() => setDetailId(null)} />}
+      {detailId && <TodoDetailModal itemId={detailId} canWrite={canWrite} onClose={() => setDetailId(null)} />}
     </>
   )
 }
 
 // 任务：与「计划」共用同一批项目 work_items，只是列表视图；项目成员均可见。
-export function TaskList() {
+export function TaskList({ canWrite = true }: { canWrite?: boolean }) {
   const items = useWorkItemStore((s) => s.items)
   const remove = useWorkItemStore((s) => s.remove)
   const update = useWorkItemStore((s) => s.update)
@@ -984,9 +991,9 @@ export function TaskList() {
           { title: '任务', dataIndex: 'title', render: (title, item) => <span className="tt">{title}<span className="wb-card-labels"><LabelBadges labels={item.labels} /></span></span> },
           { title: '截止日期', dataIndex: 'due_date', width: 110, render: (value) => value ? <Tag className="wb-badge due">📅 {String(value).slice(5)}</Tag> : '—' },
           { title: '负责人', dataIndex: 'assignee_name', width: 100, render: (name) => name || '—' },
-          { title: '优先级', dataIndex: 'priority', width: 130, render: (value, item) => <PriorityPill value={value} onPick={(priority) => void update(item.id, { priority })} /> },
-          { title: '状态', dataIndex: 'status', width: 130, render: (value, item) => <StatusPill status={value} onPick={(status) => void update(item.id, { status })} /> },
-          { title: '操作', key: 'action', width: 70, render: (_, item) => <WbButton className="del danger-b" onClick={() => void remove(item.id)}>删除</WbButton> },
+          { title: '优先级', dataIndex: 'priority', width: 130, render: (value, item) => canWrite ? <PriorityPill value={value} onPick={(priority) => void update(item.id, { priority })} /> : (PRIO[value as WorkPriority]?.label || '无优先级') },
+          { title: '状态', dataIndex: 'status', width: 130, render: (value, item) => canWrite ? <StatusPill status={value} onPick={(status) => void update(item.id, { status })} /> : (STATUS_OPTS.find((status) => status.key === value)?.label || value) },
+          ...(canWrite ? [{ title: '操作', key: 'action', width: 70, render: (_: unknown, item: WorkItem) => <WbButton className="del danger-b" onClick={() => void remove(item.id)}>删除</WbButton> }] : []),
         ]}
       />
     </>

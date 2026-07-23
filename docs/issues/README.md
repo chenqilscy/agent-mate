@@ -18,10 +18,9 @@
 |----|------|--------|------|------|
 | [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) | ⏸ | P1 | fullstack | 正式桌面更新服务缺少生产域名、CI 签名材料与上线验收 |
 | [WB-307](WB-307-project-instruction-object-text.md) | ⬜ | P2 | ui | Console 项目列表将项目说明渲染为 object Object |
-| [WB-316](WB-316-app-project-viewer-write-affordances.md) | ⬜ | P1 | ui | App 项目 Viewer 仍显示任务、评论与执行写入口 |
 | [WB-318](WB-318-project-template-cards-do-not-prefill.md) | ⬜ | P2 | ui | 项目模板卡点击后只打开空白新建表单 |
 
 ## 已关闭归档
 
-共 313 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 314 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。
