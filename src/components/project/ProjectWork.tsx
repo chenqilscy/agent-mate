@@ -951,7 +951,7 @@ export function GanttView() {
   )
 }
 
-// 任务: the same work items as a private list (spec: 你的任务是私密的).
+// 任务：与「计划」共用同一批项目 work_items，只是列表视图；项目成员均可见。
 export function TaskList() {
   const items = useWorkItemStore((s) => s.items)
   const remove = useWorkItemStore((s) => s.remove)
@@ -970,7 +970,7 @@ export function TaskList() {
           <span className="ft-lb">全部来源</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 11, height: 11 }}><path d="M6 9l6 6 6-6" /></svg>
         </div>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>你的任务是私密的，除非你共享它们</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>项目任务对成员可见；这里与「计划」共用同一批工作项</span>
         <span style={{ flex: 1 }} />
         <Input.Search className="search-box" allowClear style={{ margin: 0, width: 220 }} placeholder="搜索任务标题" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
