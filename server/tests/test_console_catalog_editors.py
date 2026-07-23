@@ -19,8 +19,8 @@ class ConsoleCatalogEditorContractTests(unittest.TestCase):
     def test_skill_page_keeps_files_and_recommendation_management(self) -> None:
         page = (CONSOLE / "SkillsPage.tsx").read_text(encoding="utf-8")
         editor = (CONSOLE / "SkillEditor.tsx").read_text(encoding="utf-8")
-        for marker in ("目录预览", "目录管理", "推荐位管理", "SkillRecommendations",
-                       "SKILL_RECOMMENDATIONS"):
+        for marker in ('label: "技能浏览"', 'label: "技能管理"', "推荐位管理",
+                       "SkillRecommendations", "SKILL_RECOMMENDATIONS"):
             self.assertIn(marker, page)
         for marker in ("file-workspace", "tools.map", "requestClose", "saving"):
             self.assertIn(marker, editor)
