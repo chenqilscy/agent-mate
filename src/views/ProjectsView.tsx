@@ -27,6 +27,7 @@ export function ProjectsView() {
   const setView = useUIStore((s) => s.setView)
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const [modalOpen, setModalOpen] = useState(false)
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<ProjectScope>('all')
   const [membersProject, setMembersProject] = useState<ProjectInfo | null>(null)
@@ -46,6 +47,14 @@ export function ProjectsView() {
   const openProject = (p: ProjectInfo) => {
     setActive(p)
     setView('project', { projectId: p.id })
+  }
+  const openNewProject = (template: string | null = null) => {
+    setSelectedTemplate(template)
+    setModalOpen(true)
+  }
+  const closeNewProject = () => {
+    setModalOpen(false)
+    setSelectedTemplate(null)
   }
   const localCount = projects.filter((project) => project.origin !== 'server').length
   const serverCount = projects.length - localCount
@@ -87,7 +96,7 @@ export function ProjectsView() {
           <div className="ph-l">
             <h1>项目</h1>
             <div className="sub">多人协同，打造超级团队</div>
-            <WbButton className="btn-line" onClick={() => setModalOpen(true)}>
+            <WbButton className="btn-line" onClick={() => openNewProject()}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>新建项目
             </WbButton>
           </div>
@@ -147,7 +156,7 @@ export function ProjectsView() {
           id="myProjList"
           className="projects-list"
           dataSource={shownProjects}
-          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? '没有匹配的项目' : scope === 'server' ? '还没有同步到本机的团队项目' : '还没有项目'}>{scope !== 'server' && <WbButton className="btn-line" onClick={() => setModalOpen(true)}>新建项目</WbButton>}</Empty> }}
+          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? '没有匹配的项目' : scope === 'server' ? '还没有同步到本机的团队项目' : '还没有项目'}>{scope !== 'server' && <WbButton className="btn-line" onClick={() => openNewProject()}>新建项目</WbButton>}</Empty> }}
           renderItem={(p) => (
             <List.Item className="my-proj" key={p.id} {...clickable} onClick={() => openProject(p)}>
               <span className="my-proj-icon">{p.origin === 'server' ? '☁️' : '🤖'}</span>
@@ -176,7 +185,7 @@ export function ProjectsView() {
         <div className="sec-title">从模版创建</div>
         <div className="card-grid g4">
           {PROJ_TPL.map(([ic, n, d]) => (
-            <ProCard className="tpl" key={n} hoverable {...clickable} onClick={() => setModalOpen(true)} styles={{ body: { display: 'contents' } }}>
+            <ProCard className="tpl" key={n} hoverable {...clickable} onClick={() => openNewProject(n)} styles={{ body: { display: 'contents' } }}>
               <span className="t-ic">{ic}</span>
               <div>
                 <div className="t-n">{n}</div>
@@ -187,7 +196,12 @@ export function ProjectsView() {
         </div>
       </div>
 
-      <NewProjectModal open={modalOpen} onClose={() => setModalOpen(false)} onCreated={(p) => { setModalOpen(false); openProject(p) }} />
+      <NewProjectModal
+        open={modalOpen}
+        initialTemplate={selectedTemplate}
+        onClose={closeNewProject}
+        onCreated={(p) => { closeNewProject(); openProject(p) }}
+      />
       {membersProject && <MembersModal project={membersProject} onClose={() => setMembersProject(null)} onLeft={() => { setMembersProject(null); void load() }} />}
       {loginOpen && <LoginModal onClose={() => { setLoginOpen(false); void refreshServer() }} />}
       {serverOpen && <ServerConnectModal onClose={() => { setServerOpen(false); void refreshServer(); void load() }} />}

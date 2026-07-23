@@ -25,8 +25,9 @@ function iconOf(kind: Kind, name: string): string {
 
 // The new-project flow (spec 4.2): name + instruction (with template presets) +
 // connector / expert / skill pickers → POST /api/projects. Fully persisted.
-export function NewProjectModal({ open, onClose, onCreated }: {
+export function NewProjectModal({ open, initialTemplate = null, onClose, onCreated }: {
   open: boolean
+  initialTemplate?: string | null
   onClose: () => void
   onCreated: (p: ProjectInfo) => void
 }) {
@@ -46,6 +47,21 @@ export function NewProjectModal({ open, onClose, onCreated }: {
   const serverLinked = useServerStore((s) => s.linked)
 
   useEffect(() => { if (open && !kbLoaded) void loadKbs() }, [open, kbLoaded, loadKbs])
+  useEffect(() => {
+    if (!open) return
+    setName('')
+    setInstruction('')
+    setTplLabel('选择模板')
+    setSel({ conn: new Set(), exp: new Set(), skill: new Set(), kb: new Set() })
+    setPicker(null)
+    setTplOpen(false)
+    if (!initialTemplate) return
+    const template = useCatalogStore.getState().NP_TPLS.find((item) => item[0] === initialTemplate)
+    if (!template) return
+    setTplLabel(template[0])
+    setInstruction(template[1])
+    setSel({ conn: new Set(template[2]), exp: new Set(template[3]), skill: new Set(), kb: new Set() })
+  }, [open, initialTemplate])
 
   if (!open) return null
 
