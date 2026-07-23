@@ -181,7 +181,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
             <Alert
               type="warning"
               showIcon
-              message="当前 App 与此技能版本不兼容"
+              title="当前 App 与此技能版本不兼容"
               description={data.compatibility_error || `需要 AgentMate ${data.min_app_version || '更高版本'}`}
             />
           )}

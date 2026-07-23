@@ -1,6 +1,6 @@
 # AgentMate 实现方案
 
-> 状态：当前实现基线，更新于 2026-07-21。
+> 状态：当前实现基线，更新于 2026-07-23。
 > 历史里程碑、缺陷与验收记录见 [`issues/`](issues/README.md)。腾讯 WorkBuddy 只作为产品与视觉参考，资料集中在
 > [`WorkBuddy/`](WorkBuddy/README.md)。
 

@@ -102,6 +102,12 @@ class ProjectWeKnoraGatewayTest(unittest.TestCase):
         created = knowledge.create_kb(
             self.project.id, knowledge.CreateKbBody(name="Docs"), self.owner,
         )
+        route_thread = threading.get_ident()
+        worker_thread: list[int] = []
+        upload_remote.side_effect = lambda *args, **kwargs: (
+            worker_thread.append(threading.get_ident())
+            or {"id": "provider-doc-1", "file_name": "shared.md", "parse_status": "completed"}
+        )
 
         async def receive() -> dict:
             return {"type": "http.request", "body": b"central content", "more_body": False}
@@ -114,6 +120,8 @@ class ProjectWeKnoraGatewayTest(unittest.TestCase):
         ))
         self.assertEqual("completed", uploaded["parse_status"])
         upload_remote.assert_called_once()
+        self.assertEqual(1, len(worker_thread))
+        self.assertNotEqual(route_thread, worker_thread[0])
         with self.assertRaisesRegex(HTTPException, "read-only"):
             asyncio.run(knowledge.upload_document(
                 self.project.id, created["id"], request(), "shared.md", self.viewer,
@@ -146,6 +154,52 @@ class ProjectWeKnoraGatewayTest(unittest.TestCase):
         list_remote.assert_called_once_with(
             "provider-kb-page", page=2, page_size=10, keyword="guide",
         )
+
+    @patch.object(knowledge.weknora, "delete_doc")
+    @patch.object(knowledge.weknora, "list_docs", side_effect=[
+        {"items": [{"id": "provider-doc-first"}], "total": 501},
+        {"items": [{"id": "provider-doc-later"}], "total": 501},
+    ])
+    @patch.object(knowledge.weknora, "create_kb", return_value={"id": "provider-kb-delete"})
+    def test_delete_scans_later_pages_without_weakening_kb_boundary(
+        self, _create_remote, list_remote, delete_remote,
+    ) -> None:
+        created = knowledge.create_kb(
+            self.project.id, knowledge.CreateKbBody(name="Large docs"), self.owner,
+        )
+
+        result = knowledge.delete_document(
+            self.project.id, created["id"], "provider-doc-later", self.member,
+        )
+
+        self.assertEqual({"ok": True}, result)
+        self.assertEqual(
+            [
+                (("provider-kb-delete",), {"page": 1, "page_size": 500}),
+                (("provider-kb-delete",), {"page": 2, "page_size": 500}),
+            ],
+            [(call.args, call.kwargs) for call in list_remote.call_args_list],
+        )
+        delete_remote.assert_called_once_with("provider-doc-later")
+
+    @patch.object(knowledge.weknora, "delete_doc")
+    @patch.object(knowledge.weknora, "list_docs", return_value={
+        "items": [{"id": "provider-doc-other"}], "total": 1,
+    })
+    @patch.object(knowledge.weknora, "create_kb", return_value={"id": "provider-kb-delete"})
+    def test_delete_rejects_document_outside_target_kb(
+        self, _create_remote, _list_remote, delete_remote,
+    ) -> None:
+        created = knowledge.create_kb(
+            self.project.id, knowledge.CreateKbBody(name="Protected docs"), self.owner,
+        )
+
+        with self.assertRaisesRegex(HTTPException, "document not found"):
+            knowledge.delete_document(
+                self.project.id, created["id"], "provider-doc-foreign", self.member,
+            )
+
+        delete_remote.assert_not_called()
 
     @patch.object(knowledge.weknora, "upload_file", return_value={"id": "provider-doc-1"})
     @patch.object(knowledge.weknora, "create_kb", return_value={"id": "provider-kb-migrated"})

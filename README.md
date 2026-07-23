@@ -105,8 +105,9 @@ backend/.venv/Scripts/python.exe -m unittest discover -s backend/tests/regressio
 backend/.venv/Scripts/python.exe -m py_compile backend/main.py server/main.py
 ```
 
-`pnpm build` is the real TypeScript/build gate; plain root `tsc --noEmit` can miss project-reference errors. At the
-time of this document update, the known failures are tracked by WB-237 rather than hidden by weakening the command.
+`pnpm build` is the real TypeScript/build gate; plain root `tsc --noEmit` can miss project-reference errors.
+The App and Console production builds are expected to pass; any regression must be tracked explicitly rather than
+hidden by weakening the command.
 
 After backend runtime changes, hard-restart `:8101` before live verification. Static checks are not a substitute for
 real API/browser acceptance.

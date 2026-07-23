@@ -57,7 +57,7 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
               setError("");
             }}
           />
-          {error ? <Alert type="error" showIcon message={error} className="login-error" /> : null}
+          {error ? <Alert type="error" showIcon title={error} className="login-error" /> : null}
           <ProFormText
             name="name"
             fieldProps={{ size: "large", prefix: <UserOutlined />, autoComplete: "username" }}

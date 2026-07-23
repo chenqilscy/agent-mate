@@ -473,7 +473,7 @@ function KnowledgeTab({ project }: { project: Project }) {
         <Alert
           type="warning"
           showIcon
-          message="中央 WeKnora 尚未配置"
+          title="中央 WeKnora 尚未配置"
           description="请让平台管理员在 AgentMate Server 部署环境配置 WeKnora 服务凭据；密钥不会下发到 Console 或 AgentMate。"
         />
       )}
@@ -563,7 +563,7 @@ function KnowledgeTab({ project }: { project: Project }) {
           <Alert
             type="info"
             showIcon
-            message="解析、切片、嵌入与检索均由中央 WeKnora 完成，项目成员无需再配置 API Key。"
+            title="解析、切片、嵌入与检索均由中央 WeKnora 完成，项目成员无需再配置 API Key。"
           />
         </Form>
       </Modal>
@@ -664,7 +664,7 @@ function KnowledgeTab({ project }: { project: Project }) {
                   <Alert
                     type="error"
                     showIcon
-                    message="文档状态刷新失败"
+                    title="文档状态刷新失败"
                     description={docError}
                   />
                 )}
@@ -1048,7 +1048,7 @@ function CollaborationTab({ project }: { project: Project }) {
               </Button>
             </Form>
           ) : (
-            <Alert type="info" showIcon message="当前项目只读，不能发表评论" />
+            <Alert type="info" showIcon title="当前项目只读，不能发表评论" />
           )}
         </Card>
         <Card title="团队时间线" className="section-card">
@@ -1335,7 +1335,7 @@ function ConfigTab({
                 <Alert
                   type="warning"
                   showIcon
-                  message="项目已归档"
+                  title="项目已归档"
                   description="当前所有业务写入均已关闭。恢复后方可继续编辑或转移所有权。"
                 />
                 <Button
@@ -1393,7 +1393,7 @@ function ConfigTab({
         <Alert
           type="error"
           showIcon
-          message="此操作不可撤销"
+          title="此操作不可撤销"
           description={`请输入项目名称“${project.name}”确认。`}
         />
         <Input

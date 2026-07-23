@@ -352,7 +352,7 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
         <Alert
           type="info"
           showIcon
-          message="SKILL.md 由基本信息和技能指令自动生成；这里只维护随技能安装的 UTF-8 文本附件。"
+          title="SKILL.md 由基本信息和技能指令自动生成；这里只维护随技能安装的 UTF-8 文本附件。"
         />
         <div className="file-browser">
           <aside className="file-list-panel">

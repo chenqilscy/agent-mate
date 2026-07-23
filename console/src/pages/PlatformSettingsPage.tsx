@@ -107,7 +107,7 @@ export default function PlatformSettingsPage() {
 
   return (
     <PageContainer title="平台设置" subTitle="统一管理所有项目与成员共享的服务配置" header={{ breadcrumb: { items: [{ title: "系统" }, { title: "平台设置" }] } }}>
-      <Alert type="info" showIcon message="设置作用域" description="这里的设置对整个平台生效。用户偏好、项目配置和助理渠道仍在各自入口管理；数据库、端口等启动参数不会出现在此处。" />
+      <Alert type="info" showIcon title="设置作用域" description="这里的设置对整个平台生效。用户偏好、项目配置和助理渠道仍在各自入口管理；数据库、端口等启动参数不会出现在此处。" />
       <Form<Draft> form={form} layout="vertical" onFinish={(values) => void save(values)} style={{ marginTop: 16 }}>
         <Card title="知识服务 · 中央 WeKnora" loading={loading} extra={<Space><Button loading={testing} onClick={() => void test()}>测试连接</Button><Popconfirm title="恢复全部 WeKnora 部署值？" onConfirm={() => void clear(knowledgeItems.map((item) => item.key))}><Button>恢复部署值</Button></Popconfirm></Space>}>
           <Form.Item name="weknora_url" label="服务地址" rules={[{ required: true }, { validator: validateHttpUrl }]}><Input placeholder="http://127.0.0.1:37201" /></Form.Item>

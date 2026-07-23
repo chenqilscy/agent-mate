@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Card, InputNumber, List, Popconfirm, Switch, Tag } from 'antd'
+import { Alert, Card, InputNumber, Popconfirm, Switch, Tag } from 'antd'
 import { api } from '../../lib/api'
 import type { DeviceSettingItem, DeviceSettingsPayload } from '../../lib/types'
 import { toast } from '../../stores/toastStore'
+import { CompatList as List } from '../ui/CompatList'
 import { WbButton, WbInput, WbSelect } from '../ui/Primitives'
 
 type Values = Record<string, string | number | boolean>
@@ -88,7 +89,7 @@ export function DeviceRuntimeSettings() {
 
   const section = (title: string, group: keyof typeof groups, warning?: string) => (
     <Card className="set-card" title={title} extra={<><WbButton className="btn-ghost" disabled={testing === group} onClick={() => void test(group)}>{testing === group ? '测试中…' : '测试'}</WbButton> <Popconfirm title={`恢复${title}的环境变量或默认值？`} onConfirm={() => void clear(groups[group])}><WbButton className="btn-ghost">恢复</WbButton></Popconfirm></>}>
-      {warning && <Alert type="warning" showIcon message={warning} />}
+      {warning && <Alert type="warning" showIcon title={warning} />}
       {groups[group].map(field)}
     </Card>
   )

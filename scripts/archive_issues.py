@@ -38,6 +38,7 @@ RECORD_RE = re.compile(
     re.DOTALL,
 )
 LINK_RE = re.compile(r"(?P<prefix>\]\()(?P<target>[^)\s]+)(?P<suffix>\))")
+ARCHIVE_FORMAT = 2
 
 
 @dataclass(frozen=True)
@@ -119,12 +120,44 @@ def record_meta(issue: Issue) -> dict[str, object]:
         "area": issue.area,
         "status": issue.status,
         "created": issue.created,
+        "archive_format": ARCHIVE_FORMAT,
     }
 
 
-def render_record(issue: Issue) -> str:
+def rebase_relative_links(text: str, source: Path, destination: Path) -> str:
+    """Keep ordinary relative links valid when Markdown moves between folders."""
+    def replace(match: re.Match[str]) -> str:
+        target = match.group("target")
+        path_part, separator, fragment = target.partition("#")
+        normalized = path_part.replace("\\", "/")
+        if (
+            not normalized.startswith(("../", "./"))
+            or normalized.startswith("//")
+            or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", normalized)
+        ):
+            return match.group(0)
+        resolved = (source.parent / path_part).resolve()
+        relative = os.path.relpath(resolved, destination.parent).replace("\\", "/")
+        rebased = f"{relative}{separator}{fragment}" if separator else relative
+        return f"{match.group('prefix')}{rebased}{match.group('suffix')}"
+
+    return LINK_RE.sub(replace, text)
+
+
+def replace_record_meta(record: str, meta: dict[str, object]) -> str:
+    encoded = json.dumps(meta, ensure_ascii=False, separators=(",", ":"))
+    return re.sub(
+        r"^<!-- issue-record:start \{.*\} -->",
+        f"<!-- issue-record:start {encoded} -->",
+        record,
+        count=1,
+    )
+
+
+def render_record(issue: Issue, destination: Path) -> str:
     meta = json.dumps(record_meta(issue), ensure_ascii=False, separators=(",", ":"))
     body = re.sub(r"^(#{2,5})(?=\s)", r"#\1", issue.body, flags=re.MULTILINE)
+    body = rebase_relative_links(body, ISSUES / issue.source, destination)
     return (
         f"<!-- issue-record:start {meta} -->\n"
         f'<a id="{issue.id.lower()}"></a>\n\n'
@@ -270,6 +303,11 @@ def validate() -> list[str]:
     if terminal_root:
         errors.append(f"terminal issues remain in root: {', '.join(terminal_root)}")
     archived = load_archive_records()
+    for issue_id, (meta, _record, path) in archived.items():
+        if int(meta.get("archive_format") or 0) != ARCHIVE_FORMAT:
+            errors.append(
+                f"archive record needs format migration: {issue_id} in {path.relative_to(ROOT)}"
+            )
     active_ids = {issue.id for issue in root_issues}
     overlap = active_ids & set(archived)
     if overlap:
@@ -306,16 +344,23 @@ def apply_archive() -> None:
     active = [issue for issue in root_issues if issue.status in ACTIVE]
     terminal = [issue for issue in root_issues if issue.status in TERMINAL]
     records: dict[str, tuple[dict[str, object], str, Path]] = {}
-    for issue_id, (meta, record, _old_path) in existing.items():
+    for issue_id, (meta, record, old_path) in existing.items():
         path = volume_path(
             int(meta["number"]), issue_year(str(meta.get("created") or ""), str(meta["source"]))
         )
+        archive_format = int(meta.get("archive_format") or 0)
+        if archive_format < ARCHIVE_FORMAT:
+            record = rebase_relative_links(record, ISSUES / str(meta["source"]), path)
+        elif old_path != path:
+            record = rebase_relative_links(record, old_path, path)
+        meta = {**meta, "archive_format": ARCHIVE_FORMAT}
+        record = replace_record_meta(record, meta)
         records[issue_id] = (meta, record, path)
     for issue in terminal:
         if issue.id in records:
             raise ValueError(f"issue already archived: {issue.id}")
         path = volume_path(issue.number, issue_year(issue.created, issue.source))
-        records[issue.id] = (record_meta(issue), render_record(issue), path)
+        records[issue.id] = (record_meta(issue), render_record(issue, path), path)
 
     destinations: dict[str, tuple[str, Path]] = {
         issue.source: (issue.id, ISSUES / issue.source) for issue in active

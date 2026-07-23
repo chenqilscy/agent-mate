@@ -1,7 +1,7 @@
 # AgentMate Console 管理门户设计
 
 > 状态：Server 管理功能与 React + Ant Design Console 已落地；Skill 发布治理由
-> [WB-245～WB-250](issues/README.md) 完成。更新于 2026-07-21。
+> [WB-245～WB-250](issues/archive/2026/WB-200-299.md#wb-245) 完成。更新于 2026-07-23。
 
 ## 1. 定位
 

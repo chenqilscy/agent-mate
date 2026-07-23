@@ -258,7 +258,7 @@ function SkillHubPolicy() {
     { title: "操作", valueType: "option", width: 100, render: (_value, item) => <Popconfirm title={`恢复 ${item.data.slug}？`} description="恢复后，App 下次目录同步即可再次展示和安装。" onConfirm={async () => { await consoleApi.deleteCatalogItem(item.id); message.success("下架策略已移除"); await load(); }}><Button type="link" size="small">恢复</Button></Popconfirm> },
   ];
   return <>
-    <Alert type="info" showIcon message="这里只管理第三方 SkillHub 商品的全局可见性" description="App 仍在本机直连 SkillHub；Manager 只下发 slug 策略，不代理第三方 SKILL.md、源码或安装包。" />
+    <Alert type="info" showIcon title="这里只管理第三方 SkillHub 商品的全局可见性" description="App 仍在本机直连 SkillHub；Manager 只下发 slug 策略，不代理第三方 SKILL.md、源码或安装包。" />
     <ProTable<CatalogItem<SkillHubBlockData>> rowKey="id" columns={columns} dataSource={items} loading={loading} search={false} pagination={false} options={{ reload: () => void load(), density: true }} toolBarRender={() => [<Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setOpen(true); }}>下架 SkillHub 技能</Button>]} />
     <Modal title="下架 SkillHub 技能" open={open} onCancel={() => setOpen(false)} onOk={() => form.submit()} destroyOnHidden>
       <Form form={form} layout="vertical" onFinish={async (values) => { try { await consoleApi.createCatalogItem("SKILLHUB_BLOCKLIST", values); message.success("下架策略已保存"); setOpen(false); await load(); } catch (reason) { message.error(reason instanceof Error ? reason.message : "保存失败"); } }}>
@@ -337,7 +337,7 @@ function SkillReleaseConsole({
   ];
 
   return <>
-    <Alert type="info" showIcon message="Skill 定义以不可变版本发布：草稿需先由真实 App 客户端回传 Test Run，再由非作者管理员审核；灰度按账号稳定分桶。" />
+    <Alert type="info" showIcon title="Skill 定义以不可变版本发布：草稿需先由真实 App 客户端回传 Test Run，再由非作者管理员审核；灰度按账号稳定分桶。" />
     <ProTable<SkillRelease>
       rowKey="id" columns={columns} dataSource={releases} loading={loading} search={false}
       pagination={{ pageSize: 20 }} scroll={{ x: 1320 }} options={{ reload: () => void reload(), density: true, setting: true }}
@@ -451,7 +451,7 @@ function ToolCatalogManager({
     <Alert
       type="info"
       showIcon
-      message={`数据库已登记 ${tools.length} 项真实内置工具，其中 ${tools.filter((tool) => tool.enabled !== false && tool.bindable).length} 项可由普通 Skill 选择。`}
+      title={`数据库已登记 ${tools.length} 项真实内置工具，其中 ${tools.filter((tool) => tool.enabled !== false && tool.bindable).length} 项可由普通 Skill 选择。`}
       description="这里管理展示、风险、启停、Skill 绑定和兼容策略；工具名、权限、契约与注入方式来自已签名 App 实现，不能在 Console 伪造或删除。"
     />
     <ProTable<SkillTool>

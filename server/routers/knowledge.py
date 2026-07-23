@@ -14,6 +14,7 @@ from typing import Annotated, Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 import db
 import weknora
@@ -68,6 +69,26 @@ def _provider_id(kb: dict[str, Any]) -> str:
         detail = kb.get("provider_error") or "旧知识库尚未迁移到中央 WeKnora。"
         raise HTTPException(409, detail)
     return provider_id
+
+
+def _provider_doc_belongs(provider_id: str, doc_id: str) -> bool:
+    """Verify provider document ownership without truncating large knowledge bases."""
+    page = 1
+    page_size = 500
+    while True:
+        remote = weknora.list_docs(provider_id, page=page, page_size=page_size)
+        items = remote["items"]
+        if doc_id in {
+            str(row.get("id") or row.get("knowledge_id") or "") for row in items
+        }:
+            return True
+        try:
+            total = max(0, int(remote.get("total") or 0))
+        except (TypeError, ValueError):
+            total = 0
+        if not items or page * page_size >= total:
+            return False
+        page += 1
 
 
 def _weknora_error(exc: weknora.WeKnoraError) -> HTTPException:
@@ -390,7 +411,8 @@ async def upload_document(
     if not content:
         raise HTTPException(400, "空文件。")
     try:
-        remote = weknora.upload_file(
+        remote = await run_in_threadpool(
+            weknora.upload_file,
             provider_id, filename=name, content=bytes(content),
             content_type=mimetypes.guess_type(name)[0] or "application/octet-stream",
         )
@@ -448,8 +470,7 @@ def delete_document(
                 pass
         return {"ok": True}
     try:
-        remote = weknora.list_docs(_provider_id(kb), page_size=500)
-        if doc_id not in {str(row.get("id") or row.get("knowledge_id") or "") for row in remote["items"]}:
+        if not _provider_doc_belongs(_provider_id(kb), doc_id):
             raise HTTPException(404, "document not found")
         weknora.delete_doc(doc_id)
     except weknora.WeKnoraError as exc:
