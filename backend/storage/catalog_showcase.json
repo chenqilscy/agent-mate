@@ -489,9 +489,173 @@
   "开发工具",
   "知识与学习",
   "信息与资讯",
-  "商业运营",
-  "旅行出行",
-  "智能体能力"
+ "商业运营",
+ "旅行出行",
+ "智能体能力"
+ ],
+ "INSP_TEMPLATES": [
+  {
+   "id": "ai-daily-briefing",
+   "title": "今日 AI 日报一键生成",
+   "description": "联网整理当天 AI 动态，生成可投屏、可分享的响应式 HTML 晨报。",
+   "category": "信息与资讯",
+   "featured": true,
+   "artifactType": "HTML",
+   "source": "AgentMate 内置",
+   "prompt": "请生成今天的 AI 行业日报。先联网检索并核对来源，按模型发布、产品发布、行业动态、论文研究、技巧与观点五个版块整理；每条保留来源链接和发布日期，明确区分事实与判断。最终在工作区创建一份可离线打开、响应式的单文件 HTML 晨报，并总结最值得团队关注的 3 个信号。",
+   "previewTheme": "briefing",
+   "preview": {
+    "eyebrow": "AI DAILY · TEMPLATE",
+    "headline": "今天 AI 圈发生了什么",
+    "summary": "来源核验、五版块归档与晨会速览，生成时自动替换为当天真实内容。",
+    "items": ["模型发布", "产品发布", "行业动态", "论文研究", "技巧与观点"],
+    "metrics": [["五类", "固定版块"], ["逐条", "来源链接"], ["单页", "离线 HTML"]]
+   }
+  },
+  {
+   "id": "team-okr-radar",
+   "title": "团队 OKR 雷达图",
+   "description": "把目标、关键结果和阻塞项整理成可解释的团队健康度看板。",
+   "category": "办公协同",
+   "featured": true,
+   "artifactType": "HTML",
+   "source": "AgentMate 内置",
+   "prompt": "请基于我提供的团队 OKR 数据制作复盘看板。先检查目标、关键结果、负责人、当前值、目标值和风险说明是否完整；缺少关键数据时先向我提问。完成后在工作区创建一份单文件 HTML，包含总体达成率、目标雷达图、关键结果明细、阻塞项和下周期行动建议，所有结论必须能追溯到输入数据。",
+   "previewTheme": "radar",
+   "preview": {
+    "eyebrow": "TEAM HEALTH",
+    "headline": "目标进展与健康度",
+    "summary": "从完成度、质量、节奏、协作和风险五个维度解释团队状态。",
+    "items": ["目标总览", "关键结果", "阻塞风险", "下周期动作"],
+    "metrics": [["目标", "逐项追踪"], ["风险", "显式标记"], ["行动", "责任到人"]]
+   }
+  },
+  {
+   "id": "dali-homestay-shortlist",
+   "title": "大理古城民宿推荐",
+   "description": "按真实日期、人数和预算搜索房源，输出带来源的对比与行程建议。",
+   "category": "旅行出行",
+   "featured": false,
+   "artifactType": "HTML",
+   "source": "AgentMate 内置",
+   "prompt": "请帮我筛选大理古城附近适合 3 人入住、带院子或苍山景观的民宿。若我没有给出入住日期、晚数和预算，先向我确认；然后联网查询可核验的候选房源，记录平台、价格口径、位置、设施、取消规则和链接，不要编造余房。最终在工作区创建一份响应式单文件 HTML 对比页，并给出适合不同偏好的选择建议。",
+   "previewTheme": "travel",
+   "preview": {
+    "eyebrow": "DALI STAY SHORTLIST",
+    "headline": "住进古城与苍山之间",
+    "summary": "日期、人数和预算确认后，再用真实房源与取消规则完成选择。",
+    "items": ["步行到古城", "独立院落", "苍山景观", "取消规则"],
+    "metrics": [["日期", "先确认"], ["房价", "保留口径"], ["房源", "附原链接"]]
+   }
+  },
+  {
+   "id": "collaborative-whiteboard",
+   "title": "实时协作白板原型",
+   "description": "把流程与交互要求落成可运行的拖拽白板单页原型。",
+   "category": "效率工具",
+   "featured": false,
+   "artifactType": "代码",
+   "source": "AgentMate 内置",
+   "prompt": "请在工作区实现一个可离线运行的实时协作白板前端原型：支持新增与拖拽便签、画笔绘制、节点连线、缩放和本地保存。先给出最小交互说明，再生成完整源码并运行验证；不要用静态截图代替交互实现。若当前环境不适合多文件工程，交付一个无构建依赖的单文件 HTML。",
+   "previewTheme": "board",
+   "preview": {
+    "eyebrow": "WHITEBOARD PROTOTYPE",
+    "headline": "把讨论变成可移动的结构",
+    "summary": "便签、连线、画笔与本地保存都对应真实交互，不以截图代替。",
+    "items": ["拖拽便签", "节点连线", "自由绘制", "本地持久化"],
+    "metrics": [["交互", "可运行"], ["状态", "可保存"], ["交付", "含源码"]]
+   }
+  },
+  {
+   "id": "mvp-metrics-dashboard",
+   "title": "指标看板智能页面",
+   "description": "把 MVP 核心指标做成有口径、有趋势、有解释的数据看板。",
+   "category": "数据分析",
+   "featured": true,
+   "artifactType": "HTML",
+   "source": "AgentMate 内置",
+   "prompt": "请基于我提供的 MVP 数据设计核心指标看板。先确认指标定义、时间范围、数据来源和缺失值处理方式；禁止虚构数据。分析激活、留存、转化和收入的趋势与异常，在工作区创建可离线运行的单文件 HTML 看板，并在页面中注明指标口径、数据更新时间和结论依据。",
+   "previewTheme": "dashboard",
+   "preview": {
+    "eyebrow": "MVP METRICS",
+    "headline": "从指标变化追到业务原因",
+    "summary": "图表、指标口径与结论依据同时呈现，避免只有漂亮数字。",
+    "items": ["激活趋势", "留存分层", "转化漏斗", "异常解释"],
+    "metrics": [["口径", "页面内说明"], ["数据", "禁止编造"], ["洞察", "附依据"]]
+   }
+  },
+  {
+   "id": "team-pricing-page",
+   "title": "按需选择，随团队一起成长",
+   "description": "生成从个人到大型团队的功能与定价对比落地页。",
+   "category": "商业运营",
+   "featured": false,
+   "artifactType": "HTML",
+   "source": "AgentMate 内置",
+   "prompt": "请根据我提供的产品版本、目标客户、价格、计费周期和功能权益，设计一页清晰可信的 SaaS 定价对比页。缺少定价事实时先向我提问，不要自行编造。最终在工作区创建响应式单文件 HTML，包含版本选择、月付/年付切换、功能对比、常见问题和清晰的转化入口，并验证移动端可读性。",
+   "previewTheme": "pricing",
+   "preview": {
+    "eyebrow": "PLANS FOR EVERY STAGE",
+    "headline": "从一个人到一支成熟团队",
+    "summary": "用可核对的价格与权益帮助用户选方案，而不是堆营销口号。",
+    "items": ["个人版", "团队版", "企业版", "权益对比"],
+    "metrics": [["价格", "来源明确"], ["权益", "逐项对比"], ["布局", "移动适配"]]
+   }
+  },
+  {
+   "id": "weekly-progress-report",
+   "title": "周报自动生成",
+   "description": "把本周事项、结果、风险和下周计划整理成可交付的结构化文档。",
+   "category": "办公协同",
+   "featured": true,
+   "artifactType": "文档",
+   "source": "AgentMate 内置",
+   "prompt": "请根据我提供的本周工作事项生成周报。先区分已完成结果、进行中事项、风险阻塞和下周计划；不要把计划写成已完成，也不要虚构数字。信息不足时集中向我提问。最终在工作区生成一份结构清晰、适合直接发送的周报文档，并附一段 100 字以内的群聊摘要。",
+   "previewTheme": "document",
+   "preview": {
+    "eyebrow": "WEEKLY REPORT",
+    "headline": "结果、风险与下一步",
+    "summary": "把流水账转换为结论先行、状态准确、可直接发送的周报。",
+    "items": ["本周结果", "进行中事项", "风险阻塞", "下周计划"],
+    "metrics": [["状态", "不混写"], ["数字", "不虚构"], ["摘要", "可转发"]]
+   }
+  },
+  {
+   "id": "api-reference",
+   "title": "Orders API 接口文档",
+   "description": "从真实路由与 Schema 生成可维护的开发者参考文档。",
+   "category": "开发工具",
+   "featured": false,
+   "artifactType": "Markdown",
+   "source": "AgentMate 内置",
+   "prompt": "请阅读我指定的 Orders API 源码或 OpenAPI 文档，生成开发者参考文档。必须从真实路由、请求模型和响应模型提取，不要猜测字段；包含鉴权、错误码、分页、幂等、请求示例和响应示例。最终在工作区生成 Markdown 文档，并列出源码与文档不一致之处。",
+   "previewTheme": "developer",
+   "preview": {
+    "eyebrow": "ORDERS API",
+    "headline": "面向开发者的接口参考",
+    "summary": "路由、Schema、错误码和示例均从真实实现提取。",
+    "items": ["鉴权方式", "请求模型", "响应模型", "错误码"],
+    "metrics": [["字段", "来自源码"], ["示例", "可复制"], ["差异", "单独列出"]]
+   }
+  },
+  {
+   "id": "short-video-storyboard",
+   "title": "短视频脚本与分镜表",
+   "description": "把产品卖点转成节奏清晰、镜头可执行的短视频方案。",
+   "category": "内容创作",
+   "featured": false,
+   "artifactType": "表格",
+   "source": "AgentMate 内置",
+   "prompt": "请根据我提供的产品、目标受众、核心卖点、平台和视频时长，撰写短视频脚本与分镜表。缺少信息时先向我确认。输出需要包含时间码、画面、景别、旁白、字幕、音效和素材要求，避免空泛口号；最终在工作区生成便于拍摄团队执行的表格文件，并附 3 个标题方案。",
+   "previewTheme": "story",
+   "preview": {
+    "eyebrow": "STORYBOARD",
+    "headline": "从卖点到每一个镜头",
+    "summary": "时间码、画面、旁白与素材要求对齐，拿到即可进入拍摄准备。",
+    "items": ["开场钩子", "痛点展开", "产品证明", "行动引导"],
+    "metrics": [["节奏", "按时间码"], ["镜头", "可执行"], ["标题", "三套备选"]]
+   }
+  }
  ],
  "INSTALLED": [
   [

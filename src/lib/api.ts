@@ -123,6 +123,9 @@ export const api = {
 
   // 橱窗目录（WB-060）：原 data/catalog.ts 静态商品卡，现由后端供给。按 export 名分组的对象。
   getCatalog: () => get<Record<string, unknown>>('/catalog'),
+  inspirationFavorites: () => get<{ ids: string[] }>('/catalog/inspiration-favorites'),
+  setInspirationFavorite: (templateId: string, favorite: boolean) =>
+    send<{ ids: string[] }>('PUT', `/catalog/inspiration-favorites/${encodeURIComponent(templateId)}`, { favorite }),
 
   // 触发本地 backend 从 Server 下行 pull（项目/成员/目录镜像，WB-062/066/070）。
   // 未接 Server → 后端无害返回 {server:false}；用于登录后刷新 AgentMate 自有目录与协作数据。
