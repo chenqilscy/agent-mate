@@ -6,6 +6,7 @@ import {
   Card,
   Checkbox,
   Col,
+  Collapse,
   Drawer,
   Empty,
   Form,
@@ -221,6 +222,7 @@ export function ProjectWorkProvider({
   const [savedViews, setSavedViews] = useState<SavedPlanView[]>([]);
   const [taskDirty, setTaskDirty] = useState(false);
   const [taskSaving, setTaskSaving] = useState(false);
+  const [taskAdvancedOpen, setTaskAdvancedOpen] = useState<string[]>([]);
   const [quickPlanSaving, setQuickPlanSaving] = useState(false);
   const [form] = Form.useForm<TaskDraft>();
   const [templateForm] = Form.useForm<{ name: string }>();
@@ -294,6 +296,9 @@ export function ProjectWorkProvider({
 
   function loadTaskEditor(task: WorkItem | null) {
     setTaskDirty(false);
+    setTaskAdvancedOpen(
+      customFields.some((field) => field.required) ? ["advanced"] : [],
+    );
     setEditing(task);
     form.resetFields();
     form.setFieldsValue(
@@ -708,6 +713,14 @@ export function ProjectWorkProvider({
           layout="vertical"
           disabled={!canWrite(project)}
           onValuesChange={() => setTaskDirty(true)}
+          onFinishFailed={({ errorFields }) => {
+            if (
+              errorFields.some(
+                ({ name }) => String(name[0] || "") === "custom_fields",
+              )
+            )
+              setTaskAdvancedOpen(["advanced"]);
+          }}
           onFinish={saveTask}
         >
           <div className="task-editor-layout">
@@ -750,23 +763,6 @@ export function ProjectWorkProvider({
                 </Row>
               </Card>
 
-              <Card size="small" title="执行信息" className="task-editor-section">
-                <Row gutter={12}>
-                  <Col xs={24} sm={12}>
-                    <Form.Item name="estimate_h" label="预估工时">
-                      <InputNumber min={0} className="full-width" addonAfter="h" />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} sm={12}>
-                    <Form.Item name="spent_h" label="投入工时">
-                      <InputNumber min={0} className="full-width" addonAfter="h" />
-                    </Form.Item>
-                  </Col>
-                </Row>
-                <Form.Item name="labels" label="标签">
-                  <Select mode="tags" tokenSeparators={[","]} />
-                </Form.Item>
-              </Card>
             </div>
 
             <div className="task-editor-column">
@@ -894,43 +890,102 @@ export function ProjectWorkProvider({
                 )}
               </Card>
 
-              <Card size="small" title="补充信息" className="task-editor-section">
-                <Form.Item name="source" label="来源">
-                  <Input maxLength={80} />
-                </Form.Item>
-                {customFields.map((field) => (
-                  <Form.Item
-                    key={field.id}
-                    name={["custom_fields", field.id]}
-                    label={field.name}
-                    rules={field.required ? [{ required: true }] : undefined}
-                  >
-                    {field.field_type === "number" ? (
-                      <InputNumber className="full-width" />
-                    ) : field.field_type === "boolean" ? (
-                      <Select
-                        allowClear
-                        options={[
-                          { value: true, label: "是" },
-                          { value: false, label: "否" },
-                        ]}
-                      />
-                    ) : field.field_type === "select" ? (
-                      <Select
-                        allowClear
-                        options={field.options.map((value) => ({ value, label: value }))}
-                      />
-                    ) : (
-                      <Input
-                        type={field.field_type === "date" ? "date" : "text"}
-                        maxLength={500}
-                      />
-                    )}
-                  </Form.Item>
-                ))}
-              </Card>
             </div>
           </div>
+          <Collapse
+            className="task-editor-advanced"
+            activeKey={taskAdvancedOpen}
+            onChange={(keys) =>
+              setTaskAdvancedOpen(
+                (Array.isArray(keys) ? keys : [keys]).map(String),
+              )
+            }
+            items={[
+              {
+                key: "advanced",
+                forceRender: true,
+                label: (
+                  <Space size={8} wrap>
+                    <Typography.Text strong>更多字段</Typography.Text>
+                    <Typography.Text type="secondary">
+                      工时、标签、来源与自定义字段
+                    </Typography.Text>
+                  </Space>
+                ),
+                children: (
+                  <div className="task-editor-advanced-grid">
+                    <div>
+                      <Row gutter={12}>
+                        <Col xs={24} sm={12}>
+                          <Form.Item name="estimate_h" label="预估工时">
+                            <InputNumber
+                              min={0}
+                              className="full-width"
+                              addonAfter="h"
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                          <Form.Item name="spent_h" label="投入工时">
+                            <InputNumber
+                              min={0}
+                              className="full-width"
+                              addonAfter="h"
+                            />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                      <Form.Item name="labels" label="标签">
+                        <Select mode="tags" tokenSeparators={[","]} />
+                      </Form.Item>
+                    </div>
+                    <div>
+                      <Form.Item name="source" label="来源">
+                        <Input maxLength={80} />
+                      </Form.Item>
+                      {customFields.map((field) => (
+                        <Form.Item
+                          key={field.id}
+                          name={["custom_fields", field.id]}
+                          label={field.name}
+                          rules={
+                            field.required ? [{ required: true }] : undefined
+                          }
+                        >
+                          {field.field_type === "number" ? (
+                            <InputNumber className="full-width" />
+                          ) : field.field_type === "boolean" ? (
+                            <Select
+                              allowClear
+                              options={[
+                                { value: true, label: "是" },
+                                { value: false, label: "否" },
+                              ]}
+                            />
+                          ) : field.field_type === "select" ? (
+                            <Select
+                              allowClear
+                              options={field.options.map((value) => ({
+                                value,
+                                label: value,
+                              }))}
+                            />
+                          ) : (
+                            <Input
+                              type={
+                                field.field_type === "date" ? "date" : "text"
+                              }
+                              maxLength={500}
+                            />
+                          )}
+                        </Form.Item>
+                      ))}
+                    </div>
+                  </div>
+                ),
+              },
+            ]}
+          />
           {editing && (
             <Card
               size="small"
@@ -1170,6 +1225,25 @@ export function ProjectWorkProvider({
   );
 }
 
+export function ProjectWorkspaceActions({
+  activeTab,
+}: {
+  activeTab: ProjectWorkspaceTab;
+}) {
+  const { project, openTask } = useProjectWork();
+  if (!canWrite(project) || activeTab === "plan" || activeTab === "tasks")
+    return null;
+  return (
+    <Button
+      type="primary"
+      icon={<PlusOutlined />}
+      onClick={() => openTask(null)}
+    >
+      新建任务
+    </Button>
+  );
+}
+
 export function ProjectOverview() {
   const {
     project,
@@ -1204,7 +1278,7 @@ export function ProjectOverview() {
               <Button onClick={() => navigateToTab("iterations")}>
                 {canWrite(project)
                   ? "配置里程碑和 Sprint"
-                  : "查看计划设置"}
+                  : "查看周期与字段"}
               </Button>
             </Space>
           </Empty>
@@ -1428,7 +1502,7 @@ function MilestoneCard({
         >
           {!editable && roots.length > 0 && (
             <Button onClick={() => navigateToTab("iterations")}>
-              {canWrite(project) ? "前往计划设置" : "查看计划设置"}
+              {canWrite(project) ? "前往周期与字段" : "查看周期与字段"}
             </Button>
           )}
         </Empty>
@@ -2134,6 +2208,7 @@ export function ProjectTasks() {
       title: "任务",
       dataIndex: "title",
       width: 300,
+      fixed: "left",
       render: (_value, item) => (
         <Button
           type="link"
@@ -2284,6 +2359,7 @@ export function ProjectTasks() {
       title: "操作",
       valueType: "option",
       width: 130,
+      fixed: "right",
       render: (_value, item) => (
         <Space>
           <Button

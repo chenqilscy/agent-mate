@@ -9,6 +9,7 @@ import {
   Space,
   Tag,
   Typography,
+  Empty,
 } from "antd";
 import { PlusOutlined, ProjectOutlined } from "@ant-design/icons";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
@@ -32,6 +33,8 @@ export default function ProjectsPage() {
     instruction: string;
     org_id?: string;
   }>();
+  const activeCount = items.filter((item) => !item.archived_at).length;
+  const archivedCount = items.length - activeCount;
 
   async function load() {
     setLoading(true);
@@ -59,7 +62,13 @@ export default function ProjectsPage() {
       render: (_value, item) => (
         <Space>
           <ProjectOutlined />
-          <Typography.Text strong>{item.name}</Typography.Text>
+          <Button
+            type="link"
+            className="project-list-link"
+            onClick={() => navigate(`/projects/${item.id}`)}
+          >
+            <Typography.Text strong>{item.name}</Typography.Text>
+          </Button>
           {item.archived_at > 0 && <Tag>已归档</Tag>}
         </Space>
       ),
@@ -68,10 +77,14 @@ export default function ProjectsPage() {
       title: "说明",
       dataIndex: "instruction",
       ellipsis: true,
-      render: (value) =>
-        value || (
+      render: (value) => {
+        const instruction = String(value || "").trim();
+        return instruction && instruction !== "-" ? (
+          instruction
+        ) : (
           <Typography.Text type="secondary">未设置项目指令</Typography.Text>
-        ),
+        );
+      },
     },
     {
       title: "角色",
@@ -134,7 +147,43 @@ export default function ProjectsPage() {
         )}
         loading={loading}
         search={false}
-        pagination={{ pageSize: 12 }}
+        pagination={{
+          pageSize: 12,
+          hideOnSinglePage: true,
+          showTotal: (total) => `共 ${total} 个项目`,
+        }}
+        rowClassName="project-list-row"
+        onRow={(item) => ({
+          onClick: (event) => {
+            if (
+              (event.target as HTMLElement).closest(
+                "button, a, input, [role='button']",
+              )
+            )
+              return;
+            navigate(`/projects/${item.id}`);
+          },
+        })}
+        locale={{
+          emptyText: (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                scope === "archived" ? "暂无已归档项目" : "还没有进行中的项目"
+              }
+            >
+              {scope === "active" && (
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => setOpen(true)}
+                >
+                  新建第一个项目
+                </Button>
+              )}
+            </Empty>
+          ),
+        }}
         options={{ reload: () => void load(), density: true }}
         toolbar={{
           title: (
@@ -142,8 +191,8 @@ export default function ProjectsPage() {
               value={scope}
               onChange={(value) => setScope(value as "active" | "archived")}
               options={[
-                { value: "active", label: "进行中" },
-                { value: "archived", label: "已归档" },
+                { value: "active", label: `进行中 ${activeCount}` },
+                { value: "archived", label: `已归档 ${archivedCount}` },
               ]}
             />
           ),

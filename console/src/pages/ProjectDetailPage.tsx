@@ -30,7 +30,6 @@ import {
   CloudUploadOutlined,
   FileTextOutlined,
   PlusOutlined,
-  ProjectOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
@@ -44,6 +43,7 @@ import {
   ProjectPlan,
   ProjectTasks,
   ProjectWorkload,
+  ProjectWorkspaceActions,
   ProjectWorkProvider,
 } from "../components/project/ProjectWorkspace";
 import type { ProjectWorkspaceTab } from "../components/project/ProjectWorkspace";
@@ -186,31 +186,21 @@ export default function ProjectDetailPage({
           project={project}
           onNavigateTab={selectProjectTab}
         >
-          <Card className="project-hero">
-            <Space size={16}>
-              <Avatar shape="square" size={52} icon={<ProjectOutlined />} />
-              <div>
-                <Typography.Title level={4}>{project.name}</Typography.Title>
-                <Typography.Text type="secondary">
-                  {project.instruction || "未设置项目指令"}
-                </Typography.Text>
-              </div>
-            </Space>
-          </Card>
           <Tabs
             className="project-workspace-tabs"
             activeKey={tab}
             onChange={(key) => selectProjectTab(key as ProjectWorkspaceTab)}
             more={{ trigger: "click" }}
+            tabBarExtraContent={<ProjectWorkspaceActions activeTab={tab} />}
             items={[
               { key: "overview", label: "概览", children: <ProjectOverview /> },
-              { key: "plan", label: "计划", children: <ProjectPlan /> },
-              { key: "tasks", label: "任务", children: <ProjectTasks /> },
+              { key: "plan", label: "看板", children: <ProjectPlan /> },
+              { key: "tasks", label: "任务列表", children: <ProjectTasks /> },
               { key: "workload", label: "负载", children: <ProjectWorkload /> },
               { key: "gantt", label: "甘特", children: <ProjectGantt /> },
               {
                 key: "iterations",
-                label: "计划设置",
+                label: "周期与字段",
                 children: <ProjectIterations />,
               },
               {

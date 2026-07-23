@@ -98,11 +98,18 @@ body {
 .tab-stack { display: grid; gap: 16px; }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .status-dot.online { background: #16b37a; box-shadow: 0 0 0 4px rgb(22 179 122 / 14%); }
-.project-hero { margin-bottom: 4px; }
-.project-hero .ant-typography { margin: 0; }
-.project-workspace-tabs > .ant-tabs-nav { margin-bottom: 16px; }
+.project-workspace-tabs > .ant-tabs-nav {
+  position: sticky;
+  top: 56px;
+  z-index: 6;
+  margin-bottom: 16px;
+  padding-block: 4px;
+  background: var(--console-bg);
+}
 .project-workspace-tabs > .ant-tabs-nav .ant-tabs-nav-list { min-width: max-content; }
 .project-overview-card { height: 100%; }
+.project-list-row { cursor: pointer; }
+.project-list-row:hover .project-list-link { text-decoration: underline; }
 
 .project-plan { display: grid; gap: 16px; }
 .project-plan-toolbar { position: sticky; top: 64px; z-index: 5; border-color: var(--console-border); }
@@ -173,6 +180,8 @@ body {
 .task-editor-column { min-width: 0; display: grid; gap: 16px; }
 .task-editor-section { border-color: var(--console-border); background: var(--console-panel); }
 .task-editor-section .ant-card-body { padding-bottom: 4px; }
+.task-editor-advanced { margin-top: 16px; border-color: var(--console-border); background: var(--console-panel); }
+.task-editor-advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .task-plan-create { margin-top: 4px; border-top: 1px solid var(--console-border); border-radius: 0; color: var(--console-brand); }
 .task-blocks-summary { display: grid; gap: 6px; margin: -4px 0 14px; }
 
@@ -275,6 +284,7 @@ body {
   .project-plan-toolbar .ant-input-search { width: min(100%, 260px); }
   .project-kanban { grid-template-columns: repeat(4, 260px); }
   .task-editor-layout { grid-template-columns: 1fr; }
+  .task-editor-advanced-grid { grid-template-columns: 1fr; }
   .project-task-filters { width: 100%; }
 }
 
@@ -284,7 +294,6 @@ body {
   .ant-pro-table-list-toolbar-container { align-items: stretch; }
   .ant-pro-table-list-toolbar-right { width: 100%; }
   .ant-pro-table-list-toolbar-right > div { width: 100%; display: grid; gap: 8px; }
-  .project-workspace-tabs > .ant-tabs-nav { overflow-x: auto; }
   .project-plan-toolbar-group { align-items: stretch; flex-direction: column; }
   .project-plan-toolbar-label { width: auto; }
   .project-plan-toolbar-row .ant-space-item,
