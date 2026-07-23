@@ -331,6 +331,7 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS sprints (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
+            milestone_id TEXT NOT NULL DEFAULT '',
             name TEXT NOT NULL,
             goal TEXT NOT NULL DEFAULT '',
             start_date TEXT NOT NULL,
@@ -480,6 +481,10 @@ def init_db() -> None:
     ):
         if _col not in have_wi:
             conn.execute(f"ALTER TABLE work_items ADD COLUMN {_ddl}")
+    # WB-310：Sprint 可选归属里程碑；旧 Sprint 保持未规划状态。
+    have_sprint = {r["name"] for r in conn.execute("PRAGMA table_info(sprints)").fetchall()}
+    if "milestone_id" not in have_sprint:
+        conn.execute("ALTER TABLE sprints ADD COLUMN milestone_id TEXT NOT NULL DEFAULT ''")
     # 幂等补列（老库）：comments.work_item_id —— 任务级评论（WB-115），'' = 项目级。
     have_cm = {r["name"] for r in conn.execute("PRAGMA table_info(comments)").fetchall()}
     if "work_item_id" not in have_cm:
@@ -1888,22 +1893,26 @@ def get_sprint(sprint_id: str) -> Optional[dict]:
 
 
 def create_sprint(*, project_id: str, name: str, goal: str, start_date: str,
-                  end_date: str, status: str = "planned") -> dict:
+                  end_date: str, status: str = "planned", milestone_id: str = "") -> dict:
     sprint_id = new_uuid(); now = time.time()
     sort = get_conn().execute(
         "SELECT COALESCE(MAX(sort),0)+1 FROM sprints WHERE project_id=?", (project_id,),
     ).fetchone()[0]
     get_conn().execute(
-        "INSERT INTO sprints (id,project_id,name,goal,start_date,end_date,status,sort,created_at,updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (sprint_id, project_id, name, goal, start_date, end_date, status, sort, now, now),
+        "INSERT INTO sprints "
+        "(id,project_id,milestone_id,name,goal,start_date,end_date,status,sort,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            sprint_id, project_id, milestone_id, name, goal,
+            start_date, end_date, status, sort, now, now,
+        ),
     )
     get_conn().commit()
     return get_sprint(sprint_id)  # type: ignore[return-value]
 
 
 def update_sprint(sprint_id: str, **fields: Any) -> Optional[dict]:
-    allowed = {"name", "goal", "start_date", "end_date", "status", "sort"}
+    allowed = {"name", "goal", "start_date", "end_date", "status", "sort", "milestone_id"}
     sets, values = [], []
     for key, value in fields.items():
         if key in allowed and value is not None:
@@ -2167,6 +2176,11 @@ def delete_milestone(mid: str) -> bool:
         # 只解绑同项目任务，不碰别项目里恰好同 id 引用（WB-157）。
         conn.execute("UPDATE work_items SET milestone_id='' WHERE milestone_id=? AND project_id=?",
                      (mid, row["project_id"]))
+        conn.execute(
+            "UPDATE sprints SET milestone_id='',updated_at=? "
+            "WHERE milestone_id=? AND project_id=?",
+            (time.time(), mid, row["project_id"]),
+        )
     cur = conn.execute("DELETE FROM milestones WHERE id=?", (mid,))
     conn.commit()
     return cur.rowcount > 0

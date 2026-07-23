@@ -188,6 +188,7 @@ def update_pm_preferences(project_id: str, body: PmPreferencesBody,
 class SprintBody(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     goal: str = Field(default="", max_length=1000)
+    milestone_id: str = Field(default="", max_length=100)
     start_date: str
     end_date: str
     status: str = "planned"
@@ -196,6 +197,7 @@ class SprintBody(BaseModel):
 class SprintUpdateBody(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     goal: str | None = Field(default=None, max_length=1000)
+    milestone_id: str | None = Field(default=None, max_length=100)
     start_date: str | None = None
     end_date: str | None = None
     status: str | None = None
@@ -205,6 +207,16 @@ def _validate_sprint_dates(start: str, end: str) -> None:
     start_day, end_day = _iso_date(start, "sprint start_date"), _iso_date(end, "sprint end_date")
     if end_day < start_day or (end_day - start_day).days > 366:
         raise HTTPException(400, "sprint date range must be 0..366 days")
+
+
+def _normalize_sprint_milestone(project_id: str, milestone_id: str) -> str:
+    milestone_id = (milestone_id or "").strip()
+    milestone = db.get_milestone(milestone_id) if milestone_id else None
+    return (
+        milestone_id
+        if milestone and milestone["project_id"] == project_id
+        else ""
+    )
 
 
 @router.get("/projects/{project_id}/sprints")
@@ -219,8 +231,15 @@ def create_sprint(project_id: str, body: SprintBody, account: Account = CurrentA
     _validate_sprint_dates(body.start_date, body.end_date)
     if body.status not in _SPRINT_STATUSES:
         raise HTTPException(400, "invalid sprint status")
-    return db.create_sprint(project_id=project_id, name=body.name.strip(), goal=body.goal.strip(),
-                            start_date=body.start_date, end_date=body.end_date, status=body.status)
+    return db.create_sprint(
+        project_id=project_id,
+        name=body.name.strip(),
+        goal=body.goal.strip(),
+        milestone_id=_normalize_sprint_milestone(project_id, body.milestone_id),
+        start_date=body.start_date,
+        end_date=body.end_date,
+        status=body.status,
+    )
 
 
 @router.patch("/projects/{project_id}/sprints/{sprint_id}")
@@ -236,6 +255,10 @@ def update_sprint(project_id: str, sprint_id: str, body: SprintUpdateBody,
     _validate_sprint_dates(start, end)
     if "status" in changes and changes["status"] not in _SPRINT_STATUSES:
         raise HTTPException(400, "invalid sprint status")
+    if "milestone_id" in changes:
+        changes["milestone_id"] = _normalize_sprint_milestone(
+            project_id, str(changes["milestone_id"] or ""),
+        )
     return db.update_sprint(sprint_id, **changes)  # type: ignore[return-value]
 
 

@@ -223,6 +223,8 @@ body {
 .task-editor-advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .task-plan-create { margin-top: 4px; border-top: 1px solid var(--console-border); border-radius: 0; color: var(--console-brand); }
 .task-blocks-summary { display: grid; gap: 6px; margin: -4px 0 14px; }
+.task-plan-warning-list { margin: 0; padding-inline-start: 18px; }
+.task-plan-warning-list li + li { margin-top: 4px; }
 
 .markdown-editor {
   overflow: hidden;

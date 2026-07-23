@@ -244,6 +244,7 @@ export interface ProjectCustomField {
 export interface Sprint {
   id: string;
   project_id: string;
+  milestone_id: string;
   name: string;
   goal: string;
   start_date: string;

@@ -93,6 +93,9 @@ const STATUS_META: Record<
 };
 
 type TaskDraft = Partial<WorkItem> & { title: string };
+type TaskCreateDefaults = Partial<
+  Pick<WorkItem, "milestone_id" | "sprint_id" | "start_date" | "due_date">
+>;
 type QuickPlanKind = "milestone" | "sprint";
 type TaskEditorStep = "content" | "plan" | "advanced";
 type PlanningSettingsSection = "milestones" | "sprints" | "fields";
@@ -112,10 +115,17 @@ interface QuickPlanDraft {
   description?: string;
   due_date?: string;
   goal?: string;
+  milestone_id?: string;
   start_date?: string;
   end_date?: string;
   status?: string;
 }
+type SprintFormDraft = Pick<
+  Sprint,
+  "name" | "goal" | "milestone_id" | "start_date" | "end_date" | "status"
+> & {
+  sync_task_milestone?: boolean;
+};
 interface TaskTemplate {
   id: string;
   name: string;
@@ -148,7 +158,7 @@ interface ProjectWorkContextValue {
   setSelected: (ids: string[]) => void;
   reload: () => Promise<void>;
   navigateToTab: (tab: ProjectWorkspaceTab) => void;
-  openTask: (task: WorkItem | null) => void;
+  openTask: (task: WorkItem | null, defaults?: TaskCreateDefaults) => void;
   patchTask: (task: WorkItem, patch: Partial<WorkItem>) => Promise<void>;
   deleteTask: (task: WorkItem) => Promise<void>;
   batchPatch: (patch: Partial<WorkItem>) => Promise<void>;
@@ -256,6 +266,31 @@ export function ProjectWorkProvider({
   const watchedParentId = Form.useWatch("parent_id", form);
   const watchedDependencyIds =
     Form.useWatch("dependency_ids", form) || [];
+  const watchedSprint = sprints.find(
+    (sprint) => sprint.id === watchedSprintId,
+  );
+  const watchedMilestone = milestones.find(
+    (milestone) => milestone.id === watchedMilestoneId,
+  );
+  const taskPlanWarnings = [
+    watchedSprint?.milestone_id &&
+    watchedSprint.milestone_id !== (watchedMilestoneId || "")
+      ? "当前任务的里程碑与 Sprint 所属里程碑不同；允许保留，但请确认这是有意安排。"
+      : "",
+    watchedSprint &&
+    watchedStartDate &&
+    watchedStartDate < watchedSprint.start_date
+      ? `任务开始日期早于 ${watchedSprint.name} 的开始日期。`
+      : "",
+    watchedSprint && watchedDueDate && watchedDueDate > watchedSprint.end_date
+      ? `任务截止日期晚于 ${watchedSprint.name} 的结束日期。`
+      : "",
+    watchedMilestone?.due_date &&
+    watchedDueDate &&
+    watchedDueDate > watchedMilestone.due_date
+      ? `任务截止日期晚于里程碑 ${watchedMilestone.name} 的截止日期。`
+      : "",
+  ].filter(Boolean);
 
   async function reload() {
     setLoading(true);
@@ -321,7 +356,10 @@ export function ProjectWorkProvider({
     void reload();
   }, [project.id]);
 
-  function loadTaskEditor(task: WorkItem | null) {
+  function loadTaskEditor(
+    task: WorkItem | null,
+    defaults: TaskCreateDefaults = {},
+  ) {
     setTaskDirty(false);
     setTaskEditorStep("content");
     setEditing(task);
@@ -344,6 +382,7 @@ export function ProjectWorkProvider({
         custom_fields: {},
         dependency_ids: [],
         sprint_id: "",
+        ...defaults,
       },
     );
     setTaskComments([]);
@@ -376,8 +415,11 @@ export function ProjectWorkProvider({
     });
   }
 
-  function openTask(task: WorkItem | null) {
-    confirmDiscard(() => loadTaskEditor(task), "切换任务并放弃修改？");
+  function openTask(task: WorkItem | null, defaults: TaskCreateDefaults = {}) {
+    confirmDiscard(
+      () => loadTaskEditor(task, defaults),
+      "切换任务并放弃修改？",
+    );
   }
 
   function openChild(parent: WorkItem) {
@@ -397,7 +439,10 @@ export function ProjectWorkProvider({
 
   function openQuickPlan(kind: QuickPlanKind) {
     quickPlanForm.resetFields();
-    quickPlanForm.setFieldsValue({ status: kind === "milestone" ? "open" : "planned" });
+    quickPlanForm.setFieldsValue({
+      status: kind === "milestone" ? "open" : "planned",
+      milestone_id: kind === "sprint" ? watchedMilestoneId || "" : undefined,
+    });
     setQuickPlanKind(kind);
   }
 
@@ -419,12 +464,15 @@ export function ProjectWorkProvider({
         const created = await consoleApi.createSprint(project.id, {
           name: values.name,
           goal: values.goal || "",
+          milestone_id: values.milestone_id || "",
           start_date: values.start_date || "",
           end_date: values.end_date || "",
           status: (values.status as Sprint["status"]) || "planned",
         });
         setSprints((current) => [...current, created]);
         form.setFieldValue("sprint_id", created.id);
+        if (created.milestone_id)
+          form.setFieldValue("milestone_id", created.milestone_id);
         setTaskDirty(true);
         message.success("Sprint 已创建并选中");
       }
@@ -703,6 +751,11 @@ export function ProjectWorkProvider({
                 : "新建任务"}
             </span>
             {taskDirty && <Badge status="warning" text="未保存" />}
+            {watchedMilestone && (
+              <Tag color="blue">{watchedMilestone.name}</Tag>
+            )}
+            {watchedSprint && <Tag color="cyan">{watchedSprint.name}</Tag>}
+            {editing === null && !watchedSprint && <Tag>待规划</Tag>}
           </Space>
         }
         onClose={closeTaskEditor}
@@ -889,6 +942,20 @@ export function ProjectWorkProvider({
                         </Space>
                       }
                     />
+                    {taskPlanWarnings.length > 0 && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message="计划范围需要确认"
+                        description={
+                          <ul className="task-plan-warning-list">
+                            {taskPlanWarnings.map((warning) => (
+                              <li key={warning}>{warning}</li>
+                            ))}
+                          </ul>
+                        }
+                      />
+                    )}
                     <div className="task-editor-plan-grid">
                       <Card
                         size="small"
@@ -936,9 +1003,28 @@ export function ProjectWorkProvider({
                                 allowClear
                                 showSearch
                                 optionFilterProp="label"
+                                onChange={(value) => {
+                                  const sprint = sprints.find(
+                                    (item) => item.id === value,
+                                  );
+                                  if (sprint?.milestone_id)
+                                    form.setFieldValue(
+                                      "milestone_id",
+                                      sprint.milestone_id,
+                                    );
+                                  setTaskDirty(true);
+                                }}
                                 options={sprints.map((sprint) => ({
                                   value: sprint.id,
-                                  label: sprint.name,
+                                  label: sprint.milestone_id
+                                    ? `${sprint.name} · ${
+                                        milestones.find(
+                                          (milestone) =>
+                                            milestone.id ===
+                                            sprint.milestone_id,
+                                        )?.name || "未识别里程碑"
+                                      }`
+                                    : sprint.name,
                                 }))}
                                 popupRender={(menu) => (
                                   <>
@@ -1349,6 +1435,16 @@ export function ProjectWorkProvider({
             </>
           ) : (
             <>
+              <Form.Item name="milestone_id" label="所属里程碑">
+                <Select
+                  allowClear
+                  placeholder="未关联里程碑"
+                  options={milestones.map((milestone) => ({
+                    value: milestone.id,
+                    label: milestone.name,
+                  }))}
+                />
+              </Form.Item>
               <Form.Item name="goal" label="Sprint 目标">
                 <Input.TextArea rows={3} maxLength={1000} />
               </Form.Item>
@@ -1366,7 +1462,7 @@ export function ProjectWorkProvider({
                   <Form.Item
                     name="end_date"
                     label="结束日期"
-                    dependencies={["start_date"]}
+                    dependencies={["start_date", "milestone_id"]}
                     rules={[
                       { required: true },
                       ({ getFieldValue }) => ({
@@ -1375,6 +1471,24 @@ export function ProjectWorkProvider({
                           return !value || !start || value >= start
                             ? Promise.resolve()
                             : Promise.reject(new Error("结束日期不能早于开始日期"));
+                        },
+                      }),
+                      ({ getFieldValue }) => ({
+                        warningOnly: true,
+                        validator(_, value) {
+                          const milestone = milestones.find(
+                            (item) =>
+                              item.id === getFieldValue("milestone_id"),
+                          );
+                          return !value ||
+                            !milestone?.due_date ||
+                            value <= milestone.due_date
+                            ? Promise.resolve()
+                            : Promise.reject(
+                                new Error(
+                                  `结束日期晚于里程碑截止日期 ${milestone.due_date}`,
+                                ),
+                              );
                         },
                       }),
                     ]}
@@ -1555,14 +1669,16 @@ function MilestoneCard({
   roots,
   milestones,
   editable = true,
+  onCreateSprint,
 }: {
   project: Project;
   roots: WorkItem[];
   milestones: Milestone[];
   editable?: boolean;
+  onCreateSprint?: (milestone: Milestone) => void;
 }) {
   const { message } = App.useApp();
-  const { reload, navigateToTab } = useProjectWork();
+  const { reload, navigateToTab, sprints } = useProjectWork();
   const [open, setOpen] = useState(false);
   const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(
     null,
@@ -1603,6 +1719,9 @@ function MilestoneCard({
             const completed = related.filter(
               (item) => item.status === "done",
             ).length;
+            const relatedSprints = sprints.filter(
+              (sprint) => sprint.milestone_id === milestone.id,
+            );
             return (
               <List.Item
                 className={
@@ -1624,6 +1743,19 @@ function MilestoneCard({
                 actions={
                   editable && canWrite(project)
                     ? [
+                        ...(onCreateSprint
+                          ? [
+                              <Button
+                                key="new-sprint"
+                                type="link"
+                                size="small"
+                                icon={<PlusOutlined />}
+                                onClick={() => onCreateSprint(milestone)}
+                              >
+                                新建 Sprint
+                              </Button>,
+                            ]
+                          : []),
                         <Popconfirm
                           key="delete"
                           title="删除此里程碑？"
@@ -1672,6 +1804,7 @@ function MilestoneCard({
                         {milestone.due_date
                           ? `截止 ${milestone.due_date}`
                           : "未设截止日期"}
+                        {` · ${relatedSprints.length} 个 Sprint`}
                       </Typography.Text>
                     </>
                   }
@@ -1686,8 +1819,8 @@ function MilestoneCard({
           description="还没有里程碑"
         >
           {!editable && roots.length > 0 && (
-            <Button onClick={() => navigateToTab("iterations")}>
-              {canWrite(project) ? "前往周期与字段" : "查看周期与字段"}
+            <Button onClick={() => navigateToTab("tasks")}>
+              {canWrite(project) ? "前往任务中心规划" : "查看任务中心"}
             </Button>
           )}
         </Empty>
@@ -2375,7 +2508,10 @@ export function ProjectTasks() {
           ? !item.priority
           : item.priority === priority)) &&
       (!milestoneId || item.milestone_id === milestoneId) &&
-      (!sprintId || item.sprint_id === sprintId),
+      (!sprintId ||
+        (sprintId === "__unplanned__"
+          ? !item.sprint_id
+          : item.sprint_id === sprintId)),
   );
   const hasTaskFilters = Boolean(
     search || status || assignee || priority || milestoneId || sprintId,
@@ -2505,12 +2641,23 @@ export function ProjectTasks() {
           showSearch
           optionFilterProp="label"
           value={item.sprint_id || undefined}
-          placeholder="无 Sprint"
+          placeholder="待规划"
           aria-label={`${item.title} Sprint`}
           loading={savingTaskIds.has(item.id)}
           disabled={!canWrite(project) || savingTaskIds.has(item.id)}
-          options={sprints.map((sprint) => ({ value: sprint.id, label: sprint.name }))}
-          onChange={(value) => void patchTask(item, { sprint_id: value || "" })}
+          options={sprints.map((sprint) => ({
+            value: sprint.id,
+            label: sprint.name,
+          }))}
+          onChange={(value) => {
+            const sprint = sprints.find((candidate) => candidate.id === value);
+            void patchTask(item, {
+              sprint_id: value || "",
+              ...(sprint?.milestone_id
+                ? { milestone_id: sprint.milestone_id }
+                : {}),
+            });
+          }}
         />
       ),
     },
@@ -2585,7 +2732,7 @@ export function ProjectTasks() {
         <div>
           <Typography.Title level={5}>任务中心</Typography.Title>
           <Typography.Text type="secondary">
-            在同一处维护任务，并按里程碑或 Sprint 查看和管理计划范围。
+            在同一处维护任务，并按里程碑或 Sprint 查看计划范围；未排期任务保留在待规划中。
           </Typography.Text>
         </div>
         <Segmented<TaskCenterView>
@@ -2703,10 +2850,13 @@ export function ProjectTasks() {
                 value={sprintId || undefined}
                 placeholder="全部 Sprint"
                 onChange={(value) => setSprintId(value || "")}
-                options={sprints.map((sprint) => ({
-                  value: sprint.id,
-                  label: sprint.name,
-                }))}
+                options={[
+                  { value: "__unplanned__", label: "待规划" },
+                  ...sprints.map((sprint) => ({
+                    value: sprint.id,
+                    label: sprint.name,
+                  })),
+                ]}
               />
               <Tag>{filtered.length}/{items.length} 项</Tag>
               {hasTaskFilters && (
@@ -2772,6 +2922,7 @@ export function ProjectIterations({
     customFields,
     sprints,
     reload,
+    openTask,
   } = useProjectWork();
   const { message } = App.useApp();
   const [section, setSection] = useState<PlanningSettingsSection>(
@@ -2792,10 +2943,7 @@ export function ProjectIterations({
     Form.useForm<
       Pick<ProjectCustomField, "name" | "field_type" | "options" | "required">
     >();
-  const [sprintForm] =
-    Form.useForm<
-      Pick<Sprint, "name" | "goal" | "start_date" | "end_date" | "status">
-    >();
+  const [sprintForm] = Form.useForm<SprintFormDraft>();
   const sprintStats = useMemo(
     () =>
       new Map(
@@ -2825,10 +2973,14 @@ export function ProjectIterations({
     [items, sprints],
   );
 
-  function openNewSprint() {
+  function openNewSprint(milestoneId = "") {
     setEditingSprint(null);
     sprintForm.resetFields();
-    sprintForm.setFieldsValue({ status: "planned" });
+    sprintForm.setFieldsValue({
+      status: "planned",
+      milestone_id: milestoneId,
+      sync_task_milestone: false,
+    });
     setSprintOpen(true);
   }
 
@@ -2864,6 +3016,7 @@ export function ProjectIterations({
                 project={project}
                 roots={roots}
                 milestones={milestones}
+                onCreateSprint={(milestone) => openNewSprint(milestone.id)}
               />
             ),
           },
@@ -2897,7 +3050,7 @@ export function ProjectIterations({
                       <Button
                         type="primary"
                         icon={<PlusOutlined />}
-                        onClick={openNewSprint}
+                        onClick={() => openNewSprint()}
                       >
                         新建 Sprint
                       </Button>
@@ -2912,7 +3065,7 @@ export function ProjectIterations({
                     pageSize: 10,
                     hideOnSinglePage: true,
                   }}
-                  scroll={{ x: 900 }}
+                  scroll={{ x: 1080 }}
                   locale={{
                     emptyText: (
                       <Empty
@@ -2934,7 +3087,10 @@ export function ProjectIterations({
                       )
                         return;
                       setEditingSprint(sprint);
-                      sprintForm.setFieldsValue(sprint);
+                      sprintForm.setFieldsValue({
+                        ...sprint,
+                        sync_task_milestone: false,
+                      });
                       setSprintOpen(true);
                     },
                   })}
@@ -2987,6 +3143,19 @@ export function ProjectIterations({
                         `${sprint.start_date} — ${sprint.end_date}`,
                     },
                     {
+                      title: "里程碑",
+                      dataIndex: "milestone_id",
+                      width: 150,
+                      render: (value) =>
+                        milestones.find(
+                          (milestone) => milestone.id === value,
+                        )?.name || (
+                          <Typography.Text type="secondary">
+                            未关联
+                          </Typography.Text>
+                        ),
+                    },
+                    {
                       title: "状态",
                       dataIndex: "status",
                       width: 100,
@@ -3010,10 +3179,25 @@ export function ProjectIterations({
                     },
                     {
                       title: "操作",
-                      width: 120,
+                      width: 210,
                       fixed: "right",
                       render: (_value, sprint) => (
                         <Space size={4}>
+                          {canWrite(project) && (
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<PlusOutlined />}
+                              onClick={() =>
+                                openTask(null, {
+                                  sprint_id: sprint.id,
+                                  milestone_id: sprint.milestone_id || "",
+                                })
+                              }
+                            >
+                              新建任务
+                            </Button>
+                          )}
                           <Button
                             type="link"
                             size="small"
@@ -3234,16 +3418,49 @@ export function ProjectIterations({
           layout="vertical"
           onFinish={async (values) => {
             try {
+              const { sync_task_milestone: syncTasks, ...sprintValues } =
+                values;
+              const milestoneChanged =
+                Boolean(editingSprint) &&
+                editingSprint?.milestone_id !==
+                  (sprintValues.milestone_id || "");
               if (editingSprint)
                 await consoleApi.updateSprint(
                   project.id,
                   editingSprint.id,
-                  values,
+                  sprintValues,
                 );
-              else await consoleApi.createSprint(project.id, values);
+              else await consoleApi.createSprint(project.id, sprintValues);
+              let failedSyncs = 0;
+              if (editingSprint && milestoneChanged && syncTasks) {
+                const results = await Promise.allSettled(
+                  items
+                    .filter((item) => item.sprint_id === editingSprint.id)
+                    .map((item) =>
+                      consoleApi.updateWorkItem(project.id, item.id, {
+                        milestone_id: sprintValues.milestone_id || "",
+                      }),
+                    ),
+                );
+                failedSyncs = results.filter(
+                  (result) => result.status === "rejected",
+                ).length;
+              }
               setSprintOpen(false);
               setEditingSprint(null);
               await reload();
+              if (failedSyncs)
+                message.warning(
+                  `Sprint 已保存，${failedSyncs} 个任务的里程碑同步失败`,
+                );
+              else
+                message.success(
+                  syncTasks && milestoneChanged
+                    ? "Sprint 与任务里程碑已同步"
+                    : editingSprint
+                      ? "Sprint 已更新"
+                      : "Sprint 已创建",
+                );
             } catch (reason) {
               message.error(
                 errorText(
@@ -3260,6 +3477,16 @@ export function ProjectIterations({
             rules={[{ required: true, whitespace: true }]}
           >
             <Input maxLength={120} />
+          </Form.Item>
+          <Form.Item name="milestone_id" label="所属里程碑">
+            <Select
+              allowClear
+              placeholder="未关联里程碑"
+              options={milestones.map((milestone) => ({
+                value: milestone.id,
+                label: milestone.name,
+              }))}
+            />
           </Form.Item>
           <Form.Item name="goal" label="目标">
             <Input.TextArea rows={3} maxLength={1000} />
@@ -3278,7 +3505,35 @@ export function ProjectIterations({
               <Form.Item
                 name="end_date"
                 label="结束日期"
-                rules={[{ required: true }]}
+                dependencies={["start_date", "milestone_id"]}
+                rules={[
+                  { required: true },
+                  ({ getFieldValue }) => ({
+                    validator: async (_rule, value) => {
+                      const startDate = getFieldValue("start_date");
+                      if (!value || !startDate || value >= startDate) return;
+                      throw new Error("结束日期不能早于开始日期");
+                    },
+                  }),
+                  ({ getFieldValue }) => ({
+                    warningOnly: true,
+                    validator: async (_rule, value) => {
+                      const milestone = milestones.find(
+                        (item) =>
+                          item.id === getFieldValue("milestone_id"),
+                      );
+                      if (
+                        !value ||
+                        !milestone?.due_date ||
+                        value <= milestone.due_date
+                      )
+                        return;
+                      throw new Error(
+                        `结束日期晚于里程碑截止日期 ${milestone.due_date}`,
+                      );
+                    },
+                  }),
+                ]}
               >
                 <Input type="date" />
               </Form.Item>
@@ -3293,6 +3548,15 @@ export function ProjectIterations({
               ]}
             />
           </Form.Item>
+          {editingSprint && (
+            <Form.Item
+              name="sync_task_milestone"
+              valuePropName="checked"
+              extra="仅在所属里程碑发生变化时生效；任务不会被删除或移出 Sprint。"
+            >
+              <Checkbox>同步更新当前 Sprint 中任务的里程碑</Checkbox>
+            </Form.Item>
+          )}
         </Form>
       </Modal>
       <Drawer

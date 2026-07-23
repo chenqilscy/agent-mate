@@ -401,7 +401,10 @@ export const consoleApi = {
     ),
   createSprint: (
     id: string,
-    body: Pick<Sprint, "name" | "goal" | "start_date" | "end_date" | "status">,
+    body: Pick<
+      Sprint,
+      "name" | "goal" | "milestone_id" | "start_date" | "end_date" | "status"
+    >,
   ) =>
     apiRequest<Sprint>(
       "POST",
