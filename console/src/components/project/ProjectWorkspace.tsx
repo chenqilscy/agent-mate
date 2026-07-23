@@ -16,6 +16,7 @@ import {
   Popconfirm,
   Progress,
   Row,
+  Segmented,
   Select,
   Space,
   Statistic,
@@ -95,6 +96,7 @@ type TaskDraft = Partial<WorkItem> & { title: string };
 type QuickPlanKind = "milestone" | "sprint";
 type TaskEditorStep = "content" | "plan" | "advanced";
 type PlanningSettingsSection = "milestones" | "sprints" | "fields";
+type TaskCenterView = "tasks" | "milestones" | "sprints";
 export type ProjectWorkspaceTab =
   | "overview"
   | "plan"
@@ -2357,6 +2359,7 @@ export function ProjectTasks() {
   const [priority, setPriority] = useState("");
   const [milestoneId, setMilestoneId] = useState("");
   const [sprintId, setSprintId] = useState("");
+  const [view, setView] = useState<TaskCenterView>("tasks");
   const [batchStatus, setBatchStatus] = useState<WorkItem["status"]>("doing");
   const orderedItems = useMemo(() => orderTasksForTable(items), [items]);
   const filtered = orderedItems.filter(
@@ -2577,11 +2580,33 @@ export function ProjectTasks() {
     },
   ];
   return (
-    <div className="project-task-table">
-      <Typography.Paragraph className="table-scroll-hint" type="secondary">
-        表格可左右滑动查看计划、日期和工时等全部字段。
-      </Typography.Paragraph>
-      <ProTable<WorkItem>
+    <div className="project-task-center">
+      <div className="project-task-center-header">
+        <div>
+          <Typography.Title level={5}>任务中心</Typography.Title>
+          <Typography.Text type="secondary">
+            在同一处维护任务，并按里程碑或 Sprint 查看和管理计划范围。
+          </Typography.Text>
+        </div>
+        <Segmented<TaskCenterView>
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "tasks", label: `全部任务 ${items.length}` },
+            {
+              value: "milestones",
+              label: `里程碑 ${milestones.length}`,
+            },
+            { value: "sprints", label: `Sprint ${sprints.length}` },
+          ]}
+        />
+      </div>
+      {view === "tasks" ? (
+        <div className="project-task-table">
+          <Typography.Paragraph className="table-scroll-hint" type="secondary">
+            表格可左右滑动查看计划、日期和工时等全部字段。
+          </Typography.Paragraph>
+          <ProTable<WorkItem>
         rowKey="id"
         columns={columns}
         dataSource={filtered}
@@ -2723,12 +2748,22 @@ export function ProjectTasks() {
             </Button>
           </Space>
         )}
-      />
+          />
+        </div>
+      ) : (
+        <ProjectIterations
+          sectionOnly={view === "milestones" ? "milestones" : "sprints"}
+        />
+      )}
     </div>
   );
 }
 
-export function ProjectIterations() {
+export function ProjectIterations({
+  sectionOnly,
+}: {
+  sectionOnly?: PlanningSettingsSection;
+} = {}) {
   const {
     project,
     items,
@@ -2739,8 +2774,9 @@ export function ProjectIterations() {
     reload,
   } = useProjectWork();
   const { message } = App.useApp();
-  const [section, setSection] =
-    useState<PlanningSettingsSection>("milestones");
+  const [section, setSection] = useState<PlanningSettingsSection>(
+    sectionOnly || "milestones",
+  );
   const [fieldOpen, setFieldOpen] = useState(false);
   const [sprintOpen, setSprintOpen] = useState(false);
   const [editingField, setEditingField] = useState<ProjectCustomField | null>(
@@ -2810,8 +2846,8 @@ export function ProjectIterations() {
   return (
     <div className="project-settings">
       <Tabs
-        className="project-settings-tabs"
-        activeKey={section}
+        className={`project-settings-tabs${sectionOnly ? " is-single" : ""}`}
+        activeKey={sectionOnly || section}
         onChange={(key) => setSection(key as PlanningSettingsSection)}
         more={{ trigger: "click" }}
         items={[
@@ -3113,7 +3149,7 @@ export function ProjectIterations() {
               </Card>
             ),
           },
-        ]}
+        ].filter((item) => !sectionOnly || item.key === sectionOnly)}
       />
       <Modal
         title={editingField ? "编辑自定义字段" : "新增自定义字段"}

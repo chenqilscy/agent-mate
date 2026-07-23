@@ -121,6 +121,7 @@ body {
 .project-list-row:hover .project-list-link { text-decoration: underline; }
 .project-settings { min-width: 0; }
 .project-settings-tabs > .ant-tabs-nav { margin-bottom: 12px; }
+.project-settings-tabs.is-single > .ant-tabs-nav { display: none; }
 .project-settings-tabs > .ant-tabs-nav .ant-tag { margin-inline-end: 0; }
 .project-settings-panel { border-color: var(--console-border); }
 .project-settings-panel .ant-card-head-wrapper { gap: 12px; }
@@ -186,6 +187,24 @@ body {
 .project-kanban-empty { display: grid; place-items: center; min-height: 76px; color: var(--console-muted); border: 1px dashed var(--console-border); border-radius: 8px; }
 
 .project-task-table .ant-pro-card { border-color: var(--console-border); }
+.project-task-center {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 14px;
+}
+.project-task-center-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--console-border);
+  border-radius: 8px;
+  background: var(--console-panel);
+}
+.project-task-center-header .ant-typography { margin: 0; }
 .project-task-table .ant-input-search { width: 220px; }
 .project-task-table .ant-select { min-width: 130px; }
 .project-task-filters { row-gap: 8px; }
@@ -379,6 +398,7 @@ body {
   .markdown-editor-body.is-split .markdown-editor-preview { border-inline-start: 0; border-top: 1px solid var(--console-border); }
   .project-settings-panel .ant-card-head-wrapper { align-items: stretch; flex-direction: column; padding-block: 12px; }
   .project-settings-panel .ant-card-extra { margin-inline-start: 0; }
+  .project-task-center-header { align-items: stretch; flex-direction: column; }
   .project-task-filters { width: 100%; }
 }
 
@@ -400,6 +420,7 @@ body {
   .project-batch-bar { align-items: stretch; flex-direction: column; }
   .project-task-card-meta { align-items: stretch; flex-direction: column; }
   .project-task-card-meta > .ant-select { width: 100%; }
+  .project-task-center-header .ant-segmented { width: 100%; }
   .project-gantt { grid-template-columns: 170px minmax(530px, 1fr); }
   .markdown-editor-toolbar,
   .markdown-editor-footer { align-items: stretch; flex-direction: column; }

@@ -192,7 +192,7 @@ export default function ProjectDetailPage({
       case "gantt":
         return <ProjectGantt />;
       case "iterations":
-        return <ProjectIterations />;
+        return <ProjectIterations sectionOnly="fields" />;
       case "knowledge":
         return project ? <KnowledgeTab project={project} /> : null;
       case "collab":
@@ -289,7 +289,7 @@ export default function ProjectDetailPage({
                 label: "计划",
                 children: renderProjectSection([
                   { key: "gantt", label: "时间线" },
-                  { key: "iterations", label: "周期与字段" },
+                  { key: "iterations", label: "字段配置" },
                 ]),
               },
               {
