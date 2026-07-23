@@ -73,6 +73,30 @@ Server 管理以下 AgentMate 自有控制面对象：
 目录定义和推荐位是不同对象。第三方 SkillHub 推荐位只保存 `provider=skillhub`、稳定 slug、展示文案、
 排序、启停与生效时间；Server 不搜索、镜像、代理或安装 SkillHub 内容。
 
+#### 外部目录参考源
+
+腾讯 WorkBuddy 的[专家](https://www.workbuddy.cn/app/experts)、
+[技能](https://www.workbuddy.cn/app/skills)和
+[连接器](https://www.workbuddy.cn/app/connectors)公开目录可以用于候选发现、分类体系、卡片字段和
+运营文案参考，但不是 AgentMate 的运行时依赖或权威数据源。Server 不自动抓取或镜像这些页面，
+也不能把外部卡片名称与描述直接发布为可运行能力。
+
+外部候选进入 Server 的受控流程是：
+
+```text
+来源 URL + 访问日期 + 必要短摘要
+  → 人工筛选、去重和 schema 映射
+  → 补齐 AgentMate 运行定义
+  → 测试/权限/兼容性验收
+  → Console 审核发布
+  → Server 数据库成为 AgentMate 权威目录
+```
+
+其中专家必须有稳定 slug 与可注入 persona；Skill 必须形成可校验的本地安装快照并声明工具与权限；
+连接器必须有受支持 launch spec、凭据门禁和工具协议。参考页后续变化只形成复核信号，不自动覆盖
+已发布数据。来源索引和核实摘要见
+[`WorkBuddy/official-sources.md`](WorkBuddy/official-sources.md#动态能力目录)。
+
 App 通过 `POST /api/server/pull` 携带 revision 与 capability report 条件拉取；revision 变化时获取完整
 Server snapshot 并原子替换本机 `catalog_downlink` 的 Server scope，未变化时不重写。App 自造专家、
 本地 Skill 安装和连接器凭据属于本机 override，不上传、不被镜像覆盖。
