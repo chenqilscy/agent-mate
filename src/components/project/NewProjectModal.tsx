@@ -13,6 +13,23 @@ import { Tag } from 'antd'
 import { clickable } from '../../lib/a11y'
 
 type Kind = 'conn' | 'exp' | 'skill' | 'kb'
+const PROJECT_NAME_MAX = 15
+
+function readyTemplateSkills(keys: string[]): string[] {
+  const state = useSkillStore.getState()
+  const ready = new Set<string>()
+  for (const skill of state.builtin) {
+    ready.add(skill.slug)
+    ready.add(skill.name)
+  }
+  for (const skill of state.installed) {
+    if (skill.disabled) continue
+    ready.add(skill.key)
+    if (skill.slug) ready.add(skill.slug)
+    ready.add(skill.name)
+  }
+  return keys.filter((key) => ready.has(key))
+}
 
 function iconOf(kind: Kind, name: string): string {
   if (kind === 'kb') return '📚'
@@ -44,9 +61,12 @@ export function NewProjectModal({ open, initialTemplate = null, onClose, onCreat
   const kbs = useKnowledgeStore((s) => s.kbs)
   const kbLoaded = useKnowledgeStore((s) => s.loaded)
   const loadKbs = useKnowledgeStore((s) => s.load)
+  const skillsLoaded = useSkillStore((s) => s.loaded)
+  const loadSkills = useSkillStore((s) => s.load)
   const serverLinked = useServerStore((s) => s.linked)
 
   useEffect(() => { if (open && !kbLoaded) void loadKbs() }, [open, kbLoaded, loadKbs])
+  useEffect(() => { if (open && !skillsLoaded) void loadSkills() }, [open, skillsLoaded, loadSkills])
   useEffect(() => {
     if (!open) return
     setName('')
@@ -60,8 +80,19 @@ export function NewProjectModal({ open, initialTemplate = null, onClose, onCreat
     if (!template) return
     setTplLabel(template[0])
     setInstruction(template[1])
-    setSel({ conn: new Set(template[2]), exp: new Set(template[3]), skill: new Set(), kb: new Set() })
+    setSel({
+      conn: new Set(template[2]),
+      exp: new Set(template[3]),
+      skill: new Set(readyTemplateSkills(template[4] ?? [])),
+      kb: new Set(),
+    })
   }, [open, initialTemplate])
+  useEffect(() => {
+    if (!open || !initialTemplate || !skillsLoaded) return
+    const template = useCatalogStore.getState().NP_TPLS.find((item) => item[0] === initialTemplate)
+    if (!template) return
+    setSel((prev) => ({ ...prev, skill: new Set(readyTemplateSkills(template[4] ?? [])) }))
+  }, [open, initialTemplate, skillsLoaded])
 
   if (!open) return null
 
@@ -76,7 +107,12 @@ export function NewProjectModal({ open, initialTemplate = null, onClose, onCreat
     if (!t) return
     setTplLabel(tplName)
     setInstruction(t[1])
-    setSel({ conn: new Set(t[2]), exp: new Set(t[3]), skill: new Set(), kb: new Set() })
+    setSel({
+      conn: new Set(t[2]),
+      exp: new Set(t[3]),
+      skill: new Set(readyTemplateSkills(t[4] ?? [])),
+      kb: new Set(),
+    })
     setTplOpen(false)
   }
 
@@ -98,10 +134,11 @@ export function NewProjectModal({ open, initialTemplate = null, onClose, onCreat
 
   const confirm = async () => {
     if (!name.trim() || busy) return
+    const projectName = name.trim().slice(0, PROJECT_NAME_MAX)
     setBusy(true)
     try {
       const p = await createProject({
-        name: name.trim(),
+        name: projectName,
         instruction,
         connectors: [...sel.conn],
         experts: [...sel.exp],
@@ -139,7 +176,17 @@ export function NewProjectModal({ open, initialTemplate = null, onClose, onCreat
         <div className="np-h">新建项目<WbButton className="np-x" onClick={close}>×</WbButton></div>
         <div className="np-body">
           <div className="np-lbl">项目名称</div>
-          <WbInput className="np-input" placeholder="请输入项目名称" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          <div className="np-name-field">
+            <WbInput
+              className="np-input"
+              placeholder="请输入项目名称"
+              value={name}
+              maxLength={PROJECT_NAME_MAX}
+              onChange={(e) => setName(e.target.value.slice(0, PROJECT_NAME_MAX))}
+              autoFocus
+            />
+            <span className="np-count" aria-live="polite">{name.length}/{PROJECT_NAME_MAX}</span>
+          </div>
 
           <div className="np-lbl">
             指令

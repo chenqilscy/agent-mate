@@ -865,6 +865,7 @@ def init_db() -> None:
     _ensure_local_user()
     _seed_catalog()
     _seed_showcase()
+    _migrate_project_template_defaults()
     _migrate_expert_team_identities()
     # WB-183/184：这些旧橱窗数据已由 catalog_skills / Server 实时镜像接管。清运行库孤儿，
     # 防止旧版本种过的静态三元组与虚假 SkillHub 统计在升级后复活。
@@ -1126,6 +1127,59 @@ def _seed_showcase() -> None:
             rows,
         )
     conn.commit()
+
+
+_LEGACY_PROJECT_TEMPLATE_HASHES = {
+    "f8006fa8f196c4eaf931d0ab8bb5942349b745bbe7cf1ef2be224a48b638e1d5",
+    "b592d5bc11345d55c14fec6b38ca0a23f5d6d355f9c86da343140270a40f3383",
+    "9ee5bce65e9559996d3db8a7125fe9cf57bf0f913ef78a032ae6bf4498e5552c",
+    "8150c4f0badf564d75354bca5ab217bab6d9d652f33bc791c1054ffdddc84b4d",
+    "b384930d6ad6794b209334a765cc9c48359f087d25d8740353e85cba6aeaa065",
+    "f7bd8174b9f9766949bf77d430aa0e905662e836a586773e1ec5f41909aac72f",
+}
+
+
+def _migrate_project_template_defaults() -> None:
+    """WB-323：为仍等于旧内置默认值的项目模板补齐阶段化指令与技能。
+
+    只按旧 payload 的规范化 SHA-256 命中后更新；Console/Server 运营者改过哪怕一个字符都保留。
+    新值继续取 catalog_showcase.json，避免 Python 再复制一份模板正文。
+    """
+    try:
+        showcase = json.loads(_SHOWCASE_JSON.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    defaults = {
+        row[0]: row
+        for row in showcase.get("NP_TPLS", [])
+        if isinstance(row, list) and row and isinstance(row[0], str)
+    }
+    if not defaults:
+        return
+
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id,data FROM catalog_showcase WHERE kind='NP_TPLS'"
+    ).fetchall()
+    changed = False
+    now = time.time()
+    for row in rows:
+        try:
+            current = json.loads(row["data"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(current, list) or not current or current[0] not in defaults:
+            continue
+        canonical = json.dumps(current, ensure_ascii=False, separators=(",", ":"))
+        if hashlib.sha256(canonical.encode("utf-8")).hexdigest() not in _LEGACY_PROJECT_TEMPLATE_HASHES:
+            continue
+        conn.execute(
+            "UPDATE catalog_showcase SET data=?, updated_at=? WHERE id=?",
+            (json.dumps(defaults[current[0]], ensure_ascii=False), now, row["id"]),
+        )
+        changed = True
+    if changed:
+        conn.commit()
 
 
 # ---- users --------------------------------------------------------------

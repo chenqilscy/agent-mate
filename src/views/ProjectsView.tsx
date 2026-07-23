@@ -183,7 +183,7 @@ export function ProjectsView() {
         />
 
         <div className="sec-title">从模版创建</div>
-        <div className="card-grid g4">
+        <div className="card-grid project-template-grid">
           {PROJ_TPL.map(([ic, n, d]) => (
             <ProCard className="tpl" key={n} hoverable {...clickable} onClick={() => openNewProject(n)} styles={{ body: { display: 'contents' } }}>
               <span className="t-ic">{ic}</span>
