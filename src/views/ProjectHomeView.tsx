@@ -68,6 +68,7 @@ export function ProjectHomeView() {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [timeline, setTimeline] = useState<ServerTimelineEvent[]>([])
   const [timelineStale, setTimelineStale] = useState(false)
+  const [activityExpanded, setActivityExpanded] = useState(false)
   const [editInstr, setEditInstr] = useState(false)
   const [instrDraft, setInstrDraft] = useState('')
   const [picker, setPicker] = useState<Kind | null>(null)
@@ -111,15 +112,17 @@ export function ProjectHomeView() {
       useLoadoutStore.getState().setKnowledgeIds(p.knowledge_ids ?? [])
     }).catch(() => {})
     api.projectSessions(pid).then((r) => setSessions(r.sessions)).catch(() => {})
+    setActivityExpanded(false)
+    setTimelineStale(false)
     api.serverTimeline(pid).then((r) => {
       setTimeline(r.events)
-      setTimelineStale(!r.reachable)
-    }).catch(() => { setTimelineStale(true) })
+      setTimelineStale(r.server && !r.reachable)
+    }).catch(() => { setTimelineStale(active?.origin === 'server') })
     void loadWork(pid).then(() => api.serverSyncConflicts(pid)).then(({ count }) => {
       setProject((current) => current ? { ...current, sync_conflicts: count } : current)
     }).catch(() => {})
     void loadBindings()
-  }, [pid, setActive, loadWork, loadBindings])
+  }, [pid, active?.origin, setActive, loadWork, loadBindings])
 
   useEffect(() => { if (!kbLoaded) void loadKbs() }, [kbLoaded, loadKbs])
 
@@ -182,6 +185,7 @@ export function ProjectHomeView() {
       sessionId: session.id, running: session.status === 'running',
     })),
   ].sort((a, b) => b.createdAt - a.createdAt)
+  const visibleActivity = activityExpanded ? activityFeed : activityFeed.slice(0, 12)
 
   const bindingSection = (kind: ProjectBindingKind, label: string) => {
     const items = kind === 'assistant' ? boundAssistants : boundAutomations
@@ -233,6 +237,7 @@ export function ProjectHomeView() {
       <div className="chat-head">
         <div className="pe-crumb">
           <Breadcrumb items={[{ title: <span {...clickable} onClick={() => setView('projects')}>项目</span> }, { title: project.name }]} />
+          <Tag className={`project-source ${project.origin === 'server' ? 'is-server' : ''}`}>{project.origin === 'server' ? '团队项目 · Console' : '本机项目'}</Tag>
           {isShared && <Tag className="pj-rolebadge">协作 · {ROLE_LABEL[project.role!] || project.role}</Tag>}
           {!!project.sync_conflicts && <Tooltip title="本地离线改动与 Server 镜像存在分叉，已保留本地版本，请在恢复连接后核对。"><Tag color="warning">同步冲突 {project.sync_conflicts}</Tag></Tooltip>}
           {timelineStale && <Tooltip title="Server 当前不可达；动态展示本机最后一次成功回读的缓存（如有）。"><Tag>动态缓存</Tag></Tooltip>}
@@ -254,17 +259,25 @@ export function ProjectHomeView() {
           <div className="pjh-body">
             {tab === '动态' && (
               activityFeed.length ? (
-                <List dataSource={activityFeed} renderItem={(item) => (
-                  <List.Item
-                    className="pj-feed-row" key={item.id}
-                    {...(item.sessionId ? clickable : {})}
-                    onClick={item.sessionId ? () => openExec(item.sessionId!) : undefined}
-                  >
-                    <span className="fi"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16v12H5.2L4 17.2z" /></svg></span>
-                    <span className="ft">{item.title}</span>
-                    <span className="fa">{item.actor ? `${item.actor} · ` : ''}{item.running ? '执行中' : item.when}</span>
-                  </List.Item>
-                )} />
+                <>
+                  <List dataSource={visibleActivity} renderItem={(item) => (
+                    <List.Item
+                      className="pj-feed-row" key={item.id}
+                      {...(item.sessionId ? clickable : {})}
+                      onClick={item.sessionId ? () => openExec(item.sessionId!) : undefined}
+                    >
+                      <span className="fi"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16v12H5.2L4 17.2z" /></svg></span>
+                      <span className="ft">{item.title}</span>
+                      <span className="fa">{item.actor ? `${item.actor} · ` : ''}{item.running ? '执行中' : item.when}</span>
+                    </List.Item>
+                  )} />
+                  {activityFeed.length > 12 && (
+                    <div className="pj-feed-more">
+                      <span>{activityExpanded ? `已显示全部 ${activityFeed.length} 条动态` : `已显示最近 12 条，共 ${activityFeed.length} 条`}</span>
+                      <WbButton className="btn-ghost" onClick={() => setActivityExpanded((value) => !value)}>{activityExpanded ? '收起' : '查看全部'}</WbButton>
+                    </div>
+                  )}
+                </>
               ) : (
                 <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有执行记录。在下方描述任务，开始项目的第一次执行。" />
               )

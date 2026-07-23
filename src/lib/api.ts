@@ -126,7 +126,14 @@ export const api = {
 
   // 触发本地 backend 从 Server 下行 pull（项目/成员/目录镜像，WB-062/066/070）。
   // 未接 Server → 后端无害返回 {server:false}；用于登录后刷新 AgentMate 自有目录与协作数据。
-  serverPull: () => send<{ server: boolean; catalog?: number }>('POST', '/server/pull'),
+  serverPull: () => send<{
+    server: boolean
+    synced: number
+    projects: string[]
+    conflicts?: unknown[]
+    flushed?: number
+    catalog?: number
+  }>('POST', '/server/pull'),
 
   // 前端接 Server 协作（WB-067 Slice 2）：都经本地 backend 代理转发到 Server；未接 Server → {server:false}/空。
   serverStatus: () => get<{ enabled: boolean; linked: { account_id: string; name: string } | null }>('/server/status'),

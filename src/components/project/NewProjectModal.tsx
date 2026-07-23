@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCatalog, useCatalogStore } from '../../stores/catalogStore'
 import { useKnowledgeStore } from '../../stores/knowledgeStore'
 import { useProjectStore } from '../../stores/projectStore'
+import { useServerStore } from '../../stores/serverStore'
 import { skillDisplayName, useSkillStore } from '../../stores/skillStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
@@ -42,6 +43,7 @@ export function NewProjectModal({ open, onClose, onCreated }: {
   const kbs = useKnowledgeStore((s) => s.kbs)
   const kbLoaded = useKnowledgeStore((s) => s.loaded)
   const loadKbs = useKnowledgeStore((s) => s.load)
+  const serverLinked = useServerStore((s) => s.linked)
 
   useEffect(() => { if (open && !kbLoaded) void loadKbs() }, [open, kbLoaded, loadKbs])
 
@@ -143,7 +145,7 @@ export function NewProjectModal({ open, onClose, onCreated }: {
           {chipRow('kb', '知识库')}
         </div>
         <div className="np-foot">
-          <span className="np-hint">切换模版会覆盖当前编辑内容</span>
+          <span className="np-hint">{serverLinked ? '新项目保存在本机；团队项目请在 Console 创建后同步' : '切换模版会覆盖当前编辑内容'}</span>
           <WbButton className="btn-ghost" onClick={close}>取消</WbButton>
           <WbButton className="btn-dark" disabled={!name.trim() || busy} onClick={confirm}>确定</WbButton>
         </div>
