@@ -110,6 +110,16 @@ body {
 .project-overview-card { height: 100%; }
 .project-list-row { cursor: pointer; }
 .project-list-row:hover .project-list-link { text-decoration: underline; }
+.project-settings { min-width: 0; }
+.project-settings-tabs > .ant-tabs-nav { margin-bottom: 12px; }
+.project-settings-tabs > .ant-tabs-nav .ant-tag { margin-inline-end: 0; }
+.project-settings-panel { border-color: var(--console-border); }
+.project-settings-panel .ant-card-head-wrapper { gap: 12px; }
+.project-settings-row { transition: background-color .18s ease; }
+.project-settings-row.is-clickable { cursor: pointer; }
+.project-settings-row.is-clickable:hover { background: color-mix(in srgb, var(--console-brand) 6%, transparent); }
+.project-settings-progress { display: grid; min-width: 180px; gap: 3px; }
+.project-settings-progress .ant-progress { margin: 0; }
 
 .project-plan { display: grid; gap: 16px; }
 .project-plan-toolbar { position: sticky; top: 64px; z-index: 5; border-color: var(--console-border); }
@@ -358,6 +368,8 @@ body {
   .task-editor-advanced-grid { grid-template-columns: 1fr; }
   .markdown-editor-body.is-split { grid-template-columns: 1fr; }
   .markdown-editor-body.is-split .markdown-editor-preview { border-inline-start: 0; border-top: 1px solid var(--console-border); }
+  .project-settings-panel .ant-card-head-wrapper { align-items: stretch; flex-direction: column; padding-block: 12px; }
+  .project-settings-panel .ant-card-extra { margin-inline-start: 0; }
   .project-task-filters { width: 100%; }
 }
 

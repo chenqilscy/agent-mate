@@ -94,6 +94,7 @@ const STATUS_META: Record<
 type TaskDraft = Partial<WorkItem> & { title: string };
 type QuickPlanKind = "milestone" | "sprint";
 type TaskEditorStep = "content" | "plan" | "advanced";
+type PlanningSettingsSection = "milestones" | "sprints" | "fields";
 export type ProjectWorkspaceTab =
   | "overview"
   | "plan"
@@ -1394,7 +1395,12 @@ export function ProjectWorkspaceActions({
   activeTab: ProjectWorkspaceTab;
 }) {
   const { project, openTask } = useProjectWork();
-  if (!canWrite(project) || activeTab === "plan" || activeTab === "tasks")
+  if (
+    !canWrite(project) ||
+    activeTab === "plan" ||
+    activeTab === "tasks" ||
+    activeTab === "iterations"
+  )
     return null;
   return (
     <Button
@@ -1563,11 +1569,15 @@ function MilestoneCard({
   return (
     <Card
       title="里程碑"
-      className="project-overview-card"
+      className={
+        editable
+          ? "project-overview-card project-settings-panel"
+          : "project-overview-card"
+      }
       extra={
         editable && canWrite(project) && (
           <Button
-            type="link"
+            type="primary"
             icon={<PlusOutlined />}
             onClick={() => {
               setEditingMilestone(null);
@@ -1576,7 +1586,7 @@ function MilestoneCard({
               setOpen(true);
             }}
           >
-            新增
+            新建里程碑
           </Button>
         )
       }
@@ -1593,20 +1603,25 @@ function MilestoneCard({
             ).length;
             return (
               <List.Item
+                className={
+                  editable && canWrite(project)
+                    ? "project-settings-row is-clickable"
+                    : "project-settings-row"
+                }
+                onClick={(event) => {
+                  if (
+                    !editable ||
+                    !canWrite(project) ||
+                    (event.target as HTMLElement).closest("button")
+                  )
+                    return;
+                  setEditingMilestone(milestone);
+                  form.setFieldsValue(milestone);
+                  setOpen(true);
+                }}
                 actions={
                   editable && canWrite(project)
                     ? [
-                        <Button
-                          key="edit"
-                          type="link"
-                          onClick={() => {
-                            setEditingMilestone(milestone);
-                            form.setFieldsValue(milestone);
-                            setOpen(true);
-                          }}
-                        >
-                          编辑
-                        </Button>,
                         <Popconfirm
                           key="delete"
                           title="删除此里程碑？"
@@ -1619,9 +1634,12 @@ function MilestoneCard({
                             await reload();
                           }}
                         >
-                          <Button type="link" danger>
-                            删除
-                          </Button>
+                          <Button
+                            type="text"
+                            danger
+                            icon={<DeleteOutlined />}
+                            aria-label={`删除里程碑 ${milestone.name}`}
+                          />
                         </Popconfirm>,
                       ]
                     : []
@@ -1630,7 +1648,9 @@ function MilestoneCard({
                 <List.Item.Meta
                   title={
                     <Space>
-                      {milestone.name}
+                      <Typography.Text strong>
+                        {milestone.name}
+                      </Typography.Text>
                       {milestone.status === "closed" && (
                         <Tag color="green">已关闭</Tag>
                       )}
@@ -2709,8 +2729,18 @@ export function ProjectTasks() {
 }
 
 export function ProjectIterations() {
-  const { project, roots, milestones, customFields, sprints, reload } = useProjectWork();
+  const {
+    project,
+    items,
+    roots,
+    milestones,
+    customFields,
+    sprints,
+    reload,
+  } = useProjectWork();
   const { message } = App.useApp();
+  const [section, setSection] =
+    useState<PlanningSettingsSection>("milestones");
   const [fieldOpen, setFieldOpen] = useState(false);
   const [sprintOpen, setSprintOpen] = useState(false);
   const [editingField, setEditingField] = useState<ProjectCustomField | null>(
@@ -2730,206 +2760,361 @@ export function ProjectIterations() {
     Form.useForm<
       Pick<Sprint, "name" | "goal" | "start_date" | "end_date" | "status">
     >();
+  const sprintStats = useMemo(
+    () =>
+      new Map(
+        sprints.map((sprint) => {
+          const tasks = items.filter((item) => item.sprint_id === sprint.id);
+          const completed = tasks.filter((item) => item.status === "done").length;
+          return [
+            sprint.id,
+            {
+              tasks: tasks.length,
+              completed,
+              percent: tasks.length
+                ? Math.round((completed / tasks.length) * 100)
+                : 0,
+              estimate: tasks.reduce(
+                (sum, item) => sum + Number(item.estimate_h || 0),
+                0,
+              ),
+              spent: tasks.reduce(
+                (sum, item) => sum + Number(item.spent_h || 0),
+                0,
+              ),
+            },
+          ] as const;
+        }),
+      ),
+    [items, sprints],
+  );
+
+  function openNewSprint() {
+    setEditingSprint(null);
+    sprintForm.resetFields();
+    sprintForm.setFieldsValue({ status: "planned" });
+    setSprintOpen(true);
+  }
+
+  function openNewField() {
+    setEditingField(null);
+    fieldForm.resetFields();
+    fieldForm.setFieldsValue({
+      field_type: "text",
+      options: [],
+      required: false,
+    });
+    setFieldOpen(true);
+  }
+
   return (
-    <div className="tab-stack">
-      <MilestoneCard project={project} roots={roots} milestones={milestones} />
-      <Card
-        title="Sprint / 周期"
-        extra={
-          <Space>
-            {canWrite(project) && (
-              <Button
-                icon={<PlusOutlined />}
-                onClick={() => {
-                  setEditingSprint(null);
-                  sprintForm.resetFields();
-                  sprintForm.setFieldsValue({ status: "planned" });
-                  setSprintOpen(true);
-                }}
-              >
-                新建 Sprint
-              </Button>
-            )}
-            <Button
-              icon={<DownloadOutlined />}
-              onClick={() =>
-                void consoleApi
-                  .exportPmCsv(project.id)
-                  .catch((reason) =>
-                    message.error(errorText(reason, "导出失败")),
-                  )
-              }
-            >
-              导出 CSV
-            </Button>
-          </Space>
-        }
-      >
-        <Table<Sprint>
-          rowKey="id"
-          dataSource={sprints}
-          pagination={false}
-          columns={[
-            {
-              title: "Sprint",
-              dataIndex: "name",
-              render: (value, sprint) => (
-                <div>
-                  <Typography.Text strong>{String(value)}</Typography.Text>
-                  <div>
-                    <Typography.Text type="secondary">
-                      {sprint.goal || "未设置目标"}
-                    </Typography.Text>
-                  </div>
-                </div>
-              ),
-            },
-            {
-              title: "周期",
-              width: 220,
-              render: (_value, sprint) =>
-                `${sprint.start_date} — ${sprint.end_date}`,
-            },
-            {
-              title: "状态",
-              dataIndex: "status",
-              width: 100,
-              render: (value) => (
-                <Tag>
-                  {value === "active"
-                    ? "进行中"
-                    : value === "closed"
-                      ? "已关闭"
-                      : "计划中"}
-                </Tag>
-              ),
-            },
-            {
-              title: "操作",
-              width: 170,
-              render: (_value, sprint) => (
-                <Space>
-                  <Button
-                    type="link"
-                    size="small"
-                    onClick={async () => {
-                      const result = await consoleApi.sprintBurndown(
-                        project.id,
-                        sprint.id,
-                      );
-                      setBurn({ sprint, ...result });
-                    }}
-                  >
-                    燃尽
-                  </Button>
-                  {canWrite(project) && (
+    <div className="project-settings">
+      <Tabs
+        className="project-settings-tabs"
+        activeKey={section}
+        onChange={(key) => setSection(key as PlanningSettingsSection)}
+        more={{ trigger: "click" }}
+        items={[
+          {
+            key: "milestones",
+            label: (
+              <Space size={6}>
+                里程碑
+                <Tag bordered={false}>{milestones.length}</Tag>
+              </Space>
+            ),
+            children: (
+              <MilestoneCard
+                project={project}
+                roots={roots}
+                milestones={milestones}
+              />
+            ),
+          },
+          {
+            key: "sprints",
+            label: (
+              <Space size={6}>
+                Sprint
+                <Tag bordered={false}>{sprints.length}</Tag>
+              </Space>
+            ),
+            children: (
+              <Card
+                title="Sprint / 周期"
+                className="project-settings-panel"
+                extra={
+                  <Space wrap>
                     <Button
-                      type="link"
-                      size="small"
-                      onClick={() => {
-                        setEditingSprint(sprint);
-                        sprintForm.setFieldsValue(sprint);
-                        setSprintOpen(true);
-                      }}
+                      icon={<DownloadOutlined />}
+                      onClick={() =>
+                        void consoleApi
+                          .exportPmCsv(project.id)
+                          .catch((reason) =>
+                            message.error(errorText(reason, "导出失败")),
+                          )
+                      }
                     >
-                      编辑
+                      导出 CSV
                     </Button>
-                  )}
-                  {canWrite(project) && (
-                    <Popconfirm
-                      title="删除 Sprint？"
-                      description="任务会被移出该 Sprint，但不会删除。"
-                      onConfirm={async () => {
-                        await consoleApi.deleteSprint(project.id, sprint.id);
-                        await reload();
-                      }}
-                    >
-                      <Button type="link" danger size="small">
-                        删除
-                      </Button>
-                    </Popconfirm>
-                  )}
-                </Space>
-              ),
-            },
-          ]}
-        />
-      </Card>
-      <Card
-        title="自定义字段"
-        extra={
-          canWrite(project) && (
-            <Button
-              icon={<PlusOutlined />}
-              onClick={() => {
-                setEditingField(null);
-                fieldForm.resetFields();
-                fieldForm.setFieldsValue({
-                  field_type: "text",
-                  options: [],
-                  required: false,
-                });
-                setFieldOpen(true);
-              }}
-            >
-              新增字段
-            </Button>
-          )
-        }
-      >
-        <List
-          dataSource={customFields}
-          locale={{ emptyText: "暂无自定义字段" }}
-          renderItem={(field) => (
-            <List.Item
-              actions={
-                canWrite(project)
-                  ? [
+                    {canWrite(project) && (
                       <Button
-                        key="edit"
-                        type="link"
-                        size="small"
-                        onClick={() => {
-                          setEditingField(field);
-                          fieldForm.setFieldsValue(field);
-                          setFieldOpen(true);
-                        }}
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={openNewSprint}
                       >
-                        编辑
-                      </Button>,
-                      <Popconfirm
-                        key="delete"
-                        title={`删除字段“${field.name}”？`}
-                        description="所有任务中的该字段值会一并移除。"
-                        onConfirm={async () => {
-                          await consoleApi.deleteCustomField(
-                            project.id,
-                            field.id,
-                          );
-                          await reload();
-                        }}
-                      >
-                        <Button type="link" danger size="small">
-                          删除
-                        </Button>
-                      </Popconfirm>,
-                    ]
-                  : []
-              }
-            >
-              <List.Item.Meta
-                title={
-                  <Space>
-                    <Typography.Text strong>{field.name}</Typography.Text>
-                    {field.required && <Tag color="orange">必填</Tag>}
+                        新建 Sprint
+                      </Button>
+                    )}
                   </Space>
                 }
-                description={`${field.field_type}${field.options.length ? ` · ${field.options.join(" / ")}` : ""}`}
-              />
-            </List.Item>
-          )}
-        />
-      </Card>
+              >
+                <Table<Sprint>
+                  rowKey="id"
+                  dataSource={sprints}
+                  pagination={{
+                    pageSize: 10,
+                    hideOnSinglePage: true,
+                  }}
+                  scroll={{ x: 900 }}
+                  locale={{
+                    emptyText: (
+                      <Empty
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        description="还没有 Sprint"
+                      />
+                    ),
+                  }}
+                  rowClassName={() =>
+                    canWrite(project)
+                      ? "project-settings-row is-clickable"
+                      : "project-settings-row"
+                  }
+                  onRow={(sprint) => ({
+                    onClick: (event) => {
+                      if (
+                        !canWrite(project) ||
+                        (event.target as HTMLElement).closest("button")
+                      )
+                        return;
+                      setEditingSprint(sprint);
+                      sprintForm.setFieldsValue(sprint);
+                      setSprintOpen(true);
+                    },
+                  })}
+                  columns={[
+                    {
+                      title: "Sprint",
+                      dataIndex: "name",
+                      minWidth: 220,
+                      render: (value, sprint) => (
+                        <div>
+                          <Typography.Text strong>
+                            {String(value)}
+                          </Typography.Text>
+                          <div>
+                            <Typography.Text type="secondary" ellipsis>
+                              {sprint.goal || "未设置目标"}
+                            </Typography.Text>
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      title: "执行",
+                      width: 220,
+                      render: (_value, sprint) => {
+                        const stats = sprintStats.get(sprint.id);
+                        return (
+                          <div className="project-settings-progress">
+                            <Space size={8}>
+                              <Typography.Text>
+                                {stats?.completed || 0}/{stats?.tasks || 0} 任务
+                              </Typography.Text>
+                              <Typography.Text type="secondary">
+                                {stats?.spent || 0}/{stats?.estimate || 0}h
+                              </Typography.Text>
+                            </Space>
+                            <Progress
+                              size="small"
+                              percent={stats?.percent || 0}
+                              showInfo={false}
+                            />
+                          </div>
+                        );
+                      },
+                    },
+                    {
+                      title: "周期",
+                      width: 220,
+                      render: (_value, sprint) =>
+                        `${sprint.start_date} — ${sprint.end_date}`,
+                    },
+                    {
+                      title: "状态",
+                      dataIndex: "status",
+                      width: 100,
+                      render: (value) => (
+                        <Tag
+                          color={
+                            value === "active"
+                              ? "processing"
+                              : value === "closed"
+                                ? "default"
+                                : "blue"
+                          }
+                        >
+                          {value === "active"
+                            ? "进行中"
+                            : value === "closed"
+                              ? "已关闭"
+                              : "计划中"}
+                        </Tag>
+                      ),
+                    },
+                    {
+                      title: "操作",
+                      width: 120,
+                      fixed: "right",
+                      render: (_value, sprint) => (
+                        <Space size={4}>
+                          <Button
+                            type="link"
+                            size="small"
+                            onClick={async () => {
+                              const result = await consoleApi.sprintBurndown(
+                                project.id,
+                                sprint.id,
+                              );
+                              setBurn({ sprint, ...result });
+                            }}
+                          >
+                            燃尽
+                          </Button>
+                          {canWrite(project) && (
+                            <Popconfirm
+                              title="删除 Sprint？"
+                              description="任务会被移出该 Sprint，但不会删除。"
+                              onConfirm={async () => {
+                                await consoleApi.deleteSprint(
+                                  project.id,
+                                  sprint.id,
+                                );
+                                await reload();
+                              }}
+                            >
+                              <Button
+                                type="text"
+                                danger
+                                icon={<DeleteOutlined />}
+                                aria-label={`删除 Sprint ${sprint.name}`}
+                              />
+                            </Popconfirm>
+                          )}
+                        </Space>
+                      ),
+                    },
+                  ]}
+                />
+              </Card>
+            ),
+          },
+          {
+            key: "fields",
+            label: (
+              <Space size={6}>
+                自定义字段
+                <Tag bordered={false}>{customFields.length}</Tag>
+              </Space>
+            ),
+            children: (
+              <Card
+                title="自定义字段"
+                className="project-settings-panel"
+                extra={
+                  canWrite(project) && (
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={openNewField}
+                    >
+                      新建字段
+                    </Button>
+                  )
+                }
+              >
+                <List
+                  dataSource={customFields}
+                  locale={{ emptyText: "暂无自定义字段" }}
+                  renderItem={(field) => (
+                    <List.Item
+                      className={
+                        canWrite(project)
+                          ? "project-settings-row is-clickable"
+                          : "project-settings-row"
+                      }
+                      onClick={(event) => {
+                        if (
+                          !canWrite(project) ||
+                          (event.target as HTMLElement).closest("button")
+                        )
+                          return;
+                        setEditingField(field);
+                        fieldForm.setFieldsValue(field);
+                        setFieldOpen(true);
+                      }}
+                      actions={
+                        canWrite(project)
+                          ? [
+                              <Popconfirm
+                                key="delete"
+                                title={`删除字段“${field.name}”？`}
+                                description="所有任务中的该字段值会一并移除。"
+                                onConfirm={async () => {
+                                  await consoleApi.deleteCustomField(
+                                    project.id,
+                                    field.id,
+                                  );
+                                  await reload();
+                                }}
+                              >
+                                <Button
+                                  type="text"
+                                  danger
+                                  icon={<DeleteOutlined />}
+                                  aria-label={`删除字段 ${field.name}`}
+                                />
+                              </Popconfirm>,
+                            ]
+                          : []
+                      }
+                    >
+                      <List.Item.Meta
+                        title={
+                          <Space>
+                            <Typography.Text strong>
+                              {field.name}
+                            </Typography.Text>
+                            <Tag>{field.field_type}</Tag>
+                            {field.required && (
+                              <Tag color="orange">必填</Tag>
+                            )}
+                          </Space>
+                        }
+                        description={
+                          field.options.length
+                            ? `选项：${field.options.join(" / ")}`
+                            : "无预设选项"
+                        }
+                      />
+                    </List.Item>
+                  )}
+                />
+              </Card>
+            ),
+          },
+        ]}
+      />
       <Modal
         title={editingField ? "编辑自定义字段" : "新增自定义字段"}
         open={fieldOpen}
