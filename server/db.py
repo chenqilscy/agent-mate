@@ -85,7 +85,8 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS server_tokens (
             token TEXT PRIMARY KEY,
             account_id TEXT NOT NULL,
-            created_at REAL NOT NULL
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_server_tokens_account ON server_tokens(account_id);
 
@@ -466,6 +467,15 @@ def init_db() -> None:
         conn.execute("ALTER TABLE accounts ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0")
     if "last_seen" not in have_acct:
         conn.execute("ALTER TABLE accounts ADD COLUMN last_seen REAL NOT NULL DEFAULT 0")
+    # WB-326：旧 token 没有生命周期。升级时给它们一个从升级时刻起算的短兼容窗口；
+    # 新 token 始终按 TOKEN_TTL_SECONDS 签发。
+    have_tokens = {r["name"] for r in conn.execute("PRAGMA table_info(server_tokens)").fetchall()}
+    if "expires_at" not in have_tokens:
+        conn.execute("ALTER TABLE server_tokens ADD COLUMN expires_at REAL")
+    conn.execute(
+        "UPDATE server_tokens SET expires_at=? WHERE expires_at IS NULL OR expires_at<=0",
+        (time.time() + min(settings.TOKEN_TTL_SECONDS, settings.TOKEN_LEGACY_GRACE_SECONDS),),
+    )
     have_project = {r["name"] for r in conn.execute("PRAGMA table_info(projects)").fetchall()}
     if "archived_at" not in have_project:
         conn.execute("ALTER TABLE projects ADD COLUMN archived_at REAL NOT NULL DEFAULT 0")
@@ -789,19 +799,37 @@ def verify_password(password: str, stored: Optional[str]) -> bool:
         return False
 
 
-def create_token(account_id: str) -> str:
+def create_token(account_id: str) -> tuple[str, float]:
     token = secrets.token_hex(32)
+    now = time.time()
+    expires_at = now + settings.TOKEN_TTL_SECONDS
     get_conn().execute(
-        "INSERT INTO server_tokens (token, account_id, created_at) VALUES (?,?,?)",
-        (token, account_id, time.time()),
+        "INSERT INTO server_tokens (token, account_id, created_at, expires_at) VALUES (?,?,?,?)",
+        (token, account_id, now, expires_at),
     )
     get_conn().commit()
-    return token
+    return token, expires_at
 
 
 def account_id_for_token(token: str) -> Optional[str]:
-    row = get_conn().execute("SELECT account_id FROM server_tokens WHERE token=?", (token,)).fetchone()
-    return row["account_id"] if row else None
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT account_id, expires_at FROM server_tokens WHERE token=?", (token,)
+    ).fetchone()
+    if not row:
+        return None
+    if float(row["expires_at"] or 0) <= time.time():
+        conn.execute("DELETE FROM server_tokens WHERE token=?", (token,))
+        conn.commit()
+        return None
+    return row["account_id"]
+
+
+def token_expires_at(token: str) -> Optional[float]:
+    row = get_conn().execute(
+        "SELECT expires_at FROM server_tokens WHERE token=?", (token,)
+    ).fetchone()
+    return float(row["expires_at"]) if row and float(row["expires_at"] or 0) > time.time() else None
 
 
 def delete_token(token: str) -> None:

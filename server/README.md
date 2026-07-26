@@ -15,6 +15,8 @@ AgentMate 从纯 local-first 走向「本地执行 + 云端控制平面」重构
 cd server
 python main.py            # 默认 127.0.0.1:8100
 # 可覆盖：AGENTMATE_SERVER_PORT=8100  AGENTMATE_SERVER_DB=/path/to/server.db  AGENTMATE_SERVER_HOST=0.0.0.0
+# 登录 token 默认 30 天过期；可覆盖：AGENTMATE_SERVER_TOKEN_TTL_SECONDS=2592000
+# 老版本无过期时间的 token 升级后默认仅兼容 7 天：AGENTMATE_SERVER_TOKEN_LEGACY_GRACE_SECONDS=604800
 # 首次启动/灾备可继续用环境变量；启动后由 Console「设置 → 平台设置」管理中央 WeKnora。
 # AGENTMATE_SERVER_WEKNORA_URL=https://weknora.internal
 # AGENTMATE_SERVER_WEKNORA_API_KEY=sk-...
@@ -37,8 +39,9 @@ pnpm dev:console         # 可选：:8103 开发服务，/api 代理到 Server :
 
 ## API（`/api` 前缀）
 
-- **鉴权**：`POST /auth/register`、`POST /auth/login`（→ `{token, account}`）、`POST /auth/logout`、
-  `GET /me`、`GET /auth/verify`（token→account，供本地 backend 客户端解析）。
+- **鉴权**：`POST /auth/register`、`POST /auth/login`（→ `{token, expires_at, account}`）、
+  `POST /auth/logout`、`GET /me`、`GET /auth/verify`（token→account + expires_at，供本地
+  backend 客户端解析）。
 - **组织**：`POST /orgs`、`GET /orgs`、`GET /orgs/{id}/members`、`POST /orgs/{id}/members`。
 - **项目**：`POST /projects`、`GET /projects`、`GET/PATCH /projects/{id}`、
   成员 `GET/POST /projects/{id}/members`、`PATCH/DELETE /projects/{id}/members/{account_id}`。

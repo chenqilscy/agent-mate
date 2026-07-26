@@ -40,9 +40,15 @@ def _get(path: str, token: str) -> Optional[Any]:
 
 
 def verify_token(token: str) -> Optional[dict[str, Any]]:
-    """Server token → account dict（`{id,name,plan,...}`）或 None（未接 / 不可达 / 无效）。"""
+    """Server token → account dict（附 `_token_expires_at`）或 None。
+
+    隐藏字段保持既有 account 调用方兼容，同时让本地缓存继承 Server 的真实过期时间。
+    """
     d = _get("/api/auth/verify", token)
     acct = d.get("account") if isinstance(d, dict) else None
+    if isinstance(acct, dict):
+        acct = dict(acct)
+        acct["_token_expires_at"] = float(d.get("expires_at") or 0)
     return acct if isinstance(acct, dict) else None
 
 
@@ -128,6 +134,12 @@ def server_login_ex(name: str, password: str, register: bool = False) -> tuple[s
             detail = ""
         return ("rejected", {"code": r.status_code, "detail": detail if isinstance(detail, str) else ""})
     return ("unreachable", None)  # 5xx 等 → 当 Console 暂时不可达
+
+
+def server_logout(token: str) -> bool:
+    """撤销 Server token；调用幂等，网络失败返回 False 交给本地持久队列重试。"""
+    result = _post("/api/auth/logout", token)
+    return bool(isinstance(result, dict) and result.get("ok") is True)
 
 
 def list_comments(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:

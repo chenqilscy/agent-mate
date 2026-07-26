@@ -30,8 +30,8 @@ def register(body: RegisterBody) -> dict:
     if db.find_account_by_name(name):
         raise HTTPException(409, "name already taken")
     acc = db.create_account(name=name, password=body.password, email=body.email.strip())
-    token = db.create_token(acc.id)
-    return {"token": token, "account": acc.to_dict()}
+    token, expires_at = db.create_token(acc.id)
+    return {"token": token, "expires_at": expires_at, "account": acc.to_dict()}
 
 
 @router.post("/auth/login")
@@ -39,8 +39,8 @@ def login(body: LoginBody) -> dict:
     rec = db.get_account_by_name((body.name or "").strip())
     if not rec or not db.verify_password(body.password, rec[1]):
         raise HTTPException(401, "invalid credentials")
-    token = db.create_token(rec[0].id)
-    return {"token": token, "account": rec[0].to_dict()}
+    token, expires_at = db.create_token(rec[0].id)
+    return {"token": token, "expires_at": expires_at, "account": rec[0].to_dict()}
 
 
 @router.post("/auth/logout")
@@ -57,6 +57,9 @@ def me(account: Account = CurrentAccount) -> dict:
 
 
 @router.get("/auth/verify")
-def verify(account: Account = CurrentAccount) -> dict:
+def verify(authorization: str = Header(default=""), account: Account = CurrentAccount) -> dict:
     """token → account。本地 backend 作为客户端持 Server token 调此端点解析出账号（WB-062 会用）。"""
-    return {"account": account.to_dict()}
+    expires_at = db.token_expires_at(bearer_token(authorization))
+    if expires_at is None:
+        raise HTTPException(401, "unauthorized")
+    return {"account": account.to_dict(), "expires_at": expires_at}

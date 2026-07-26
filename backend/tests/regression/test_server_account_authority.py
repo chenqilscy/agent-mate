@@ -55,6 +55,7 @@ class ServerAccountAuthorityTest(unittest.TestCase):
 
     def test_cached_server_token_still_resolves_offline(self) -> None:
         with (
+            patch.object(deps.db, "is_token_revocation_pending", return_value=False),
             patch.object(deps.db, "user_id_for_token", return_value="server-account") as cached,
             patch.object(deps.db, "get_server_identity", return_value="server-token"),
             patch.object(deps.server_client, "verify_token") as verify_remote,
@@ -66,6 +67,7 @@ class ServerAccountAuthorityTest(unittest.TestCase):
 
     def test_legacy_local_token_is_not_an_account_identity(self) -> None:
         with (
+            patch.object(deps.db, "is_token_revocation_pending", return_value=False),
             patch.object(deps.db, "user_id_for_token", return_value="legacy-local-user"),
             patch.object(deps.db, "get_server_identity", return_value=None),
         ):

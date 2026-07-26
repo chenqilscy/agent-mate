@@ -116,11 +116,29 @@ def enqueue_work_item_event(
     return True
 
 
+def flush_token_revocations(limit: int = 50) -> dict:
+    """重试本地已登出但尚未送达 Server 的 token 撤销；不记录或返回 token 内容。"""
+    if not settings.server_enabled:
+        return {"revoked": 0, "pending": len(db.list_pending_token_revocations(limit))}
+    pending = db.list_pending_token_revocations(limit)
+    revoked = 0
+    for item in pending:
+        token = item["token"]
+        if server_client.server_logout(token):
+            db.mark_token_revoked(token)
+            revoked += 1
+        else:
+            db.bump_token_revocation_tries(token)
+    return {"revoked": revoked, "pending": len(pending) - revoked}
+
+
 def flush_outbox(limit: int = 50) -> dict:
     """后台补推：把 pending outbox 推给 Server（用各 actor 缓存的 Server token）。成功标 synced，
     失败留待下轮（断线/离线自动补推）。未接 Server → 直接返回。"""
     if not settings.server_enabled:
         return {"pushed": 0, "pending": 0}
+    # 登录撤销比业务时间线上报优先，且不受 timeline upload 开关影响。
+    flush_token_revocations(limit)
     pending = db.list_pending_outbox(limit)
     pushed = 0
     for item in pending:

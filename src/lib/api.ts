@@ -35,7 +35,11 @@ async function send<T>(method: string, path: string, body?: unknown): Promise<T>
   return r.json() as Promise<T>
 }
 
-export interface AuthResult { token: string; user: { id: string; name: string; role: string; plan: string } }
+export interface AuthResult {
+  token: string
+  expires_at: number
+  user: { id: string; name: string; role: string; plan: string }
+}
 
 export const api = {
   me: () => get<Me>('/me'),

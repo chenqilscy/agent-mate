@@ -131,7 +131,8 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS auth_tokens (
             token TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
-            created_at REAL NOT NULL
+            created_at REAL NOT NULL,
+            expires_at REAL
         );
         CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id);
 
@@ -597,6 +598,13 @@ def init_db() -> None:
             updated_at REAL NOT NULL
         );
 
+        -- WB-326：本地登出先失效；Server 暂不可达时持久化待撤销 token，由后台重试。
+        CREATE TABLE IF NOT EXISTS pending_token_revocations (
+            token TEXT PRIMARY KEY,
+            created_at REAL NOT NULL,
+            tries INTEGER NOT NULL DEFAULT 0
+        );
+
         -- 存量导入映射（WB-063）：本地资源 → 其在 Server 的 id，保证「重复导入不产生重复数据」。
         CREATE TABLE IF NOT EXISTS server_imports (
             local_id TEXT PRIMARY KEY,
@@ -912,6 +920,15 @@ def _migrate_columns() -> None:
     have_u = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
     if "password_hash" not in have_u:
         conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+
+    # WB-326：旧本地缓存 token 没有过期时间，只给一个短兼容窗口；之后必须重新登录。
+    have_at = {r["name"] for r in conn.execute("PRAGMA table_info(auth_tokens)").fetchall()}
+    if "expires_at" not in have_at:
+        conn.execute("ALTER TABLE auth_tokens ADD COLUMN expires_at REAL")
+    conn.execute(
+        "UPDATE auth_tokens SET expires_at=? WHERE expires_at IS NULL OR expires_at<=0",
+        (time.time() + settings.SERVER_TOKEN_LEGACY_GRACE_SECONDS,),
+    )
 
     # WB-035: sessions 增 automation_id —— 把自动化产出的会话反向关联回其自动化，供「运行历史」。
     have_s = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()}
@@ -1257,17 +1274,28 @@ def list_users() -> list[User]:
 
 def create_token(user_id: str) -> str:
     token = secrets.token_hex(32)
+    expires_at = time.time() + settings.SERVER_TOKEN_LEGACY_GRACE_SECONDS
     get_conn().execute(
-        "INSERT INTO auth_tokens (token,user_id,created_at) VALUES (?,?,?)",
-        (token, user_id, time.time()),
+        "INSERT INTO auth_tokens (token,user_id,created_at,expires_at) VALUES (?,?,?,?)",
+        (token, user_id, time.time(), expires_at),
     )
     get_conn().commit()
     return token
 
 
 def user_id_for_token(token: str) -> Optional[str]:
-    row = get_conn().execute("SELECT user_id FROM auth_tokens WHERE token=?", (token,)).fetchone()
-    return row["user_id"] if row else None
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT user_id, expires_at FROM auth_tokens WHERE token=?", (token,)
+    ).fetchone()
+    if not row:
+        return None
+    if float(row["expires_at"] or 0) <= time.time():
+        conn.execute("DELETE FROM auth_tokens WHERE token=?", (token,))
+        conn.execute("DELETE FROM server_identities WHERE server_token=?", (token,))
+        conn.commit()
+        return None
+    return row["user_id"]
 
 
 def delete_token(token: str) -> None:
@@ -1289,13 +1317,18 @@ def upsert_external_user(user_id: str, name: str, plan: str = "体验版") -> No
     get_conn().commit()
 
 
-def cache_token(token: str, user_id: str) -> None:
+def cache_token(token: str, user_id: str, expires_at: float | None = None) -> float:
     """缓存已校验的 Server token → account 映射（后续请求本地命中，不再校验 Server）。"""
+    effective_expiry = float(expires_at or 0)
+    if effective_expiry <= time.time():
+        effective_expiry = time.time() + settings.SERVER_TOKEN_LEGACY_GRACE_SECONDS
     get_conn().execute(
-        "INSERT OR IGNORE INTO auth_tokens (token,user_id,created_at) VALUES (?,?,?)",
-        (token, user_id, time.time()),
+        "INSERT INTO auth_tokens (token,user_id,created_at,expires_at) VALUES (?,?,?,?) "
+        "ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, expires_at=excluded.expires_at",
+        (token, user_id, time.time(), effective_expiry),
     )
     get_conn().commit()
+    return effective_expiry
 
 
 def _json_list(value: Any) -> list:
@@ -1607,8 +1640,64 @@ def set_server_identity(user_id: str, server_token: str) -> None:
 
 
 def get_server_identity(user_id: str) -> Optional[str]:
-    r = get_conn().execute("SELECT server_token FROM server_identities WHERE user_id=?", (user_id,)).fetchone()
-    return r["server_token"] if r else None
+    conn = get_conn()
+    r = conn.execute(
+        "SELECT server_token FROM server_identities WHERE user_id=?", (user_id,)
+    ).fetchone()
+    if not r:
+        return None
+    token = r["server_token"]
+    valid = conn.execute(
+        "SELECT 1 FROM auth_tokens WHERE token=? AND expires_at>?", (token, time.time())
+    ).fetchone()
+    pending = conn.execute(
+        "SELECT 1 FROM pending_token_revocations WHERE token=?", (token,)
+    ).fetchone()
+    if not valid or pending:
+        conn.execute("DELETE FROM server_identities WHERE user_id=?", (user_id,))
+        conn.commit()
+        return None
+    return token
+
+
+def clear_server_identity_by_token(server_token: str) -> None:
+    get_conn().execute("DELETE FROM server_identities WHERE server_token=?", (server_token,))
+    get_conn().commit()
+
+
+def enqueue_token_revocation(token: str) -> None:
+    get_conn().execute(
+        "INSERT OR IGNORE INTO pending_token_revocations (token,created_at,tries) VALUES (?,?,0)",
+        (token, time.time()),
+    )
+    get_conn().commit()
+
+
+def is_token_revocation_pending(token: str) -> bool:
+    return get_conn().execute(
+        "SELECT 1 FROM pending_token_revocations WHERE token=?", (token,)
+    ).fetchone() is not None
+
+
+def list_pending_token_revocations(limit: int = 50) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT token,created_at,tries FROM pending_token_revocations "
+        "ORDER BY created_at ASC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_token_revoked(token: str) -> None:
+    get_conn().execute("DELETE FROM pending_token_revocations WHERE token=?", (token,))
+    get_conn().commit()
+
+
+def bump_token_revocation_tries(token: str) -> None:
+    get_conn().execute(
+        "UPDATE pending_token_revocations SET tries=tries+1 WHERE token=?", (token,)
+    )
+    get_conn().commit()
 
 
 def enqueue_outbox(*, kind: str, actor_id: str, project_id: str, payload: dict) -> None:

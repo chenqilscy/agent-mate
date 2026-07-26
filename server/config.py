@@ -22,6 +22,14 @@ class Settings:
     PORT: int = int(os.getenv("AGENTMATE_SERVER_PORT", "8100"))
     # pbkdf2 迭代次数（与 backend 一致的口令散列强度）。
     PBKDF2_ITERS: int = int(os.getenv("AGENTMATE_SERVER_PBKDF2_ITERS", "100000"))
+    # Server Bearer token 有界生命周期（WB-326）。默认 30 天；存量无 expires_at 的 token
+    # 升级后仅保留 7 天兼容窗口，避免无限续用，同时不强制所有在线用户立即掉线。
+    TOKEN_TTL_SECONDS: int = max(
+        1, int(os.getenv("AGENTMATE_SERVER_TOKEN_TTL_SECONDS", "2592000"))
+    )
+    TOKEN_LEGACY_GRACE_SECONDS: int = max(
+        1, int(os.getenv("AGENTMATE_SERVER_TOKEN_LEGACY_GRACE_SECONDS", "604800"))
+    )
     # 邀请码有效期（秒）；默认 7 天，避免久留可被反复利用的活码（WB-156，配合单次使用）。
     # 显式设 AGENTMATE_SERVER_INVITE_TTL=0 可回到永不过期（部署自担风险）。
     INVITE_TTL: int = int(os.getenv("AGENTMATE_SERVER_INVITE_TTL", "604800"))

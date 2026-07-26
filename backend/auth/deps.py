@@ -24,6 +24,8 @@ def resolve_token_to_user_id(token: str | None) -> str | None:
     同步、快（只查本地 auth_tokens，含此前镜像过的 Server token）。Server 校验走 resolve_via_server。"""
     if not token:
         return None
+    if db.is_token_revocation_pending(token):
+        return None
     user_id = db.user_id_for_token(token)
     if not user_id:
         return None
@@ -36,12 +38,14 @@ def resolve_via_server(token: str) -> str | None:
     """本地未命中的 token：问 Server 校验（WB-062）。命中则把账号镜像进本地 users + 缓存 token，
     返回其 id；Server 关 / 不可达 / 无效 → None（→ 匿名访客作用域）。
     **阻塞调用**——中间件在工作线程里跑它，不占事件循环（WB-002）。"""
+    if db.is_token_revocation_pending(token):
+        return None
     acct = server_client.verify_token(token)
     if not acct or not acct.get("id"):
         return None
     aid = str(acct["id"])
     db.upsert_external_user(aid, str(acct.get("name", "")), str(acct.get("plan", "体验版")))
-    db.cache_token(token, aid)
+    db.cache_token(token, aid, acct.get("_token_expires_at"))
     db.set_server_identity(aid, token)  # 记住 Server token，供后台 outbox worker 以本人身份推送（Phase 3）
     return aid
 
