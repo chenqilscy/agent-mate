@@ -18,10 +18,9 @@
 |----|------|--------|------|------|
 | [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) | ⏸ | P1 | fullstack | 正式桌面更新服务缺少生产域名、CI 签名材料与上线验收 |
 | [WB-307](WB-307-project-instruction-object-text.md) | ⬜ | P2 | ui | Console 项目列表将项目说明渲染为 object Object |
-| [WB-325](WB-325-session-context-compaction.md) | 🟡 | P1 | backend | 长会话每轮回放全部历史消息导致上下文无界增长 |
 | [WB-326](WB-326-server-token-lifecycle.md) | 🟡 | P1 | fullstack | Server 登录令牌无过期且本地登出未撤销远端令牌 |
 
 ## 已关闭归档
 
-共 321 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 322 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。

@@ -130,6 +130,23 @@ class Settings:
     # Clamped to >=1 so a misconfigured CONTEXT_WINDOW=0 can't divide-by-zero
     # at the end of a stream (WB-022).
     CONTEXT_WINDOW: int = max(1, int(os.getenv("CONTEXT_WINDOW", "1000000")))
+    # WB-325：历史会话上下文独立预算。超过上限后，旧轮次由真实 LLM 压缩为持久化滚动摘要，
+    # 最近轮次保留原文；即使摘要端点失败也只回退到有界最近窗口。
+    SESSION_HISTORY_TOKEN_BUDGET: int = max(
+        2_000, int(os.getenv("SESSION_HISTORY_TOKEN_BUDGET", "60000"))
+    )
+    SESSION_RECENT_TOKEN_BUDGET: int = max(
+        1_000, int(os.getenv("SESSION_RECENT_TOKEN_BUDGET", "24000"))
+    )
+    SESSION_SUMMARY_SOURCE_TOKEN_BUDGET: int = max(
+        2_000, int(os.getenv("SESSION_SUMMARY_SOURCE_TOKEN_BUDGET", "30000"))
+    )
+    SESSION_SUMMARY_MAX_TOKENS: int = max(
+        500, int(os.getenv("SESSION_SUMMARY_MAX_TOKENS", "3000"))
+    )
+    SESSION_SUMMARY_TIMEOUT_SECONDS: float = max(
+        5.0, float(os.getenv("SESSION_SUMMARY_TIMEOUT_SECONDS", "30"))
+    )
 
     # 语音输入本地 ASR（WB-139）。faster-whisper 小模型在本机把录音转文字，音频不出本机。
     # ASR_ENABLED=0 彻底关闭端点；模型首次使用会下载到 ASR_MODEL_DIR（需联网一次）。

@@ -20,7 +20,7 @@ import time
 from typing import Any, AsyncIterator
 
 from agent import events
-from agent import agent_settings, memory, security, skills_store, telemetry, weknora, workspace_memory
+from agent import agent_settings, memory, security, session_context, skills_store, telemetry, weknora, workspace_memory
 from agent.experts import expert_for
 from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
@@ -237,15 +237,6 @@ def _trace_to_sse(item: dict[str, Any]) -> str:
             acceptance_status=item.get("acceptance_status", "pending"),
         )
     return ""
-
-
-def _build_llm_messages(session_id: str, new_user_text: str, system_prompt: str) -> list[dict[str, Any]]:
-    msgs: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
-    for m in db.list_messages(session_id):
-        if m.role in ("user", "assistant") and m.content:
-            msgs.append({"role": m.role, "content": m.content})
-    msgs.append({"role": "user", "content": new_user_text})
-    return msgs
 
 
 def _usage_event(prompt_tokens: int, completion_tokens: int, schemas: list[dict[str, Any]], system_prompt: str) -> str:
@@ -567,7 +558,9 @@ async def _run_chat_inner(
                 blocks.append(f"【参考文件 {name}】\n{body}{note}")
         llm_user_text = "\n\n".join(blocks) + "\n\n---\n\n" + user_text
 
-    llm_messages = _build_llm_messages(session_id, llm_user_text, system_prompt)
+    # Snapshot before persisting this turn: current user text is appended separately,
+    # so it cannot be summarized or duplicated in the same request (WB-325).
+    history_messages = db.list_messages(session_id)
     work_item_id = next(
         (str(ref.get("itemId")) for ref in (refs or []) if ref.get("kind") == "todo" and ref.get("itemId")),
         None,
@@ -637,6 +630,21 @@ async def _run_chat_inner(
     try:
         yield events.run(run.to_dict())
         yield events.status("running")
+
+        # Resolve once and compact before connectors/tools are opened. A summary call
+        # uses the same real configured LLM; failure falls back to a bounded recent
+        # window and never blocks the actual run for more than the configured timeout.
+        model_id, model_base, model_key, model_path = resolve_model_config(user.id, model)
+        llm_messages = await session_context.build_llm_messages(
+            session,
+            history_messages,
+            new_user_text=llm_user_text,
+            system_prompt=system_prompt,
+            model=model_id,
+            api_base=model_base,
+            api_key=model_key,
+            chat_path=model_path,
+        )
 
         # Active toolset. Ask mode = no tools (pure Q&A). Otherwise base
         # (plan-filtered) tools + skill tools + connector (MCP) tools; connectors
@@ -733,9 +741,6 @@ async def _run_chat_inner(
                 ))
             yield record({"kind": "step", "tool": "loadout", "label": "已加载 · " + " · ".join(parts)})
 
-        # Resolve the picker selection to a concrete provider once (owner-scoped so a
-        # provider/custom model uses its own base/key/path). Stable across tool-loop rounds.
-        model_id, model_base, model_key, model_path = resolve_model_config(user.id, model)
         # 智能体设置（WB-150）：工具步数上限 + 回复发散度，按 owner 可配，本轮真读真用。
         _max_rounds = agent_settings.get_max_rounds(user.id)
         _temperature = agent_settings.get_temperature(user.id)

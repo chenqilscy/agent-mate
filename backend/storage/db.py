@@ -148,7 +148,10 @@ def init_db() -> None:
             automation_id TEXT,
             run_status TEXT,
             run_summary TEXT,
-            run_kind TEXT
+            run_kind TEXT,
+            summary TEXT NOT NULL DEFAULT '',
+            summary_cursor INTEGER NOT NULL DEFAULT 0,
+            summary_updated_at REAL
         );
 
         CREATE TABLE IF NOT EXISTS messages (
@@ -931,6 +934,14 @@ def _migrate_columns() -> None:
     for col in ("run_status", "run_summary", "run_kind"):
         if col not in have_s:
             conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT")
+    # WB-325：滚动会话摘要及其消息游标；存量会话默认未压缩，原消息完整保留。
+    for col, ddl in (
+        ("summary", "summary TEXT NOT NULL DEFAULT ''"),
+        ("summary_cursor", "summary_cursor INTEGER NOT NULL DEFAULT 0"),
+        ("summary_updated_at", "summary_updated_at REAL"),
+    ):
+        if col not in have_s:
+            conn.execute(f"ALTER TABLE sessions ADD COLUMN {ddl}")
 
     # WB-062 Phase 2: projects 增 origin（'local'|'server'）——标记从 Server 下行拉取的只读镜像项目。
     have_p = {r["name"] for r in conn.execute("PRAGMA table_info(projects)").fetchall()}
@@ -1816,7 +1827,29 @@ def _row_to_session(row: sqlite3.Row) -> Session:
         run_status=row["run_status"],
         run_summary=row["run_summary"],
         run_kind=row["run_kind"],
+        summary=row["summary"],
+        summary_cursor=int(row["summary_cursor"] or 0),
+        summary_updated_at=row["summary_updated_at"],
     )
+
+
+def update_session_summary(
+    session_id: str,
+    *,
+    expected_cursor: int,
+    summary: str,
+    summary_cursor: int,
+) -> bool:
+    """CAS 更新滚动摘要，防同一 Session 并发 run 让摘要游标倒退或重复推进。"""
+    if summary_cursor <= expected_cursor:
+        return False
+    cur = get_conn().execute(
+        "UPDATE sessions SET summary=?, summary_cursor=?, summary_updated_at=? "
+        "WHERE id=? AND summary_cursor=?",
+        (summary.strip(), summary_cursor, time.time(), session_id, expected_cursor),
+    )
+    get_conn().commit()
+    return cur.rowcount == 1
 
 
 def mark_session_run(session_id: str, *, run_status: str, run_summary: Optional[str] = None) -> None:

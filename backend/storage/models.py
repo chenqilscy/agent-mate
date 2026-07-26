@@ -53,9 +53,19 @@ class Session:
     run_status: Optional[str] = None
     run_summary: Optional[str] = None
     run_kind: Optional[str] = None
+    # WB-325: rolling LLM context summary. summary_cursor is the number of
+    # persisted messages covered by summary; original messages are never deleted.
+    summary: str = ""
+    summary_cursor: int = 0
+    summary_updated_at: Optional[float] = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        # Internal context state is not part of the public Session/UI contract.
+        data.pop("summary", None)
+        data.pop("summary_cursor", None)
+        data.pop("summary_updated_at", None)
+        return data
 
 
 @dataclass
