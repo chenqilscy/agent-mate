@@ -17,7 +17,7 @@ def summary() -> dict:
     return {
         "sessions": counts["sessions"],
         "messages": counts["messages"],
-        "memories": db.count_memories(owner),
+        "memories": db.count_all_memories(owner),
     }
 
 
@@ -35,7 +35,7 @@ def export() -> dict:
     return {
         "user": {"id": u.id, "name": u.name},
         "settings": get_personalization(owner),
-        "memories": db.list_memories(owner),
+        "memories": db.list_all_memories(owner),
         "sessions": sessions,
     }
 

@@ -469,6 +469,8 @@ export interface MemoryItem {
   superseded_by?: string | null
   last_used_at?: number | null
   strength?: number
+  scope: 'user' | 'project'
+  project_id: string | null
 }
 export interface EmbedStatus {
   configured: string      // 用户所选后端 'local' | 'glm'
@@ -485,6 +487,8 @@ export interface MemoryStats {
   decaying: number
   semantic: boolean
   embed?: EmbedStatus
+  scope?: 'user' | 'project'
+  project_id?: string | null
 }
 export interface MemoryData {
   enabled: boolean
@@ -503,6 +507,13 @@ export interface MemoryTrace {
   memory: MemoryItem
   superseded_by: MemoryItem | null
   superseded: MemoryItem | null
+}
+export interface WorkspaceMemory {
+  project_id: string
+  content: string
+  daily_logs: { date: string; content: string }[]
+  can_edit: boolean
+  local_only: boolean
 }
 
 // 设置 · 数据管理（WB-149）：数据条数概览。

@@ -10,6 +10,7 @@ import { toast } from '../../stores/toastStore'
 import { api } from '../../lib/api'
 import type { AgentSettings, AuditEntry, DataSummary, MemoryItem, MemorySearchHit, MemoryStats, MemoryTrace, StylePreset, SystemSettings } from '../../lib/types'
 import { useSystemSettingsStore } from '../../stores/systemSettingsStore'
+import { useProjectStore } from '../../stores/projectStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
 import { App as AntApp, Card, Empty, Menu, Segmented, Select, Spin, Switch } from 'antd'
 import { DesktopUpdateSettings } from './DesktopUpdateSettings'
@@ -247,6 +248,8 @@ const pct = (x: number | undefined) => Math.round((x ?? 0) * 100)
 
 function MemoryPanel() {
   const { modal } = AntApp.useApp()
+  const projects = useProjectStore((s) => s.projects)
+  const loadProjects = useProjectStore((s) => s.load)
   const [enabled, setEnabled] = useState(false)
   const [items, setItems] = useState<MemoryItem[]>([])
   const [stats, setStats] = useState<MemoryStats | null>(null)
@@ -262,12 +265,33 @@ function MemoryPanel() {
   const [searching, setSearching] = useState(false)
   const [traceId, setTraceId] = useState<string | null>(null)
   const [trace, setTrace] = useState<MemoryTrace | null>(null)
+  const [scopeProjectId, setScopeProjectId] = useState<string | null>(null)
+  const [workspaceContent, setWorkspaceContent] = useState('')
+  const [workspaceSaved, setWorkspaceSaved] = useState('')
+  const [workspaceLogs, setWorkspaceLogs] = useState<{ date: string; content: string }[]>([])
+  const [workspaceCanEdit, setWorkspaceCanEdit] = useState(false)
+  const [workspaceSaving, setWorkspaceSaving] = useState(false)
 
-  const load = (v: MemView = view) => api.memory(v)
+  const load = (v: MemView = view, projectId: string | null = scopeProjectId) => api.memory(v, projectId)
     .then((m) => { setEnabled(m.enabled); setItems(m.items); if (m.stats) setStats(m.stats); setLoaded(true) })
     .catch(() => { setLoaded(true); toast('加载记忆失败') })
-  useEffect(() => { load('active') }, [])
-  const refreshStats = () => api.memoryStats().then(setStats).catch(() => {})
+  const loadWorkspace = (projectId: string | null) => {
+    if (!projectId) {
+      setWorkspaceContent(''); setWorkspaceSaved(''); setWorkspaceLogs([]); setWorkspaceCanEdit(false)
+      return
+    }
+    api.workspaceMemory(projectId).then((data) => {
+      setWorkspaceContent(data.content)
+      setWorkspaceSaved(data.content)
+      setWorkspaceLogs(data.daily_logs)
+      setWorkspaceCanEdit(data.can_edit)
+    }).catch(() => toast('加载项目 MEMORY.md 失败'))
+  }
+  useEffect(() => {
+    void load('active', null)
+    if (projects.length === 0) void loadProjects()
+  }, [])
+  const refreshStats = () => api.memoryStats(scopeProjectId).then(setStats).catch(() => {})
 
   const toggle = async () => {
     const next = !enabled
@@ -281,12 +305,23 @@ function MemoryPanel() {
       toast(embed.active === 'glm' ? '已切换到在线 GLM embedding-3' : embed.active === 'local' ? '已切换到本地嵌入' : '当前无可用嵌入后端')
     } catch { toast('切换失败') }
   }
-  const switchView = (v: MemView) => { setView(v); setLoaded(false); setTraceId(null); load(v) }
+  const switchView = (v: MemView) => { setView(v); setLoaded(false); setTraceId(null); load(v, scopeProjectId) }
+  const switchScope = (projectId: string | null) => {
+    setScopeProjectId(projectId)
+    setWorkspaceCanEdit(false)
+    setView('active')
+    setLoaded(false)
+    setTraceId(null)
+    setHits(null)
+    setQuery('')
+    void load('active', projectId)
+    loadWorkspace(projectId)
+  }
   const add = async () => {
     const text = adding.trim()
     if (!text || busy) return
     setBusy(true)
-    try { const row = await api.addMemory(text); setItems((xs) => [row, ...xs]); setAdding(''); refreshStats() }
+    try { const row = await api.addMemory(text, scopeProjectId); setItems((xs) => [row, ...xs]); setAdding(''); refreshStats() }
     catch { toast('添加失败（可能与已有记忆重复）') } finally { setBusy(false) }
   }
   const del = async (id: string) => {
@@ -313,7 +348,7 @@ function MemoryPanel() {
       cancelText: '取消',
       onOk: async () => {
         setBusy(true)
-        try { await api.clearMemory(); setItems([]); refreshStats(); toast('已清空记忆') }
+        try { await api.clearMemory(scopeProjectId); setItems([]); refreshStats(); toast('已清空当前作用域记忆') }
         catch { toast('清空失败') }
         finally { setBusy(false) }
       },
@@ -335,30 +370,81 @@ function MemoryPanel() {
     const q = query.trim()
     if (!q || searching) return
     setSearching(true)
-    try { const r = await api.searchMemory(q); setHits(r.hits); setHitsSemantic(r.semantic) }
+    try { const r = await api.searchMemory(q, 8, scopeProjectId); setHits(r.hits); setHitsSemantic(r.semantic) }
     catch { toast('检索失败') } finally { setSearching(false) }
   }
   const showTrace = async (id: string) => {
     if (traceId === id) { setTraceId(null); return }
     try { const t = await api.memoryDetail(id); setTrace(t); setTraceId(id) } catch { toast('溯源失败') }
   }
+  const saveWorkspace = async () => {
+    if (!scopeProjectId || !workspaceCanEdit || workspaceSaving) return
+    setWorkspaceSaving(true)
+    try {
+      const data = await api.saveWorkspaceMemory(scopeProjectId, workspaceContent)
+      setWorkspaceContent(data.content)
+      setWorkspaceSaved(data.content)
+      setWorkspaceLogs(data.daily_logs)
+      toast('项目 MEMORY.md 已保存，下次项目对话生效')
+    } catch { toast('保存项目 MEMORY.md 失败') } finally { setWorkspaceSaving(false) }
+  }
 
   const emptyHint = view === 'active'
     ? (enabled ? '聊几轮后这里会出现从对话中提取的记忆。' : '开启上面的开关可从对话中自动积累，也可手动添加。')
     : (view === 'archived' ? '没有已归档的记忆。强度过低的记忆会自动归档到这里，可随时恢复。' : '没有被更替的记忆。当新事实覆盖旧记忆时，旧的会移到这里（保留溯源）。')
+  const canEditScope = !scopeProjectId || workspaceCanEdit
 
   return (
     <div className="set-body">
       <div className="set-ptitle">记忆</div>
-      <div className="set-pdesc">记忆让 AgentMate 记住你的偏好和习惯，对话越多越懂你。记忆仅本人可见。</div>
+      <div className="set-pdesc">用户级记忆跨项目生效；项目级记忆只进入对应工作空间，避免不同项目互相串扰。</div>
 
       <div className="set-field" style={{ marginTop: 16 }}>
+        <div className="set-fhd">
+          <div className="set-fname">记忆作用域</div>
+          <div className="set-fsub">切换这里只影响当前查看、添加和检索；项目会话运行时会自动加载用户级 + 当前项目级两层。</div>
+        </div>
+        <WbSelect className="np-input" style={{ width: 220, flexShrink: 0 }}
+          value={scopeProjectId ?? ''} onChange={(e) => switchScope(e.target.value || null)}>
+          <option value="">用户级（跨项目）</option>
+          {projects.map((project) => <option key={project.id} value={project.id}>项目 · {project.name}</option>)}
+        </WbSelect>
+      </div>
+
+      <div className="set-field">
         <div className="set-fhd">
           <div className="set-fname">生成对话记忆</div>
           <div className="set-fsub">开启后，AgentMate 会从对话中提取并记住相关事实，供未来对话按相关性注入。</div>
         </div>
         <Switch className="set-switch" checked={enabled} onChange={() => void toggle()} aria-label="生成对话记忆" />
       </div>
+
+      {scopeProjectId && (
+        <div className="set-workspace-memory">
+          <div className="set-flabel">项目长期记忆 · MEMORY.md</div>
+          <div className="set-pdesc">保存在当前项目 <code>.agentmate/memory/MEMORY.md</code>，仅本机工作空间可见，不上传 Server。适合架构决策、业务约定和长期规范。</div>
+          <WbTextArea className="np-input set-workspace-memory-input" rows={7} maxLength={12000}
+            value={workspaceContent} disabled={!workspaceCanEdit}
+            placeholder="例如：技术选型、目录约定、发布流程、业务边界……"
+            onChange={(e) => setWorkspaceContent(e.target.value)} />
+          <div className="set-actions">
+            <WbButton className="btn-dark" disabled={!workspaceCanEdit || workspaceSaving || workspaceContent === workspaceSaved}
+              onClick={saveWorkspace}>{workspaceSaving ? '保存中…' : '保存项目记忆'}</WbButton>
+            {!workspaceCanEdit && <span className="set-pdesc">Viewer 只读</span>}
+          </div>
+          {workspaceLogs.length > 0 && (
+            <details className="set-workspace-logs">
+              <summary>最近工作日志（{workspaceLogs.length} 天）</summary>
+              {workspaceLogs.map((log) => (
+                <div key={log.date} className="set-workspace-log">
+                  <b>{log.date}</b>
+                  <pre>{log.content}</pre>
+                </div>
+              ))}
+            </details>
+          )}
+        </div>
+      )}
 
       <div className="set-field">
         <div className="set-fhd">
@@ -411,14 +497,15 @@ function MemoryPanel() {
           <WbButton className={`set-mview ${view === 'archived' ? 'on' : ''}`} onClick={() => switchView('archived')}>已归档{stats ? ` (${stats.archived})` : ''}</WbButton>
           {stats && stats.superseded > 0 && <WbButton className={`set-mview ${view === 'superseded' ? 'on' : ''}`} onClick={() => switchView('superseded')}>已更替 ({stats.superseded})</WbButton>}
         </div>
-        {stats && stats.total > 0 && <WbButton className="set-link" onClick={clear}>清空</WbButton>}
+        {canEditScope && stats && stats.total > 0 && <WbButton className="set-link" onClick={clear}>清空</WbButton>}
       </div>
 
       {view === 'active' && (
         <div className="set-memadd">
-          <WbInput className="np-input" placeholder="手动添加一条记忆，如「我是一名前端工程师」" value={adding}
+          <WbInput className="np-input" placeholder={scopeProjectId ? '添加当前项目事实，如「生产发布必须先跑回归」' : '添加跨项目记忆，如「我偏好中文回复」'} value={adding}
+            disabled={!canEditScope}
             maxLength={300} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add() }} />
-          <WbButton className="btn-dark" disabled={!adding.trim() || busy} onClick={add}>添加</WbButton>
+          <WbButton className="btn-dark" disabled={!canEditScope || !adding.trim() || busy} onClick={add}>添加</WbButton>
         </div>
       )}
 
@@ -441,24 +528,25 @@ function MemoryPanel() {
                 <div className="set-mem-meta">
                   <div className="set-strength" title={`强度 ${pct(m.strength)}%（重要度 × 新鲜度 × 使用）`}><i style={{ width: `${pct(m.strength)}%` }} /></div>
                   <WbInput type="range" className="set-mem-imp" min={0} max={100} value={pct(m.importance ?? 0.5)}
+                    disabled={!canEditScope}
                     title={`重要度 ${pct(m.importance ?? 0.5)}%`} aria-label="重要度"
                     onChange={(e) => setImpLocal(m.id, Number(e.target.value))}
                     onMouseUp={(e) => commitImp(m.id, Number((e.target as HTMLInputElement).value))}
                     onTouchEnd={(e) => commitImp(m.id, Number((e.target as HTMLInputElement).value))} />
-                  <span className="set-mem-src">{m.source === 'conversation' ? '来自对话' : '手动'}</span>
+                  <span className="set-mem-src">{m.scope === 'project' ? '当前项目 · ' : '用户级 · '}{m.source === 'conversation' ? '来自对话' : '手动'}</span>
                   {m.status === 'superseded' && <span className="set-badge">已更替</span>}
                   {m.status === 'archived' && <span className="set-badge">已归档</span>}
-                  {view === 'active' ? (
+                  {view === 'active' && canEditScope ? (
                     <>
                       <WbButton className="set-mem-x" onClick={() => startEdit(m)} title="编辑" aria-label="编辑">✎</WbButton>
                       <WbButton className="set-mem-x" onClick={() => archive(m.id)} title="归档" aria-label="归档">⊟</WbButton>
                       <WbButton className="set-mem-x" onClick={() => del(m.id)} title="删除" aria-label="删除">×</WbButton>
                     </>
-                  ) : (
+                  ) : view !== 'active' && (
                     <>
                       {view === 'superseded' && <WbButton className="set-mem-x" onClick={() => showTrace(m.id)} title="溯源" aria-label="溯源">↪</WbButton>}
-                      <WbButton className="set-mem-x" onClick={() => rollback(m.id)} title="恢复为活跃" aria-label="恢复">↩</WbButton>
-                      <WbButton className="set-mem-x" onClick={() => del(m.id)} title="删除" aria-label="删除">×</WbButton>
+                      {canEditScope && <WbButton className="set-mem-x" onClick={() => rollback(m.id)} title="恢复为活跃" aria-label="恢复">↩</WbButton>}
+                      {canEditScope && <WbButton className="set-mem-x" onClick={() => del(m.id)} title="删除" aria-label="删除">×</WbButton>}
                     </>
                   )}
                 </div>

@@ -24,7 +24,8 @@ from storage import db
 # user_settings KV 键：是否从对话自动抽取记忆（"1"=开）。默认关。
 MEM_CAPTURE_KEY = "pref.memory_capture"
 MAX_PER_TURN = 3        # 每轮最多几个操作，避免一次灌太多
-INJECT_CHAR_BUDGET = 1500   # 注入 system prompt 的记忆总字符预算，防随库增长无界膨胀
+USER_INJECT_CHAR_BUDGET = 1200     # 跨项目用户偏好
+PROJECT_INJECT_CHAR_BUDGET = 1600  # 当前项目事实；与用户级独立预算，避免互相挤占
 EXTRACT_CTX_BUDGET = 1500   # 回喂抽取器的「已有记忆」上下文字符预算
 # 语义阈值（档二 WB-167，参考 AgentOS）：≥DEDUPE 且同文→强化既有；≥CONFLICT 且异文→插新+旧 supersede。
 DEDUPE_THRESHOLD = 0.98
@@ -70,7 +71,14 @@ def _rank_by_strength(mems: list[dict], now_s: float) -> list[dict]:
     return sorted(mems, key=lambda m: _strength_of(m, now_s), reverse=True)
 
 
-def _ensure_embeddings(owner_id: str, mems: list[dict], cap: int = EMBED_BACKFILL_CAP) -> None:
+def _ensure_embeddings(
+    owner_id: str,
+    mems: list[dict],
+    *,
+    scope: str = "user",
+    project_id: str | None = None,
+    cap: int = EMBED_BACKFILL_CAP,
+) -> None:
     """给缺 embedding / 或 embedding 由【其他后端】产生（tag 不符当前后端）的 active 记忆，用当前后端
     （重）嵌入并持久化，就地写回 mems 的 'embedding'/'embedding_model'。批量调用省 GLM 请求。有上限。
     WB-170：这是切换嵌入后端后旧向量惰性迁移的入口。"""
@@ -90,9 +98,17 @@ def _ensure_embeddings(owner_id: str, mems: list[dict], cap: int = EMBED_BACKFIL
         m["embedding_model"] = tag
 
 
-def _rank_by_relevance(owner_id: str, mems: list[dict], qvec: list[float], now_s: float) -> list[dict]:
+def _rank_by_relevance(
+    owner_id: str,
+    mems: list[dict],
+    qvec: list[float],
+    now_s: float,
+    *,
+    scope: str = "user",
+    project_id: str | None = None,
+) -> list[dict]:
     """按 retrieval_score(相似度, 强度) 降序（档二）。mems 需含 'embedding' bytes。只比对与当前后端同 tag 的向量。"""
-    _ensure_embeddings(owner_id, mems)
+    _ensure_embeddings(owner_id, mems, scope=scope, project_id=project_id)
     tag = mem_embed.model_tag(owner_id)
     qa = np.asarray(qvec, dtype=np.float32)
     scored = []
@@ -104,41 +120,83 @@ def _rank_by_relevance(owner_id: str, mems: list[dict], qvec: list[float], now_s
     return [m for _, m in scored]
 
 
-def build_memory_prompt(owner_id: str, query_text: str | None = None) -> str:
-    """把已存记忆拼成注入 system prompt 的段；无记忆则空串。
+def _rank_scope(
+    owner_id: str,
+    *,
+    query_vec: list[float] | None,
+    now_s: float,
+    scope: str,
+    project_id: str | None,
+) -> list[dict]:
+    if query_vec is not None:
+        mems = db.list_active_with_embedding(owner_id, scope=scope, project_id=project_id)
+        return _rank_by_relevance(
+            owner_id, mems, query_vec, now_s, scope=scope, project_id=project_id,
+        ) if mems else []
+    return _rank_by_strength(
+        db.list_memories(owner_id, scope=scope, project_id=project_id), now_s,
+    )
 
-    档二（WB-167）：本地嵌入可用且有 query_text → embed(当前对话) → 按 相似度×强度 取相关性 top-N。
-    档一回退：按强度排序取 top-N。两者都取字符预算内、并**命中强化**。
-    """
-    now_s = time.time()
-    qvec = mem_embed.embed(owner_id, query_text) if query_text else None
-    if qvec is not None:
-        mems = db.list_active_with_embedding(owner_id)
-        if not mems:
-            return ""
-        ranked = _rank_by_relevance(owner_id, mems, qvec, now_s)
-    else:
-        mems = db.list_memories(owner_id)  # active，created_at DESC
-        if not mems:
-            return ""
-        ranked = _rank_by_strength(mems, now_s)
-    picked, omitted = _within_budget(ranked, INJECT_CHAR_BUDGET)
+
+def _prompt_section(
+    owner_id: str,
+    ranked: list[dict],
+    *,
+    budget: int,
+    heading: str,
+    guidance: str,
+) -> str:
+    picked, omitted = _within_budget(ranked, budget)
     if not picked:
         return ""
-    for m in picked:  # 命中强化：被注入即视为「用到」，refresh usage/last_used
-        db.reinforce_memory(owner_id, m["id"], now_s)
+    for item in picked:
+        db.reinforce_memory(owner_id, item["id"])
     lines = "\n".join(f"- {(m['content'] or '').strip()}" for m in picked)
     tail = f"\n（另有 {omitted} 条较弱/不相关记忆已省略）" if omitted > 0 else ""
-    return (
-        "\n\n# 关于用户的记忆\n"
-        "以下是你此前记住的、关于该用户的长期事实。作答时自然地纳入考量，不要生硬复述：\n"
-        + lines + tail
+    return f"\n\n## {heading}\n{guidance}\n{lines}{tail}"
+
+
+def build_memory_prompt(
+    owner_id: str,
+    query_text: str | None = None,
+    *,
+    project_id: str | None = None,
+) -> str:
+    """分层注入：所有会话读用户级；项目会话只额外读取当前 project_id 的项目级认知记忆。"""
+    now_s = time.time()
+    qvec = mem_embed.embed(owner_id, query_text) if query_text else None
+    user_ranked = _rank_scope(
+        owner_id, query_vec=qvec, now_s=now_s, scope="user", project_id=None,
     )
+    project_ranked = _rank_scope(
+        owner_id, query_vec=qvec, now_s=now_s, scope="project", project_id=project_id,
+    ) if project_id else []
+    user_part = _prompt_section(
+        owner_id, user_ranked, budget=USER_INJECT_CHAR_BUDGET,
+        heading="用户级记忆",
+        guidance="以下是跨项目稳定偏好与个人事实，可在任何会话中自然采用：",
+    )
+    project_part = _prompt_section(
+        owner_id, project_ranked, budget=PROJECT_INJECT_CHAR_BUDGET,
+        heading="当前项目记忆",
+        guidance="以下事实只属于当前项目；不得带入其他项目或普通会话：",
+    )
+    if not user_part and not project_part:
+        return ""
+    return "\n\n# 分层记忆\n作答时自然纳入相关内容，不要生硬复述；严格遵守作用域。" + user_part + project_part
 
 
 # ---- 落库（去重/强化/更替）------------------------------------------------
 
-def store_memory(owner_id: str, content: str, source: str, importance: float = 0.5) -> dict | None:
+def store_memory(
+    owner_id: str,
+    content: str,
+    source: str,
+    importance: float = 0.5,
+    *,
+    scope: str = "user",
+    project_id: str | None = None,
+) -> dict | None:
     """落库一条记忆。
 
     档二（本地嵌入可用）：embed(content) → 与 active 记忆取最相似一条。
@@ -148,18 +206,26 @@ def store_memory(owner_id: str, content: str, source: str, importance: float = 0
     text = (content or "").strip()
     if not text:
         return None
+    if scope != "project" or not project_id:
+        scope, project_id = "user", None
     vec = mem_embed.embed(owner_id, text)
     if vec is None:  # 档一回退（无可用嵌入后端）
-        dup = db.find_active_memory_by_content(owner_id, text)
+        dup = db.find_active_memory_by_content(
+            owner_id, text, scope=scope, project_id=project_id,
+        )
         if dup is not None:
             return db.reinforce_memory(owner_id, dup["id"])
-        return db.insert_memory(owner_id, text, source, importance)
+        return db.insert_memory(
+            owner_id, text, source, importance, scope=scope, project_id=project_id,
+        )
 
     # 档二语义路径
     tag = mem_embed.model_tag(owner_id)
     qa = np.asarray(vec, dtype=np.float32)
-    actives = db.list_active_with_embedding(owner_id)
-    _ensure_embeddings(owner_id, actives)  # 把旧后端/缺失向量迁到当前后端，才能同 tag 比对
+    actives = db.list_active_with_embedding(owner_id, scope=scope, project_id=project_id)
+    _ensure_embeddings(
+        owner_id, actives, scope=scope, project_id=project_id,
+    )  # 把旧后端/缺失向量迁到当前后端，才能同 tag 比对
     best, best_sim = None, -1.0
     for m in actives:
         if m.get("embedding_model") != tag:
@@ -174,21 +240,26 @@ def store_memory(owner_id: str, content: str, source: str, importance: float = 0
     if best is not None and best_sim >= DEDUPE_THRESHOLD and (best["content"] or "").strip() == text:
         return db.reinforce_memory(owner_id, best["id"])
     new = db.insert_memory(owner_id, text, source, importance,
-                           embedding=mem_embed.to_blob(vec), embedding_model=tag)
+                           embedding=mem_embed.to_blob(vec), embedding_model=tag,
+                           scope=scope, project_id=project_id)
     # 语义高度相近但异文 → 自动更替：旧记忆软置 superseded（留链）
     if best is not None and best_sim >= CONFLICT_THRESHOLD and (best["content"] or "").strip() != text:
         db.supersede_memory(owner_id, best["id"], new["id"])
     return new
 
 
-def decay_gc(owner_id: str) -> int:
+def decay_gc(owner_id: str, *, project_id: str | None = None) -> int:
     """衰退 GC：强度低于阈值的 active 记忆软归档（archived，不硬删）。返回归档数。best-effort。"""
     now_s = time.time()
     archived = 0
-    for m in db.list_memories(owner_id, limit=10**9):  # 全部 active
-        if should_archive(_strength_of(m, now_s)):
-            db.set_memory_status(owner_id, m["id"], "archived")
-            archived += 1
+    scopes = [("user", None)] + ([("project", project_id)] if project_id else [])
+    for scope, scoped_project in scopes:
+        for m in db.list_memories(
+            owner_id, limit=10**9, scope=scope, project_id=scoped_project,
+        ):
+            if should_archive(_strength_of(m, now_s)):
+                db.set_memory_status(owner_id, m["id"], "archived")
+                archived += 1
     return archived
 
 
@@ -206,31 +277,64 @@ def _with_strength(m: dict, now_s: float) -> dict:
     return d
 
 
-def list_with_strength(owner_id: str, status: str = "active") -> list[dict]:
+def list_with_strength(
+    owner_id: str,
+    status: str = "active",
+    *,
+    scope: str = "user",
+    project_id: str | None = None,
+) -> list[dict]:
     """列某状态的记忆（默认 active），每条带现算 strength。"""
     now_s = time.time()
-    return [_with_strength(m, now_s) for m in db.list_memories(owner_id, limit=10**9, status=status)]
+    return [
+        _with_strength(m, now_s)
+        for m in db.list_memories(
+            owner_id, limit=10**9, status=status, scope=scope, project_id=project_id,
+        )
+    ]
 
 
-def memory_stats(owner_id: str) -> dict:
+def memory_stats(
+    owner_id: str,
+    *,
+    scope: str = "user",
+    project_id: str | None = None,
+) -> dict:
     """概览：各状态计数 + 平均强度 + 衰退中(strength<0.1)数 + 语义是否可用。"""
     now_s = time.time()
-    active = db.list_memories(owner_id, limit=10**9)
+    active = db.list_memories(
+        owner_id, limit=10**9, scope=scope, project_id=project_id,
+    )
     strengths = [_strength_of(m, now_s) for m in active]
     avg = round(sum(strengths) / len(strengths), 4) if strengths else 0.0
     return {
         "active": len(active),
-        "archived": db.count_memories(owner_id, status="archived"),
-        "superseded": db.count_memories(owner_id, status="superseded"),
-        "total": db.count_memories(owner_id, status=None),
+        "archived": db.count_memories(
+            owner_id, status="archived", scope=scope, project_id=project_id,
+        ),
+        "superseded": db.count_memories(
+            owner_id, status="superseded", scope=scope, project_id=project_id,
+        ),
+        "total": db.count_memories(
+            owner_id, status=None, scope=scope, project_id=project_id,
+        ),
         "avg_strength": avg,
         "decaying": sum(1 for s in strengths if s < 0.1),
         "semantic": mem_embed.available(owner_id),
         "embed": mem_embed.backends_status(owner_id),  # WB-170：所配/生效后端 + 各后端可用性
+        "scope": scope if scope == "project" and project_id else "user",
+        "project_id": project_id if scope == "project" else None,
     }
 
 
-def search_memories(owner_id: str, query: str, top_k: int = 8) -> dict:
+def search_memories(
+    owner_id: str,
+    query: str,
+    top_k: int = 8,
+    *,
+    scope: str = "user",
+    project_id: str | None = None,
+) -> dict:
     """检索 playground（只读）。本地嵌入可用 → 语义相似度检索，返回 sim/strength/score；
     否则关键词子串兜底（similarity=None）。"""
     now_s = time.time()
@@ -246,8 +350,8 @@ def search_memories(owner_id: str, query: str, top_k: int = 8) -> dict:
 
     if qvec is not None:
         tag = mem_embed.model_tag(owner_id)
-        mems = db.list_active_with_embedding(owner_id)
-        _ensure_embeddings(owner_id, mems)
+        mems = db.list_active_with_embedding(owner_id, scope=scope, project_id=project_id)
+        _ensure_embeddings(owner_id, mems, scope=scope, project_id=project_id)
         qa = np.asarray(qvec, dtype=np.float32)
         hits = []
         for m in mems:
@@ -257,7 +361,11 @@ def search_memories(owner_id: str, query: str, top_k: int = 8) -> dict:
         return {"semantic": True, "hits": hits[:top_k]}
     # 关键词兜底
     q = (query or "").strip().casefold()
-    hits = [_row(m, None, _strength_of(m, now_s)) for m in db.list_memories(owner_id, limit=10**9)
+    hits = [
+        _row(m, None, _strength_of(m, now_s))
+        for m in db.list_memories(
+            owner_id, limit=10**9, scope=scope, project_id=project_id,
+        )
             if q and q in (m["content"] or "").casefold()]
     hits.sort(key=lambda x: x["strength"], reverse=True)
     return {"semantic": False, "hits": hits[:top_k]}
@@ -266,12 +374,14 @@ def search_memories(owner_id: str, query: str, top_k: int = 8) -> dict:
 # ---- 从对话抽取（结构化操作 add / update→supersede）-----------------------
 
 _EXTRACT_SYS = (
-    "你是一个记忆抽取器。从给定的一轮对话里，提炼关于【用户本人】、且长期有效的稳定事实"
-    "（如身份/职业、稳定的偏好与习惯、正在做的项目或目标、重要约束）。\n"
+    "你是一个分层记忆抽取器。从给定的一轮对话里，提炼以后仍有用的稳定事实。\n"
     "你会看到一份带序号的【已有记忆】。请输出对记忆库的操作数组，规则：\n"
-    '- 全新的稳定事实 → {"op":"add","content":"…"}\n'
+    '- 跨项目稳定的用户身份、偏好、习惯或沟通规则 → scope="user"；'
+    '只属于当前项目的目标、架构、业务约定或阶段决策 → scope="project"。\n'
+    '- 全新的稳定事实 → {"op":"add","scope":"user|project","content":"…"}\n'
     "- 若本轮更新/纠正/更替了某条已有记忆（如项目、职业、偏好变了，或把旧表述说得更准确）→ "
-    '{"op":"update","ref":<该条序号>,"content":"<更替后的新表述>"}；ref 必须是已有记忆里真实存在的序号。\n'
+    '{"op":"update","ref":<该条序号>,"content":"<更替后的新表述>"}；'
+    "update 沿用旧记忆作用域，ref 必须真实存在。\n"
     "- 只提炼明确、稳定、以后仍有用的；忽略一次性/临时的、与助手或 AI 有关的、以及已有记忆已能推出的（不要重复 add）。\n"
     "- 每条 content 一句话、精炼、以用户为主语。最多 %d 个操作。\n"
     '输出严格的 JSON 数组，例如 [{"op":"add","content":"用户是一名前端工程师"}]；'
@@ -309,13 +419,17 @@ def _parse_ops(text: str) -> list[dict]:
         content = str(x.get("content") or "").strip()[:300]
         if not content:
             continue
+        scope = "project" if x.get("scope") == "project" else "user"
         if x.get("op") == "update":
             try:
-                ops.append({"op": "update", "ref": int(x.get("ref")), "content": content})
+                ops.append({
+                    "op": "update", "ref": int(x.get("ref")),
+                    "content": content, "scope": scope,
+                })
             except (TypeError, ValueError):
-                ops.append({"op": "add", "content": content})  # ref 不合法 → 退化为 add
+                ops.append({"op": "add", "content": content, "scope": scope})  # ref 不合法 → 退化为 add
         else:
-            ops.append({"op": "add", "content": content})
+            ops.append({"op": "add", "content": content, "scope": scope})
     return ops
 
 
@@ -328,19 +442,29 @@ async def extract_and_store(
     api_base: str | None,
     api_key: str | None,
     chat_path: str,
+    project_id: str | None = None,
 ) -> list[dict]:
     """一次性抽取本轮记忆 → 结构化操作（add / update→supersede）入库。返回本轮实际变更的记忆。
     best-effort：调用方吞异常。"""
     # 回喂抽取器的「已有记忆」按强度排序 + 预算截断并编号；ctx 序号(1-based) ↔ 记忆 用于 update 定位。
     now_s = time.time()
-    ctx, _ = _within_budget(_rank_by_strength(db.list_memories(owner_id), now_s), EXTRACT_CTX_BUDGET)
+    user_ctx = db.list_memories(owner_id, scope="user")
+    project_ctx = db.list_memories(
+        owner_id, scope="project", project_id=project_id,
+    ) if project_id else []
+    combined = _rank_by_strength(user_ctx + project_ctx, now_s)
+    ctx, _ = _within_budget(combined, EXTRACT_CTX_BUDGET)
     if ctx:
-        known_lines = "\n".join(f"{i + 1}. {(m['content'] or '').strip()}" for i, m in enumerate(ctx))
+        known_lines = "\n".join(
+            f"{i + 1}. [{m.get('scope', 'user')}] {(m['content'] or '').strip()}"
+            for i, m in enumerate(ctx)
+        )
         known = "已有记忆（带序号，据此判断是新增还是更替；不要重复 add 已有事实）：\n" + known_lines
     else:
         known = "（暂无已有记忆）"
     user_msg = (
-        f"{known}\n\n本轮对话：\n用户：{(user_text or '').strip()[:2000]}\n"
+        f"{known}\n\n当前会话：{'项目会话，可写 user/project 两层' if project_id else '普通会话，只能写 user 层'}\n"
+        f"本轮对话：\n用户：{(user_text or '').strip()[:2000]}\n"
         f"助手：{(assistant_text or '').strip()[:2000]}\n\n请按规则输出操作数组。"
     )
     messages = [
@@ -356,12 +480,21 @@ async def extract_and_store(
             acc += delta.content
     stored: list[dict] = []
     for op in _parse_ops(acc)[:MAX_PER_TURN]:
-        row = store_memory(owner_id, op["content"], "conversation")
-        if row is None:
-            continue
+        old = None
         if op["op"] == "update":
             idx = op["ref"] - 1
             old = ctx[idx] if 0 <= idx < len(ctx) else None
+        scope = old.get("scope", "user") if old else op.get("scope", "user")
+        if scope == "project" and not project_id:
+            scope = "user"
+        scoped_project = project_id if scope == "project" else None
+        row = store_memory(
+            owner_id, op["content"], "conversation",
+            scope=scope, project_id=scoped_project,
+        )
+        if row is None:
+            continue
+        if op["op"] == "update":
             # 新记忆更替旧记忆：旧的软置 superseded（留链）。同一条（内容没变→dedup 回既有）则不 supersede。
             if old and old["id"] != row["id"] and row.get("status") == "active":
                 db.supersede_memory(owner_id, old["id"], row["id"])

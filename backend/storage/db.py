@@ -776,6 +776,8 @@ def init_db() -> None:
             owner_id TEXT NOT NULL,
             content TEXT NOT NULL,
             source TEXT NOT NULL DEFAULT 'manual',
+            scope TEXT NOT NULL DEFAULT 'user',
+            project_id TEXT,
             created_at REAL NOT NULL
         );
 
@@ -1025,9 +1027,16 @@ def _migrate_columns() -> None:
         # WB-170：产生该向量的嵌入模型标签（如 local:bge-small-zh-v1.5 / glm:embedding-3）。
         # 跨模型余弦无意义，检索/去重只比对同 tag；切后端后旧 tag 向量被重嵌入回填。
         ("embedding_model", "embedding_model TEXT"),
+        # WB-324：用户级偏好与项目级事实必须显式分层；存量默认仍是 user，零行为破坏。
+        ("scope", "scope TEXT NOT NULL DEFAULT 'user'"),
+        ("project_id", "project_id TEXT"),
     ):
         if col not in have_mem:
             conn.execute(f"ALTER TABLE user_memories ADD COLUMN {ddl}")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_user_memories_scope "
+        "ON user_memories(owner_id, scope, project_id, status, created_at DESC)"
+    )
     conn.commit()
 
 
@@ -4397,7 +4406,7 @@ _MEMORY_MAX = 200  # 单 owner 列举/注入默认上限（软上限；不再硬
 # 记忆标量列（不含 embedding BLOB），供列表/详情/注入读取。
 _MEM_COLS = (
     "id, content, source, created_at, importance, usage_count, "
-    "status, superseded_by, last_used_at"
+    "status, superseded_by, last_used_at, scope, project_id"
 )
 
 
@@ -4408,22 +4417,40 @@ def _mem_dict(r) -> dict:
         "created_at": r["created_at"], "importance": r["importance"],
         "usage_count": r["usage_count"], "status": r["status"],
         "superseded_by": r["superseded_by"], "last_used_at": r["last_used_at"],
+        "scope": r["scope"], "project_id": r["project_id"],
     }
 
 
-def list_memories(owner_id: str, limit: int = _MEMORY_MAX, status: Optional[str] = "active") -> list[dict]:
-    """列记忆（默认仅 active；status=None 则不限状态）。按 created_at DESC。"""
+def _memory_scope(scope: str, project_id: Optional[str]) -> tuple[str, Optional[str]]:
+    """规范化认知记忆作用域。project 必须带 id；其余输入一律收敛为 user。"""
+    if scope == "project" and project_id:
+        return "project", project_id
+    return "user", None
+
+
+def list_memories(
+    owner_id: str,
+    limit: int = _MEMORY_MAX,
+    status: Optional[str] = "active",
+    *,
+    scope: str = "user",
+    project_id: Optional[str] = None,
+) -> list[dict]:
+    """列单一作用域记忆（默认 user/active）。项目记忆仍按 owner 隔离，工作空间 MEMORY.md 才是项目共享层。"""
+    scope, project_id = _memory_scope(scope, project_id)
     conn = get_conn()
     if status is None:
         rows = conn.execute(
-            f"SELECT {_MEM_COLS} FROM user_memories WHERE owner_id=? ORDER BY created_at DESC LIMIT ?",
-            (owner_id, limit),
+            f"SELECT {_MEM_COLS} FROM user_memories "
+            "WHERE owner_id=? AND scope=? AND project_id IS ? ORDER BY created_at DESC LIMIT ?",
+            (owner_id, scope, project_id, limit),
         ).fetchall()
     else:
         rows = conn.execute(
-            f"SELECT {_MEM_COLS} FROM user_memories WHERE owner_id=? AND status=? "
+            f"SELECT {_MEM_COLS} FROM user_memories "
+            "WHERE owner_id=? AND scope=? AND project_id IS ? AND status=? "
             "ORDER BY created_at DESC LIMIT ?",
-            (owner_id, status, limit),
+            (owner_id, scope, project_id, status, limit),
         ).fetchall()
     return [_mem_dict(r) for r in rows]
 
@@ -4436,13 +4463,39 @@ def get_memory(owner_id: str, mem_id: str) -> Optional[dict]:
     return _mem_dict(r) if r else None
 
 
-def count_memories(owner_id: str, status: Optional[str] = "active") -> int:
+def count_memories(
+    owner_id: str,
+    status: Optional[str] = "active",
+    *,
+    scope: str = "user",
+    project_id: Optional[str] = None,
+) -> int:
+    scope, project_id = _memory_scope(scope, project_id)
     if status is None:
         return get_conn().execute(
-            "SELECT COUNT(*) FROM user_memories WHERE owner_id=?", (owner_id,)
+            "SELECT COUNT(*) FROM user_memories WHERE owner_id=? AND scope=? AND project_id IS ?",
+            (owner_id, scope, project_id),
         ).fetchone()[0]
     return get_conn().execute(
-        "SELECT COUNT(*) FROM user_memories WHERE owner_id=? AND status=?", (owner_id, status)
+        "SELECT COUNT(*) FROM user_memories "
+        "WHERE owner_id=? AND scope=? AND project_id IS ? AND status=?",
+        (owner_id, scope, project_id, status),
+    ).fetchone()[0]
+
+
+def list_all_memories(owner_id: str, limit: int = 10**9) -> list[dict]:
+    """数据导出用：列 owner 的所有作用域/状态；运行时禁止用它做注入。"""
+    rows = get_conn().execute(
+        f"SELECT {_MEM_COLS} FROM user_memories WHERE owner_id=? "
+        "ORDER BY created_at DESC LIMIT ?",
+        (owner_id, limit),
+    ).fetchall()
+    return [_mem_dict(row) for row in rows]
+
+
+def count_all_memories(owner_id: str) -> int:
+    return get_conn().execute(
+        "SELECT COUNT(*) FROM user_memories WHERE owner_id=?", (owner_id,),
     ).fetchone()[0]
 
 
@@ -4459,45 +4512,64 @@ def owner_data_counts(owner_id: str) -> dict:
     return {"sessions": sessions, "messages": messages}
 
 
-def add_memory(owner_id: str, content: str, source: str = "manual",
-               importance: float = 0.5) -> Optional[dict]:
+def add_memory(
+    owner_id: str,
+    content: str,
+    source: str = "manual",
+    importance: float = 0.5,
+    *,
+    scope: str = "user",
+    project_id: Optional[str] = None,
+) -> Optional[dict]:
     """加一条 active 记忆；空内容、或与现有【active】记忆精确重复（忽略大小写/首尾空白）则跳过、返回 None。
     WB-166：不再硬删最旧（弱记忆改由 decay_gc 软归档）。语义去重/更替见 memory.store_memory（档二）。"""
     text = (content or "").strip()
     if not text:
         return None
-    if find_active_memory_by_content(owner_id, text) is not None:
+    scope, project_id = _memory_scope(scope, project_id)
+    if find_active_memory_by_content(owner_id, text, scope=scope, project_id=project_id) is not None:
         return None
-    return insert_memory(owner_id, text, source, importance)
+    return insert_memory(owner_id, text, source, importance, scope=scope, project_id=project_id)
 
 
 def insert_memory(owner_id: str, content: str, source: str, importance: float = 0.5,
-                  *, embedding: Optional[bytes] = None, embedding_model: Optional[str] = None,
-                  now: Optional[float] = None) -> dict:
+                   *, embedding: Optional[bytes] = None, embedding_model: Optional[str] = None,
+                   now: Optional[float] = None, scope: str = "user",
+                   project_id: Optional[str] = None) -> dict:
     """无条件插入一条 active 记忆（不去重；去重由调用方决定）。返回标量 dict。"""
     text = (content or "").strip()
+    scope, project_id = _memory_scope(scope, project_id)
     mem_id = new_uuid()
     ts = now if now is not None else time.time()
     get_conn().execute(
-        "INSERT INTO user_memories (id, owner_id, content, source, created_at, "
+        "INSERT INTO user_memories (id, owner_id, content, source, scope, project_id, created_at, "
         "importance, usage_count, status, superseded_by, last_used_at, embedding, embedding_model) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-        (mem_id, owner_id, text, source, ts, importance, 0, "active", None, ts, embedding, embedding_model),
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (mem_id, owner_id, text, source, scope, project_id, ts, importance, 0, "active", None, ts,
+         embedding, embedding_model),
     )
     get_conn().commit()
     return {"id": mem_id, "content": text, "source": source, "created_at": ts,
             "importance": importance, "usage_count": 0, "status": "active",
-            "superseded_by": None, "last_used_at": ts}
+            "superseded_by": None, "last_used_at": ts, "scope": scope, "project_id": project_id}
 
 
-def find_active_memory_by_content(owner_id: str, content: str) -> Optional[dict]:
+def find_active_memory_by_content(
+    owner_id: str,
+    content: str,
+    *,
+    scope: str = "user",
+    project_id: Optional[str] = None,
+) -> Optional[dict]:
     """在 active 记忆里按归一化内容找完全重复的一条（忽略大小写/首尾空白）；无则 None。"""
     norm = (content or "").strip().casefold()
     if not norm:
         return None
+    scope, project_id = _memory_scope(scope, project_id)
     rows = get_conn().execute(
-        f"SELECT {_MEM_COLS} FROM user_memories WHERE owner_id=? AND status='active'",
-        (owner_id,),
+        f"SELECT {_MEM_COLS} FROM user_memories "
+        "WHERE owner_id=? AND scope=? AND project_id IS ? AND status='active'",
+        (owner_id, scope, project_id),
     ).fetchall()
     for r in rows:
         if (r["content"] or "").strip().casefold() == norm:
@@ -4562,12 +4634,18 @@ def set_memory_importance(owner_id: str, mem_id: str, importance: float) -> Opti
     return get_memory(owner_id, mem_id) if cur.rowcount else None
 
 
-def list_active_with_embedding(owner_id: str) -> list[dict]:
+def list_active_with_embedding(
+    owner_id: str,
+    *,
+    scope: str = "user",
+    project_id: Optional[str] = None,
+) -> list[dict]:
     """内部用：active 记忆连 embedding 原始 bytes + embedding_model tag 一起返回（语义检索/去重）。"""
+    scope, project_id = _memory_scope(scope, project_id)
     rows = get_conn().execute(
         f"SELECT {_MEM_COLS}, embedding, embedding_model FROM user_memories "
-        "WHERE owner_id=? AND status='active'",
-        (owner_id,),
+        "WHERE owner_id=? AND scope=? AND project_id IS ? AND status='active'",
+        (owner_id, scope, project_id),
     ).fetchall()
     out = []
     for r in rows:
@@ -4595,14 +4673,15 @@ def update_memory(owner_id: str, mem_id: str, content: str) -> Optional[dict]:
         return None
     conn = get_conn()
     row = conn.execute(
-        "SELECT id FROM user_memories WHERE owner_id=? AND id=?", (owner_id, mem_id),
+        "SELECT id, scope, project_id FROM user_memories WHERE owner_id=? AND id=?", (owner_id, mem_id),
     ).fetchone()
     if row is None:
         return None
     norm = text.casefold()
     others = conn.execute(
-        "SELECT content FROM user_memories WHERE owner_id=? AND id<>? AND status='active'",
-        (owner_id, mem_id),
+        "SELECT content FROM user_memories "
+        "WHERE owner_id=? AND id<>? AND scope=? AND project_id IS ? AND status='active'",
+        (owner_id, mem_id, row["scope"], row["project_id"]),
     ).fetchall()
     if any((r["content"] or "").strip().casefold() == norm for r in others):
         return None
@@ -4619,8 +4698,17 @@ def delete_memory(owner_id: str, mem_id: str) -> bool:
     return cur.rowcount > 0
 
 
-def clear_memories(owner_id: str) -> int:
-    cur = get_conn().execute("DELETE FROM user_memories WHERE owner_id=?", (owner_id,))
+def clear_memories(
+    owner_id: str,
+    *,
+    scope: str = "user",
+    project_id: Optional[str] = None,
+) -> int:
+    scope, project_id = _memory_scope(scope, project_id)
+    cur = get_conn().execute(
+        "DELETE FROM user_memories WHERE owner_id=? AND scope=? AND project_id IS ?",
+        (owner_id, scope, project_id),
+    )
     get_conn().commit()
     return cur.rowcount
 

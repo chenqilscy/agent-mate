@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, OpsSummary, Orchestration, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, OpsSummary, Orchestration, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -55,19 +55,32 @@ export const api = {
     send<{ ok: boolean; error?: string; [key: string]: unknown }>('POST', '/settings/runtime/test', { group }),
 
   // 设置 · 记忆（WB-148；WB-166/167 认知记忆；WB-168 白盒管理）。
-  memory: (status?: string) => get<MemoryData>(status ? `/memory?status=${status}` : '/memory'),
-  addMemory: (content: string) => send<MemoryItem>('POST', '/memory', { content }),
+  memory: (status?: string, projectId?: string | null) => {
+    const q = new URLSearchParams()
+    if (status) q.set('status', status)
+    if (projectId) q.set('project_id', projectId)
+    return get<MemoryData>(`/memory${q.size ? `?${q}` : ''}`)
+  },
+  addMemory: (content: string, projectId?: string | null) =>
+    send<MemoryItem>('POST', '/memory', { content, project_id: projectId || null }),
   editMemory: (id: string, content: string) => send<MemoryItem>('PUT', `/memory/${id}`, { content }),
   deleteMemory: (id: string) => send<{ ok: boolean }>('DELETE', `/memory/${id}`),
-  clearMemory: () => send<{ ok: boolean; removed: number }>('POST', '/memory/clear'),
+  clearMemory: (projectId?: string | null) =>
+    send<{ ok: boolean; removed: number }>('POST', `/memory/clear${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`),
   setMemoryEnabled: (enabled: boolean) => send<{ enabled: boolean }>('PUT', '/memory/enabled', { enabled }),
   setEmbedBackend: (backend: string) => send<EmbedStatus>('PUT', '/memory/embed-backend', { backend }),
-  memoryStats: () => get<MemoryStats>('/memory/stats'),
-  searchMemory: (query: string, top_k = 8) => send<MemorySearchResult>('POST', '/memory/search', { query, top_k }),
+  memoryStats: (projectId?: string | null) =>
+    get<MemoryStats>(`/memory/stats${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`),
+  searchMemory: (query: string, top_k = 8, projectId?: string | null) =>
+    send<MemorySearchResult>('POST', '/memory/search', { query, top_k, project_id: projectId || null }),
   setMemoryImportance: (id: string, importance: number) => send<MemoryItem>('PATCH', `/memory/${id}/importance`, { importance }),
   archiveMemory: (id: string) => send<MemoryItem>('POST', `/memory/${id}/archive`),
   rollbackMemory: (id: string) => send<MemoryItem>('POST', `/memory/${id}/rollback`),
   memoryDetail: (id: string) => get<MemoryTrace>(`/memory/${id}`),
+  workspaceMemory: (projectId: string) =>
+    get<WorkspaceMemory>(`/memory/workspace?project_id=${encodeURIComponent(projectId)}`),
+  saveWorkspaceMemory: (projectId: string, content: string) =>
+    send<WorkspaceMemory>('PUT', '/memory/workspace', { project_id: projectId, content }),
 
   // 设置 · 数据管理（WB-149）：导出本人数据（下载 JSON）+ 清空个人对话。
   dataSummary: () => get<DataSummary>('/data/summary'),

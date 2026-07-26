@@ -20,7 +20,7 @@ import time
 from typing import Any, AsyncIterator
 
 from agent import events
-from agent import agent_settings, memory, security, skills_store, telemetry, weknora
+from agent import agent_settings, memory, security, skills_store, telemetry, weknora, workspace_memory
 from agent.experts import expert_for
 from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
@@ -365,7 +365,11 @@ async def _run_chat_inner(
     system_prompt += build_personalization_prompt(user.id)
     # 用户记忆（WB-148）：此前记住的关于用户的长期事实，注入系统提示 → 之后对话「记得」。无则空串。
     # WB-167：本地嵌入可用时按【当前这轮 user_text】的语义相关性检索 top-N（否则按强度排序）。
-    system_prompt += memory.build_memory_prompt(user.id, query_text=user_text)
+    system_prompt += memory.build_memory_prompt(
+        user.id, query_text=user_text, project_id=session.project_id,
+    )
+    if session.project_id:
+        system_prompt += workspace_memory.build_workspace_prompt(session.project_id)
 
     # Per-project workspace (§11.2): this run's tools operate in the project's own
     # checkout (or the shared default for ad-hoc chats). WB-087: an assistant may
@@ -604,6 +608,8 @@ async def _run_chat_inner(
     stopped = False
     schemas: list[dict[str, Any]] = []
     tool_call_count = 0
+    substantive_actions: list[str] = []
+    artifact_paths: list[str] = []
     t0 = time.time()
 
     def record(item: dict[str, Any]) -> str:
@@ -917,6 +923,7 @@ async def _run_chat_inner(
                     if pre:
                         yield record(pre)
                 tool_call_count += 1
+                tool_completed = False
                 # Run the (synchronous) tool off the event loop so a long
                 # subprocess / web_fetch / file IO can't freeze every other SSE
                 # stream or block /stop for its whole timeout (WB-002). to_thread
@@ -926,6 +933,7 @@ async def _run_chat_inner(
                 ) as tool_trace:
                     try:
                         outcome = await execute_tool(tool, args, stop)
+                        tool_completed = True
                         tool_trace.update(output=outcome.text)
                     except ToolExecutionCancelled:
                         stopped = True
@@ -936,6 +944,10 @@ async def _run_chat_inner(
                         outcome = ToolOutcome(text=f"工具 {name} 执行超时（{tool.timeout_seconds:g}s）。")
                         yield record({"kind": "step", "tool": name, "label": outcome.text, "status": "timeout"})
                         tool_trace.update(output={"status": "timeout"})
+                if tool_completed and not stopped and any(
+                    permission.endswith(".write") for permission in tool.permissions
+                ):
+                    substantive_actions.append(name)
                 for it in outcome.trace:
                     yield record(it)
                 for descriptor in outcome.artifacts:
@@ -956,6 +968,7 @@ async def _run_chat_inner(
                         "sha256": artifact.sha256, "mime_type": artifact.mime_type,
                         "acceptance_status": artifact.acceptance_status,
                     })
+                    artifact_paths.append(artifact.path)
                 # Transient live events (WB-031: kanban sync) — emitted, not recorded,
                 # so history replay never re-fires a stale state change.
                 for ev in outcome.live:
@@ -1079,6 +1092,23 @@ async def _run_chat_inner(
     yield events.done(message_id)
     await report_skill_runs("run_failed" if stopped else "run_succeeded")
 
+    # WorkBuddy 式工作空间日志（WB-324）：仅记录真实完成且执行过写操作的项目 run。
+    # 搜索/读文件/计划/纯问答/失败或中止不写；内容来自本次真实 request/tool/artifact/result，不造摘要。
+    try:
+        workspace_memory.record_completed_run(
+                session.project_id,
+                stopped=stopped,
+                session_id=session_id,
+                run_id=run_id,
+                title=session.title,
+                user_text=user_text,
+                assistant_text=assistant_text,
+                actions=substantive_actions,
+                artifacts=artifact_paths,
+            )
+    except Exception:  # noqa: BLE001 — 日志是 best-effort，不反向破坏已完成 run
+        pass
+
     # 对话记忆自动抽取（WB-148）：用户在「设置 · 记忆」开启后，从这轮对话提炼可长期记住的用户事实，
     # 去重入库，供之后对话注入。**放在 done 之后**——前端已解锁，不被抽取往返拖住；`wait_for` 兜底，
     # 防抽取端点卡死（stream_chat read 超时为 None）把连接/生成器无限期挂住。best-effort，任何失败静默。
@@ -1088,10 +1118,11 @@ async def _run_chat_inner(
                 memory.extract_and_store(
                     user.id, user_text, assistant_text,
                     model=model_id, api_base=model_base, api_key=model_key, chat_path=model_path,
+                    project_id=session.project_id,
                 ),
                 timeout=30,
             )
             # 衰退 GC（WB-166）：抽取后顺手归档强度过低的旧记忆（软状态，不硬删）。纯 DB、快，best-effort。
-            memory.decay_gc(user.id)
+            memory.decay_gc(user.id, project_id=session.project_id)
         except Exception:  # noqa: BLE001 —— 含 asyncio.TimeoutError
             pass

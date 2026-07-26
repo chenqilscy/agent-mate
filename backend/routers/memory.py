@@ -1,18 +1,20 @@
-"""用户记忆（WB-148；WB-162 编辑；WB-166/167 认知记忆；WB-168 白盒管理）。按 owner 存 DB。"""
+"""分层记忆（WB-324）：owner 认知记忆 + 本地项目工作空间 MEMORY.md / 每日日志。"""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from agent import memory, mem_embed
+from agent import memory, mem_embed, workspace_memory
 from auth.deps import current_user
 from storage import db
+from storage.models import Role
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 
 
 class AddBody(BaseModel):
     content: str = Field(max_length=300)
+    project_id: str | None = None
 
 
 class EditBody(BaseModel):
@@ -26,6 +28,7 @@ class EnabledBody(BaseModel):
 class SearchBody(BaseModel):
     query: str = Field(max_length=300)
     top_k: int = Field(default=8, ge=1, le=50)
+    project_id: str | None = None
 
 
 class ImportanceBody(BaseModel):
@@ -36,38 +39,87 @@ class EmbedBackendBody(BaseModel):
     backend: str  # 'local' | 'glm'
 
 
+class WorkspaceMemoryBody(BaseModel):
+    project_id: str
+    content: str = Field(max_length=workspace_memory.CURATED_MAX_CHARS)
+
+
 _VALID_STATUS = {"active", "archived", "superseded"}
 
 
-def _payload(owner_id: str, status: str = "active") -> dict:
+def _scope(project_id: str | None) -> tuple[str, str | None]:
+    return ("project", project_id) if project_id else ("user", None)
+
+
+def _require_project(project_id: str, *, write: bool = False) -> Role:
+    role = db.project_access_role(project_id, current_user().id)
+    if role is None:
+        raise HTTPException(status_code=404, detail="项目不存在或无权访问")
+    if write and role == Role.VIEWER:
+        raise HTTPException(status_code=403, detail="Viewer 只能查看项目记忆")
+    return role
+
+
+def _require_memory(owner_id: str, mem_id: str, *, write: bool = False) -> dict:
+    row = db.get_memory(owner_id, mem_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="记忆不存在")
+    project_id = row.get("project_id") if row.get("scope") == "project" else None
+    if project_id:
+        _require_project(project_id, write=write)
+    return row
+
+
+def _payload(owner_id: str, status: str = "active", project_id: str | None = None) -> dict:
+    scope, project_id = _scope(project_id)
     return {
         "enabled": memory.capture_enabled(owner_id),
-        "items": memory.list_with_strength(owner_id, status=status),
-        "stats": memory.memory_stats(owner_id),
+        "items": memory.list_with_strength(
+            owner_id, status=status, scope=scope, project_id=project_id,
+        ),
+        "stats": memory.memory_stats(owner_id, scope=scope, project_id=project_id),
     }
 
 
 @router.get("")
-def get_memory(status: str = "active") -> dict:
+def get_memory(status: str = "active", project_id: str | None = None) -> dict:
     if status not in _VALID_STATUS:
         status = "active"
-    return _payload(current_user().id, status)
+    if project_id:
+        _require_project(project_id)
+    return _payload(current_user().id, status, project_id)
 
 
 @router.get("/stats")
-def stats() -> dict:
-    return memory.memory_stats(current_user().id)
+def stats(project_id: str | None = None) -> dict:
+    if project_id:
+        _require_project(project_id)
+    scope, project_id = _scope(project_id)
+    return memory.memory_stats(current_user().id, scope=scope, project_id=project_id)
 
 
 @router.post("/search")
 def search(body: SearchBody) -> dict:
-    return memory.search_memories(current_user().id, body.query, body.top_k)
+    if body.project_id:
+        _require_project(body.project_id)
+    scope, project_id = _scope(body.project_id)
+    return memory.search_memories(
+        current_user().id, body.query, body.top_k, scope=scope, project_id=project_id,
+    )
 
 
 @router.get("/decaying")
-def decaying(threshold: float = 0.1) -> dict:
+def decaying(threshold: float = 0.1, project_id: str | None = None) -> dict:
     """衰退预览：现算强度低于阈值的 active 记忆（按强度升序，最濒危在前）。"""
-    items = [m for m in memory.list_with_strength(current_user().id) if m["strength"] < threshold]
+    if project_id:
+        _require_project(project_id)
+    scope, project_id = _scope(project_id)
+    items = [
+        m for m in memory.list_with_strength(
+            current_user().id, scope=scope, project_id=project_id,
+        )
+        if m["strength"] < threshold
+    ]
     items.sort(key=lambda m: m["strength"])
     return {"threshold": threshold, "items": items}
 
@@ -75,15 +127,28 @@ def decaying(threshold: float = 0.1) -> dict:
 @router.post("")
 def add(body: AddBody) -> dict:
     owner = current_user().id
-    row = db.add_memory(owner, body.content, source="manual")
+    if body.project_id:
+        _require_project(body.project_id, write=True)
+    scope, project_id = _scope(body.project_id)
+    row = memory.store_memory(
+        owner, body.content, source="manual", scope=scope, project_id=project_id,
+    )
     if row is None:
         raise HTTPException(status_code=400, detail="内容为空或与已有记忆重复")
     return row
 
 
 @router.post("/clear")
-def clear() -> dict:
-    return {"ok": True, "removed": db.clear_memories(current_user().id)}
+def clear(project_id: str | None = None) -> dict:
+    if project_id:
+        _require_project(project_id, write=True)
+    scope, project_id = _scope(project_id)
+    return {
+        "ok": True,
+        "removed": db.clear_memories(
+            current_user().id, scope=scope, project_id=project_id,
+        ),
+    }
 
 
 @router.put("/enabled")
@@ -104,13 +169,39 @@ def set_embed_backend(body: EmbedBackendBody) -> dict:
     return mem_embed.backends_status(owner)
 
 
+@router.get("/workspace")
+def get_workspace_memory(project_id: str) -> dict:
+    role = _require_project(project_id)
+    return {
+        "project_id": project_id,
+        "content": workspace_memory.read_curated(project_id),
+        "daily_logs": workspace_memory.list_daily_logs(project_id),
+        "can_edit": role != Role.VIEWER,
+        "local_only": True,
+    }
+
+
+@router.put("/workspace")
+def put_workspace_memory(body: WorkspaceMemoryBody) -> dict:
+    _require_project(body.project_id, write=True)
+    try:
+        content = workspace_memory.write_curated(body.project_id, body.content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "project_id": body.project_id,
+        "content": content,
+        "daily_logs": workspace_memory.list_daily_logs(body.project_id),
+        "can_edit": True,
+        "local_only": True,
+    }
+
+
 @router.get("/{mem_id}")
 def detail(mem_id: str) -> dict:
     """单条详情 + 溯源链（谁取代了它 / 它取代了谁）。"""
     owner = current_user().id
-    mem = db.get_memory(owner, mem_id)
-    if mem is None:
-        raise HTTPException(status_code=404, detail="记忆不存在")
+    mem = _require_memory(owner, mem_id)
     mem["strength"] = memory.strength_of(mem)
     superseded_by = db.get_memory(owner, mem["superseded_by"]) if mem.get("superseded_by") else None
     superseded = db.find_superseded_by(owner, mem_id)
@@ -121,6 +212,7 @@ def detail(mem_id: str) -> dict:
 def edit(mem_id: str, body: EditBody) -> dict:
     """原地编辑一条记忆（WB-162）。内容为空 / 记忆不存在 / 与已有记忆重复 → 400。"""
     owner = current_user().id
+    _require_memory(owner, mem_id, write=True)
     row = db.update_memory(owner, mem_id, body.content)
     if row is None:
         raise HTTPException(status_code=400, detail="内容为空、记忆不存在或与已有记忆重复")
@@ -129,7 +221,9 @@ def edit(mem_id: str, body: EditBody) -> dict:
 
 @router.patch("/{mem_id}/importance")
 def set_importance(mem_id: str, body: ImportanceBody) -> dict:
-    row = db.set_memory_importance(current_user().id, mem_id, body.importance)
+    owner = current_user().id
+    _require_memory(owner, mem_id, write=True)
+    row = db.set_memory_importance(owner, mem_id, body.importance)
     if row is None:
         raise HTTPException(status_code=404, detail="记忆不存在")
     row["strength"] = memory.strength_of(row)
@@ -139,8 +233,7 @@ def set_importance(mem_id: str, body: ImportanceBody) -> dict:
 @router.post("/{mem_id}/archive")
 def archive(mem_id: str) -> dict:
     owner = current_user().id
-    if db.get_memory(owner, mem_id) is None:
-        raise HTTPException(status_code=404, detail="记忆不存在")
+    _require_memory(owner, mem_id, write=True)
     return db.set_memory_status(owner, mem_id, "archived")
 
 
@@ -148,14 +241,15 @@ def archive(mem_id: str) -> dict:
 def rollback(mem_id: str) -> dict:
     """归档/被更替 → 恢复 active（清 superseded_by 链）。"""
     owner = current_user().id
-    if db.get_memory(owner, mem_id) is None:
-        raise HTTPException(status_code=404, detail="记忆不存在")
+    _require_memory(owner, mem_id, write=True)
     return db.set_memory_status(owner, mem_id, "active")
 
 
 @router.delete("/{mem_id}")
 def remove(mem_id: str) -> dict:
-    ok = db.delete_memory(current_user().id, mem_id)
+    owner = current_user().id
+    _require_memory(owner, mem_id, write=True)
+    ok = db.delete_memory(owner, mem_id)
     if not ok:
         raise HTTPException(status_code=404, detail="记忆不存在")
     return {"ok": True}
