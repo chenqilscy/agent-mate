@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, OpsSummary, Orchestration, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, OpsSummary, Orchestration, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -39,6 +39,44 @@ export interface AuthResult {
   token: string
   expires_at: number
   user: { id: string; name: string; role: string; plan: string }
+}
+
+export class SkillSecurityError extends Error {
+  code: string
+  report: SkillSecurityReport
+
+  constructor(code: string, message: string, report: SkillSecurityReport) {
+    super(message)
+    this.name = 'SkillSecurityError'
+    this.code = code
+    this.report = report
+  }
+}
+
+async function readSkillResponse<T>(response: Response, fallback: string): Promise<T> {
+  if (response.ok) return response.json() as Promise<T>
+  let message = `${fallback}（${response.status}）`
+  try {
+    const payload = await response.json() as {
+      detail?: string | {
+        code?: string
+        message?: string
+        security_scan?: SkillSecurityReport
+      }
+    }
+    const detail = payload.detail
+    if (detail && typeof detail === 'object' && detail.security_scan) {
+      throw new SkillSecurityError(
+        detail.code || 'skill_security_rejected',
+        detail.message || message,
+        detail.security_scan,
+      )
+    }
+    if (detail) message = String(detail)
+  } catch (error) {
+    if (error instanceof SkillSecurityError) throw error
+  }
+  throw new Error(message)
 }
 
 export const api = {
@@ -295,36 +333,41 @@ export const api = {
     send<{ ok: boolean; skill: InstalledSkill }>('POST', `/skills/catalog/${encodeURIComponent(key)}/upgrade`, {
       accept_permissions: acceptPermissions,
     }),
-  updateSkill: (key: string, body: { name: string; description: string; instructions: string }) =>
+  updateSkill: (key: string, body: { name: string; description: string; instructions: string; accept_security_warnings?: boolean }) =>
     send<{ ok: boolean; skill: InstalledSkill }>('PATCH', `/skills/${encodeURIComponent(key)}`, body),
-  installSkill: (body: { slug?: string; name?: string }) =>
-    send<{ ok: boolean; skill: InstalledSkill }>('POST', '/skills/install', body),
-  importSkillFile: async (file: File) => {
-    const r = await fetch(`${API_BASE}/skills/import?filename=${encodeURIComponent(file.name)}`, {
+  installSkill: async (body: { slug?: string; name?: string; accept_security_warnings?: boolean }) => {
+    const r = await fetch(`${API_BASE}/skills/install`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    })
+    return readSkillResponse<{ ok: boolean; skill: InstalledSkill }>(r, '安装失败')
+  },
+  importSkillFile: async (file: File, acceptSecurityWarnings = false) => {
+    const query = new URLSearchParams({
+      filename: file.name,
+      accept_security_warnings: String(acceptSecurityWarnings),
+    })
+    const r = await fetch(`${API_BASE}/skills/import?${query}`, {
       method: 'POST', headers: { 'Content-Type': 'application/octet-stream', ...authHeaders() }, body: file,
     })
-    if (!r.ok) {
-      let message = `导入失败（${r.status}）`
-      try { const body = await r.json(); if (body?.detail) message = String(body.detail) } catch { /* ignore */ }
-      throw new Error(message)
-    }
-    return r.json() as Promise<{ ok: boolean; skill: InstalledSkill }>
+    return readSkillResponse<{ ok: boolean; skill: InstalledSkill }>(r, '导入失败')
   },
-  importSkillDirectory: async (files: { path: string; content: string }[]) => {
+  importSkillDirectory: async (files: { path: string; content: string }[], acceptSecurityWarnings = false) => {
     const r = await fetch(`${API_BASE}/skills/import-directory`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ files }),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ files, accept_security_warnings: acceptSecurityWarnings }),
     })
-    if (!r.ok) {
-      let message = `导入失败（${r.status}）`
-      try { const body = await r.json(); if (body?.detail) message = String(body.detail) } catch { /* ignore */ }
-      throw new Error(message)
-    }
-    return r.json() as Promise<{ ok: boolean; skill: InstalledSkill }>
+    return readSkillResponse<{ ok: boolean; skill: InstalledSkill }>(r, '导入失败')
   },
   uninstallSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/uninstall`),
   restoreSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/restore`),
-  toggleSkill: (key: string, disabled: boolean) =>
-    send<{ ok: boolean; disabled: boolean }>('POST', `/skills/${encodeURIComponent(key)}/toggle`, { disabled }),
+  toggleSkill: (key: string, disabled: boolean, acceptSecurityWarnings = false) =>
+    send<{ ok: boolean; disabled: boolean }>('POST', `/skills/${encodeURIComponent(key)}/toggle`, {
+      disabled,
+      accept_security_warnings: acceptSecurityWarnings,
+    }),
   revealSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/reveal`),
 
   updateProject: (id: string, patch: Partial<Pick<ProjectInfo, 'name' | 'instruction' | 'connectors' | 'experts' | 'skills' | 'knowledge_ids'>>) =>

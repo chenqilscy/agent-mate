@@ -4,7 +4,7 @@
 // 清单来自后端对该目录的磁盘扫描（不再是 localStorage 假状态）。已安装且未关闭的技能进
 // 会话 loadout 时，后端会注入其真实 SKILL.md（agent/skills_store.py）。
 import { create } from 'zustand'
-import { api, API_BASE, authHeaders } from '../lib/api'
+import { api, API_BASE, authHeaders, SkillSecurityError } from '../lib/api'
 import type { InstalledSkill } from '../lib/types'
 import { toast } from './toastStore'
 
@@ -30,7 +30,7 @@ interface SkillState {
   installing: string[] // 正在安装的展示名（卡片转圈用）
 
   load: (force?: boolean) => Promise<void>
-  install: (name: string, slug?: string) => Promise<void>
+  install: (name: string, slug?: string, acceptSecurityWarnings?: boolean) => Promise<InstalledSkill | null>
   installCatalog: (name: string, slug: string) => Promise<void>
   upgradeCatalog: (name: string, slug: string, acceptPermissions?: string[]) => Promise<void>
   uninstall: (key: string) => Promise<void>
@@ -64,26 +64,22 @@ export const useSkillStore = create<SkillState>((set, get) => ({
   },
 
   // 真实安装：无 slug 时后端用展示名去 SkillHub 搜索解析。
-  install: async (name, slug) => {
-    if (get().installing.includes(name)) return
+  install: async (name, slug, acceptSecurityWarnings = false) => {
+    if (get().installing.includes(name)) return null
     set((s) => ({ installing: [...s.installing, name] }))
     try {
-      const r = await fetch(`${API_BASE}/skills/install`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ name, slug: slug ?? '' }),
+      const data = await api.installSkill({
+        name,
+        slug: slug ?? '',
+        accept_security_warnings: acceptSecurityWarnings,
       })
-      if (!r.ok) {
-        let msg = `安装失败（${r.status}）`
-        try { const j = await r.json(); if (j?.detail) msg = String(j.detail) } catch { /* ignore */ }
-        toast(msg)
-        return
-      }
-      const data = (await r.json()) as { skill?: InstalledSkill }
-      toast('已安装 · ' + (data.skill?.name || name))
+      toast('已安装 · ' + (data.skill.name || name))
       await get().load(true)
-    } catch {
-      toast('安装失败（后端未连接？）')
+      return data.skill
+    } catch (error) {
+      if (error instanceof SkillSecurityError) throw error
+      toast(error instanceof Error ? error.message : '安装失败（后端未连接？）')
+      return null
     } finally {
       set((s) => ({ installing: s.installing.filter((n) => n !== name) }))
     }

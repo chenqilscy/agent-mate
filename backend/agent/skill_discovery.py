@@ -32,6 +32,8 @@ def build_skill_candidates(project_slugs: list[str] | None = None) -> list[dict[
     for item in skills_store.scan():
         if item.get("disabled"):
             continue
+        if not skills_store.security_allows_runtime(str(item.get("key") or "")):
+            continue
         slug = str(item.get("slug") or item.get("key") or "").strip()
         if not slug:
             continue

@@ -77,7 +77,7 @@ class SkillImportTest(unittest.TestCase):
         folder = skills_store.import_skill_directory([
             {"path": "folder/SKILL.md", "content": base64.b64encode(skill_md(slug="folder-demo")).decode()},
             {"path": "folder/scripts/run.py", "content": base64.b64encode(b"print('ok')\n").decode()},
-        ])
+        ], accept_security_warnings=True)
         self.assertEqual("folder-demo", folder["skill"]["slug"])
         self.assertTrue((settings.SKILLS_DIR / "folder-demo" / "scripts" / "run.py").is_file())
 

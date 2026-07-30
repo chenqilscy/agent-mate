@@ -748,6 +748,28 @@ export interface InstalledSkill {
   version: string
   source: string
   disabled: boolean
+  trust_level?: 'agentmate' | 'trusted' | 'community' | 'local'
+  security_scan?: SkillSecurityReport
+  security_warnings_accepted?: boolean
+}
+
+export interface SkillSecurityFinding {
+  code: string
+  severity: 'warning' | 'dangerous'
+  path: string
+  line: number
+  message: string
+}
+
+export interface SkillSecurityReport {
+  schema_version: number
+  trust_level: 'agentmate' | 'trusted' | 'community' | 'local'
+  verdict: 'safe' | 'warning' | 'dangerous'
+  findings: SkillSecurityFinding[]
+  scanned_files: number
+  scanned_bytes: number
+  content_hash: string
+  scripts_executable: false
 }
 
 export interface SkillDetail extends InstalledSkill {

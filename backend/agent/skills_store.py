@@ -351,6 +351,11 @@ def _info_from_dir(d: Path) -> dict[str, Any] | None:
     desc = str(fm.get("description") or fm.get("description_zh") or fm.get("description_en") or "").strip()
     version = str(sh.get("version") or pub.get("version") or fm.get("version") or "").strip()
     source = str(sh.get("source") or ("skillhub" if d.name.endswith("__skillhub") else "local")).strip()
+    trust_level = str(
+        sh.get("trustLevel")
+        or ("agentmate" if source == "agentmate" else "community" if source == "skillhub" else "local")
+    ).strip().lower()
+    security_scan = sh.get("securityScan") if isinstance(sh.get("securityScan"), dict) else {}
     release = _read_json(d / RELEASE_MANIFEST) if source == "agentmate" else {}
     return {
         "key": d.name,
@@ -359,6 +364,9 @@ def _info_from_dir(d: Path) -> dict[str, Any] | None:
         "description": desc,
         "version": version,
         "source": source,
+        "trust_level": trust_level,
+        "security_scan": security_scan,
+        "security_warnings_accepted": False,
         "release_id": str(release.get("release_id") or ""),
         "content_hash": str(release.get("content_hash") or sh.get("contentHash") or ""),
         "disabled": (d / DISABLED_MARKER).exists(),
@@ -369,7 +377,7 @@ def _physical_packages() -> list[dict[str, Any]]:
     root = skills_dir()
     out: list[dict[str, Any]] = []
     for d in sorted(root.iterdir(), key=lambda p: p.name.lower()):
-        if not d.is_dir() or d.name in {".locks", ".trash"}:
+        if not d.is_dir() or d.name in {".locks", ".trash", ".quarantine"}:
             continue
         info = _info_from_dir(d)
         if info:
@@ -426,9 +434,15 @@ def scan(owner_id: str | None = None) -> list[dict[str, Any]]:
         package = packages.get(str(state["package_key"]))
         if not package:
             continue
+        security_report = package.get("security_scan") if isinstance(package.get("security_scan"), dict) else {}
+        accepted_hash = db.get_user_setting(owner, f"skill.security.accepted:{package['slug']}") or ""
         out.append({
             **package,
             "disabled": not bool(state["enabled"]),
+            "security_warnings_accepted": bool(
+                security_report.get("content_hash")
+                and accepted_hash == security_report.get("content_hash")
+            ),
             "owner_id": owner,
             "release_id": str(state.get("release_id") or package.get("release_id") or ""),
             "content_hash": str(state.get("content_hash") or package.get("content_hash") or ""),
@@ -445,9 +459,104 @@ def _owned_dir(key: str, owner_id: str | None = None) -> Path | None:
 
 
 class SkillImportError(ValueError):
-    def __init__(self, message: str, status_code: int = 400):
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 400,
+        *,
+        code: str = "",
+        report: dict[str, Any] | None = None,
+    ):
         super().__init__(message)
         self.status_code = status_code
+        self.code = code
+        self.report = report
+
+
+def _security_gate(report: dict[str, Any], warnings_accepted: bool) -> None:
+    from agent.skill_security import requires_confirmation
+
+    if report.get("verdict") == "dangerous":
+        raise SkillImportError(
+            "技能安全扫描发现不可覆盖的危险行为，已拒绝安装",
+            422,
+            code="skill_security_dangerous",
+            report=report,
+        )
+    if requires_confirmation(report) and not warnings_accepted:
+        raise SkillImportError(
+            "技能安全扫描发现需要确认的风险；请查看报告并显式确认后重试",
+            409,
+            code="skill_security_confirmation_required",
+            report=report,
+        )
+
+
+def _security_files_from_dir(d: Path) -> list[tuple[str, bytes]]:
+    files: list[tuple[str, bytes]] = []
+    for path in sorted((item for item in d.rglob("*") if item.is_file()), key=lambda item: item.as_posix()):
+        if path.name in {SKILLHUB_META, DISABLED_MARKER}:
+            continue
+        try:
+            files.append((path.relative_to(d).as_posix(), path.read_bytes()))
+        except OSError:
+            continue
+    return files
+
+
+def _scan_security_files(
+    files: list[tuple[str, bytes]],
+    trust_level: str,
+) -> dict[str, Any]:
+    from agent.skill_security import scan_package
+
+    return scan_package(files, trust_level=trust_level)
+
+
+def _persist_security_meta(
+    d: Path,
+    report: dict[str, Any],
+) -> None:
+    meta_path = d / SKILLHUB_META
+    meta = _read_json(meta_path)
+    meta["trustLevel"] = str(report.get("trust_level") or "local")
+    meta["securityScan"] = report
+    meta.pop("securityWarningsAccepted", None)
+    meta.pop("securityAcceptedAt", None)
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _set_security_acceptance(slug: str, report: dict[str, Any], accepted: bool) -> None:
+    from storage import db
+
+    value = str(report.get("content_hash") or "") if accepted else None
+    db.set_user_setting(current_owner(), f"skill.security.accepted:{slug}", value)
+
+
+def security_allows_runtime(key: str) -> bool:
+    """Re-scan live package bytes before runtime use; metadata alone is not trusted."""
+    from agent.skill_security import allows_runtime
+
+    d = _owned_dir(key)
+    if not d:
+        return False
+    info = _info_from_dir(d)
+    if not info:
+        return False
+    report = _scan_security_files(
+        _security_files_from_dir(d),
+        str(info.get("trust_level") or "local"),
+    )
+    persisted = info.get("security_scan") if isinstance(info.get("security_scan"), dict) else {}
+    from storage import db
+    accepted = (
+        db.get_user_setting(current_owner(), f"skill.security.accepted:{info['slug']}")
+        == report.get("content_hash")
+    )
+    # Acceptance applies only to the exact package bytes that were reviewed.
+    if persisted.get("content_hash") != report.get("content_hash"):
+        accepted = False
+    return allows_runtime(report, accepted)
 
 
 def _safe_import_path(raw: str) -> PurePosixPath:
@@ -479,7 +588,8 @@ def _import_slug(frontmatter: dict[str, Any], root_hint: str, source_name: str, 
 
 def _install_import_files_unlocked(
     files: list[tuple[str, bytes]], source_name: str, *, installed_source: str = "local",
-    replace_existing: bool = False,
+    replace_existing: bool = False, trust_level: str = "",
+    accept_security_warnings: bool = False,
 ) -> dict[str, Any]:
     if not files:
         raise SkillImportError("未选择任何技能文件")
@@ -523,6 +633,18 @@ def _install_import_files_unlocked(
         raise SkillImportError("SKILL.md 的 YAML frontmatter 必须包含 name 和 description")
 
     package_root = manifest.parent
+    package_files = [
+        (path.relative_to(package_root).as_posix(), data)
+        for path, data in normalized.items()
+        if path == package_root or package_root in path.parents
+        if path.name not in {SKILLHUB_META, DISABLED_MARKER}
+    ]
+    effective_trust = (
+        trust_level.strip().lower()
+        or ("agentmate" if installed_source == "agentmate" else "community" if installed_source == "skillhub" else "local")
+    )
+    security_report = _scan_security_files(package_files, effective_trust)
+    _security_gate(security_report, accept_security_warnings)
     root_hint = "" if package_root == PurePosixPath(".") else package_root.name
     slug = _import_slug(frontmatter, root_hint, source_name, skill_md)
     from storage import db
@@ -542,6 +664,10 @@ def _install_import_files_unlocked(
     ).hexdigest()
     for package in _physical_packages():
         if package.get("slug") == slug and package.get("content_hash") == content_hash:
+            package_dir = _safe_dir(str(package["key"]))
+            if package_dir:
+                _persist_security_meta(package_dir, security_report)
+                _set_security_acceptance(slug, security_report, accept_security_warnings)
             db.upsert_skill_installation(
                 owner, slug, str(package["key"]),
                 release_id=str(package.get("release_id") or release.get("release_id") or ""),
@@ -588,6 +714,8 @@ def _install_import_files_unlocked(
             "source": installed_source,
             "releaseId": str(release.get("release_id") or ""),
             "contentHash": str(release.get("content_hash") or ""),
+            "trustLevel": effective_trust,
+            "securityScan": security_report,
         }
         (staging / SKILLHUB_META).write_text(
             json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -617,12 +745,14 @@ def _install_import_files_unlocked(
         release_id=str(release.get("release_id") or ""),
         content_hash=content_hash, enabled=not was_disabled,
     )
+    _set_security_acceptance(slug, security_report, accept_security_warnings)
     return {"ok": True, "skill": {**skill, "disabled": was_disabled}}
 
 
 def _install_import_files(
     files: list[tuple[str, bytes]], source_name: str, *, installed_source: str = "local",
-    replace_existing: bool = False,
+    replace_existing: bool = False, trust_level: str = "",
+    accept_security_warnings: bool = False,
 ) -> dict[str, Any]:
     skill_file = next((data for path, data in files if PurePosixPath(path.replace("\\", "/")).name.casefold() == SKILL_MD.casefold()), b"")
     try:
@@ -634,14 +764,23 @@ def _install_import_files(
     with _slug_lock(slug):
         return _install_import_files_unlocked(
             files, source_name, installed_source=installed_source, replace_existing=replace_existing,
+            trust_level=trust_level, accept_security_warnings=accept_security_warnings,
         )
 
 
-def import_skill_file(filename: str, data: bytes) -> dict[str, Any]:
+def import_skill_file(
+    filename: str,
+    data: bytes,
+    *,
+    accept_security_warnings: bool = False,
+) -> dict[str, Any]:
     """Import a standalone SKILL.md or a zip containing one skill tree."""
     suffix = Path(filename or "").suffix.lower()
     if suffix == ".md":
-        return _install_import_files([(SKILL_MD, data)], filename)
+        return _install_import_files(
+            [(SKILL_MD, data)], filename,
+            accept_security_warnings=accept_security_warnings,
+        )
     if suffix != ".zip":
         raise SkillImportError("仅支持 .md 或 .zip 技能文件")
     if len(data) > MAX_IMPORT_BYTES:
@@ -664,10 +803,17 @@ def import_skill_file(filename: str, data: bytes) -> dict[str, Any]:
                 files.append((info.filename, archive.read(info)))
     except zipfile.BadZipFile as exc:
         raise SkillImportError("无效的 zip 技能包") from exc
-    return _install_import_files(files, filename)
+    return _install_import_files(
+        files, filename,
+        accept_security_warnings=accept_security_warnings,
+    )
 
 
-def import_skill_directory(files: list[dict[str, str]]) -> dict[str, Any]:
+def import_skill_directory(
+    files: list[dict[str, str]],
+    *,
+    accept_security_warnings: bool = False,
+) -> dict[str, Any]:
     """Import browser directory-selection payload (relative path + base64 bytes)."""
     decoded: list[tuple[str, bytes]] = []
     for item in files:
@@ -675,7 +821,10 @@ def import_skill_directory(files: list[dict[str, str]]) -> dict[str, Any]:
             decoded.append((str(item.get("path") or ""), base64.b64decode(item.get("content") or "", validate=True)))
         except (ValueError, TypeError) as exc:
             raise SkillImportError("技能文件内容编码无效") from exc
-    return _install_import_files(decoded, "uploaded-folder")
+    return _install_import_files(
+        decoded, "uploaded-folder",
+        accept_security_warnings=accept_security_warnings,
+    )
 
 
 def create_skill(slug: str, name: str, description: str, instructions: str) -> dict[str, Any]:
@@ -751,6 +900,8 @@ def install_catalog_skill(
         package_files,
         f"{slug}.md",
         installed_source="agentmate",
+        trust_level="agentmate",
+        accept_security_warnings=True,
     )
 
 
@@ -802,6 +953,7 @@ def upgrade_catalog_skill(
     package_files.append((RELEASE_MANIFEST, _canonical_json(release) + b"\n"))
     return _install_import_files(
         package_files, f"{slug}.md", installed_source="agentmate", replace_existing=True,
+        trust_level="agentmate", accept_security_warnings=True,
     )
 
 
@@ -939,7 +1091,14 @@ def _frontmatter_markdown(frontmatter: dict[str, Any], body: str) -> str:
     return "\n".join(lines)
 
 
-def update_skill(key: str, name: str, description: str, instructions: str) -> dict[str, Any]:
+def update_skill(
+    key: str,
+    name: str,
+    description: str,
+    instructions: str,
+    *,
+    accept_security_warnings: bool = False,
+) -> dict[str, Any]:
     """原子更新一个本地/SkillHub 技能的 SKILL.md，保留 references/scripts 与元数据。"""
     d = _owned_dir(key)
     if not d:
@@ -966,6 +1125,15 @@ def update_skill(key: str, name: str, description: str, instructions: str) -> di
     frontmatter["description"] = description
     frontmatter.setdefault("slug", str(info.get("slug") or key))
     markdown = _frontmatter_markdown(frontmatter, instructions)
+    proposed_files = [
+        (path, markdown.encode("utf-8") if path.casefold() == SKILL_MD.casefold() else data)
+        for path, data in _security_files_from_dir(d)
+    ]
+    report = _scan_security_files(
+        proposed_files,
+        str(info.get("trust_level") or ("community" if info.get("source") == "skillhub" else "local")),
+    )
+    _security_gate(report, accept_security_warnings)
     handle, temp_name = tempfile.mkstemp(prefix=".SKILL.md-", dir=d)
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
@@ -982,6 +1150,8 @@ def update_skill(key: str, name: str, description: str, instructions: str) -> di
     if meta:
         meta["name"] = name
         meta["contentHash"] = content_hash
+        meta["trustLevel"] = str(report.get("trust_level") or "local")
+        meta["securityScan"] = report
         try:
             (d / SKILLHUB_META).write_text(
                 json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
@@ -994,6 +1164,7 @@ def update_skill(key: str, name: str, description: str, instructions: str) -> di
         release_id=str((state or {}).get("release_id") or ""), content_hash=content_hash,
         enabled=bool((state or {}).get("enabled", True)),
     )
+    _set_security_acceptance(str(info["slug"]), report, accept_security_warnings)
     _invalidate_cache()
     updated = detail(key)
     if not updated:
@@ -1187,7 +1358,24 @@ def _directory_content_hash(root: Path) -> str:
     return digest.hexdigest()
 
 
-def _install_unlocked(slug: str, display_name: str = "") -> dict[str, Any]:
+def _quarantine_package(d: Path, slug: str) -> None:
+    """Move a newly downloaded rejected package out of the runnable package set."""
+    root = skills_dir()
+    quarantine_root = root / ".quarantine"
+    quarantine_root.mkdir(parents=True, exist_ok=True)
+    target = quarantine_root / f"{int(time.time())}-{slug}-{hashlib.sha256(str(time.time_ns()).encode()).hexdigest()[:8]}"
+    try:
+        os.replace(d, target)
+    except OSError:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _install_unlocked(
+    slug: str,
+    display_name: str = "",
+    *,
+    accept_security_warnings: bool = False,
+) -> dict[str, Any]:
     """真正安装：跑 CLI 下载解压进 SKILLS_DIR/<slug>/。成功返回 {ok, skill}。"""
     slug = (slug or "").strip()
     if not slug:
@@ -1200,6 +1388,10 @@ def _install_unlocked(slug: str, display_name: str = "") -> dict[str, Any]:
         from storage import db
         info = _info_from_dir(dest)
         if info:
+            report = _scan_security_files(_security_files_from_dir(dest), "community")
+            _security_gate(report, accept_security_warnings)
+            _persist_security_meta(dest, report)
+            _set_security_acceptance(str(info["slug"]), report, accept_security_warnings)
             content_hash = str(info.get("content_hash") or "") or _directory_content_hash(dest)
             db.upsert_skill_installation(
                 current_owner(), str(info["slug"]), dest.name,
@@ -1228,23 +1420,33 @@ def _install_unlocked(slug: str, display_name: str = "") -> dict[str, Any]:
             pass
         return {"ok": False, "error": msg[:500]}
 
+    report = _scan_security_files(_security_files_from_dir(dest), "community")
+    try:
+        _security_gate(report, accept_security_warnings)
+    except SkillImportError:
+        _quarantine_package(dest, slug)
+        raise
+
     # 写 _skillhub_meta.json（CLI 不写），给出好看的展示名 + 与出货版落盘一致。
-    if not (dest / SKILLHUB_META).exists():
-        fm, _ = parse_frontmatter((dest / SKILL_MD).read_text(encoding="utf-8", errors="ignore"))
-        pub = _read_json(dest / PUB_META)
-        meta = {
-            "slug": slug,
-            "name": (display_name or fm.get("name") or slug).strip(),
-            "version": str(pub.get("version") or fm.get("version") or "").strip(),
-            "installedAt": int(time.time() * 1000),
-            "source": "skillhub",
-        }
-        try:
-            (dest / SKILLHUB_META).write_text(
-                json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-        except OSError:
-            pass
+    fm, _ = parse_frontmatter((dest / SKILL_MD).read_text(encoding="utf-8", errors="ignore"))
+    pub = _read_json(dest / PUB_META)
+    meta = _read_json(dest / SKILLHUB_META)
+    meta.update({
+        "slug": slug,
+        "name": (display_name or meta.get("name") or fm.get("name") or slug).strip(),
+        "version": str(meta.get("version") or pub.get("version") or fm.get("version") or "").strip(),
+        "installedAt": meta.get("installedAt") or int(time.time() * 1000),
+        "source": "skillhub",
+        "trustLevel": "community",
+        "securityScan": report,
+    })
+    try:
+        (dest / SKILLHUB_META).write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    except OSError as exc:
+        _quarantine_package(dest, slug)
+        return {"ok": False, "error": f"无法持久化技能安全报告：{exc}"}
 
     from storage import db
     info = _info_from_dir(dest)
@@ -1253,20 +1455,35 @@ def _install_unlocked(slug: str, display_name: str = "") -> dict[str, Any]:
         current_owner(), str((info or {}).get("slug") or slug), dest.name,
         release_id=str((info or {}).get("release_id") or ""), content_hash=content_hash, enabled=True,
     )
+    _set_security_acceptance(slug, report, accept_security_warnings)
     _invalidate_cache()
     return {"ok": True, "skill": {**(info or {}), "disabled": False}}
 
 
-def install(slug: str, display_name: str = "") -> dict[str, Any]:
+def install(
+    slug: str,
+    display_name: str = "",
+    *,
+    accept_security_warnings: bool = False,
+) -> dict[str, Any]:
     """Install or reuse one shared SkillHub package for the active owner."""
     slug = (slug or "").strip()
     if not valid_slug(slug):
         return {"ok": False, "error": f"非法 slug：{slug[:80]}"}
     try:
         with _slug_lock(slug):
-            return _install_unlocked(slug, display_name)
+            return _install_unlocked(
+                slug, display_name,
+                accept_security_warnings=accept_security_warnings,
+            )
     except SkillImportError as exc:
-        return {"ok": False, "error": str(exc)}
+        return {
+            "ok": False,
+            "error": str(exc),
+            "status_code": exc.status_code,
+            "code": exc.code,
+            "security_scan": exc.report,
+        }
 
 
 def uninstall(key: str) -> bool:
@@ -1341,7 +1558,12 @@ def restore(key: str) -> bool:
     return True
 
 
-def set_disabled(key: str, disabled: bool) -> bool:
+def set_disabled(
+    key: str,
+    disabled: bool,
+    *,
+    accept_security_warnings: bool = False,
+) -> bool:
     from storage import db
     owner = current_owner()
     item = next(
@@ -1349,6 +1571,17 @@ def set_disabled(key: str, disabled: bool) -> bool:
     )
     if not item:
         return False
+    if not disabled:
+        d = _safe_dir(str(item["key"]))
+        if not d:
+            return False
+        report = _scan_security_files(
+            _security_files_from_dir(d),
+            str(item.get("trust_level") or "local"),
+        )
+        _security_gate(report, accept_security_warnings)
+        _persist_security_meta(d, report)
+        _set_security_acceptance(str(item["slug"]), report, accept_security_warnings)
     with _slug_lock(str(item["slug"])):
         changed = db.set_skill_installation_enabled(owner, str(item["slug"]), not disabled)
     if changed:
@@ -1388,6 +1621,8 @@ def _index() -> dict[str, dict[str, Any]]:
         return _cache[owner]
     idx: dict[str, dict[str, Any]] = {}
     for info in scan(owner):
+        if not security_allows_runtime(str(info["key"])):
+            continue
         d = _safe_dir(str(info["key"]))
         if not d or not (d / SKILL_MD).is_file():
             continue

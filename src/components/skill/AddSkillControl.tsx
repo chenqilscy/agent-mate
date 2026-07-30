@@ -1,11 +1,12 @@
 import { WbButton, WbInput } from '../ui/Primitives'
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../../lib/api'
-import type { InstalledSkill } from '../../lib/types'
+import { api, SkillSecurityError } from '../../lib/api'
+import type { InstalledSkill, SkillSecurityReport } from '../../lib/types'
 import { useSkillStore } from '../../stores/skillStore'
 import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
 import { clickable } from '../../lib/a11y'
+import { App as AntApp } from 'antd'
 
 type DirectoryFile = File & { webkitRelativePath?: string }
 
@@ -25,6 +26,7 @@ function ImportSkillModal({ open, onClose, onImported }: {
   onClose: () => void
   onImported: (skill: InstalledSkill) => void
 }) {
+  const { modal } = AntApp.useApp()
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -47,16 +49,46 @@ function ImportSkillModal({ open, onClose, onImported }: {
 
   if (!open) return null
 
-  const finish = async (request: Promise<{ skill: InstalledSkill }>) => {
+  const warningContent = (report: SkillSecurityReport) => (
+    <>
+      <p>扫描到以下需要确认的行为。脚本只会作为静态文件保存，不会自动执行：</p>
+      <ul>
+        {report.findings.map((finding) => (
+          <li key={`${finding.code}:${finding.path}:${finding.line}`}>
+            {finding.message}（{finding.path}:{finding.line}）
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+
+  const finish = async (
+    request: (acceptSecurityWarnings: boolean) => Promise<{ skill: InstalledSkill }>,
+    accepted = false,
+  ) => {
     setBusy(true)
     setError('')
     try {
-      const result = await request
+      const result = await request(accepted)
       await useSkillStore.getState().load(true)
       toast('已导入 · ' + result.skill.name)
       onImported(result.skill)
       onClose()
     } catch (reason) {
+      if (
+        reason instanceof SkillSecurityError
+        && reason.code === 'skill_security_confirmation_required'
+        && !accepted
+      ) {
+        modal.confirm({
+          title: '确认导入存在风险提示的技能？',
+          content: warningContent(reason.report),
+          okText: '我已了解，继续导入',
+          cancelText: '取消',
+          onOk: () => finish(request, true),
+        })
+        return
+      }
       setError(reason instanceof Error ? reason.message : '技能导入失败')
     } finally {
       setBusy(false)
@@ -69,7 +101,7 @@ function ImportSkillModal({ open, onClose, onImported }: {
       setError('请选择 .md 或 .zip 技能文件')
       return
     }
-    void finish(api.importSkillFile(file))
+    void finish((accepted) => api.importSkillFile(file, accepted))
   }
 
   const importFolder = async (list: FileList | null) => {
@@ -81,14 +113,9 @@ function ImportSkillModal({ open, onClose, onImported }: {
         path: file.webkitRelativePath || file.name,
         content: await toBase64(file),
       })))
-      const result = await api.importSkillDirectory(files)
-      await useSkillStore.getState().load(true)
-      toast('已导入 · ' + result.skill.name)
-      onImported(result.skill)
-      onClose()
+      await finish((accepted) => api.importSkillDirectory(files, accepted))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '技能导入失败')
-    } finally {
       setBusy(false)
     }
   }

@@ -4,7 +4,7 @@ import { WbButton } from '../ui/Primitives'
 // 已安装：读取本地 SKILL.md/源码/references；未安装：只展示商店卡元数据，不下载技能包。
 // 安装成功后就地切换为本地完整详情。
 import { useEffect, useState } from 'react'
-import { api } from '../../lib/api'
+import { api, SkillSecurityError } from '../../lib/api'
 import type { SkillCard, SkillDetail as SkillDetailData } from '../../lib/types'
 import { renderMarkdown } from '../../lib/markdown'
 import { useSkillStore } from '../../stores/skillStore'
@@ -80,16 +80,53 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
     useUIStore.getState().setView('home')
     toast('已挂载「' + name + '」· 去试试')
   }
-  const doInstall = async () => {
+  const doInstall = async (acceptSecurityWarnings = false) => {
     setInstalling(true)
-    if (target.catalog && target.slug) await useSkillStore.getState().installCatalog(name, target.slug)
-    else await useSkillStore.getState().install(name, marketCard?.slug ?? target.slug)
-    setInstalling(false)
-    const installedSkill = useSkillStore.getState().installed.find((x) =>
-      (x.slug === (marketCard?.slug ?? target.slug) || x.name === name)
-      && (!target.catalog || x.source === 'agentmate'),
-    )
-    if (installedSkill) setInstalledKey(installedSkill.key)
+    try {
+      if (target.catalog && target.slug) {
+        await useSkillStore.getState().installCatalog(name, target.slug)
+      } else {
+        await useSkillStore.getState().install(
+          name,
+          marketCard?.slug ?? target.slug,
+          acceptSecurityWarnings,
+        )
+      }
+      const installedSkill = useSkillStore.getState().installed.find((x) =>
+        (x.slug === (marketCard?.slug ?? target.slug) || x.name === name)
+        && (!target.catalog || x.source === 'agentmate'),
+      )
+      if (installedSkill) setInstalledKey(installedSkill.key)
+    } catch (reason) {
+      if (
+        reason instanceof SkillSecurityError
+        && reason.code === 'skill_security_confirmation_required'
+        && !acceptSecurityWarnings
+      ) {
+        modal.confirm({
+          title: '确认安装存在风险提示的技能？',
+          content: (
+            <>
+              <p>请确认以下静态扫描结果。技能包内脚本不会被自动执行：</p>
+              <ul>
+                {reason.report.findings.map((finding) => (
+                  <li key={`${finding.code}:${finding.path}:${finding.line}`}>
+                    {finding.message}（{finding.path}:{finding.line}）
+                  </li>
+                ))}
+              </ul>
+            </>
+          ),
+          okText: '我已了解，继续安装',
+          cancelText: '取消',
+          onOk: () => doInstall(true),
+        })
+      } else {
+        toast(reason instanceof Error ? reason.message : '安装失败')
+      }
+    } finally {
+      setInstalling(false)
+    }
   }
   const doUpgrade = async () => {
     const slug = data?.slug || target.slug || ''
@@ -170,7 +207,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
                   </div>
                 </>
               ) : (
-                <WbButton className="btn-dark" disabled={installing || data?.compatible === false} onClick={doInstall}>
+                <WbButton className="btn-dark" disabled={installing || data?.compatible === false} onClick={() => { void doInstall() }}>
                   {installing ? <><IcSpin /> 安装中…</> : '安装'}
                 </WbButton>
               )}
@@ -183,6 +220,23 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
               showIcon
               title="当前 App 与此技能版本不兼容"
               description={data.compatibility_error || `需要 AgentMate ${data.min_app_version || '更高版本'}`}
+            />
+          )}
+
+          {data?.security_scan && data.security_scan.verdict !== 'safe' && (
+            <Alert
+              type={data.security_scan.verdict === 'dangerous' ? 'error' : 'warning'}
+              showIcon
+              title={data.security_scan.verdict === 'dangerous' ? '安全扫描：已阻断' : '安全扫描：存在已审阅提示'}
+              description={
+                <ul>
+                  {data.security_scan.findings.map((finding) => (
+                    <li key={`${finding.code}:${finding.path}:${finding.line}`}>
+                      {finding.message}（{finding.path}:{finding.line}）
+                    </li>
+                  ))}
+                </ul>
+              }
             />
           )}
 

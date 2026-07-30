@@ -28,13 +28,25 @@ def _report_release_metric(owner_id: str, release_id: str, event: str) -> None:
         server_client.record_skill_release_metric(token, release_id, event)
 
 
+def _skill_error_detail(exc: skills_store.SkillImportError) -> str | dict:
+    if exc.code or exc.report:
+        return {
+            "code": exc.code or "skill_security_rejected",
+            "message": str(exc),
+            "security_scan": exc.report or {},
+        }
+    return str(exc)
+
+
 class InstallBody(BaseModel):
     slug: str = ""
     name: str = ""  # 展示名/搜索词；无 slug 时用它去 SkillHub 搜索解析
+    accept_security_warnings: bool = False
 
 
 class ToggleBody(BaseModel):
     disabled: bool
+    accept_security_warnings: bool = False
 
 
 class UpgradeCatalogBody(BaseModel):
@@ -45,6 +57,7 @@ class UpdateSkillBody(BaseModel):
     name: str
     description: str
     instructions: str
+    accept_security_warnings: bool = False
 
 
 class ImportDirectoryFile(BaseModel):
@@ -54,6 +67,7 @@ class ImportDirectoryFile(BaseModel):
 
 class ImportDirectoryBody(BaseModel):
     files: list[ImportDirectoryFile]
+    accept_security_warnings: bool = False
 
 
 @router.get("/skills")
@@ -132,7 +146,7 @@ def install_catalog_skill(key: str) -> dict:
         return result
     except skills_store.SkillImportError as exc:
         _report_release_metric(owner, str(spec.get("server_release_id") or ""), "install_failed")
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise HTTPException(exc.status_code, _skill_error_detail(exc)) from exc
 
 
 @router.post("/skills/catalog/{key}/upgrade")
@@ -178,7 +192,7 @@ def upgrade_catalog_skill(key: str, body: UpgradeCatalogBody | None = None) -> d
         return result
     except skills_store.SkillImportError as exc:
         _report_release_metric(owner, str(spec.get("server_release_id") or ""), "install_failed")
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise HTTPException(exc.status_code, _skill_error_detail(exc)) from exc
 
 
 @router.get("/skills/{key}")
@@ -190,7 +204,12 @@ def get_detail(key: str) -> dict:
     if d.get("source") == "agentmate":
         catalog = skills.catalog_detail(str(d.get("slug") or key))
         if catalog:
-            d = catalog
+            d = {
+                **catalog,
+                "trust_level": d.get("trust_level"),
+                "security_scan": d.get("security_scan"),
+                "security_warnings_accepted": d.get("security_warnings_accepted"),
+            }
     return {"skill": d}
 
 
@@ -198,9 +217,12 @@ def get_detail(key: str) -> dict:
 def update_skill(key: str, body: UpdateSkillBody) -> dict:
     _scope_owner()
     try:
-        return skills_store.update_skill(key, body.name, body.description, body.instructions)
+        return skills_store.update_skill(
+            key, body.name, body.description, body.instructions,
+            accept_security_warnings=body.accept_security_warnings,
+        )
     except skills_store.SkillImportError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise HTTPException(exc.status_code, _skill_error_detail(exc)) from exc
 
 
 @router.post("/skills/install")
@@ -220,14 +242,31 @@ def install_skill(body: InstallBody) -> dict:
     if reason is not None:
         detail = f"该 SkillHub 技能已由平台下架：{reason}" if reason else "该 SkillHub 技能已由平台下架"
         raise HTTPException(409, detail)
-    res = skills_store.install(slug, display_name=display)
+    res = skills_store.install(
+        slug,
+        display_name=display,
+        accept_security_warnings=body.accept_security_warnings,
+    )
     if not res.get("ok"):
-        raise HTTPException(502, res.get("error") or "安装失败")
+        if res.get("code") or res.get("security_scan"):
+            raise HTTPException(
+                int(res.get("status_code") or 409),
+                {
+                    "code": res.get("code") or "skill_security_rejected",
+                    "message": res.get("error") or "安装失败",
+                    "security_scan": res.get("security_scan") or {},
+                },
+            )
+        raise HTTPException(int(res.get("status_code") or 502), res.get("error") or "安装失败")
     return res
 
 
 @router.post("/skills/import")
-async def import_skill(request: Request, filename: str = "") -> dict:
+async def import_skill(
+    request: Request,
+    filename: str = "",
+    accept_security_warnings: bool = False,
+) -> dict:
     _scope_owner()
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > skills_store.MAX_IMPORT_BYTES:
@@ -238,18 +277,25 @@ async def import_skill(request: Request, filename: str = "") -> dict:
         if len(data) > skills_store.MAX_IMPORT_BYTES:
             raise HTTPException(413, "技能包过大（最多 20MB）")
     try:
-        return skills_store.import_skill_file(filename, bytes(data))
+        return skills_store.import_skill_file(
+            filename,
+            bytes(data),
+            accept_security_warnings=accept_security_warnings,
+        )
     except skills_store.SkillImportError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise HTTPException(exc.status_code, _skill_error_detail(exc)) from exc
 
 
 @router.post("/skills/import-directory")
 def import_skill_directory(body: ImportDirectoryBody) -> dict:
     _scope_owner()
     try:
-        return skills_store.import_skill_directory([item.model_dump() for item in body.files])
+        return skills_store.import_skill_directory(
+            [item.model_dump() for item in body.files],
+            accept_security_warnings=body.accept_security_warnings,
+        )
     except skills_store.SkillImportError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise HTTPException(exc.status_code, _skill_error_detail(exc)) from exc
 
 
 @router.post("/skills/{key}/uninstall")
@@ -271,8 +317,15 @@ def restore_skill(key: str) -> dict:
 @router.post("/skills/{key}/toggle")
 def toggle_skill(key: str, body: ToggleBody) -> dict:
     _scope_owner()
-    if not skills_store.set_disabled(key, body.disabled):
-        raise HTTPException(404, "skill not found")
+    try:
+        if not skills_store.set_disabled(
+            key,
+            body.disabled,
+            accept_security_warnings=body.accept_security_warnings,
+        ):
+            raise HTTPException(404, "skill not found")
+    except skills_store.SkillImportError as exc:
+        raise HTTPException(exc.status_code, _skill_error_detail(exc)) from exc
     return {"ok": True, "disabled": body.disabled}
 
 
