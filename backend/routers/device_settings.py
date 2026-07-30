@@ -11,15 +11,24 @@ import device_settings
 from auth.deps import current_user
 from config import settings
 from storage import db
-from storage.models import Role
+from storage.models import LOCAL_USER_ID
 
 router = APIRouter(prefix="/api/settings/runtime", tags=["settings"])
 
 
 def _owner():
     user = current_user()
-    if user.role not in (Role.OWNER, Role.ADMIN):
-        raise HTTPException(403, "device owner only")
+    owner_id = db.get_device_owner_id()
+    if owner_id is None:
+        # Pre-login local mode remains configurable. The first authenticated
+        # Server account that opens runtime settings becomes the durable owner.
+        if user.id == LOCAL_USER_ID:
+            return user
+        if db.claim_device_owner(user.id):
+            return user
+    elif owner_id == user.id:
+        return user
+    raise HTTPException(403, "device owner only")
     return user
 
 

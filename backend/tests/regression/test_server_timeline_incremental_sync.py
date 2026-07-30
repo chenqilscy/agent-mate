@@ -16,7 +16,9 @@ from auth.deps import set_current_user_id  # noqa: E402
 from config import settings  # noqa: E402
 import server_sync  # noqa: E402
 from routers import server as server_router  # noqa: E402
+from routers import milestones as milestones_router  # noqa: E402
 from routers import projects as projects_router  # noqa: E402
+from routers import work_items as work_items_router  # noqa: E402
 from storage import db  # noqa: E402
 from storage.models import LOCAL_USER_ID, Role  # noqa: E402
 
@@ -144,6 +146,37 @@ class ServerTimelineIncrementalSyncTest(unittest.TestCase):
             )
         remote_update.assert_not_called()
         self.assertEqual("local-ok", updated["instruction"])
+
+    def test_disabled_server_never_turns_authoritative_writes_into_local_writes(self) -> None:
+        settings.AGENTMATE_SERVER_URL = ""
+        with self.assertRaises(HTTPException) as project_error:
+            projects_router.update_project(
+                "project-1",
+                projects_router.UpdateProjectBody(instruction="must-not-stick"),
+                authorization="Bearer token",
+            )
+        self.assertEqual(503, project_error.exception.status_code)
+        self.assertEqual("remote-v1", db.get_project("project-1").instruction)
+
+        with self.assertRaises(HTTPException) as work_error:
+            work_items_router.create_item(
+                work_items_router.CreateWorkItemBody(
+                    project_id="project-1", title="must-not-exist"
+                ),
+                authorization="Bearer token",
+            )
+        self.assertEqual(503, work_error.exception.status_code)
+        self.assertEqual([], db.list_work_items("project-1"))
+
+        with self.assertRaises(HTTPException) as milestone_error:
+            milestones_router.create_item(
+                milestones_router.CreateMilestoneBody(
+                    project_id="project-1", name="must-not-exist"
+                ),
+                authorization="Bearer token",
+            )
+        self.assertEqual(503, milestone_error.exception.status_code)
+        self.assertEqual([], db.list_milestones("project-1"))
 
     def test_work_items_and_milestones_merge_by_id_without_table_replacement(self) -> None:
         first = {

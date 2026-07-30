@@ -28,15 +28,15 @@ def _bearer(authorization: str) -> str:
 
 
 def _server_token(project_id: str, authorization: str) -> str:
-    """该项目是否走 Console 代理：Console 已接 + 请求带 token + 项目 origin=='server' → bearer，否则 ""。"""
-    if not server_client.server_enabled():
-        return ""
-    tok = _bearer(authorization)
-    if not tok:
-        return ""
+    """Return the Server token for server-origin writes, or fail closed."""
     proj = db.get_project(project_id)
     if not proj or getattr(proj, "origin", "local") != "server":
         return ""
+    if not server_client.server_enabled():
+        raise HTTPException(503, "Server 未连接，Server 项目不能在本地写入")
+    tok = _bearer(authorization)
+    if not tok:
+        raise HTTPException(401, "Server 项目写入需要登录凭据")
     return tok
 
 

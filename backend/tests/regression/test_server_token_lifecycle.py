@@ -1,6 +1,7 @@
 """WB-326 local token expiry, logout and durable remote revocation."""
 from __future__ import annotations
 
+import asyncio
 import sys
 import sqlite3
 import tempfile
@@ -14,6 +15,7 @@ sys.path.insert(0, str(BACKEND))
 
 import server_sync  # noqa: E402
 from auth import deps  # noqa: E402
+import auth.middleware as auth_middleware  # noqa: E402
 from config import settings  # noqa: E402
 from routers import auth as auth_router  # noqa: E402
 from storage import db  # noqa: E402
@@ -107,6 +109,46 @@ class LocalTokenLifecycleTest(unittest.TestCase):
             row["expires_at"], before + settings.SERVER_TOKEN_LEGACY_GRACE_SECONDS - 1
         )
         db.init_db()
+
+    def test_supplied_invalid_bearer_never_downgrades_to_guest(self) -> None:
+        async def status(path: str, authorization: bytes | None) -> int:
+            messages: list[dict] = []
+
+            async def app(scope, receive, send) -> None:
+                await send({"type": "http.response.start", "status": 204, "headers": []})
+                await send({"type": "http.response.body", "body": b""})
+
+            headers = [] if authorization is None else [(b"authorization", authorization)]
+            scope = {
+                "type": "http", "method": "GET", "path": path,
+                "headers": headers,
+            }
+            async def receive() -> dict:
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            async def send(message: dict) -> None:
+                messages.append(message)
+
+            await auth_middleware.AuthMiddleware(app)(scope, receive, send)
+            return messages[0]["status"]
+
+        with (
+            patch.object(auth_middleware, "resolve_token_to_user_id", return_value=None),
+            patch.object(auth_middleware.server_client, "server_enabled", return_value=False),
+        ):
+            self.assertEqual(
+                401,
+                asyncio.run(status("/api/projects", b"Bearer forged-token")),
+            )
+            self.assertEqual(
+                401,
+                asyncio.run(status("/api/projects", b"Basic credentials")),
+            )
+            self.assertEqual(204, asyncio.run(status("/api/projects", None)))
+            self.assertEqual(
+                204,
+                asyncio.run(status("/api/health", b"Bearer forged-token")),
+            )
 
 
 if __name__ == "__main__":

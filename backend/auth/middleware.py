@@ -12,6 +12,7 @@ Server 桥（WB-062）：本地缓存未命中且已接 Server 时，把 token �
 from __future__ import annotations
 
 import anyio
+from starlette.responses import JSONResponse
 
 import server_client
 from auth.deps import resolve_token_to_user_id, resolve_via_server, set_current_user_id
@@ -23,9 +24,22 @@ class AuthMiddleware:
 
     async def __call__(self, scope, receive, send) -> None:
         if scope.get("type") == "http":
+            path = str(scope.get("path") or "").rstrip("/") or "/"
+            method = str(scope.get("method") or "").upper()
+            public = path in {
+                "/api/health",
+                "/api/auth/login",
+                "/api/auth/register",
+                "/api/server/login",
+                "/openapi.json",
+                "/docs",
+                "/redoc",
+            }
             token = None
+            authorization_supplied = False
             for k, v in scope.get("headers") or []:
                 if k == b"authorization":
+                    authorization_supplied = True
                     val = v.decode("latin-1")
                     if val[:7].lower() == "bearer ":
                         token = val[7:].strip()
@@ -34,5 +48,17 @@ class AuthMiddleware:
             if uid is None and token and server_client.server_enabled():
                 # 未命中且已接 Server：阻塞的 Server 校验丢到工作线程，不占事件循环。
                 uid = await anyio.to_thread.run_sync(resolve_via_server, token)
+            if (
+                method != "OPTIONS"
+                and not public
+                and authorization_supplied
+                and (not token or uid is None)
+            ):
+                response = JSONResponse(
+                    {"detail": "invalid or expired bearer token"},
+                    status_code=401,
+                )
+                await response(scope, receive, send)
+                return
             set_current_user_id(uid)
         await self.app(scope, receive, send)

@@ -1304,9 +1304,36 @@ def get_invite_by_code(code: str) -> Optional[Invite]:
     return _row_to_invite(r) if r else None
 
 
-def mark_invite_accepted(invite_id: str, account_id: str) -> None:
-    get_conn().execute("UPDATE invites SET accepted_by=? WHERE id=?", (account_id, invite_id))
-    get_conn().commit()
+def accept_invite_once(invite_id: str, project_id: str, account_id: str, role: Role) -> bool:
+    """Atomically consume a single-use invite and add its member.
+
+    The conditional update is the serialization point: concurrent acceptors may
+    both have read ``accepted_by IS NULL``, but only one can change it.  Member
+    creation is kept in the same transaction so neither half can commit alone.
+    """
+    conn = get_conn()
+    now = time.time()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        claimed = conn.execute(
+            "UPDATE invites SET accepted_by=? WHERE id=? AND accepted_by IS NULL",
+            (account_id, invite_id),
+        )
+        if claimed.rowcount != 1:
+            conn.rollback()
+            return False
+        conn.execute(
+            "INSERT INTO project_members (project_id,account_id,role,created_at,updated_at) "
+            "VALUES (?,?,?,?,?) "
+            "ON CONFLICT(project_id,account_id) DO UPDATE SET "
+            "role=excluded.role,updated_at=excluded.updated_at",
+            (project_id, account_id, role.value, now, now),
+        )
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
 
 
 # ---- catalog（预埋，供 P3 下发）-----------------------------------------

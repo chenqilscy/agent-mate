@@ -30,6 +30,17 @@ class Settings:
     TOKEN_LEGACY_GRACE_SECONDS: int = max(
         1, int(os.getenv("AGENTMATE_SERVER_TOKEN_LEGACY_GRACE_SECONDS", "604800"))
     )
+    # Public desktop update telemetry is best-effort operational data, never an
+    # unbounded audit log. Dedupe retries and enforce both age and row caps.
+    UPDATE_EVENT_DEDUPE_SECONDS: int = max(
+        1, int(os.getenv("AGENTMATE_UPDATE_EVENT_DEDUPE_SECONDS", "60"))
+    )
+    UPDATE_EVENT_RETENTION_SECONDS: int = max(
+        3600, int(os.getenv("AGENTMATE_UPDATE_EVENT_RETENTION_SECONDS", "7776000"))
+    )
+    UPDATE_EVENT_MAX_ROWS: int = max(
+        1000, int(os.getenv("AGENTMATE_UPDATE_EVENT_MAX_ROWS", "100000"))
+    )
     # 邀请码有效期（秒）；默认 7 天，避免久留可被反复利用的活码（WB-156，配合单次使用）。
     # 显式设 AGENTMATE_SERVER_INVITE_TTL=0 可回到永不过期（部署自担风险）。
     INVITE_TTL: int = int(os.getenv("AGENTMATE_SERVER_INVITE_TTL", "604800"))

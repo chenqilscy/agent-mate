@@ -9,6 +9,7 @@ import uuid
 from typing import Any
 
 import db
+from config import settings
 
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -54,6 +55,7 @@ def ensure_tables() -> None:
         );
         CREATE TABLE IF NOT EXISTS desktop_update_events (
             id TEXT PRIMARY KEY,
+            dedupe_key TEXT,
             device_hash TEXT NOT NULL,
             channel TEXT NOT NULL,
             target TEXT NOT NULL DEFAULT '',
@@ -67,6 +69,15 @@ def ensure_tables() -> None:
         CREATE INDEX IF NOT EXISTS idx_desktop_update_events_created
             ON desktop_update_events(created_at DESC);
         """
+    )
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(desktop_update_events)").fetchall()
+    }
+    if "dedupe_key" not in columns:
+        conn.execute("ALTER TABLE desktop_update_events ADD COLUMN dedupe_key TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_desktop_update_events_dedupe "
+        "ON desktop_update_events(dedupe_key)"
     )
     now = time.time()
     for channel in sorted(CHANNELS):
@@ -258,18 +269,44 @@ def channel_state(channel: str) -> dict[str, Any]:
 def record_event(
     *, device_id: str, channel: str, event: str, target: str = "", arch: str = "",
     current_version: str = "", release_id: str | None = None, error_code: str = "",
-) -> None:
+) -> bool:
     validate_device_id(device_id)
     if channel not in CHANNELS or event not in EVENTS:
         raise ValueError("invalid update event")
-    db.get_conn().execute(
-        "INSERT INTO desktop_update_events "
-        "(id,device_hash,channel,target,arch,current_version,release_id,event,error_code,created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (str(uuid.uuid4()), _device_hash(device_id), channel, target[:40], arch[:40],
-         current_version[:40], release_id, event, error_code[:120], time.time()),
+    conn = db.get_conn()
+    now = time.time()
+    device_hash = _device_hash(device_id)
+    bucket = int(now // settings.UPDATE_EVENT_DEDUPE_SECONDS)
+    dedupe_material = json.dumps(
+        [
+            device_hash, channel, target[:40], arch[:40], current_version[:40],
+            release_id or "", event, error_code[:120], bucket,
+        ],
+        separators=(",", ":"),
     )
-    db.get_conn().commit()
+    dedupe_key = hashlib.sha256(dedupe_material.encode("utf-8")).hexdigest()
+    inserted = conn.execute(
+        "INSERT OR IGNORE INTO desktop_update_events "
+        "(id,dedupe_key,device_hash,channel,target,arch,current_version,release_id,event,error_code,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (str(uuid.uuid4()), dedupe_key, device_hash, channel, target[:40], arch[:40],
+         current_version[:40], release_id, event, error_code[:120], now),
+    )
+    conn.execute(
+        "DELETE FROM desktop_update_events WHERE created_at < ?",
+        (now - settings.UPDATE_EVENT_RETENTION_SECONDS,),
+    )
+    count = int(conn.execute("SELECT COUNT(*) AS count FROM desktop_update_events").fetchone()["count"])
+    excess = count - settings.UPDATE_EVENT_MAX_ROWS
+    if excess > 0:
+        conn.execute(
+            "DELETE FROM desktop_update_events WHERE id IN ("
+            "SELECT id FROM desktop_update_events ORDER BY created_at ASC,id ASC LIMIT ?"
+            ")",
+            (excess,),
+        )
+    conn.commit()
+    return inserted.rowcount == 1
 
 
 def select_update(
@@ -321,4 +358,3 @@ def update_metrics() -> dict[str, Any]:
         "SELECT event,COUNT(*) AS count FROM desktop_update_events GROUP BY event"
     ).fetchall()
     return {"events": {row["event"]: row["count"] for row in rows}, "channels": [channel_state(c) for c in sorted(CHANNELS)]}
-

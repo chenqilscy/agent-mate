@@ -16,6 +16,7 @@ api_key 只在后端用，绝不回前端（铁律#4）。
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any, NamedTuple, Optional
 from urllib.parse import urlsplit
@@ -81,7 +82,22 @@ def conf(owner_id: Optional[str]) -> Conf:
 
 def configured(owner_id: Optional[str]) -> bool:
     """本 owner 是否已接入（有 key 即可；url 有默认值）。"""
-    return bool(conf(owner_id).api_key)
+    c = conf(owner_id)
+    return bool(c.api_key) and _claim_connection(owner_id, c)
+
+
+def _connection_scope(c: Conf) -> str:
+    """Stable, secret-free identifier for one WeKnora tenant connection."""
+    material = f"{c.url}\0{c.api_key}".encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
+def _claim_connection(owner_id: Optional[str], c: Conf) -> bool:
+    if not owner_id:
+        return True
+    from storage import db
+
+    return db.claim_weknora_connection(_connection_scope(c), owner_id)
 
 
 def _headers(c: Conf, extra: Optional[dict] = None) -> dict[str, str]:
@@ -141,6 +157,11 @@ def _request(owner_id: Optional[str], method: str, path: str, **kw: Any) -> Any:
     c = conf(owner_id)
     if not c.api_key:
         raise WeKnoraError(NOT_CONFIGURED)
+    if not _claim_connection(owner_id, c):
+        raise WeKnoraError(
+            "当前 WeKnora 连接已绑定到此设备上的另一个账号。"
+            "请为当前账号配置独立的 WeKnora 租户/API Key；团队知识请使用 Server 项目知识库。"
+        )
     try:
         r = httpx.request(method, _api(c, path), headers=_headers(c, kw.pop("_headers", None)),
                           timeout=_TIMEOUT, **kw)

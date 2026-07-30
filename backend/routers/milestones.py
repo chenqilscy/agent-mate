@@ -35,6 +35,19 @@ def _server_token(project_id: str, authorization: str) -> str:
     return tok
 
 
+def _server_write_token(project_id: str, authorization: str) -> str:
+    """Server-origin writes must not mutate the local mirror when disconnected."""
+    proj = db.get_project(project_id)
+    if not proj or getattr(proj, "origin", "local") != "server":
+        return ""
+    if not server_client.server_enabled():
+        raise HTTPException(503, "Server 未连接，Server 项目不能在本地写入")
+    tok = _bearer(authorization)
+    if not tok:
+        raise HTTPException(401, "Server 项目写入需要登录凭据")
+    return tok
+
+
 def _require_project_write(project_id: str, user_id: str) -> None:
     role = db.project_access_role(project_id, user_id)
     if role is None:
@@ -81,7 +94,7 @@ def create_item(body: CreateMilestoneBody, authorization: str = Header(default="
     status = body.status if body.status in M_STATUSES else "open"
     user = current_user()
     _require_project_write(body.project_id, user.id)
-    tok = _server_token(body.project_id, authorization)
+    tok = _server_write_token(body.project_id, authorization)
     if tok:
         created = server_client.create_milestone(
             tok, body.project_id,
@@ -110,7 +123,7 @@ def update_item(mid: str, body: UpdateMilestoneBody, authorization: str = Header
     if not existing:
         raise HTTPException(404, "milestone not found")
     _require_project_write(existing["project_id"], user.id)
-    tok = _server_token(existing["project_id"], authorization)
+    tok = _server_write_token(existing["project_id"], authorization)
     if tok:
         patch = body.model_dump(exclude_unset=True)
         if patch:
@@ -135,7 +148,7 @@ def delete_item(mid: str, authorization: str = Header(default="")) -> dict:
     if not existing:
         raise HTTPException(404, "milestone not found")
     _require_project_write(existing["project_id"], user.id)
-    tok = _server_token(existing["project_id"], authorization)
+    tok = _server_write_token(existing["project_id"], authorization)
     if tok:
         if server_client.delete_milestone(tok, existing["project_id"], mid):
             items = server_client.list_milestones(tok, existing["project_id"])

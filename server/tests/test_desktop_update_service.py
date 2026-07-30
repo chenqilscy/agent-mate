@@ -19,6 +19,9 @@ class DesktopUpdateServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.old_path = settings.DB_PATH
+        self.old_dedupe = settings.UPDATE_EVENT_DEDUPE_SECONDS
+        self.old_retention = settings.UPDATE_EVENT_RETENTION_SECONDS
+        self.old_max_rows = settings.UPDATE_EVENT_MAX_ROWS
         settings.DB_PATH = Path(self.tmp.name) / "server.db"
         db._local = threading.local()
         db.init_db()
@@ -29,6 +32,9 @@ class DesktopUpdateServiceTest(unittest.TestCase):
         if conn is not None:
             conn.close()
         settings.DB_PATH = self.old_path
+        settings.UPDATE_EVENT_DEDUPE_SECONDS = self.old_dedupe
+        settings.UPDATE_EVENT_RETENTION_SECONDS = self.old_retention
+        settings.UPDATE_EVENT_MAX_ROWS = self.old_max_rows
         db._local = threading.local()
         self.tmp.cleanup()
 
@@ -122,6 +128,33 @@ class DesktopUpdateServiceTest(unittest.TestCase):
         self.assertEqual("signature_invalid", row["error_code"])
         serialized = str(dict(row))
         self.assertNotIn("device-private-123", serialized)
+
+    def test_events_are_deduplicated_and_hard_capped(self) -> None:
+        settings.UPDATE_EVENT_DEDUPE_SECONDS = 3600
+        settings.UPDATE_EVENT_MAX_ROWS = 3
+        self.assertTrue(update_store.record_event(
+            device_id="device-dedupe-001", channel="stable", event="check",
+        ))
+        self.assertFalse(update_store.record_event(
+            device_id="device-dedupe-001", channel="stable", event="check",
+        ))
+        self.assertEqual(
+            1,
+            db.get_conn().execute("SELECT COUNT(*) FROM desktop_update_events").fetchone()[0],
+        )
+
+        for index in range(5):
+            update_store.record_event(
+                device_id=f"device-cap-{index:03d}",
+                channel="beta",
+                event="install_failed",
+                error_code=f"error-{index}",
+            )
+        rows = db.get_conn().execute(
+            "SELECT error_code FROM desktop_update_events ORDER BY created_at,id"
+        ).fetchall()
+        self.assertEqual(3, len(rows))
+        self.assertEqual({"error-2", "error-3", "error-4"}, {row["error_code"] for row in rows})
 
 
 if __name__ == "__main__":

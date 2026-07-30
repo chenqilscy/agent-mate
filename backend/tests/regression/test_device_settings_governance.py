@@ -85,6 +85,26 @@ class DeviceSettingsGovernanceTest(unittest.TestCase):
         self.assertEqual(device_settings._BOOTSTRAP["ASR_MODEL"], settings.ASR_MODEL)
         self.assertEqual(LOCAL_USER_ID, db.list_device_settings_audit()[0]["actor_id"])
 
+    def test_device_owner_is_not_derived_from_mirrored_business_role(self) -> None:
+        db.upsert_external_user("alice", "Alice")
+        db.upsert_external_user("bob", "Bob")
+        set_current_user_id("alice")
+        self.assertEqual("alice", router._owner().id)
+        self.assertEqual("alice", db.get_device_owner_id())
+
+        set_current_user_id("bob")
+        with self.assertRaises(HTTPException) as other:
+            router._owner()
+        self.assertEqual(403, other.exception.status_code)
+
+        set_current_user_id(None)
+        with self.assertRaises(HTTPException) as guest:
+            router._owner()
+        self.assertEqual(403, guest.exception.status_code)
+
+        set_current_user_id("alice")
+        self.assertEqual("alice", router._owner().id)
+
 
 if __name__ == "__main__":
     unittest.main()

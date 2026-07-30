@@ -33,6 +33,7 @@ const BORDERLESS_VISUAL_CLASSES = new Set([
   'csend',
   'cstop',
   'home-console-action',
+  'insp-modal-fav',
   'mc-act',
   'mm-x',
   'np-add',

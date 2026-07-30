@@ -61,6 +61,7 @@ def accept_invite(code: str, account: Account = CurrentAccount) -> dict:
         raise HTTPException(409, "project is archived")
     if account.id == p.owner_id:
         raise HTTPException(400, "you already own this project")
-    db.add_project_member(inv.project_id, account.id, inv.role)
-    db.mark_invite_accepted(inv.id, account.id)
+    if not db.accept_invite_once(inv.id, inv.project_id, account.id, inv.role):
+        # Another request consumed the invite after our read.
+        raise HTTPException(409, "邀请码已被使用")
     return {"ok": True, "project_id": inv.project_id, "role": inv.role.value}

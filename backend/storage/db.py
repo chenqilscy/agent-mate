@@ -757,6 +757,13 @@ def init_db() -> None:
             value TEXT NOT NULL,
             updated_at REAL NOT NULL
         );
+        -- 设备级运行配置只有一个本机管理员。不能复用 users.role：Server
+        -- 账号镜像为兼容业务模型会带 Owner，该角色不是设备管理授权（WB-329）。
+        CREATE TABLE IF NOT EXISTS device_owner (
+            singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+            user_id TEXT NOT NULL,
+            claimed_at REAL NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS device_settings_audit (
             id TEXT PRIMARY KEY,
             setting_key TEXT NOT NULL,
@@ -768,6 +775,15 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_device_settings_audit_created
             ON device_settings_audit(created_at DESC);
+
+        -- 本地 WeKnora 凭据指向一个租户级命名空间；同一连接在本设备上只能
+        -- 绑定一个 owner，避免共享 env key 暴露其他账号的知识库（WB-328）。
+        CREATE TABLE IF NOT EXISTS weknora_connection_owners (
+            scope_hash TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            claimed_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
 
         -- 安全审计日志（WB-152）：真记录工具执行/拦截（run_command、网络访问等）。按 owner 隔离。
         -- action: 'executed'(已执行) / 'blocked'(被策略拦截)。
@@ -4432,6 +4448,24 @@ def get_device_setting(key: str) -> Optional[str]:
     return row["value"] if row else None
 
 
+def get_device_owner_id() -> Optional[str]:
+    row = get_conn().execute(
+        "SELECT user_id FROM device_owner WHERE singleton=1"
+    ).fetchone()
+    return str(row["user_id"]) if row else None
+
+
+def claim_device_owner(user_id: str) -> bool:
+    """First authenticated account claims the device; later callers must match."""
+    conn = get_conn()
+    conn.execute(
+        "INSERT OR IGNORE INTO device_owner (singleton,user_id,claimed_at) VALUES (1,?,?)",
+        (user_id, time.time()),
+    )
+    conn.commit()
+    return get_device_owner_id() == user_id
+
+
 def set_device_setting(key: str, value: Optional[str]) -> None:
     conn = get_conn()
     if value is not None:
@@ -4885,6 +4919,60 @@ def set_weknora_conf(
         set_provider_key(owner_id, WEKNORA_PROVIDER, (api_key or "").strip())
     if embedding_model_id is not _KEEP:
         set_user_setting(owner_id, _WEKNORA_EMBED_KEY, (embedding_model_id or "").strip() or None)
+
+
+def claim_weknora_connection(scope_hash: str, owner_id: str) -> bool:
+    """Exclusively bind a local WeKnora tenant connection to one AgentMate owner.
+
+    A pre-login LOCAL_USER binding may move once to the Server account linked by
+    the migration bridge; arbitrary accounts can never take over the scope.
+    """
+    conn = get_conn()
+    now = time.time()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT owner_id FROM weknora_connection_owners WHERE scope_hash=?",
+            (scope_hash,),
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO weknora_connection_owners "
+                "(scope_hash,owner_id,claimed_at,updated_at) VALUES (?,?,?,?)",
+                (scope_hash, owner_id, now, now),
+            )
+            conn.commit()
+            return True
+        current = str(row["owner_id"])
+        if current == owner_id:
+            conn.commit()
+            return True
+        if current == LOCAL_USER_ID:
+            link = conn.execute(
+                "SELECT server_account_id FROM server_link WHERE local_user_id=?",
+                (LOCAL_USER_ID,),
+            ).fetchone()
+            if link and str(link["server_account_id"]) == owner_id:
+                conn.execute(
+                    "UPDATE weknora_connection_owners SET owner_id=?,updated_at=? "
+                    "WHERE scope_hash=? AND owner_id=?",
+                    (owner_id, now, scope_hash, LOCAL_USER_ID),
+                )
+                conn.commit()
+                return True
+        conn.rollback()
+        return False
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def get_weknora_connection_owner(scope_hash: str) -> Optional[str]:
+    row = get_conn().execute(
+        "SELECT owner_id FROM weknora_connection_owners WHERE scope_hash=?",
+        (scope_hash,),
+    ).fetchone()
+    return str(row["owner_id"]) if row else None
 
 
 # ---- provider keys + model overrides (WB-128) --------------------------

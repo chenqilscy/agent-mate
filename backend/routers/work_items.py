@@ -233,6 +233,19 @@ def _server_token(project_id: str, authorization: str) -> str:
     return tok
 
 
+def _server_write_token(project_id: str, authorization: str) -> str:
+    """Server-origin writes must never fall through to the local mirror."""
+    proj = db.get_project(project_id)
+    if not proj or getattr(proj, "origin", "local") != "server":
+        return ""
+    if not server_client.server_enabled():
+        raise HTTPException(503, "Server 未连接，Server 项目不能在本地写入")
+    tok = _bearer(authorization)
+    if not tok:
+        raise HTTPException(401, "Server 项目写入需要登录凭据")
+    return tok
+
+
 def _server_view(it: dict) -> dict:
     """Server work_item → 前端期望的视图形状。
     专业 PM 字段（priority/start_date/labels/parent_id/milestone_id/due_date）随 Server 透传；
@@ -294,7 +307,7 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
     labels = _clean_labels(body.labels)
     user = current_user()
     _require_project_write(body.project_id, user.id)
-    tok = _server_token(body.project_id, authorization)
+    tok = _server_write_token(body.project_id, authorization)
     if tok:
         created = server_client.create_work_item(
             tok, body.project_id,
@@ -342,7 +355,7 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
     if not existing:
         raise HTTPException(404, "work item not found")
     _require_project_write(existing.project_id, user.id)
-    tok = _server_token(existing.project_id, authorization)
+    tok = _server_write_token(existing.project_id, authorization)
     if tok:
         fs = body.model_fields_set
         keys = ("title", "status", "description", "priority", "due_date",
@@ -399,7 +412,7 @@ def delete_item(item_id: str, authorization: str = Header(default="")) -> dict:
     if not existing:
         raise HTTPException(404, "work item not found")
     _require_project_write(existing.project_id, current_user().id)
-    tok = _server_token(existing.project_id, authorization)
+    tok = _server_write_token(existing.project_id, authorization)
     if tok:
         if server_client.delete_work_item(tok, existing.project_id, item_id):
             items = server_client.list_work_items(tok, existing.project_id)
@@ -443,7 +456,7 @@ async def execute_item(
     if not item:
         raise HTTPException(404, "work item not found")
     _require_project_write(item.project_id, user.id)
-    tok = _server_token(item.project_id, authorization)
+    tok = _server_write_token(item.project_id, authorization)
     if tok:
         updated = await asyncio.to_thread(
             server_client.update_work_item, tok, item.project_id, item.id, {"status": "doing"}
@@ -484,7 +497,7 @@ async def accept_item_delivery(
         for value in artifacts
     ):
         raise HTTPException(409, "artifact integrity verification failed")
-    tok = _server_token(item.project_id, authorization)
+    tok = _server_write_token(item.project_id, authorization)
     if tok:
         updated = await asyncio.to_thread(
             server_client.update_work_item, tok, item.project_id, item.id, {"status": "done"}
