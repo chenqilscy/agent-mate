@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 import httpx
 
 from agent.sandbox import SandboxError, resolve_in_sandbox
+from agent.skill_discovery import DISCOVERY_TOOLS
 from agent.skill_resources import RESOURCE_TOOLS
 from agent.tools import (
     TOOLS, Tool, ToolOutcome, knowledge_add, knowledge_retrieve,
@@ -310,6 +311,7 @@ _TOOL_REGISTRY: dict[str, Tool] = {
     "set_work_item_status": set_work_item_status,
     "knowledge_retrieve": knowledge_retrieve,
     "knowledge_add": knowledge_add,
+    **{tool.name: tool for tool in DISCOVERY_TOOLS},
     **{tool.name: tool for tool in RESOURCE_TOOLS},
 }
 

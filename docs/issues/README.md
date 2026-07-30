@@ -18,7 +18,6 @@
 |----|------|--------|------|------|
 | [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) | ⏸ | P1 | fullstack | 正式桌面更新服务缺少生产域名、CI 签名材料与上线验收 |
 | [WB-307](WB-307-project-instruction-object-text.md) | ⬜ | P2 | ui | Console 项目列表将项目说明渲染为 object Object |
-| [WB-334](WB-334-progressive-skill-disclosure.md) | 🟡 | P1 | backend | Skill 缺少可发现的渐进加载，项目技能正文常驻系统提示 |
 | [WB-335](WB-335-skill-trust-security-scan.md) | ⬜ | P1 | backend | 第三方 Skill 缺少本地内容安全扫描与来源信任分级 |
 | [WB-336](WB-336-governed-skill-learning.md) | ⬜ | P1 | backend | 从成功任务沉淀 Skill 缺少候选、验证、审核和发布闭环 |
 | [WB-337](WB-337-skill-usage-governance.md) | ⬜ | P2 | backend | Skill 只有 release 聚合结果，缺少用户侧使用价值与陈旧治理 |
@@ -26,5 +25,5 @@
 
 ## 已关闭归档
 
-共 330 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 331 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。

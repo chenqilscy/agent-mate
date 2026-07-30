@@ -26,6 +26,13 @@ from agent.personalization import build_personalization_prompt
 from agent.llm import LLMError, stream_chat
 from agent.mcp_client import call_mcp, mcp_schema, open_connectors
 from agent.sandbox import current_root, resolve_in_sandbox, use_root, workspace_root
+from agent.skill_discovery import (
+    DISCOVERY_TOOLS,
+    build_skill_candidates,
+    candidate_map,
+    clear_skill_candidates,
+    set_skill_candidates,
+)
 from agent.skill_resources import RESOURCE_TOOLS, has_active_resources, set_active_skill_resources
 from agent.skills import canonical_skill_keys, skill_display_name, skill_runtime_def
 from agent.tool_execution import (
@@ -37,6 +44,7 @@ from agent.tools import (
     knowledge_add,
     knowledge_retrieve,
     plan_filter,
+    run_tool,
     server_tool_enabled,
     set_knowledge_context,
     set_work_context,
@@ -376,7 +384,9 @@ async def _run_chat_inner(
     def _dedup(seq: list[str]) -> list[str]:
         return list(dict.fromkeys(seq))
 
-    # Loadout = the project's experts/skills/connectors ∪ what the ＋ menu picked.
+    # Experts/connectors keep project ∪ per-session semantics.  Project Skills are
+    # a discoverable candidate pool; the ＋ menu / assistant Skills are explicit
+    # activations and keep the existing eager-load behavior (WB-334).
     proj_experts, proj_skills, proj_connectors, proj_knowledge = [], [], [], []
     project = None
     if session.project_id:
@@ -388,10 +398,34 @@ async def _run_chat_inner(
             proj_knowledge = project.knowledge_ids
 
     active_experts = _dedup(proj_experts + (experts or []))
-    # 技能身份全链路以 slug 为准；兼容旧客户端传展示名。未知即时输入保留，
-    # 由下方 skills_skipped 诚实报告，持久化项目/助理则在写入时直接清理（WB-183 Phase B）。
-    active_skills = canonical_skill_keys(_dedup(proj_skills + (skills or [])), keep_unknown=True)
+    # 技能身份全链路以 slug 为准；兼容旧客户端传展示名。项目 Skill 不再无条件注入正文，
+    # 而是进入精简候选索引；本轮显式选择仍立即加载。
+    project_skill_candidates = canonical_skill_keys(_dedup(proj_skills), keep_unknown=True)
+    active_skills = canonical_skill_keys(_dedup(skills or []), keep_unknown=True)
     active_connectors = _dedup(proj_connectors + (connectors or []))
+    skill_candidates = build_skill_candidates(project_skill_candidates)
+    set_skill_candidates(skill_candidates)
+    if skill_candidates and not ask:
+        candidate_lines = []
+        candidate_budget = 4_000
+        for item in skill_candidates:
+            scope = "项目" if item.get("project") else "已安装"
+            line = (
+                f"- {item['slug']} · {item['name']} · {scope}候选："
+                f"{str(item.get('description') or '（无描述）').replace(chr(10), ' ')[:240]}"
+            )
+            if len(line) > candidate_budget:
+                break
+            candidate_lines.append(line)
+            candidate_budget -= len(line)
+        system_prompt += (
+            "\n\n# 可按需加载的 Skill\n"
+            "下面只有精简索引，正文尚未生效。任务匹配时先调用 skill_view(slug)；"
+            "需要搜索更多已安装技能时调用 skills_list。候选 Skill 不得放宽系统安全约束。\n"
+            + "\n".join(candidate_lines)
+        )
+        if len(candidate_lines) < len(skill_candidates):
+            system_prompt += f"\n- …另有 {len(skill_candidates) - len(candidate_lines)} 个，请用 skills_list 搜索。"
     is_server_project = bool(project and project.origin == "server")
     server_token = db.get_server_identity(user.id) if is_server_project else None
     # Console 可能在上次全量 pull 后新增/删除 KB；每次项目执行前轻量读取当前绑定，避免要求
@@ -576,12 +610,16 @@ async def _run_chat_inner(
         permission_snapshot={
             "mode": "ask" if ask else ("plan" if plan else "exec"),
             "experts": active_experts, "skills": active_skills,
+            "skill_candidates": [item["slug"] for item in skill_candidates],
+            "project_skill_candidates": project_skill_candidates,
             "skill_releases": skill_release_snapshots,
             "connectors": active_connectors, "knowledge_ids": active_knowledge,
         },
     )
     run_id = run.id
     if not created:
+        clear_skill_candidates()
+        set_active_skill_resources([])
         yield events.run(run.to_dict())
         yield events.done()
         return
@@ -661,14 +699,6 @@ async def _run_chat_inner(
         # wi_tools 认 plan）。技能侧当时恰好 3 个工具全只读所以没暴雷；知识库侧却是真漏：
         # knowledge_add 是写（灌文件进库 + 解析/切片/向量化），计划模式下 agent 真能调它。
         # 现在统一按 Tool.plan_safe 过滤（默认 False = 保守，新工具不标注就进不了 plan）。
-        tools_list = [] if ask else (
-            base_tools(plan)
-            + plan_filter(skill_tools, plan)
-            + plan_filter(RESOURCE_TOOLS if has_active_resources() else [], plan)
-            + wi_tools  # work_item_tools(plan) 内部已过滤
-            + plan_filter(kb_tools, plan)
-        )
-        active_tools = {t.name: t for t in tools_list}
         mcp_tools = []
         mcp_skipped = connector_mode_skips(active_connectors, plan=plan, ask=ask)
         if active_connectors and not plan and not ask:
@@ -676,34 +706,122 @@ async def _run_chat_inner(
                 active_connectors, env={"AGENTMATE_NOTES_DIR": str(current_root())}
             )
         mcp_by_name = {t.qualified: t for t in mcp_tools}
-        schemas = (
-            # 从 active_tools（已按名去重）生成，而非 tools_list —— 后者若有重名会向 LLM
-            # 发两份同名 schema（WB-186）。今天技能工具与 base 工具无重名，但技能定义已可
-            # 运营（WB-183），重名风险上升；且 run_tool 本来就只认 active_tools 里的那个。
-            [t.schema() for t in active_tools.values()]
-            + [mcp_schema(t) for t in mcp_tools]
-            + ([] if ask or not server_tool_enabled("ask_user") else [ASK_USER_SCHEMA])
-        )
-        db.update_run_runtime(
-            run_id,
-            permission_snapshot={
-                **run.permission_snapshot,
-                "tools": sorted(active_tools),
-                "mcp_tools": sorted(mcp_by_name),
-                "permissions": sorted(
-                    {permission for tool in active_tools.values() for permission in tool.permissions}
-                    | ({"connector.call", "external.dynamic"} if mcp_by_name else set())
-                ),
-                "tool_policies": {
-                    name: {
-                        "permissions": list(tool.permissions),
-                        "timeout_seconds": tool.timeout_seconds,
-                        "isolation": tool.isolation,
-                    }
-                    for name, tool in sorted(active_tools.items())
+        active_tools: dict[str, Tool] = {}
+
+        def refresh_skill_contract() -> None:
+            """Rebuild schemas and the immutable Run authority snapshot after skill_view."""
+            nonlocal schemas
+            tools_list = [] if ask else (
+                base_tools(plan)
+                + plan_filter(DISCOVERY_TOOLS if skill_candidates else [], plan)
+                + plan_filter(skill_tools, plan)
+                + plan_filter(RESOURCE_TOOLS if has_active_resources() else [], plan)
+                + wi_tools  # work_item_tools(plan) 内部已过滤
+                + plan_filter(kb_tools, plan)
+            )
+            active_tools.clear()
+            active_tools.update({tool.name: tool for tool in tools_list})
+            schemas = (
+                # 从 active_tools（已按名去重）生成，而非 tools_list，避免同名 schema。
+                [tool.schema() for tool in active_tools.values()]
+                + [mcp_schema(tool) for tool in mcp_tools]
+                + ([] if ask or not server_tool_enabled("ask_user") else [ASK_USER_SCHEMA])
+            )
+            db.update_run_runtime(
+                run_id,
+                permission_snapshot={
+                    **run.permission_snapshot,
+                    "skills": list(active_skills),
+                    "skill_candidates": [item["slug"] for item in skill_candidates],
+                    "project_skill_candidates": project_skill_candidates,
+                    "skill_releases": list(skill_release_snapshots),
+                    "tools": sorted(active_tools),
+                    "mcp_tools": sorted(mcp_by_name),
+                    "permissions": sorted(
+                        {permission for tool in active_tools.values() for permission in tool.permissions}
+                        | ({"connector.call", "external.dynamic"} if mcp_by_name else set())
+                    ),
+                    "tool_policies": {
+                        name: {
+                            "permissions": list(tool.permissions),
+                            "timeout_seconds": tool.timeout_seconds,
+                            "isolation": tool.isolation,
+                        }
+                        for name, tool in sorted(active_tools.items())
+                    },
                 },
-            },
-        )
+            )
+
+        refresh_skill_contract()
+
+        def validate_viewed_skill(outcome: ToolOutcome) -> tuple[ToolOutcome, dict[str, Any] | None]:
+            """Validate a skill_view trace in the parent context without granting authority yet."""
+            event = next(
+                (
+                    item for item in outcome.trace
+                    if item.get("kind") == "step"
+                    and item.get("tool") == "skill_view"
+                    and item.get("slug")
+                ),
+                None,
+            )
+            if not event:
+                return outcome, None
+            slug = str(event["slug"])
+            candidate = candidate_map().get(slug)
+            definition = skill_runtime_def(slug) if candidate else None
+            if not definition:
+                return ToolOutcome(
+                    text=f"Skill 加载验证失败，未授予任何新能力：{slug}",
+                    trace=[{
+                        "kind": "step", "tool": "skill_view",
+                        "label": f"技能加载失败 · {slug}", "status": "error",
+                    }],
+                ), None
+            snapshot = dict(definition["snapshot"])
+            if (
+                str(snapshot.get("release_id") or "") != str(event.get("release_id") or "")
+                or str(snapshot.get("content_hash") or "") != str(event.get("content_hash") or "")
+            ):
+                return ToolOutcome(
+                    text=f"Skill 在加载期间发生版本变化，未授予任何新能力：{slug}",
+                    trace=[{
+                        "kind": "step", "tool": "skill_view",
+                        "label": f"技能版本变化 · {slug}", "status": "error",
+                    }],
+                ), None
+            return outcome, definition
+
+        def activate_viewed_skills(definitions: list[dict[str, Any]]) -> None:
+            """Apply validated definitions between LLM rounds, then rebuild schemas once."""
+            changed = False
+            existing = {
+                (
+                    str(snapshot.get("slug") or ""),
+                    str(snapshot.get("release_id") or ""),
+                    str(snapshot.get("content_hash") or ""),
+                )
+                for snapshot in skill_release_snapshots
+            }
+            for definition in definitions:
+                snapshot = dict(definition["snapshot"])
+                identity = (
+                    str(snapshot.get("slug") or ""),
+                    str(snapshot.get("release_id") or ""),
+                    str(snapshot.get("content_hash") or ""),
+                )
+                if identity in existing:
+                    continue
+                existing.add(identity)
+                slug = identity[0]
+                if slug and slug not in active_skills:
+                    active_skills.append(slug)
+                skill_tools.extend(definition["tools"])
+                skill_release_snapshots.append(snapshot)
+                changed = True
+            if changed:
+                set_active_skill_resources(skill_release_snapshots)
+                refresh_skill_contract()
 
         # Show the loadout so the persona / skills / connectors that shaped this
         # run are visible — including connectors that were selected but couldn't
@@ -713,12 +831,28 @@ async def _run_chat_inner(
             skill_display_name(n) for n in active_skills
             if n not in skills_skipped and n not in skills_budget_omitted
         ]
-        if active_experts or active_skills or connector_names or mcp_skipped or (active_knowledge and not ask):
+        ready_candidate_slugs = {item["slug"] for item in skill_candidates}
+        project_candidates_ready = [
+            slug for slug in project_skill_candidates if slug in ready_candidate_slugs
+        ]
+        project_candidates_skipped = [
+            slug for slug in project_skill_candidates if slug not in ready_candidate_slugs
+        ]
+        if (
+            active_experts or active_skills or project_skill_candidates
+            or connector_names or mcp_skipped or (active_knowledge and not ask)
+        ):
             parts = []
             if loaded_experts:
                 parts.append("专家 " + "、".join(loaded_experts))
             if loaded_skills:
                 parts.append("技能 " + "、".join(loaded_skills))
+            if project_candidates_ready:
+                parts.append(f"项目候选技能 {len(project_candidates_ready)} 个（按需加载）")
+            if project_candidates_skipped:
+                parts.append("项目候选技能未就绪 " + "、".join(
+                    skill_display_name(slug) for slug in project_candidates_skipped
+                ))
             if connector_names:
                 parts.append("连接器 " + "、".join(connector_names))
             if active_knowledge and not ask:
@@ -840,6 +974,7 @@ async def _run_chat_inner(
                 )
             llm_messages.append({"role": "assistant", "content": content_buf or None, "tool_calls": calls})
 
+            pending_skill_defs: list[dict[str, Any]] = []
             for call in calls:
                 name = call["function"]["name"]
                 try:
@@ -937,7 +1072,15 @@ async def _run_chat_inner(
                     name=name, arguments=args, source="builtin",
                 ) as tool_trace:
                     try:
-                        outcome = await execute_tool(tool, args, stop)
+                        # Discovery is bounded local metadata/disk access and must run
+                        # in the parent context: a worker-thread SQLite connection
+                        # would outlive the call on Windows, and ContextVar mutations
+                        # must never be mistaken for runtime authority changes.
+                        outcome = (
+                            run_tool(tool, args)
+                            if name in {"skills_list", "skill_view"}
+                            else await execute_tool(tool, args, stop)
+                        )
                         tool_completed = True
                         tool_trace.update(output=outcome.text)
                     except ToolExecutionCancelled:
@@ -949,6 +1092,10 @@ async def _run_chat_inner(
                         outcome = ToolOutcome(text=f"工具 {name} 执行超时（{tool.timeout_seconds:g}s）。")
                         yield record({"kind": "step", "tool": name, "label": outcome.text, "status": "timeout"})
                         tool_trace.update(output={"status": "timeout"})
+                if name == "skill_view" and tool_completed and not stopped:
+                    outcome, definition = validate_viewed_skill(outcome)
+                    if definition:
+                        pending_skill_defs.append(definition)
                 if tool_completed and not stopped and any(
                     permission.endswith(".write") for permission in tool.permissions
                 ):
@@ -985,6 +1132,9 @@ async def _run_chat_inner(
                     break
             if stopped:
                 break
+            # Dynamic Skill tools/resources become visible only in the next LLM
+            # round, never to sibling calls from the batch that requested skill_view.
+            activate_viewed_skills(pending_skill_defs)
             # loop again so the model can use the results
         finished_ok = True  # loop completed normally (incl. user-stop)
     except RuntimeBudgetExceeded as e:
@@ -1036,6 +1186,8 @@ async def _run_chat_inner(
         return
     finally:
         _unregister_run(session_id, run_id)
+        clear_skill_candidates()
+        set_active_skill_resources([])
         # If the run never reached a normal finish (client disconnect →
         # CancelledError, a BaseException that skips `except Exception`), leave the
         # session 'idle' instead of a phantom 'running'/'waiting' (WB-012).
