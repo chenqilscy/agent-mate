@@ -7,7 +7,7 @@
 
 - 活动状态 `open` / `in-progress` / `deferred`：每个问题一个 `WB-<编号>-<slug>.md` 文件。
 - 终态 `fixed` / `wontfix`：运行 `python scripts/archive_issues.py --apply` 后进入 [`archive/`](archive/README.md)。
-- 编号全局递增且不复用；当前最大编号是 `WB-333`，可用 `python scripts/archive_issues.py --next-id` 查询。
+- 编号全局递增且不复用；当前最大编号是 `WB-338`，可用 `python scripts/archive_issues.py --next-id` 查询。
 - 活动文件 frontmatter 是权威状态；下表是活动状态镜像。
 
 ## 活动台账
@@ -18,6 +18,11 @@
 |----|------|--------|------|------|
 | [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) | ⏸ | P1 | fullstack | 正式桌面更新服务缺少生产域名、CI 签名材料与上线验收 |
 | [WB-307](WB-307-project-instruction-object-text.md) | ⬜ | P2 | ui | Console 项目列表将项目说明渲染为 object Object |
+| [WB-334](WB-334-progressive-skill-disclosure.md) | 🟡 | P1 | backend | Skill 缺少可发现的渐进加载，项目技能正文常驻系统提示 |
+| [WB-335](WB-335-skill-trust-security-scan.md) | ⬜ | P1 | backend | 第三方 Skill 缺少本地内容安全扫描与来源信任分级 |
+| [WB-336](WB-336-governed-skill-learning.md) | ⬜ | P1 | backend | 从成功任务沉淀 Skill 缺少候选、验证、审核和发布闭环 |
+| [WB-337](WB-337-skill-usage-governance.md) | ⬜ | P2 | backend | Skill 只有 release 聚合结果，缺少用户侧使用价值与陈旧治理 |
+| [WB-338](WB-338-skill-bundles-environment-gates.md) | ⬜ | P2 | backend | Skill 缺少命名组合与平台环境适用性门禁 |
 
 ## 已关闭归档
 
