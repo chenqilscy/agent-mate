@@ -20,6 +20,7 @@ export interface ChatStreamOptions {
   projectId?: string
   experts?: string[]
   skills?: string[]
+  skillBundles?: string[]
   connectors?: string[]
   knowledgeIds?: string[]
   refs?: { name: string; content: string; kind?: 'file' | 'todo'; itemId?: string }[]
@@ -52,6 +53,7 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
         project_id: opts.projectId,
         experts: opts.experts,
         skills: opts.skills,
+        skill_bundles: opts.skillBundles,
         connectors: opts.connectors,
         knowledge_ids: opts.knowledgeIds,
         refs: opts.refs,

@@ -34,6 +34,8 @@ def build_skill_candidates(project_slugs: list[str] | None = None) -> list[dict[
             continue
         if not skills_store.security_allows_runtime(str(item.get("key") or "")):
             continue
+        if skills_store.incompatibility_reason(item):
+            continue
         slug = str(item.get("slug") or item.get("key") or "").strip()
         if not slug:
             continue
@@ -154,6 +156,9 @@ def _skill_view_run(args: dict[str, Any]) -> ToolOutcome:
     requested = str(args.get("name") or args.get("slug") or "").strip()
     candidate = _resolve_candidate(requested)
     if not candidate:
+        reason = skills_store.incompatibility_reason(requested)
+        if reason:
+            return ToolOutcome(text=f"Skill 当前环境不适用：{requested}；{reason}")
         return ToolOutcome(text=f"Skill 不在当前可加载候选中、未启用或名称不唯一：{requested}")
 
     # Delayed import avoids agent.skills <-> skill_discovery initialization cycles.

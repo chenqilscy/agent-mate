@@ -30,6 +30,7 @@ class ChatBody(BaseModel):
     # project's own experts/skills/connectors when the session belongs to one).
     experts: list[str] = Field(default=[], max_length=50)
     skills: list[str] = Field(default=[], max_length=50)
+    skill_bundles: list[str] = Field(default=[], max_length=20)
     connectors: list[str] = Field(default=[], max_length=50)
     # 挂载的 GLM 知识库 id（WB-143）：本轮 agent 可用 knowledge_retrieve 检索。
     knowledge_ids: list[str] = Field(default=[], max_length=20)
@@ -127,6 +128,7 @@ async def chat(body: ChatBody):
             session, user, text,
             model=body.model, plan=body.plan, ask=body.ask,
             experts=body.experts, skills=body.skills, connectors=body.connectors,
+            bundle_ids=body.skill_bundles,
             knowledge_ids=body.knowledge_ids,
             refs=body.refs,
             idempotency_key=body.idempotency_key,

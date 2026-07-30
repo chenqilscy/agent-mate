@@ -243,6 +243,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         projectId: get().activeProjectId ?? undefined,
         experts: loadout.experts,
         skills: loadout.skills,
+        skillBundles: loadout.skillBundles,
         connectors: loadout.connectors,
         knowledgeIds: loadout.knowledgeIds,
         refs: loadout.refs,

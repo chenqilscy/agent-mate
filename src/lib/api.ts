@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, OpsSummary, Orchestration, ProjectInfo, ProjectMember, SessionInfo, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelOption, ModelsResponse, OpsSummary, Orchestration, ProjectInfo, ProjectMember, SessionInfo, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -319,6 +319,13 @@ export const api = {
   // SkillHub 技能 · 真实安装/发现/管理（WB-055）。清单来自 ~/.agentmate/skills 磁盘扫描，
   // 安装走真实 skillhub CLI 下载解压。key = 技能目录名。
   listSkills: () => get<{ skills: InstalledSkill[]; cli: boolean }>('/skills'),
+  listSkillBundles: () => get<{ bundles: SkillBundle[] }>('/skill-bundles'),
+  createSkillBundle: (body: { name: string; description?: string; skills: string[] }) =>
+    send<{ bundle: SkillBundle }>('POST', '/skill-bundles', body),
+  updateSkillBundle: (id: string, body: { name: string; description?: string; skills: string[] }) =>
+    send<{ bundle: SkillBundle }>('PUT', `/skill-bundles/${encodeURIComponent(id)}`, body),
+  deleteSkillBundle: (id: string) =>
+    send<{ ok: boolean }>('DELETE', `/skill-bundles/${encodeURIComponent(id)}`),
   // SkillHub 实时搜索：本地 App 直接查询第三方市场，Server 不参与（WB-215）。
   searchSkills: (q: string, limit = 12) =>
     get<{ results: SkillCard[]; source?: string }>(`/skills/search?q=${encodeURIComponent(q)}&limit=${limit}`),

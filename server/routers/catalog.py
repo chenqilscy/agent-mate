@@ -665,6 +665,12 @@ def _normalize_app_skill(data: Any) -> Any:
         normalized[key] = str(normalized.get(key, "")).strip()
     tools = normalized.get("tools", [])
     normalized["tools"] = list(dict.fromkeys(str(tool).strip() for tool in tools)) if isinstance(tools, list) else tools
+    for field in ("platforms", "environments", "requires_tools"):
+        values = normalized.get(field, [])
+        normalized[field] = (
+            list(dict.fromkeys(str(value).strip().lower() for value in values))
+            if isinstance(values, list) else values
+        )
     if isinstance(normalized["tools"], list):
         permissions = {
             item["name"]: tuple(item.get("permissions") or ())
@@ -711,6 +717,21 @@ def _validate_app_skill(data: Any, *, ignore_id: str = "") -> None:
     unknown_tools = sorted(set(tools) - set(tool_specs))
     if unknown_tools:
         raise HTTPException(400, f"unknown skill tools: {', '.join(unknown_tools)}")
+    for field in ("platforms", "environments", "requires_tools"):
+        values = data.get(field, [])
+        if not isinstance(values, list) or not all(
+            isinstance(value, str) and value.strip() for value in values
+        ):
+            raise HTTPException(400, f"skill {field} must be a string list")
+    platforms = {value.strip().lower() for value in data.get("platforms", [])}
+    if platforms - {"any", "windows", "linux", "macos"}:
+        raise HTTPException(400, "skill platforms contains an unsupported platform")
+    environments = {value.strip().lower() for value in data.get("environments", [])}
+    if any(not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", value) for value in environments):
+        raise HTTPException(400, "skill environments contains an invalid environment")
+    required_tools = {value.strip() for value in data.get("requires_tools", [])}
+    if not required_tools.issubset(set(tools)):
+        raise HTTPException(400, "skill requires_tools must be a subset of tools")
     existing_internal: set[str] = set()
     if ignore_id:
         current = db.get_catalog_item(ignore_id)

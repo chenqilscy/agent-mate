@@ -789,6 +789,16 @@ export interface SkillUsageSummary {
   rating: 'helpful' | 'neutral' | 'not_helpful' | null
 }
 
+export interface SkillBundle {
+  id: string
+  owner_id: string
+  name: string
+  description: string
+  skills: string[]
+  created_at: number
+  updated_at: number
+}
+
 export interface SkillDetail extends InstalledSkill {
   markdown: string                       // 完整 SKILL.md（含 front-matter）
   body: string                           // 去掉 front-matter 的正文

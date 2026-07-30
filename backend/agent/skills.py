@@ -427,6 +427,15 @@ def tool_permissions(names: list[str]) -> list[str]:
     return sorted({permission for tool in _resolve_tools(names) for permission in tool.permissions})
 
 
+def available_skill_tool_names() -> set[str]:
+    """Names whose enabled contracts this App can bind to a Skill right now."""
+    registry, resolvable = _runtime_tool_registry()
+    return {
+        name for name in resolvable
+        if name in registry and name in SKILL_BINDABLE_TOOL_NAMES
+    }
+
+
 def builtin_list() -> list[dict[str, Any]]:
     """已安装且启用的 AgentMate 目录技能，供 loadout 选择器读取。"""
     from storage import db  # 延迟导入，避免 storage.db ↔ agent.* 循环依赖
@@ -598,6 +607,9 @@ def skill_runtime_def(name: str) -> dict[str, Any] | None:
     """Resolve one installed Skill into an immutable execution definition."""
     from storage import db  # 延迟导入，避免 storage.db ↔ agent.* 循环依赖
     from agent import skills_store
+
+    if skills_store.incompatibility_reason(name):
+        return None
 
     if db.skill_catalog_state(name).get("withdrawn"):
         return None

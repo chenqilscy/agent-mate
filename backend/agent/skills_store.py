@@ -50,6 +50,10 @@ MAX_SKILL_MD_BYTES = 512 * 1024
 _SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _DEFAULT_OWNER = LOCAL_USER_ID
 _owner_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("skill_owner", default=_DEFAULT_OWNER)
+_environment_ctx: contextvars.ContextVar[frozenset[str]] = contextvars.ContextVar(
+    "skill_environment",
+    default=frozenset({"local", "adhoc"}),
+)
 _slug_locks_guard = threading.Lock()
 _slug_locks: dict[str, threading.RLock] = {}
 _last_trash_purge = 0.0
@@ -62,6 +66,34 @@ def set_owner(owner_id: str | None) -> None:
 
 def current_owner() -> str:
     return _owner_ctx.get()
+
+
+def set_environment(tags: list[str] | set[str] | tuple[str, ...]) -> None:
+    values = {str(item).strip().lower() for item in tags if str(item).strip()}
+    values.add("local")
+    _environment_ctx.set(frozenset(values))
+
+
+def current_environment() -> frozenset[str]:
+    return _environment_ctx.get()
+
+
+def _platform_name() -> str:
+    if sys.platform == "win32":
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    return "linux"
+
+
+def _frontmatter_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        raw = value
+    elif isinstance(value, str):
+        raw = value.split(",")
+    else:
+        raw = []
+    return list(dict.fromkeys(str(item).strip().lower() for item in raw if str(item).strip()))
 
 
 @contextmanager
@@ -368,6 +400,9 @@ def _info_from_dir(d: Path) -> dict[str, Any] | None:
         "trust_level": trust_level,
         "security_scan": security_scan,
         "security_warnings_accepted": False,
+        "platforms": _frontmatter_list(fm.get("platforms")),
+        "environments": _frontmatter_list(fm.get("environments")),
+        "requires_tools": _frontmatter_list(fm.get("requires_tools")),
         "release_id": str(release.get("release_id") or ""),
         "content_hash": str(release.get("content_hash") or sh.get("contentHash") or ""),
         "disabled": (d / DISABLED_MARKER).exists(),
@@ -558,6 +593,45 @@ def security_allows_runtime(key: str) -> bool:
     if persisted.get("content_hash") != report.get("content_hash"):
         accepted = False
     return allows_runtime(report, accepted)
+
+
+def incompatibility_reason(name: str | dict[str, Any]) -> str:
+    """Return an explainable platform/environment/tool-contract gate failure."""
+    if isinstance(name, dict):
+        item = name
+    else:
+        query = (name or "").strip()
+        item = next(
+            (
+                value for value in scan()
+                if query in {
+                    str(value.get("key") or ""),
+                    str(value.get("slug") or ""),
+                    str(value.get("name") or ""),
+                }
+            ),
+            None,
+        )
+        if not item:
+            return ""
+    platforms = {str(value).lower() for value in item.get("platforms", [])}
+    current_platform = _platform_name()
+    if platforms and "any" not in platforms and current_platform not in platforms:
+        return f"仅支持 {', '.join(sorted(platforms))}，当前平台是 {current_platform}"
+    environments = {str(value).lower() for value in item.get("environments", [])}
+    active = set(current_environment())
+    if environments and "any" not in environments and not environments.intersection(active):
+        return (
+            f"需要环境 {', '.join(sorted(environments))}，"
+            f"当前环境是 {', '.join(sorted(active))}"
+        )
+    required = {str(value) for value in item.get("requires_tools", [])}
+    if required:
+        from agent.skills import available_skill_tool_names
+        missing = sorted(required - available_skill_tool_names())
+        if missing:
+            return f"缺少所需工具契约：{', '.join(missing)}"
+    return ""
 
 
 def _safe_import_path(raw: str) -> PurePosixPath:
@@ -869,6 +943,9 @@ def install_catalog_skill(
     permissions: list[str] | None = None,
     tool_contract_version: str = "1",
     release_id: str = "",
+    platforms: list[str] | None = None,
+    environments: list[str] | None = None,
+    requires_tools: list[str] | None = None,
 ) -> dict[str, Any]:
     """Install an AgentMate catalog definition as a real local skill snapshot."""
     slug = (slug or "").strip()
@@ -883,12 +960,22 @@ def install_catalog_skill(
     if len(name) > 120 or len(description) > 500 or len(instructions) > 50_000:
         raise SkillImportError("目录技能名称、描述或指令过长", 422)
     version_line = f"version: {json.dumps(version, ensure_ascii=False)}\n" if version else ""
+    compatibility_lines = "".join(
+        f"{key}: {json.dumps(list(dict.fromkeys(values)), ensure_ascii=False)}\n"
+        for key, values in (
+            ("platforms", platforms or []),
+            ("environments", environments or []),
+            ("requires_tools", requires_tools or []),
+        )
+        if values
+    )
     markdown = (
         "---\n"
         f"name: {json.dumps(name, ensure_ascii=False)}\n"
         f"slug: {slug}\n"
         f"description: {json.dumps(description, ensure_ascii=False)}\n"
         f"{version_line}"
+        f"{compatibility_lines}"
         "source: agentmate\n"
         "---\n\n"
         f"{instructions}\n"
@@ -924,6 +1011,9 @@ def upgrade_catalog_skill(
     permissions: list[str] | None = None,
     tool_contract_version: str = "1",
     release_id: str = "",
+    platforms: list[str] | None = None,
+    environments: list[str] | None = None,
+    requires_tools: list[str] | None = None,
 ) -> dict[str, Any]:
     """原子升级一个 AgentMate 目录技能；保留启停状态，失败时恢复旧目录。"""
     slug = (slug or "").strip()
@@ -938,12 +1028,22 @@ def upgrade_catalog_skill(
     if len(name) > 120 or len(description) > 500 or len(instructions) > 50_000:
         raise SkillImportError("目录技能名称、描述或指令过长", 422)
     version_line = f"version: {json.dumps(version, ensure_ascii=False)}\n" if version else ""
+    compatibility_lines = "".join(
+        f"{key}: {json.dumps(list(dict.fromkeys(values)), ensure_ascii=False)}\n"
+        for key, values in (
+            ("platforms", platforms or []),
+            ("environments", environments or []),
+            ("requires_tools", requires_tools or []),
+        )
+        if values
+    )
     markdown = (
         "---\n"
         f"name: {json.dumps(name, ensure_ascii=False)}\n"
         f"slug: {slug}\n"
         f"description: {json.dumps(description, ensure_ascii=False)}\n"
         f"{version_line}"
+        f"{compatibility_lines}"
         "source: agentmate\n"
         "---\n\n"
         f"{instructions}\n"
@@ -1631,8 +1731,9 @@ def _invalidate_cache() -> None:
 def _index() -> dict[str, dict[str, Any]]:
     """name/slug/folder/frontmatter-name → 该 skill 的目录信息 + 正文（缓存）。"""
     owner = current_owner()
-    if owner in _cache:
-        return _cache[owner]
+    cache_key = f"{skills_dir().resolve()}::{owner}"
+    if cache_key in _cache:
+        return _cache[cache_key]
     idx: dict[str, dict[str, Any]] = {}
     for info in scan(owner):
         if not security_allows_runtime(str(info["key"])):
@@ -1656,7 +1757,7 @@ def _index() -> dict[str, dict[str, Any]]:
             k = k.strip()
             if k:
                 idx[k] = entry
-    _cache[owner] = idx
+    _cache[cache_key] = idx
     return idx
 
 

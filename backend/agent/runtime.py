@@ -272,6 +272,7 @@ async def run_chat(
     ask: bool = False,
     experts: list[str] | None = None,
     skills: list[str] | None = None,
+    bundle_ids: list[str] | None = None,
     connectors: list[str] | None = None,
     knowledge_ids: list[str] | None = None,
     refs: list[dict] | None = None,
@@ -301,7 +302,7 @@ async def run_chat(
         async for chunk in _run_chat_inner(
             session, user, user_text,
             model=model, plan=plan, ask=ask,
-            experts=experts, skills=skills, connectors=connectors,
+            experts=experts, skills=skills, bundle_ids=bundle_ids, connectors=connectors,
             knowledge_ids=knowledge_ids, refs=refs,
             system_extra=system_extra, workspace=workspace,
             idempotency_key=idempotency_key, retry_of=retry_of,
@@ -334,6 +335,7 @@ async def _run_chat_inner(
     ask: bool = False,
     experts: list[str] | None = None,
     skills: list[str] | None = None,
+    bundle_ids: list[str] | None = None,
     connectors: list[str] | None = None,
     knowledge_ids: list[str] | None = None,
     refs: list[dict] | None = None,
@@ -397,11 +399,24 @@ async def _run_chat_inner(
             proj_experts, proj_skills, proj_connectors = project.experts, project.skills, project.connectors
             proj_knowledge = project.knowledge_ids
 
+    environment_tags = ["project" if session.project_id else "adhoc"]
+    if project and project.origin == "server":
+        environment_tags.append("server-project")
+    if session.kind == "assistant":
+        environment_tags.append("assistant")
+    skills_store.set_environment(environment_tags)
+
+    from agent import skill_bundles
+    bundle_resolution = skill_bundles.resolve(user.id, bundle_ids or [])
+
     active_experts = _dedup(proj_experts + (experts or []))
     # 技能身份全链路以 slug 为准；兼容旧客户端传展示名。项目 Skill 不再无条件注入正文，
     # 而是进入精简候选索引；本轮显式选择仍立即加载。
     project_skill_candidates = canonical_skill_keys(_dedup(proj_skills), keep_unknown=True)
-    active_skills = canonical_skill_keys(_dedup(skills or []), keep_unknown=True)
+    active_skills = canonical_skill_keys(
+        _dedup((skills or []) + bundle_resolution["skills"]),
+        keep_unknown=True,
+    )
     active_connectors = _dedup(proj_connectors + (connectors or []))
     skill_candidates = build_skill_candidates(project_skill_candidates)
     set_skill_candidates(skill_candidates)
@@ -492,6 +507,7 @@ async def _run_chat_inner(
     # SKILL.md）。解析不到的不注入、不伪造指令，收进 skills_skipped 如实告知用户
     # —— 同连接器 mcp_skipped 的范式，别做静默 no-op，更别假装技能生效了。
     skills_skipped: list[str] = []
+    skill_skip_reasons: dict[str, str] = {}
     skills_budget_omitted: list[str] = []
     skills_truncated: list[str] = []
     skill_prompt_remaining = 12_000
@@ -501,6 +517,9 @@ async def _run_chat_inner(
             d = skill_runtime_def(name)
             if d is None:
                 skills_skipped.append(name)
+                reason = skills_store.incompatibility_reason(name)
+                if reason:
+                    skill_skip_reasons[name] = reason
                 continue
             instr = str(d["instructions"])
             tools = d["tools"]
@@ -620,6 +639,9 @@ async def _run_chat_inner(
             "experts": active_experts, "skills": active_skills,
             "skill_candidates": [item["slug"] for item in skill_candidates],
             "project_skill_candidates": project_skill_candidates,
+            "skill_bundles": bundle_resolution["bundles"],
+            "missing_skill_bundles": bundle_resolution["missing_bundles"],
+            "missing_bundle_skills": bundle_resolution["missing_skills"],
             "skill_releases": skill_release_snapshots,
             "connectors": active_connectors, "knowledge_ids": active_knowledge,
         },
@@ -636,6 +658,7 @@ async def _run_chat_inner(
     if not created:
         clear_skill_candidates()
         skill_usage.clear_context()
+        skills_store.set_environment(["adhoc"])
         set_active_skill_resources([])
         yield events.run(run.to_dict())
         yield events.done()
@@ -862,7 +885,7 @@ async def _run_chat_inner(
             slug for slug in project_skill_candidates if slug not in ready_candidate_slugs
         ]
         if (
-            active_experts or active_skills or project_skill_candidates
+            active_experts or active_skills or project_skill_candidates or bundle_ids
             or connector_names or mcp_skipped or (active_knowledge and not ask)
         ):
             parts = []
@@ -870,6 +893,21 @@ async def _run_chat_inner(
                 parts.append("专家 " + "、".join(loaded_experts))
             if loaded_skills:
                 parts.append("技能 " + "、".join(loaded_skills))
+            if bundle_resolution["bundles"]:
+                parts.append(
+                    "技能组合 " + "、".join(item["name"] for item in bundle_resolution["bundles"])
+                )
+            if bundle_resolution["missing_bundles"]:
+                parts.append(
+                    "技能组合不存在 " + "、".join(bundle_resolution["missing_bundles"])
+                )
+            if bundle_resolution["missing_skills"]:
+                parts.append(
+                    "组合内技能缺失 " + "、".join(
+                        f"{item['bundle_name']}:{item['skill']}"
+                        for item in bundle_resolution["missing_skills"]
+                    )
+                )
             if project_candidates_ready:
                 parts.append(f"项目候选技能 {len(project_candidates_ready)} 个（按需加载）")
             if project_candidates_skipped:
@@ -886,7 +924,8 @@ async def _run_chat_inner(
             # 「已加载」，用户无从分辨技能到底有没有生效。
             if skills_skipped:
                 parts.append("技能未就绪 " + "、".join(
-                    f"{skill_display_name(n)}（未安装或已停用）" for n in skills_skipped
+                    f"{skill_display_name(n)}（{skill_skip_reasons.get(n) or '未安装或已停用'}）"
+                    for n in skills_skipped
                 ))
             if skills_budget_omitted:
                 parts.append("技能预算未加载 " + "、".join(skill_display_name(n) for n in skills_budget_omitted))
@@ -1211,6 +1250,7 @@ async def _run_chat_inner(
         _unregister_run(session_id, run_id)
         clear_skill_candidates()
         skill_usage.clear_context()
+        skills_store.set_environment(["adhoc"])
         set_active_skill_resources([])
         # If the run never reached a normal finish (client disconnect →
         # CancelledError, a BaseException that skips `except Exception`), leave the

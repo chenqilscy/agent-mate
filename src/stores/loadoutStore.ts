@@ -32,6 +32,7 @@ const KEY: Record<Kind, 'experts' | 'skills' | 'connectors' | 'knowledgeIds'> = 
 interface LoadoutState {
   experts: string[]
   skills: string[]
+  skillBundles: string[]
   connectors: string[]
   // 挂载的知识库 id（WB-144）：随每条消息发给后端，agent 可用 knowledge_retrieve 检索。
   knowledgeIds: string[]
@@ -45,6 +46,7 @@ interface LoadoutState {
   summon: (experts: string[]) => void
   // 同 summon，但换成技能班底（用于「编辑技能」：只挂 skill-creator，清掉专家/连接器）。
   summonSkills: (skills: string[]) => void
+  summonSkillBundle: (bundleId: string) => void
   // 同 summon，但换成连接器班底（用于连接器目录的「去试试」：进入新草稿时保持挂载）。
   summonConnectors: (connectors: string[]) => void
   addRef: (r: NewAttachedRef) => boolean
@@ -59,6 +61,7 @@ interface LoadoutState {
 export const useLoadoutStore = create<LoadoutState>((set, get) => ({
   experts: [],
   skills: [],
+  skillBundles: [],
   connectors: [],
   knowledgeIds: [],
   refs: [],
@@ -73,13 +76,16 @@ export const useLoadoutStore = create<LoadoutState>((set, get) => ({
     }),
 
   summon: (experts) =>
-    set({ experts: [...new Set(experts)], skills: [], connectors: [], knowledgeIds: [], refs: [], draft: '' }),
+    set({ experts: [...new Set(experts)], skills: [], skillBundles: [], connectors: [], knowledgeIds: [], refs: [], draft: '' }),
 
   summonSkills: (skills) =>
-    set({ experts: [], skills: [...new Set(skills)], connectors: [], knowledgeIds: [], refs: [] }),
+    set({ experts: [], skills: [...new Set(skills)], skillBundles: [], connectors: [], knowledgeIds: [], refs: [] }),
+
+  summonSkillBundle: (bundleId) =>
+    set({ experts: [], skills: [], skillBundles: [bundleId], connectors: [], knowledgeIds: [], refs: [] }),
 
   summonConnectors: (connectors) =>
-    set({ experts: [], skills: [], connectors: [...new Set(connectors)], knowledgeIds: [], refs: [], draft: '' }),
+    set({ experts: [], skills: [], skillBundles: [], connectors: [...new Set(connectors)], knowledgeIds: [], refs: [], draft: '' }),
 
   addRef: (r) => {
     const duplicate = get().refs.some((x) =>
@@ -95,5 +101,5 @@ export const useLoadoutStore = create<LoadoutState>((set, get) => ({
   setDraft: (text) => set({ draft: text }),
   clearDraft: () => set({ draft: '' }),
   setKnowledgeIds: (ids) => set({ knowledgeIds: [...new Set(ids)] }),
-  reset: () => set({ experts: [], skills: [], connectors: [], knowledgeIds: [], refs: [], draft: '' }),
+  reset: () => set({ experts: [], skills: [], skillBundles: [], connectors: [], knowledgeIds: [], refs: [], draft: '' }),
 }))

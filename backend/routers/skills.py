@@ -96,6 +96,12 @@ class SkillRatingBody(BaseModel):
     rating: str
 
 
+class SkillBundleBody(BaseModel):
+    name: str
+    description: str = ""
+    skills: list[str]
+
+
 def _candidate_error(exc: Exception) -> HTTPException:
     if isinstance(exc, KeyError):
         return HTTPException(404, "skill candidate not found")
@@ -224,6 +230,70 @@ def list_installed() -> dict:
     return {"skills": skills_store.scan(), "cli": skills_store.cli_available()}
 
 
+@router.get("/skill-bundles")
+def list_skill_bundles() -> dict:
+    from agent import skill_bundles
+
+    owner = _scope_owner()
+    return {"bundles": skill_bundles.list_bundles(owner)}
+
+
+@router.post("/skill-bundles")
+def create_skill_bundle(body: SkillBundleBody) -> dict:
+    from agent import skill_bundles
+
+    owner = _scope_owner()
+    try:
+        return {
+            "bundle": skill_bundles.create(
+                owner, body.name, body.description, body.skills,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.put("/skill-bundles/{bundle_id}")
+def update_skill_bundle(bundle_id: str, body: SkillBundleBody) -> dict:
+    from agent import skill_bundles
+
+    owner = _scope_owner()
+    try:
+        return {
+            "bundle": skill_bundles.update(
+                bundle_id,
+                owner,
+                name=body.name,
+                description=body.description,
+                skills=body.skills,
+            )
+        }
+    except KeyError as exc:
+        raise HTTPException(404, "skill bundle not found") from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.delete("/skill-bundles/{bundle_id}")
+def delete_skill_bundle(bundle_id: str) -> dict:
+    from agent import skill_bundles
+
+    if not skill_bundles.delete(bundle_id, _scope_owner()):
+        raise HTTPException(404, "skill bundle not found")
+    return {"ok": True}
+
+
+@router.post("/skill-bundles/{bundle_id}/resolve")
+def resolve_skill_bundle(bundle_id: str) -> dict:
+    from agent import skill_bundles
+
+    owner = _scope_owner()
+    result = skill_bundles.resolve(owner, [bundle_id])
+    if result["missing_bundles"]:
+        raise HTTPException(404, "skill bundle not found")
+    return result
+
+
 @router.get("/skill-usage")
 def skill_usage_summary() -> dict:
     from agent import skill_usage
@@ -344,6 +414,9 @@ def install_catalog_skill(key: str) -> dict:
             required_permissions,
             str(spec.get("tool_contract_version") or "1"),
             str(spec.get("server_release_id") or ""),
+            spec.get("platforms") if isinstance(spec.get("platforms"), list) else [],
+            spec.get("environments") if isinstance(spec.get("environments"), list) else [],
+            spec.get("requires_tools") if isinstance(spec.get("requires_tools"), list) else [],
         )
         _report_release_metric(owner, str(spec.get("server_release_id") or ""), "installed")
         return result
@@ -390,6 +463,9 @@ def upgrade_catalog_skill(key: str, body: UpgradeCatalogBody | None = None) -> d
             required_permissions,
             str(spec.get("tool_contract_version") or "1"),
             str(spec.get("server_release_id") or ""),
+            spec.get("platforms") if isinstance(spec.get("platforms"), list) else [],
+            spec.get("environments") if isinstance(spec.get("environments"), list) else [],
+            spec.get("requires_tools") if isinstance(spec.get("requires_tools"), list) else [],
         )
         _report_release_metric(owner, str(spec.get("server_release_id") or ""), "installed")
         return result
