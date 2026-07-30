@@ -364,6 +364,7 @@ def _info_from_dir(d: Path) -> dict[str, Any] | None:
         "description": desc,
         "version": version,
         "source": source,
+        "installed_at": float(sh.get("installedAt") or 0) / 1000,
         "trust_level": trust_level,
         "security_scan": security_scan,
         "security_warnings_accepted": False,
@@ -1596,6 +1597,8 @@ def set_disabled(
     with _slug_lock(str(item["slug"])):
         changed = db.set_skill_installation_enabled(owner, str(item["slug"]), not disabled)
     if changed:
+        from agent import skill_usage
+        skill_usage.record("disabled" if disabled else "enabled", item, owner_id=owner)
         _invalidate_cache()
     return changed
 

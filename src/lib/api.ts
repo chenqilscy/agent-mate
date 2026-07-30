@@ -368,6 +368,12 @@ export const api = {
       disabled,
       accept_security_warnings: acceptSecurityWarnings,
     }),
+  rateSkill: (key: string, rating: 'helpful' | 'neutral' | 'not_helpful') =>
+    send<{ rating: { slug: string; release_id: string; rating: string } }>(
+      'POST',
+      `/skills/${encodeURIComponent(key)}/rating`,
+      { rating },
+    ),
   revealSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/reveal`),
 
   updateProject: (id: string, patch: Partial<Pick<ProjectInfo, 'name' | 'instruction' | 'connectors' | 'experts' | 'skills' | 'knowledge_ids'>>) =>

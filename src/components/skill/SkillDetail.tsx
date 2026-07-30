@@ -32,6 +32,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
   const [view, setView] = useState<'preview' | 'source'>('preview')
   const [menu, setMenu] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const [ratingBusy, setRatingBusy] = useState(false)
   const toggle = useSkillStore((s) => s.toggle)
   const uninstall = useSkillStore((s) => s.uninstall)
   const storeSkill = useSkillStore((s) => {
@@ -159,6 +160,22 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
     setMenu(false)
   }
   const doUninstall = () => { if (localKey) void uninstall(localKey); setMenu(false); onBack() }
+  const rateSkill = async (rating: 'helpful' | 'neutral' | 'not_helpful') => {
+    if (!localKey || ratingBusy) return
+    setRatingBusy(true)
+    try {
+      await api.rateSkill(localKey, rating)
+      setData((current) => current ? {
+        ...current,
+        usage: current.usage ? { ...current.usage, rating } : current.usage,
+      } : current)
+      toast('已记录评价')
+    } catch {
+      toast('评价保存失败')
+    } finally {
+      setRatingBusy(false)
+    }
+  }
 
   return (
     <div className="cap-pane show">
@@ -238,6 +255,35 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
                 </ul>
               }
             />
+          )}
+
+          {installed && data?.usage && (
+            <div className="skd-refs">
+              <div className="skd-market-title">使用情况</div>
+              <div className="skd-market-copy">
+                已加载 {data.usage.loads} 次 · 成功 {data.usage.successes} 次 · 失败 {data.usage.failures} 次
+                {data.usage.last_loaded_at
+                  ? ` · 最近使用 ${new Date(data.usage.last_loaded_at * 1000).toLocaleDateString()}`
+                  : ' · 尚未实际加载'}
+              </div>
+              <div className="skd-actions" aria-label="评价此技能">
+                <WbButton
+                  className={`cap-act ${data.usage.rating === 'helpful' ? 'on' : ''}`.trim()}
+                  disabled={ratingBusy}
+                  onClick={() => { void rateSkill('helpful') }}
+                >有帮助</WbButton>
+                <WbButton
+                  className={`cap-act ${data.usage.rating === 'neutral' ? 'on' : ''}`.trim()}
+                  disabled={ratingBusy}
+                  onClick={() => { void rateSkill('neutral') }}
+                >一般</WbButton>
+                <WbButton
+                  className={`cap-act ${data.usage.rating === 'not_helpful' ? 'on' : ''}`.trim()}
+                  disabled={ratingBusy}
+                  onClick={() => { void rateSkill('not_helpful') }}
+                >没帮助</WbButton>
+              </div>
+            </div>
           )}
 
           {data && installed ? (

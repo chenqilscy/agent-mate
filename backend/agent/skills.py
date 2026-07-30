@@ -634,14 +634,20 @@ def skill_runtime_def(name: str) -> dict[str, Any] | None:
     body = skills_store.instructions_for(name)
     if body:
         digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        slug = skills_store.canonical_slug(name) or name
+        installed = next(
+            (item for item in skills_store.scan() if item.get("slug") == slug),
+            {},
+        )
+        package_hash = str(installed.get("content_hash") or digest)
         return {
             "instructions": body,
             "tools": [],
             "snapshot": {
-                "slug": skills_store.canonical_slug(name) or name,
-                "release_id": f"local:{digest[:16]}",
+                "slug": slug,
+                "release_id": f"local:{package_hash}",
                 "version": "",
-                "content_hash": digest,
+                "content_hash": package_hash,
                 "instructions_hash": digest,
                 "tool_contract_version": "0",
                 "tools": [],

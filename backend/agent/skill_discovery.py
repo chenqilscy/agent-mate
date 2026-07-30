@@ -112,6 +112,9 @@ def _skills_list_run(args: dict[str, Any]) -> ToolOutcome:
     items = items[:limit]
     if not items:
         return ToolOutcome(text="没有匹配的已安装、已启用且当前可加载的 Skill。")
+    from agent import skill_usage
+    for item in items:
+        skill_usage.record("discovered", item)
     lines = ["当前可按需加载的 Skill："]
     for item in items:
         scope = "项目候选" if item.get("project") else "已安装"

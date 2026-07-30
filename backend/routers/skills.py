@@ -92,6 +92,10 @@ class SkillCandidateRejectBody(BaseModel):
     reason: str = ""
 
 
+class SkillRatingBody(BaseModel):
+    rating: str
+
+
 def _candidate_error(exc: Exception) -> HTTPException:
     if isinstance(exc, KeyError):
         return HTTPException(404, "skill candidate not found")
@@ -220,6 +224,61 @@ def list_installed() -> dict:
     return {"skills": skills_store.scan(), "cli": skills_store.cli_available()}
 
 
+@router.get("/skill-usage")
+def skill_usage_summary() -> dict:
+    from agent import skill_usage
+
+    owner = _scope_owner()
+    return {"skills": skill_usage.summaries(owner)}
+
+
+@router.get("/skill-governance")
+def skill_governance_suggestions() -> dict:
+    from agent import skill_usage
+
+    owner = _scope_owner()
+    return {
+        "suggestions": skill_usage.suggestions(owner),
+        "policy": {
+            "automatic_delete": False,
+            "automatic_merge": False,
+            "umbrella_skill_requires_candidate_flow": True,
+        },
+    }
+
+
+@router.post("/skill-governance/{suggestion_id}/ignore")
+def ignore_skill_governance_suggestion(suggestion_id: str) -> dict:
+    from agent import skill_usage
+
+    owner = _scope_owner()
+    try:
+        skill_usage.ignore_suggestion(owner, suggestion_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/skills/{key}/rating")
+def rate_skill(key: str, body: SkillRatingBody) -> dict:
+    from agent import skill_usage
+
+    owner = _scope_owner()
+    item = next(
+        (
+            skill for skill in skills_store.scan(owner)
+            if key in {str(skill.get("key") or ""), str(skill.get("slug") or "")}
+        ),
+        None,
+    )
+    if not item:
+        raise HTTPException(404, "skill not found")
+    try:
+        return {"rating": skill_usage.rate(owner, item, body.rating)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @router.get("/skills/builtin")
 def list_builtin() -> dict:
     """已安装的 AgentMate 目录技能，供 loadout 选择器（兼容旧路由名）。
@@ -341,7 +400,7 @@ def upgrade_catalog_skill(key: str, body: UpgradeCatalogBody | None = None) -> d
 
 @router.get("/skills/{key}")
 def get_detail(key: str) -> dict:
-    _scope_owner()
+    owner = _scope_owner()
     d = skills_store.detail(key)
     if not d:
         raise HTTPException(404, "skill not found")
@@ -354,6 +413,15 @@ def get_detail(key: str) -> dict:
                 "security_scan": d.get("security_scan"),
                 "security_warnings_accepted": d.get("security_warnings_accepted"),
             }
+    from agent import skill_usage
+    usage = next(
+        (
+            item for item in skill_usage.summaries(owner)
+            if item.get("slug") == d.get("slug")
+        ),
+        None,
+    )
+    d["usage"] = usage
     return {"skill": d}
 
 

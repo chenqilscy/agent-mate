@@ -523,10 +523,18 @@ async def _run_chat_inner(
 
     async def report_skill_runs(event: str) -> None:
         """Best-effort aggregate telemetry; never uploads prompts, files, tool args or secrets."""
+        from agent import skill_usage
+
+        skill_usage.record_many(
+            event,
+            skill_release_snapshots,
+            owner_id=user.id,
+            run_id=run_id,
+        )
         token = db.get_server_identity(user.id) or ""
         release_ids = list(dict.fromkeys(
             str(snapshot.get("release_id") or "") for snapshot in skill_release_snapshots
-            if snapshot.get("release_id")
+            if snapshot.get("release_id") and snapshot.get("source") == "agentmate"
         ))
         if not token or not release_ids:
             return
@@ -617,8 +625,17 @@ async def _run_chat_inner(
         },
     )
     run_id = run.id
+    from agent import skill_usage
+    skill_usage.set_context(user.id, run_id)
+    skill_usage.record_many(
+        "loaded",
+        skill_release_snapshots,
+        owner_id=user.id,
+        run_id=run_id,
+    )
     if not created:
         clear_skill_candidates()
+        skill_usage.clear_context()
         set_active_skill_resources([])
         yield events.run(run.to_dict())
         yield events.done()
@@ -818,6 +835,12 @@ async def _run_chat_inner(
                     active_skills.append(slug)
                 skill_tools.extend(definition["tools"])
                 skill_release_snapshots.append(snapshot)
+                skill_usage.record(
+                    "loaded",
+                    snapshot,
+                    owner_id=user.id,
+                    run_id=run_id,
+                )
                 changed = True
             if changed:
                 set_active_skill_resources(skill_release_snapshots)
@@ -1187,6 +1210,7 @@ async def _run_chat_inner(
     finally:
         _unregister_run(session_id, run_id)
         clear_skill_candidates()
+        skill_usage.clear_context()
         set_active_skill_resources([])
         # If the run never reached a normal finish (client disconnect →
         # CancelledError, a BaseException that skips `except Exception`), leave the

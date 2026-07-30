@@ -772,6 +772,23 @@ export interface SkillSecurityReport {
   scripts_executable: false
 }
 
+export interface SkillUsageSummary {
+  slug: string
+  name: string
+  release_id: string
+  content_hash: string
+  disabled: boolean
+  installed_at: number
+  discoveries: number
+  loads: number
+  successes: number
+  failures: number
+  success_rate: number | null
+  last_loaded_at: number | null
+  last_event_at: number | null
+  rating: 'helpful' | 'neutral' | 'not_helpful' | null
+}
+
 export interface SkillDetail extends InstalledSkill {
   markdown: string                       // 完整 SKILL.md（含 front-matter）
   body: string                           // 去掉 front-matter 的正文
@@ -793,4 +810,5 @@ export interface SkillDetail extends InstalledSkill {
   permissions?: string[]
   catalog_permissions?: string[]
   added_permissions?: string[]
+  usage?: SkillUsageSummary | null
 }
