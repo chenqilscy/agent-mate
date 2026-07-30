@@ -553,6 +553,31 @@ def init_db() -> None:
                 int(tool.get("sort", 0)), now, now,
             ),
         )
+    # WB-336：只升级仍保持产品旧种子原文的技能创建指南；Console 已运营过的定义不覆盖。
+    governed_creator = next(
+        (item for item in DEFAULT_APP_SKILLS if item.get("slug") == "skill-creator-guide"),
+        None,
+    )
+    if governed_creator:
+        legacy_creator_instructions = {
+            "帮助用户创建自定义技能：先澄清用途、触发场景、输入输出与约束，整理出稳定英文 slug、名称、描述和完整 Markdown 指令；信息足够后必须调用 create_local_skill 真正创建并安装，不要只给模板或假装已创建。",
+        }
+        for row in conn.execute(
+            "SELECT id,data FROM catalog_items WHERE category='APP_SKILLS' AND scope='builtin'"
+        ).fetchall():
+            try:
+                item = json.loads(row["data"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if (
+                isinstance(item, dict)
+                and item.get("slug") == "skill-creator-guide"
+                and item.get("instructions") in legacy_creator_instructions
+            ):
+                conn.execute(
+                    "UPDATE catalog_items SET data=?,version=version+1,updated_at=? WHERE id=?",
+                    (json.dumps(governed_creator, ensure_ascii=False), now, row["id"]),
+                )
     # WB-215：第三方 SkillHub 改为每台 App 直接访问。清掉旧 Server 镜像、精选与凭据，
     # 防止升级后的 Server 继续向客户端下发历史数据。
     conn.execute(

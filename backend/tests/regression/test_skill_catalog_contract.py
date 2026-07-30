@@ -161,7 +161,7 @@ class SkillCatalogContractTest(unittest.TestCase):
 
         spec = db.skill_spec_for("skill-creator-guide")
         self.assertIsNotNone(spec)
-        self.assertEqual(["create_local_skill"], spec["tools"])
+        self.assertEqual(["create_local_skill", "propose_skill_candidate"], spec["tools"])
         from agent import skills_store
         from agent.skills import skill_def
         self.assertIsNone(skill_def("skill-creator-guide"))
@@ -171,8 +171,11 @@ class SkillCatalogContractTest(unittest.TestCase):
         )
         resolved = skill_def("skill-creator-guide")
         self.assertIsNotNone(resolved)
-        self.assertIn("真正创建并安装", resolved[0])
-        self.assertEqual(["create_local_skill"], [tool.name for tool in resolved[1]])
+        self.assertIn("候选不会立即安装", resolved[0])
+        self.assertEqual(
+            ["create_local_skill", "propose_skill_candidate"],
+            [tool.name for tool in resolved[1]],
+        )
 
     def test_catalog_skill_requires_real_install_for_content_and_runtime(self) -> None:
         from agent import skills_store

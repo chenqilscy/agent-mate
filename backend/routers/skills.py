@@ -70,6 +70,150 @@ class ImportDirectoryBody(BaseModel):
     accept_security_warnings: bool = False
 
 
+class SkillCandidateBody(BaseModel):
+    source_run_id: str
+    target_scope: str = "local"
+    slug: str
+    name: str
+    description: str
+    instructions: str
+    tools: list[str] = []
+
+
+class SkillCandidateTestBody(BaseModel):
+    test_run_id: str
+
+
+class SkillCandidateApproveBody(BaseModel):
+    accept_security_warnings: bool = False
+
+
+class SkillCandidateRejectBody(BaseModel):
+    reason: str = ""
+
+
+def _candidate_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, KeyError):
+        return HTTPException(404, "skill candidate not found")
+    if isinstance(exc, PermissionError):
+        return HTTPException(404, "run not found")
+    return HTTPException(409, str(exc))
+
+
+@router.get("/skill-candidates")
+def list_skill_candidates() -> dict:
+    from agent import skill_learning
+
+    owner = _scope_owner()
+    return {"candidates": skill_learning.list_candidates(owner)}
+
+
+@router.post("/skill-candidates")
+def create_skill_candidate(body: SkillCandidateBody) -> dict:
+    from agent import skill_learning
+
+    owner = _scope_owner()
+    try:
+        candidate = skill_learning.create_candidate(
+            owner_id=owner,
+            source_run_id=body.source_run_id,
+            target_scope=body.target_scope,
+            slug=body.slug,
+            name=body.name,
+            description=body.description,
+            instructions=body.instructions,
+            tools=body.tools,
+        )
+        return {"candidate": candidate}
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _candidate_error(exc) from exc
+
+
+@router.get("/skill-candidates/{candidate_id}")
+def get_skill_candidate(candidate_id: str) -> dict:
+    from agent import skill_learning
+
+    candidate = skill_learning.get_candidate(candidate_id, _scope_owner())
+    if not candidate:
+        raise HTTPException(404, "skill candidate not found")
+    return {"candidate": candidate}
+
+
+@router.post("/skill-candidates/{candidate_id}/test")
+def test_skill_candidate(candidate_id: str, body: SkillCandidateTestBody) -> dict:
+    from agent import skill_learning
+
+    owner = _scope_owner()
+    try:
+        return {"candidate": skill_learning.record_test(candidate_id, owner, body.test_run_id)}
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _candidate_error(exc) from exc
+
+
+@router.post("/skill-candidates/{candidate_id}/approve")
+def approve_skill_candidate(
+    candidate_id: str,
+    body: SkillCandidateApproveBody | None = None,
+) -> dict:
+    from agent import skill_learning
+
+    owner = _scope_owner()
+    try:
+        return {
+            "candidate": skill_learning.approve(
+                candidate_id,
+                owner,
+                accept_security_warnings=bool(body and body.accept_security_warnings),
+            )
+        }
+    except (KeyError, ValueError) as exc:
+        raise _candidate_error(exc) from exc
+
+
+@router.post("/skill-candidates/{candidate_id}/reject")
+def reject_skill_candidate(candidate_id: str, body: SkillCandidateRejectBody) -> dict:
+    from agent import skill_learning
+
+    owner = _scope_owner()
+    try:
+        return {"candidate": skill_learning.reject(candidate_id, owner, body.reason)}
+    except (KeyError, ValueError) as exc:
+        raise _candidate_error(exc) from exc
+
+
+@router.post("/skill-candidates/{candidate_id}/install")
+def install_skill_candidate(candidate_id: str) -> dict:
+    from agent import skill_learning
+
+    owner = _scope_owner()
+    try:
+        return {"candidate": skill_learning.install_local(candidate_id, owner)}
+    except (KeyError, ValueError, skills_store.SkillImportError) as exc:
+        raise _candidate_error(exc) from exc
+
+
+@router.post("/skill-candidates/{candidate_id}/rollback")
+def rollback_skill_candidate(candidate_id: str) -> dict:
+    from agent import skill_learning
+
+    owner = _scope_owner()
+    try:
+        return {"candidate": skill_learning.rollback_local(candidate_id, owner)}
+    except (KeyError, ValueError) as exc:
+        raise _candidate_error(exc) from exc
+
+
+@router.get("/skill-candidates/{candidate_id}/platform-release-payload")
+def skill_candidate_platform_payload(candidate_id: str) -> dict:
+    from agent import skill_learning
+
+    owner = _scope_owner()
+    try:
+        return {"release": skill_learning.platform_release_payload(candidate_id, owner)}
+    except (KeyError, ValueError) as exc:
+        raise _candidate_error(exc) from exc
+
+
 @router.get("/skills")
 def list_installed() -> dict:
     _scope_owner()

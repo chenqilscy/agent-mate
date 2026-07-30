@@ -827,7 +827,14 @@ def import_skill_directory(
     )
 
 
-def create_skill(slug: str, name: str, description: str, instructions: str) -> dict[str, Any]:
+def create_skill(
+    slug: str,
+    name: str,
+    description: str,
+    instructions: str,
+    *,
+    accept_security_warnings: bool = False,
+) -> dict[str, Any]:
     """Create and install one instruction skill from agent-confirmed fields."""
     slug = (slug or "").strip()
     name = (name or "").strip()
@@ -847,7 +854,11 @@ def create_skill(slug: str, name: str, description: str, instructions: str) -> d
         "---\n\n"
         f"{instructions}\n"
     )
-    return _install_import_files([(SKILL_MD, markdown.encode("utf-8"))], f"{slug}.md")
+    return _install_import_files(
+        [(SKILL_MD, markdown.encode("utf-8"))],
+        f"{slug}.md",
+        accept_security_warnings=accept_security_warnings,
+    )
 
 
 def install_catalog_skill(

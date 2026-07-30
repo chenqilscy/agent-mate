@@ -1031,6 +1031,22 @@ def _migrate_columns() -> None:
          new_creator_instruction, json.dumps(["create_local_skill"], ensure_ascii=False),
          time.time(), old_creator_instruction),
     )
+    governed_creator_instruction = (
+        "帮助用户创建自定义技能：全新技能先澄清用途、触发场景、输入输出与约束，用户确认后可调用 "
+        "create_local_skill；若用户要把已完成任务沉淀为经验，必须调用 propose_skill_candidate，"
+        "并说明候选不会立即安装，仍需独立 Test Run 和用户确认。"
+    )
+    conn.execute(
+        "UPDATE catalog_skills SET description=?, instructions=?, tools=?, updated_at=? "
+        "WHERE scope='builtin' AND slug='skill-creator-guide' AND instructions=?",
+        (
+            "通过对话创建新技能，或从有证据的成功 Run 沉淀受治理候选。",
+            governed_creator_instruction,
+            json.dumps(["create_local_skill", "propose_skill_candidate"], ensure_ascii=False),
+            time.time(),
+            new_creator_instruction,
+        ),
+    )
 
     # WB-219：Server 自有技能可携带安全文本文件（references/脚本/模板），随目录下行并在安装时落盘。
     have_cs = {r["name"] for r in conn.execute("PRAGMA table_info(catalog_skills)").fetchall()}

@@ -294,6 +294,69 @@ create_local_skill = Tool(
 )
 
 
+def _propose_skill_candidate_run(args: dict) -> ToolOutcome:
+    from agent import skill_learning, skills_store
+
+    try:
+        candidate = skill_learning.create_candidate(
+            owner_id=skills_store.current_owner(),
+            source_run_id=str(args.get("source_run_id") or ""),
+            target_scope=str(args.get("target_scope") or "local"),
+            slug=str(args.get("slug") or ""),
+            name=str(args.get("name") or ""),
+            description=str(args.get("description") or ""),
+            instructions=str(args.get("instructions") or ""),
+            tools=[str(item) for item in args.get("tools", []) if str(item)],
+        )
+    except (PermissionError, ValueError) as exc:
+        return ToolOutcome(text=f"Skill 候选创建失败：{exc}")
+    return ToolOutcome(
+        text=(
+            f"已创建 Skill 候选「{candidate['name']}」（id={candidate['id']}，"
+            f"state={candidate['state']}）。它尚未安装；需要独立 Test Run 通过并由用户确认。"
+        ),
+        trace=[{
+            "kind": "step",
+            "tool": "propose_skill_candidate",
+            "label": f"已创建 Skill 候选 · {candidate['name']}",
+            "candidate_id": candidate["id"],
+            "source_run_id": candidate["source_run_id"],
+            "content_hash": candidate["content_hash"],
+        }],
+    )
+
+
+propose_skill_candidate = Tool(
+    name="propose_skill_candidate",
+    description=(
+        "把当前用户一个已成功且带已验收产物证据的 Run 沉淀为 Skill 候选草稿。"
+        "不会安装、启用或发布；候选还必须经过独立 Test Run 和用户确认。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "source_run_id": {"type": "string", "description": "作为经验来源的成功 Run ID"},
+            "target_scope": {"type": "string", "enum": ["local", "platform"]},
+            "slug": {"type": "string", "description": "稳定英文 Skill slug"},
+            "name": {"type": "string", "description": "候选显示名称"},
+            "description": {"type": "string", "description": "用途和触发场景"},
+            "instructions": {"type": "string", "description": "完整 Markdown 执行指令"},
+            "tools": {
+                "type": "array", "items": {"type": "string"},
+                "description": "平台候选声明的工具；本地候选必须为空",
+            },
+        },
+        "required": ["source_run_id", "slug", "name", "description", "instructions"],
+    },
+    pre=lambda a: {
+        "kind": "step", "tool": "propose_skill_candidate",
+        "label": f"沉淀 Skill 候选 {a.get('name', '')[:60]}",
+    },
+    run=_propose_skill_candidate_run,
+    permissions=("skill.manage", "run.read"),
+)
+
+
 # 工具名 → 真 Tool 对象（WB-183/WB-266）。这里是 App 构建实际支持的实现能力，不承载
 # 显示名、分类、启停或最低版本等运营字段；那些字段只由 Server tool_catalog + Console 管理。
 # 技能**定义**（提示词 + 该用哪些工具）已迁进 DB 的
@@ -307,6 +370,7 @@ _TOOL_REGISTRY: dict[str, Tool] = {
     "html_to_markdown": html_to_markdown,
     "analyze_csv": analyze_csv,
     "create_local_skill": create_local_skill,
+    "propose_skill_candidate": propose_skill_candidate,
     "list_work_items": list_work_items,
     "set_work_item_status": set_work_item_status,
     "knowledge_retrieve": knowledge_retrieve,
@@ -320,7 +384,8 @@ _TOOL_REGISTRY: dict[str, Tool] = {
 SKILL_BINDABLE_TOOL_NAMES = frozenset({
     *(tool.name for tool in TOOLS), "web_fetch", "html_to_markdown", "analyze_csv",
 })
-_SKILL_RESOLVABLE_TOOL_NAMES = SKILL_BINDABLE_TOOL_NAMES | {"create_local_skill"}
+_INTERNAL_SKILL_TOOL_NAMES = {"create_local_skill", "propose_skill_candidate"}
+_SKILL_RESOLVABLE_TOOL_NAMES = SKILL_BINDABLE_TOOL_NAMES | _INTERNAL_SKILL_TOOL_NAMES
 
 
 def _runtime_tool_registry() -> tuple[dict[str, Tool], set[str]]:
@@ -343,7 +408,7 @@ def _runtime_tool_registry() -> tuple[dict[str, Tool], set[str]]:
             continue
         if item.get("exposure") == "skill" and item.get("bindable"):
             resolvable.add(name)
-        elif name == "create_local_skill" and item.get("exposure") == "internal":
+        elif name in _INTERNAL_SKILL_TOOL_NAMES and item.get("exposure") == "internal":
             resolvable.add(name)
     return registry, resolvable
 
