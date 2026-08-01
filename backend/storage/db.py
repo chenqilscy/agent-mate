@@ -398,6 +398,7 @@ def init_db() -> None:
             prompt_tokens INTEGER NOT NULL DEFAULT 0,
             completion_tokens INTEGER NOT NULL DEFAULT 0,
             next_attempt_at REAL,
+            input_payload TEXT,
             notified TEXT NOT NULL DEFAULT '[]',
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL,
@@ -410,6 +411,39 @@ def init_db() -> None:
             ON automation_fires(status, next_attempt_at);
         CREATE INDEX IF NOT EXISTS idx_automation_fires_owner
             ON automation_fires(owner_id, created_at DESC);
+
+        -- Public Webhook identity and delivery audit stay in the local execution
+        -- plane. Secrets and event payloads are never part of Server sync/outbox.
+        CREATE TABLE IF NOT EXISTS automation_webhooks (
+            id TEXT PRIMARY KEY,
+            automation_id TEXT NOT NULL UNIQUE,
+            owner_id TEXT NOT NULL,
+            secret TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            rotated_at REAL NOT NULL,
+            FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_automation_webhooks_owner
+            ON automation_webhooks(owner_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS automation_webhook_deliveries (
+            id TEXT PRIMARY KEY,
+            webhook_id TEXT NOT NULL,
+            automation_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            payload_sha256 TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'received',
+            fire_id TEXT,
+            error_code TEXT,
+            received_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            UNIQUE(webhook_id, idempotency_key),
+            FOREIGN KEY (webhook_id) REFERENCES automation_webhooks(id) ON DELETE CASCADE,
+            FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_automation_webhook_deliveries_owner
+            ON automation_webhook_deliveries(owner_id, received_at DESC);
 
         -- In-app message center (M7 C4): real cross-user events land here, one row
         -- per recipient. Fed by collaboration actions (added to a project, role
@@ -972,6 +1006,9 @@ def _migrate_columns() -> None:
     for col in ("run_status", "run_summary", "run_kind"):
         if col not in have_s:
             conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT")
+    have_af = {r["name"] for r in conn.execute("PRAGMA table_info(automation_fires)").fetchall()}
+    if "input_payload" not in have_af:
+        conn.execute("ALTER TABLE automation_fires ADD COLUMN input_payload TEXT")
     # WB-325：滚动会话摘要及其消息游标；存量会话默认未压缩，原消息完整保留。
     for col, ddl in (
         ("summary", "summary TEXT NOT NULL DEFAULT ''"),
@@ -5638,7 +5675,10 @@ def compute_next_run(kind: str, interval_min: int, at_time: str, now: float) -> 
     """Next fire time (epoch seconds) for a trigger, relative to `now`.
 
     interval → now + N minutes. daily → the next local HH:MM strictly after now.
+    Webhooks are event-driven and use 0 as a non-schedulable sentinel.
     """
+    if kind == "webhook":
+        return 0
     if kind == "daily":
         try:
             hh, mm = (int(x) for x in at_time.split(":", 1))
@@ -5721,7 +5761,8 @@ def get_automation(auto_id: str, owner_id: Optional[str] = None) -> Optional[Aut
 
 def list_due_automations(now: float) -> list[Automation]:
     rows = get_conn().execute(
-        "SELECT * FROM automations WHERE enabled=1 AND next_run_at<=? ORDER BY next_run_at ASC",
+        "SELECT * FROM automations WHERE enabled=1 "
+        "AND trigger_kind IN ('interval','daily') AND next_run_at<=? ORDER BY next_run_at ASC",
         (now,),
     ).fetchall()
     return [_row_to_automation(r) for r in rows]
@@ -5798,7 +5839,9 @@ def _row_to_automation_fire(row: sqlite3.Row) -> AutomationFire:
         error_code=row["error_code"], error_message=row["error_message"],
         prompt_tokens=int(row["prompt_tokens"] or 0),
         completion_tokens=int(row["completion_tokens"] or 0),
-        next_attempt_at=row["next_attempt_at"], notified=_load_json(row["notified"], []),
+        next_attempt_at=row["next_attempt_at"],
+        input_payload=_load_json(row["input_payload"], None),
+        notified=_load_json(row["notified"], []),
         created_at=row["created_at"], updated_at=row["updated_at"],
         finished_at=row["finished_at"],
     )
@@ -5808,6 +5851,7 @@ def create_automation_fire(
     *, automation_id: str, owner_id: str, fire_key: str, trigger_kind: str,
     planned_at: float, max_attempts: int, session_id: Optional[str] = None,
     retry_of_run_id: Optional[str] = None,
+    input_payload: Optional[dict[str, Any]] = None,
 ) -> tuple[AutomationFire, bool]:
     auto = get_automation(automation_id, owner_id)
     if auto is None:
@@ -5821,10 +5865,12 @@ def create_automation_fire(
         get_conn().execute(
             """INSERT INTO automation_fires
                (id,automation_id,owner_id,fire_key,trigger_kind,planned_at,status,attempt,
-                max_attempts,session_id,retry_of_run_id,next_attempt_at,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,'queued',0,?,?,?,?,?,?)""",
+                max_attempts,session_id,retry_of_run_id,next_attempt_at,input_payload,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,'queued',0,?,?,?,?,?,?,?)""",
             (fire_id, automation_id, owner_id, key, trigger_kind, planned_at,
-             max(1, int(max_attempts)), session_id, retry_of_run_id, planned_at, now, now),
+             max(1, int(max_attempts)), session_id, retry_of_run_id, planned_at,
+             json.dumps(input_payload, ensure_ascii=False, separators=(",", ":"))
+             if input_payload is not None else None, now, now),
         )
         get_conn().commit()
     except sqlite3.IntegrityError:
@@ -5849,6 +5895,16 @@ def get_automation_fire(
         row = get_conn().execute(
             "SELECT * FROM automation_fires WHERE id=? AND owner_id=?", (fire_id, owner_id)
         ).fetchone()
+    return _row_to_automation_fire(row) if row else None
+
+
+def get_automation_fire_by_key(
+    automation_id: str, owner_id: str, fire_key: str,
+) -> Optional[AutomationFire]:
+    row = get_conn().execute(
+        "SELECT * FROM automation_fires WHERE automation_id=? AND owner_id=? AND fire_key=?",
+        (automation_id, owner_id, fire_key),
+    ).fetchone()
     return _row_to_automation_fire(row) if row else None
 
 
@@ -6063,6 +6119,150 @@ def ignore_automation_fire(fire_id: str, owner_id: str) -> Optional[AutomationFi
     )
     get_conn().commit()
     return get_automation_fire(fire_id, owner_id)
+
+
+def _webhook_row(row: sqlite3.Row, *, include_secret: bool = False) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "id": row["id"], "automation_id": row["automation_id"],
+        "owner_id": row["owner_id"], "created_at": row["created_at"],
+        "rotated_at": row["rotated_at"],
+    }
+    if include_secret:
+        result["secret"] = row["secret"]
+    return result
+
+
+def get_automation_webhook(
+    automation_id: str, owner_id: str, *, include_secret: bool = False,
+) -> Optional[dict[str, Any]]:
+    row = get_conn().execute(
+        "SELECT * FROM automation_webhooks WHERE automation_id=? AND owner_id=?",
+        (automation_id, owner_id),
+    ).fetchone()
+    return _webhook_row(row, include_secret=include_secret) if row else None
+
+
+def get_automation_webhook_by_id(
+    webhook_id: str, *, include_secret: bool = False,
+) -> Optional[dict[str, Any]]:
+    row = get_conn().execute(
+        "SELECT * FROM automation_webhooks WHERE id=?", (webhook_id,)
+    ).fetchone()
+    return _webhook_row(row, include_secret=include_secret) if row else None
+
+
+def create_automation_webhook(automation_id: str, owner_id: str) -> dict[str, Any]:
+    if get_automation(automation_id, owner_id) is None:
+        raise ValueError("automation scope mismatch")
+    if get_automation_webhook(automation_id, owner_id) is not None:
+        raise ValueError("webhook already exists")
+    now = time.time()
+    webhook_id = "wh_" + secrets.token_urlsafe(18)
+    secret = "whsec_" + secrets.token_urlsafe(32)
+    get_conn().execute(
+        "INSERT INTO automation_webhooks "
+        "(id,automation_id,owner_id,secret,created_at,rotated_at) VALUES (?,?,?,?,?,?)",
+        (webhook_id, automation_id, owner_id, secret, now, now),
+    )
+    get_conn().commit()
+    result = get_automation_webhook(automation_id, owner_id, include_secret=True)
+    assert result is not None
+    return result
+
+
+def rotate_automation_webhook(automation_id: str, owner_id: str) -> Optional[dict[str, Any]]:
+    secret = "whsec_" + secrets.token_urlsafe(32)
+    now = time.time()
+    cur = get_conn().execute(
+        "UPDATE automation_webhooks SET secret=?,rotated_at=? "
+        "WHERE automation_id=? AND owner_id=?",
+        (secret, now, automation_id, owner_id),
+    )
+    get_conn().commit()
+    if cur.rowcount != 1:
+        return None
+    return get_automation_webhook(automation_id, owner_id, include_secret=True)
+
+
+def delete_automation_webhook(automation_id: str, owner_id: str) -> bool:
+    cur = get_conn().execute(
+        "DELETE FROM automation_webhooks WHERE automation_id=? AND owner_id=?",
+        (automation_id, owner_id),
+    )
+    get_conn().commit()
+    return cur.rowcount == 1
+
+
+def _delivery_row(row: sqlite3.Row) -> dict[str, Any]:
+    fire_status = row["fire_status"] if "fire_status" in row.keys() else None
+    return {
+        "id": row["id"], "webhook_id": row["webhook_id"],
+        "automation_id": row["automation_id"], "owner_id": row["owner_id"],
+        "idempotency_key": row["idempotency_key"],
+        "payload_sha256": row["payload_sha256"], "status": row["status"],
+        "fire_id": row["fire_id"], "error_code": row["error_code"],
+        "fire_status": fire_status,
+        "received_at": row["received_at"], "updated_at": row["updated_at"],
+    }
+
+
+def register_automation_webhook_delivery(
+    *, webhook_id: str, automation_id: str, owner_id: str,
+    idempotency_key: str, payload_sha256: str,
+) -> tuple[dict[str, Any], bool, bool]:
+    """Register one delivery. Returns (row, created, digest_conflict)."""
+    conn = get_conn()
+    now = time.time()
+    try:
+        conn.execute(
+            "INSERT INTO automation_webhook_deliveries "
+            "(id,webhook_id,automation_id,owner_id,idempotency_key,payload_sha256,status,"
+            "received_at,updated_at) VALUES (?,?,?,?,?,?,'received',?,?)",
+            (new_uuid(), webhook_id, automation_id, owner_id, idempotency_key,
+             payload_sha256, now, now),
+        )
+        conn.commit()
+        created = True
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        created = False
+    row = conn.execute(
+        "SELECT * FROM automation_webhook_deliveries WHERE webhook_id=? AND idempotency_key=?",
+        (webhook_id, idempotency_key),
+    ).fetchone()
+    if row is None:
+        raise RuntimeError("webhook delivery registration failed")
+    return _delivery_row(row), created, row["payload_sha256"] != payload_sha256
+
+
+def update_automation_webhook_delivery(
+    delivery_id: str, *, status: str, fire_id: Optional[str] = None,
+    error_code: Optional[str] = None,
+) -> dict[str, Any]:
+    get_conn().execute(
+        "UPDATE automation_webhook_deliveries SET status=?,fire_id=COALESCE(?,fire_id),"
+        "error_code=?,updated_at=? WHERE id=?",
+        (status, fire_id, error_code, time.time(), delivery_id),
+    )
+    get_conn().commit()
+    row = get_conn().execute(
+        "SELECT * FROM automation_webhook_deliveries WHERE id=?", (delivery_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError("webhook delivery not found")
+    return _delivery_row(row)
+
+
+def list_automation_webhook_deliveries(
+    automation_id: str, owner_id: str, limit: int = 20,
+) -> list[dict[str, Any]]:
+    rows = get_conn().execute(
+        "SELECT d.*,f.status AS fire_status FROM automation_webhook_deliveries d "
+        "LEFT JOIN automation_fires f ON f.id=d.fire_id "
+        "WHERE d.automation_id=? AND d.owner_id=? ORDER BY d.received_at DESC LIMIT ?",
+        (automation_id, owner_id, max(1, min(int(limit), 100))),
+    ).fetchall()
+    return [_delivery_row(row) for row in rows]
 
 
 def delete_automation(auto_id: str) -> None:

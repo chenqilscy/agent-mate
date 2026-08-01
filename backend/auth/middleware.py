@@ -34,7 +34,7 @@ class AuthMiddleware:
                 "/openapi.json",
                 "/docs",
                 "/redoc",
-            }
+            } or path.startswith("/api/webhooks/automations/")
             token = None
             authorization_supplied = False
             for k, v in scope.get("headers") or []:

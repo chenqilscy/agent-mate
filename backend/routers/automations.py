@@ -1,14 +1,18 @@
 """Automations — scheduled / triggered agent runs (M6+ capability build).
 
-A saved automation is a prompt + a trigger (interval or daily). The scheduler
+A saved automation is a prompt + a trigger (interval, daily or Webhook). The scheduler
 (agent/scheduler.py) fires it on time through the real agent; this router is the
 CRUD + run-now surface. Owner-scoped like every other resource (WB-013).
 """
 from __future__ import annotations
 
 import time
+import hashlib
+import hmac
+import json
+import re
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from agent import scheduler
@@ -18,7 +22,10 @@ from storage import db
 
 router = APIRouter(prefix="/api", tags=["automations"])
 
-TRIGGER_KINDS = {"interval", "daily"}
+TRIGGER_KINDS = {"interval", "daily", "webhook"}
+WEBHOOK_MAX_BODY = 64 * 1024
+WEBHOOK_CLOCK_SKEW_SEC = 300
+_IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$")
 
 
 class CreateAutomationBody(BaseModel):
@@ -87,14 +94,23 @@ def _in(ts: float) -> str:
 
 def _view(a) -> dict:
     d = a.to_dict()
-    d["next_run_label"] = _in(a.next_run_at) if a.enabled else "已停用"
+    d["next_run_label"] = (
+        "等待 Webhook" if a.enabled and a.trigger_kind == "webhook"
+        else _in(a.next_run_at) if a.enabled else "已停用"
+    )
     d["last_run_label"] = _ago(a.last_run_at) if a.last_run_at else "尚未运行"
     return d
 
 
+def _fire_view(fire) -> dict:
+    data = fire.to_dict()
+    data.pop("input_payload", None)
+    return data
+
+
 def _validate(kind: str, interval_min: int, at_time: str) -> None:
     if kind not in TRIGGER_KINDS:
-        raise HTTPException(400, "trigger_kind must be 'interval' or 'daily'")
+        raise HTTPException(400, "trigger_kind must be 'interval', 'daily' or 'webhook'")
     if kind == "interval" and interval_min < 1:
         raise HTTPException(400, "interval_min must be >= 1")
     if kind == "daily":
@@ -196,6 +212,139 @@ async def run_automation(auto_id: str, body: RunAutomationBody | None = None) ->
     }
 
 
+def _webhook_management_view(config: dict | None, automation_id: str) -> dict:
+    if config is None:
+        return {
+            "configured": False, "automation_id": automation_id,
+            "webhook_id": None, "endpoint": None, "created_at": None,
+            "rotated_at": None, "deliveries": [],
+        }
+    return {
+        "configured": True, "automation_id": automation_id,
+        "webhook_id": config["id"],
+        "endpoint": f"/api/webhooks/automations/{config['id']}",
+        "created_at": config["created_at"], "rotated_at": config["rotated_at"],
+        "deliveries": db.list_automation_webhook_deliveries(
+            automation_id, config["owner_id"], limit=20
+        ),
+    }
+
+
+def _owned_webhook_automation(auto_id: str):
+    user = current_user()
+    auto = db.get_automation(auto_id, user.id)
+    if auto is None:
+        raise HTTPException(404, "automation not found")
+    if auto.trigger_kind != "webhook":
+        raise HTTPException(409, "automation trigger_kind must be 'webhook'")
+    return user, auto
+
+
+@router.get("/automations/{auto_id}/webhook")
+def get_automation_webhook(auto_id: str) -> dict:
+    user, auto = _owned_webhook_automation(auto_id)
+    config = db.get_automation_webhook(auto.id, user.id)
+    return _webhook_management_view(config, auto.id)
+
+
+@router.post("/automations/{auto_id}/webhook")
+def create_automation_webhook(auto_id: str) -> dict:
+    user, auto = _owned_webhook_automation(auto_id)
+    if db.get_automation_webhook(auto.id, user.id) is not None:
+        raise HTTPException(409, "webhook already configured; rotate it instead")
+    config = db.create_automation_webhook(auto.id, user.id)
+    return {**_webhook_management_view(config, auto.id), "secret": config["secret"]}
+
+
+@router.post("/automations/{auto_id}/webhook/rotate")
+def rotate_automation_webhook(auto_id: str) -> dict:
+    user, auto = _owned_webhook_automation(auto_id)
+    config = db.rotate_automation_webhook(auto.id, user.id)
+    if config is None:
+        raise HTTPException(404, "webhook not configured")
+    return {**_webhook_management_view(config, auto.id), "secret": config["secret"]}
+
+
+@router.delete("/automations/{auto_id}/webhook")
+def delete_automation_webhook(auto_id: str) -> dict:
+    user, auto = _owned_webhook_automation(auto_id)
+    if not db.delete_automation_webhook(auto.id, user.id):
+        raise HTTPException(404, "webhook not configured")
+    return {"ok": True}
+
+
+@router.post("/webhooks/automations/{webhook_id}", status_code=202)
+async def receive_automation_webhook(webhook_id: str, request: Request) -> dict:
+    """Service-to-service ingress authenticated by a signed raw request body."""
+    config = db.get_automation_webhook_by_id(webhook_id, include_secret=True)
+    timestamp_raw = request.headers.get("x-agentmate-timestamp", "")
+    signature = request.headers.get("x-agentmate-signature", "")
+    idempotency_key = request.headers.get("x-agentmate-idempotency-key", "").strip()
+    if config is None:
+        raise HTTPException(401, "invalid webhook signature")
+    try:
+        timestamp = int(timestamp_raw)
+    except ValueError:
+        raise HTTPException(401, "invalid webhook signature")
+    if abs(time.time() - timestamp) > WEBHOOK_CLOCK_SKEW_SEC:
+        raise HTTPException(401, "invalid webhook signature")
+    if not _IDEMPOTENCY_RE.fullmatch(idempotency_key):
+        raise HTTPException(400, "invalid X-AgentMate-Idempotency-Key")
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > WEBHOOK_MAX_BODY:
+        raise HTTPException(413, "webhook body exceeds 64 KiB")
+    raw = await request.body()
+    if len(raw) > WEBHOOK_MAX_BODY:
+        raise HTTPException(413, "webhook body exceeds 64 KiB")
+    expected = hmac.new(
+        config["secret"].encode("utf-8"), timestamp_raw.encode("ascii") + b"." + raw,
+        hashlib.sha256,
+    ).hexdigest()
+    supplied = signature[3:] if signature.startswith("v1=") else ""
+    if len(supplied) != 64 or not hmac.compare_digest(expected, supplied):
+        raise HTTPException(401, "invalid webhook signature")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "webhook body must be UTF-8 JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "webhook body must be a JSON object")
+    auto = db.get_automation(config["automation_id"], config["owner_id"])
+    if auto is None or auto.trigger_kind != "webhook" or not auto.enabled:
+        raise HTTPException(409, "webhook automation is unavailable")
+
+    body_digest = hashlib.sha256(raw).hexdigest()
+    delivery, created, conflict = db.register_automation_webhook_delivery(
+        webhook_id=config["id"], automation_id=auto.id, owner_id=auto.owner_id,
+        idempotency_key=idempotency_key, payload_sha256=body_digest,
+    )
+    if conflict:
+        raise HTTPException(409, "idempotency key was already used with different content")
+    if delivery["fire_id"]:
+        fire = db.get_automation_fire(delivery["fire_id"], auto.owner_id)
+        if fire is not None:
+            return {
+                "ok": True, "duplicate": True, "delivery_id": delivery["id"],
+                "fire_id": fire.id, "session_id": fire.session_id, "status": fire.status,
+            }
+    fire, fire_created = await scheduler.run_webhook(
+        auto.id, config["id"], idempotency_key, payload
+    )
+    if fire is None:
+        db.update_automation_webhook_delivery(
+            delivery["id"], status="received", error_code="automation_busy"
+        )
+        raise HTTPException(409, "automation is busy; retry this delivery later")
+    db.update_automation_webhook_delivery(
+        delivery["id"], status="accepted", fire_id=fire.id, error_code=None
+    )
+    return {
+        "ok": True, "duplicate": not created or not fire_created,
+        "delivery_id": delivery["id"], "fire_id": fire.id,
+        "session_id": fire.session_id, "status": fire.status,
+    }
+
+
 @router.get("/automation-fires")
 def list_automation_fires(
     status: str | None = Query(default=None), automation_id: str | None = Query(default=None),
@@ -204,7 +353,7 @@ def list_automation_fires(
     statuses = {item.strip() for item in status.split(",")} if status else None
     return {
         "fires": [
-            fire.to_dict() for fire in db.list_automation_fires(
+            _fire_view(fire) for fire in db.list_automation_fires(
                 user.id, statuses=statuses, automation_id=automation_id
             )
         ]
@@ -223,7 +372,7 @@ async def replay_automation_fire(
     )
     if fire is None:
         raise HTTPException(409, "only dead-letter or ignored fires can be replayed")
-    return {"ok": True, "fire": fire.to_dict()}
+    return {"ok": True, "fire": _fire_view(fire)}
 
 
 @router.post("/automation-fires/{fire_id}/ignore")
@@ -235,7 +384,7 @@ def ignore_automation_fire(fire_id: str) -> dict:
         raise HTTPException(409, str(exc)) from exc
     if fire is None:
         raise HTTPException(404, "automation fire not found")
-    return {"ok": True, "fire": fire.to_dict()}
+    return {"ok": True, "fire": _fire_view(fire)}
 
 
 def _run_view(s) -> dict:

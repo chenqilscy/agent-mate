@@ -330,7 +330,7 @@ export interface SessionInfo {
   // Per-run outcome for automation runs (WB-043); null for ordinary sessions.
   run_status?: 'running' | 'ok' | 'error' | null
   run_summary?: string | null
-  run_kind?: 'test' | 'scheduled' | null
+  run_kind?: 'test' | 'scheduled' | 'webhook' | null
   workspace?: string | null
 }
 
@@ -677,7 +677,7 @@ export interface Milestone {
   sort: number
 }
 
-export type TriggerKind = 'interval' | 'daily'
+export type TriggerKind = 'interval' | 'daily' | 'webhook'
 
 export interface Automation {
   id: string
@@ -727,7 +727,7 @@ export interface AutomationFire {
   automation_id: string
   owner_id: string
   fire_key: string
-  trigger_kind: 'scheduled' | 'manual' | 'replay'
+  trigger_kind: 'scheduled' | 'manual' | 'replay' | 'webhook'
   planned_at: number
   status: 'queued' | 'running' | 'retry_wait' | 'succeeded' | 'dead_letter' | 'ignored'
   attempt: number
@@ -744,6 +744,29 @@ export interface AutomationFire {
   created_at: number
   updated_at: number
   finished_at: number | null
+}
+
+export interface AutomationWebhookDelivery {
+  id: string
+  idempotency_key: string
+  payload_sha256: string
+  status: 'received' | 'accepted'
+  fire_id: string | null
+  fire_status: AutomationFire['status'] | null
+  error_code: string | null
+  received_at: number
+  updated_at: number
+}
+
+export interface AutomationWebhookConfig {
+  configured: boolean
+  automation_id: string
+  webhook_id: string | null
+  endpoint: string | null
+  created_at: number | null
+  rotated_at: number | null
+  deliveries: AutomationWebhookDelivery[]
+  secret?: string
 }
 
 // SkillHub 商店卡（WB-070）：搜索/浏览的目录条目。

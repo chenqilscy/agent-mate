@@ -1,7 +1,7 @@
 import { WbButton, WbInput, WbTextArea } from '../components/ui/Primitives'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCatalog, useCatalogStore } from '../stores/catalogStore'
-import { api } from '../lib/api'
+import { API_BASE, api } from '../lib/api'
 import { activate, clickable } from '../lib/a11y'
 import { IcChevronDown } from '../lib/icons'
 import { useAutomationStore } from '../stores/automationStore'
@@ -11,7 +11,7 @@ import { useProjectStore } from '../stores/projectStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { toast } from '../stores/toastStore'
 import { Popover } from '../components/ui/Popover'
-import type { Automation, AutomationFire, CreateAutomationInput, SessionInfo, TriggerKind } from '../lib/types'
+import type { Automation, AutomationFire, AutomationWebhookConfig, CreateAutomationInput, SessionInfo, TriggerKind } from '../lib/types'
 import { AntModalBridge } from '../components/ui/AntModalBridge'
 import { Empty, Spin, Switch, Tabs, Tag } from 'antd'
 import { CompatList as List } from '../components/ui/CompatList'
@@ -26,13 +26,14 @@ function iconOf(name: string): string {
 }
 
 function triggerLabel(a: Automation): string {
+  if (a.trigger_kind === 'webhook') return 'Webhook 事件'
   return a.trigger_kind === 'daily' ? `每天 ${a.at_time}` : `每 ${a.interval_min} 分钟`
 }
 
 // A run's human label: kind (测试运行 / 定时运行) + outcome (完成 / 失败) — WB-043.
 function runLabel(r: SessionInfo): string {
   if (r.run_status === 'running') return '运行中'
-  const kind = r.run_kind === 'test' ? '测试运行' : '定时运行'
+  const kind = r.run_kind === 'test' ? '测试运行' : r.run_kind === 'webhook' ? 'Webhook 运行' : '定时运行'
   return kind + (r.run_status === 'error' ? '失败' : '完成')
 }
 
@@ -433,6 +434,9 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
   const [retryBackoffSec, setRetryBackoffSec] = useState(auto?.retry_backoff_sec ?? prefill?.retry_backoff_sec ?? 30)
   const [maxTotalTokens, setMaxTotalTokens] = useState(auto?.max_total_tokens ?? prefill?.max_total_tokens ?? 0)
   const [busy, setBusy] = useState(false)
+  const [webhook, setWebhook] = useState<AutomationWebhookConfig | null>(null)
+  const [webhookSecret, setWebhookSecret] = useState('')
+  const [webhookBusy, setWebhookBusy] = useState(false)
 
   const [wsOpen, setWsOpen] = useState(false)
   const [modelOpen, setModelOpen] = useState(false)
@@ -448,6 +452,10 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
   }, [auto])
 
   useEffect(() => { loadProjects() }, [loadProjects])
+  useEffect(() => {
+    if (!auto || auto.trigger_kind !== 'webhook') return
+    api.getAutomationWebhook(auto.id).then(setWebhook).catch(() => {})
+  }, [auto])
   // Keep the run-history side panel live while editing (WB-039): fetch on open, then
   // poll lightly so a run triggered here (and its running→done) shows without reopening.
   useEffect(() => {
@@ -501,6 +509,37 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
     onClose()
   }
 
+  const webhookEndpoint = webhook?.endpoint
+    ? (API_BASE.startsWith('http') ? new URL(webhook.endpoint, API_BASE).toString() : `${window.location.origin}${webhook.endpoint}`)
+    : ''
+  const provisionWebhook = async () => {
+    if (!auto) return
+    setWebhookBusy(true)
+    try {
+      const result = await api.createAutomationWebhook(auto.id)
+      setWebhook(result); setWebhookSecret(result.secret ?? '')
+      toast('Webhook 已启用；签名密钥只显示这一次')
+    } catch { toast('Webhook 启用失败') } finally { setWebhookBusy(false) }
+  }
+  const rotateWebhook = async () => {
+    if (!auto || !window.confirm('轮换后旧密钥会立即失效，是否继续？')) return
+    setWebhookBusy(true)
+    try {
+      const result = await api.rotateAutomationWebhook(auto.id)
+      setWebhook(result); setWebhookSecret(result.secret ?? '')
+      toast('签名密钥已轮换；请立即更新外部系统')
+    } catch { toast('密钥轮换失败') } finally { setWebhookBusy(false) }
+  }
+  const disableWebhook = async () => {
+    if (!auto || !window.confirm('停用后当前地址和投递记录会被删除，是否继续？')) return
+    setWebhookBusy(true)
+    try {
+      await api.deleteAutomationWebhook(auto.id)
+      setWebhook({ configured: false, automation_id: auto.id, webhook_id: null, endpoint: null, created_at: null, rotated_at: null, deliveries: [] })
+      setWebhookSecret(''); toast('Webhook 已停用')
+    } catch { toast('Webhook 停用失败') } finally { setWebhookBusy(false) }
+  }
+
   return (
     <>
       <div className="ph auto-ed-top">
@@ -540,7 +579,7 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
             </WbButton>
           </div>
 
-          <div className="np-lbl">指令（到点会作为一次对话真实执行）</div>
+          <div className="np-lbl">指令（触发后会作为一次对话真实执行）</div>
           <WbTextArea
             className="np-ta"
             placeholder="例如：关注当天 AI 领域的重要动态，筛选 3-5 条整理成中文简报"
@@ -560,6 +599,7 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
             <div className="seg2">
               <b className={kind === 'interval' ? 'on' : ''} {...clickable} onClick={() => setKind('interval')}>每隔一段</b>
               <b className={kind === 'daily' ? 'on' : ''} {...clickable} onClick={() => setKind('daily')}>每天定时</b>
+              <b className={kind === 'webhook' ? 'on' : ''} {...clickable} onClick={() => setKind('webhook')}>Webhook</b>
             </div>
             {kind === 'interval' ? (
               <div className="auto-trig-in">
@@ -567,14 +607,56 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
                 <WbInput type="number" min={1} aria-label="间隔分钟" value={intervalMinutes} onChange={(e) => setIntervalMinutes(Number(e.target.value) || 1)} />
                 分钟运行一次
               </div>
-            ) : (
+            ) : kind === 'daily' ? (
               <div className="auto-trig-in">
                 每天
                 <WbInput type="time" aria-label="每天运行时间" value={atTime} onChange={(e) => setAtTime(e.target.value)} />
                 运行
               </div>
+            ) : (
+              <div className="auto-trig-in">由外部系统使用 HMAC 签名请求触发；保存后可配置地址和密钥。</div>
             )}
           </div>
+
+          {auto && auto.trigger_kind === 'webhook' && (
+            <>
+              <div className="np-lbl">Webhook 接入</div>
+              <div className="auto-trig">
+                {!webhook?.configured ? (
+                  <div className="auto-trig-in">
+                    尚未启用入站地址
+                    <WbButton className="btn-line" disabled={webhookBusy} onClick={provisionWebhook}>生成地址与密钥</WbButton>
+                  </div>
+                ) : (
+                  <>
+                    <div className="auto-trig-in">
+                      地址
+                      <WbInput readOnly aria-label="Webhook 地址" value={webhookEndpoint} />
+                      <WbButton className="btn-line" onClick={() => navigator.clipboard.writeText(webhookEndpoint).then(() => toast('地址已复制'))}>复制</WbButton>
+                    </div>
+                    {webhookSecret && (
+                      <div className="auto-trig-in">
+                        一次性签名密钥
+                        <WbInput readOnly aria-label="Webhook 一次性签名密钥" value={webhookSecret} />
+                        <WbButton className="btn-line" onClick={() => navigator.clipboard.writeText(webhookSecret).then(() => toast('密钥已复制'))}>复制</WbButton>
+                      </div>
+                    )}
+                    {!webhookSecret && <div className="auto-trig-in">签名密钥不会再次显示；遗失时请轮换。</div>}
+                    <div className="auto-trig-in">
+                      最近投递 {webhook.deliveries.length} 条
+                      <WbButton className="btn-line" disabled={webhookBusy} onClick={rotateWebhook}>轮换密钥</WbButton>
+                      <WbButton className="btn-ghost danger-b" disabled={webhookBusy} onClick={disableWebhook}>停用</WbButton>
+                    </div>
+                    {webhook.deliveries.slice(0, 5).map((delivery) => (
+                      <div className="auto-trig-in" key={delivery.id}>
+                        {delivery.fire_status ?? (delivery.status === 'accepted' ? '已接收' : '待重试')} · {delivery.idempotency_key} · {fullTime(delivery.received_at)}
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            </>
+          )}
 
           <div className="np-lbl">可靠性与成本</div>
           <div className="auto-trig">

@@ -257,7 +257,7 @@ class Automation:
     owner_id: str
     name: str
     prompt: str
-    trigger_kind: str  # "interval" | "daily"
+    trigger_kind: str  # "interval" | "daily" | "webhook"
     interval_min: int  # for trigger_kind == "interval"
     at_time: str  # "HH:MM" (local) for trigger_kind == "daily"
     project_id: Optional[str]
@@ -288,7 +288,7 @@ class AutomationFire:
     automation_id: str
     owner_id: str
     fire_key: str
-    trigger_kind: str  # scheduled | manual | replay
+    trigger_kind: str  # scheduled | manual | replay | webhook
     planned_at: float
     status: str  # queued | running | retry_wait | succeeded | dead_letter | ignored
     attempt: int
@@ -301,6 +301,7 @@ class AutomationFire:
     prompt_tokens: int
     completion_tokens: int
     next_attempt_at: Optional[float]
+    input_payload: Optional[dict[str, Any]]
     notified: list[str]
     created_at: float
     updated_at: float
