@@ -1,7 +1,7 @@
 import { WbButton, WbInput } from '../ui/Primitives'
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
-import type { ModelMeta, ModelOption, Provider } from '../../lib/types'
+import type { ModelGovernance, ModelMeta, ModelOption, Provider } from '../../lib/types'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
@@ -35,6 +35,8 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
   const [custom, setCustom] = useState<ModelOption[]>([])
   // 账号默认模型 ref（WB-136）：未显式选模型时跟随它。'' = 未设置。
   const [defaultRef, setDefaultRef] = useState('')
+  const [governance, setGovernance] = useState<ModelGovernance | null>(null)
+  const [budgetDraft, setBudgetDraft] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({})
   const [modelDraft, setModelDraft] = useState<Record<string, string>>({})
@@ -51,10 +53,12 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
 
   const load = async () => {
     try {
-      const r = await api.models()
+      const [r, g] = await Promise.all([api.models(), api.modelGovernance()])
       setProviders(r.providers)
       setCustom(r.custom)
       setDefaultRef(r.default_model)
+      setGovernance(g)
+      setBudgetDraft(String(g.policy.default_run_token_budget || ''))
     } catch {
       toast('加载模型列表失败')
     }
@@ -62,6 +66,22 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
   useEffect(() => { load() }, [])
 
   const refresh = async () => { await load(); await reloadModels() }
+
+  const saveGovernance = async () => {
+    if (busy) return
+    const parsed = Number.parseInt(budgetDraft.trim() || '0', 10)
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 10_000_000) {
+      toast('请输入 0–10000000 的整数 token 预算')
+      return
+    }
+    setBusy(true)
+    try {
+      const g = await api.setModelGovernance(parsed)
+      setGovernance(g)
+      setBudgetDraft(String(g.policy.default_run_token_budget || ''))
+      toast(parsed ? '已保存默认单次预算' : '已关闭默认单次预算')
+    } catch { toast('保存失败') } finally { setBusy(false) }
+  }
 
   // 设/清默认模型（WB-136）：再点当前默认 = 取消。写后端 DB 后刷新（picker 顶部「默认」条随之更新）。
   const setDefault = async (ref: string) => {
@@ -267,6 +287,31 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
 
   const body = (
         <div className="np-body">
+          <section className="mc-governance" aria-label="本月模型用量与预算">
+            <div className="mc-govhd">
+              <div>
+                <div className="np-lbl">本月模型用量</div>
+                <div className="mc-hint">按 Run 的实际 token 与创建时价格估算；不同币种分别展示，不做汇率换算。</div>
+              </div>
+              <span className="mc-govperiod">
+                {governance ? new Date(governance.usage.period_start * 1000).toLocaleDateString() : '—'} 起
+              </span>
+            </div>
+            <div className="mc-govstats">
+              <div className="set-stat"><span className="set-stat-n">{governance?.usage.runs ?? '—'}</span><span className="set-stat-l">运行</span></div>
+              <div className="set-stat"><span className="set-stat-n">{governance ? governance.usage.total_tokens.toLocaleString() : '—'}</span><span className="set-stat-l">tokens</span></div>
+              <div className="set-stat"><span className="set-stat-n mc-govcost">{governance?.usage.costs.length ? governance.usage.costs.map((c) => `${c.currency} ${c.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}`).join(' · ') : '—'}</span><span className="set-stat-l">估算成本</span></div>
+              <div className="set-stat"><span className="set-stat-n">{governance ? governance.usage.unpriced_runs + governance.usage.unresolved_runs : '—'}</span><span className="set-stat-l">未计价运行</span></div>
+            </div>
+            <div className="mc-budgetrow">
+              <div className="mc-info">
+                <span className="mc-name">默认单次 token 预算</span>
+                <span className="mc-sub">仅在调用方未指定预算时生效；自动化、编排等显式预算优先。填 0 或留空表示不限制。</span>
+              </div>
+              <WbInput className="np-input" inputMode="numeric" aria-label="默认单次 token 预算" placeholder="0 = 不限制" value={budgetDraft} onChange={(e) => setBudgetDraft(e.target.value)} />
+              <WbButton className="btn-dark" disabled={busy} onClick={saveGovernance}>保存预算</WbButton>
+            </div>
+          </section>
           <div className="np-lbl">内置厂商<small className="mc-lblhint">填一次 API Key 即启用该厂商模型 · Key 只存本机后端</small></div>
           {providers.map((p) => {
             const open = expanded === p.id

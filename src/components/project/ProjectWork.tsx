@@ -437,7 +437,9 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
                 <ProCard className="section-card" key={run.id} size="small" variant="outlined">
                   <div className="wb-td-meta">
                     <Tag color={run.status === 'failed' ? 'error' : run.status === 'accepted' ? 'success' : 'processing'}>{run.status}</Tag>
+                    {run.model_id ? `${run.model_id} · ` : ''}
                     {run.prompt_tokens + run.completion_tokens} tokens · {run.tool_calls} 次工具调用
+                    {run.estimated_cost != null && run.cost_currency ? ` · 约 ${run.cost_currency} ${run.estimated_cost.toLocaleString(undefined, { maximumFractionDigits: 6 })}` : ''}
                   </div>
                   {run.error_message && <div className="auto-detail-err err">{run.error_code}: {run.error_message}</div>}
                   {(run.artifacts ?? []).map((artifact) => (

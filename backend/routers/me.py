@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from auth.deps import current_user
-from config import settings
+from storage import db, model_governance
 from storage.models import LOCAL_USER_ID
 
 router = APIRouter(prefix="/api", tags=["me"])
@@ -19,6 +19,6 @@ def get_me() -> dict:
         "authenticated": user.id != LOCAL_USER_ID,
         "role": user.role.value,
         "plan": user.plan,
-        "llm_configured": settings.llm_configured,
-        "model": settings.LLM_MODEL,
+        "llm_configured": model_governance.account_has_model_configuration(user.id),
+        "model": db.get_default_model(user.id),
     }

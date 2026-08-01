@@ -81,6 +81,11 @@ class Run:
     workspace: str
     idempotency_key: Optional[str]
     retry_of: Optional[str]
+    model_ref: Optional[str]
+    model_id: Optional[str]
+    model_snapshot: dict[str, Any]
+    estimated_cost: Optional[float]
+    cost_currency: Optional[str]
     plan: list[dict[str, Any]]
     permission_snapshot: dict[str, Any]
     checkpoint: dict[str, Any]

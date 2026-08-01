@@ -184,6 +184,11 @@ def init_db() -> None:
             workspace TEXT NOT NULL DEFAULT 'default',
             idempotency_key TEXT,
             retry_of TEXT,
+            model_ref TEXT,
+            model_id TEXT,
+            model_snapshot TEXT NOT NULL DEFAULT '{}',
+            estimated_cost REAL,
+            cost_currency TEXT,
             plan TEXT NOT NULL DEFAULT '[]',
             permission_snapshot TEXT NOT NULL DEFAULT '{}',
             checkpoint TEXT NOT NULL DEFAULT '{}',
@@ -1072,6 +1077,18 @@ def _migrate_columns() -> None:
     for col, ddl in (("input_cost_cached", "input_cost_cached REAL"), ("currency", "currency TEXT")):
         if col not in have_mm:
             conn.execute(f"ALTER TABLE model_meta ADD COLUMN {ddl}")
+
+    # WB-346：Run 固化实际模型与非敏感价格快照；历史行保持空，不猜测过去使用的模型/价格。
+    have_runs = {r["name"] for r in conn.execute("PRAGMA table_info(runs)").fetchall()}
+    for col, ddl in (
+        ("model_ref", "model_ref TEXT"),
+        ("model_id", "model_id TEXT"),
+        ("model_snapshot", "model_snapshot TEXT NOT NULL DEFAULT '{}'"),
+        ("estimated_cost", "estimated_cost REAL"),
+        ("cost_currency", "cost_currency TEXT"),
+    ):
+        if col not in have_runs:
+            conn.execute(f"ALTER TABLE runs ADD COLUMN {ddl}")
 
     # WB-166 认知记忆：user_memories 增强度/衰减/软状态字段（参考 AgentOS）。
     # importance 0..1 重要度、usage_count 命中次数（强化）、status active/superseded/archived（软状态，不硬删）、
@@ -2024,6 +2041,10 @@ def _row_to_run(row: sqlite3.Row) -> Run:
         project_id=row["project_id"], work_item_id=row["work_item_id"], mode=row["mode"],
         status=row["status"], workspace=row["workspace"],
         idempotency_key=row["idempotency_key"], retry_of=row["retry_of"],
+        model_ref=row["model_ref"], model_id=row["model_id"],
+        model_snapshot=_load_json(row["model_snapshot"], {}),
+        estimated_cost=float(row["estimated_cost"]) if row["estimated_cost"] is not None else None,
+        cost_currency=row["cost_currency"],
         plan=_load_json(row["plan"], []),
         permission_snapshot=_load_json(row["permission_snapshot"], {}),
         checkpoint=_load_json(row["checkpoint"], {}), error_code=row["error_code"],
@@ -2305,14 +2326,39 @@ def update_run_runtime(
     run = get_run(run_id)
     if not run:
         raise KeyError(run_id)
+    next_prompt = run.prompt_tokens if prompt_tokens is None else max(0, int(prompt_tokens))
+    next_completion = run.completion_tokens if completion_tokens is None else max(0, int(completion_tokens))
+    from storage import model_governance
+    estimated_cost, cost_currency = model_governance.estimate_cost(
+        run.model_snapshot, next_prompt, next_completion,
+    )
     get_conn().execute(
         """UPDATE runs SET permission_snapshot=?, plan=?, prompt_tokens=?, completion_tokens=?,
-           tool_calls=?, updated_at=? WHERE id=?""",
+           tool_calls=?,estimated_cost=?,cost_currency=?,updated_at=? WHERE id=?""",
         (json.dumps(permission_snapshot if permission_snapshot is not None else run.permission_snapshot, ensure_ascii=False),
          json.dumps(plan if plan is not None else run.plan, ensure_ascii=False),
-         run.prompt_tokens if prompt_tokens is None else max(0, int(prompt_tokens)),
-         run.completion_tokens if completion_tokens is None else max(0, int(completion_tokens)),
-         run.tool_calls if tool_calls is None else max(0, int(tool_calls)), time.time(), run_id),
+         next_prompt, next_completion,
+         run.tool_calls if tool_calls is None else max(0, int(tool_calls)),
+         estimated_cost, cost_currency, time.time(), run_id),
+    )
+    get_conn().commit()
+    return get_run(run_id)  # type: ignore[return-value]
+
+
+def set_run_model_snapshot(
+    run_id: str, *, model_ref: str, model_id: str, snapshot: dict[str, Any],
+) -> Run:
+    """Attach an immutable non-secret model/pricing snapshot before the first LLM call."""
+    run = get_run(run_id)
+    if not run:
+        raise KeyError(run_id)
+    if run.model_id:
+        if run.model_ref != model_ref or run.model_id != model_id:
+            raise ValueError("run model snapshot is immutable")
+        return run
+    get_conn().execute(
+        "UPDATE runs SET model_ref=?,model_id=?,model_snapshot=?,updated_at=? WHERE id=?",
+        (model_ref[:200], model_id[:200], json.dumps(snapshot, ensure_ascii=False), time.time(), run_id),
     )
     get_conn().commit()
     return get_run(run_id)  # type: ignore[return-value]
@@ -2324,12 +2370,18 @@ def create_retry_run(run_id: str, owner_id: str, idempotency_key: Optional[str] 
         raise KeyError(run_id)
     if original.status not in {"failed", "cancelled", "paused"}:
         raise ValueError("only failed, cancelled or paused runs can be retried")
-    return create_run(
+    retry, created = create_run(
         session_id=original.session_id, owner_id=original.owner_id, project_id=original.project_id,
         work_item_id=original.work_item_id, mode=original.mode, workspace=original.workspace,
         idempotency_key=idempotency_key, retry_of=original.id, status="paused",
         permission_snapshot=original.permission_snapshot,
     )
+    if created and original.model_id:
+        retry = set_run_model_snapshot(
+            retry.id, model_ref=original.model_ref or "", model_id=original.model_id,
+            snapshot=original.model_snapshot,
+        )
+    return retry, created
 
 
 def upsert_artifact(
@@ -4558,6 +4610,7 @@ def list_active_work_item_launches() -> list[dict]:
 
 
 _DEFAULT_MODEL_KEY = "default_model"
+_MODEL_RUN_BUDGET_KEY = "model_default_run_token_budget"
 
 
 # ---- 安全审计日志（WB-152）----------------------------------------------
@@ -4916,6 +4969,90 @@ def get_default_model(owner_id: str) -> str:
 def set_default_model(owner_id: str, model_ref: str) -> None:
     """设/清默认模型 ref（''=清除）。ref = 选择键：@provider:model 或自定义名。"""
     set_user_setting(owner_id, _DEFAULT_MODEL_KEY, (model_ref or "").strip() or None)
+
+
+def get_model_default_run_token_budget(owner_id: str) -> int:
+    """Owner default for Runs that do not carry an explicit token budget; 0 disables it."""
+    raw = get_user_setting(owner_id, _MODEL_RUN_BUDGET_KEY)
+    try:
+        return max(0, min(int(raw or 0), 10_000_000))
+    except (TypeError, ValueError):
+        return 0
+
+
+def set_model_default_run_token_budget(owner_id: str, value: int) -> int:
+    budget = max(0, min(int(value), 10_000_000))
+    set_user_setting(owner_id, _MODEL_RUN_BUDGET_KEY, str(budget) if budget else None)
+    return budget
+
+
+def get_model_governance_summary(owner_id: str, *, now: Optional[float] = None) -> dict[str, Any]:
+    """Current local-calendar month usage owned by one account, without FX conversion."""
+    generated_at = float(now if now is not None else time.time())
+    local_now = _dt.datetime.fromtimestamp(generated_at).astimezone()
+    period_start = local_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
+    conn = get_conn()
+    totals = conn.execute(
+        """SELECT COUNT(*) AS runs,
+                  COALESCE(SUM(prompt_tokens),0) AS prompt_tokens,
+                  COALESCE(SUM(completion_tokens),0) AS completion_tokens,
+                  COALESCE(SUM(CASE WHEN estimated_cost IS NOT NULL THEN 1 ELSE 0 END),0) AS priced_runs,
+                  COALESCE(SUM(CASE WHEN model_id IS NOT NULL
+                                      AND prompt_tokens + completion_tokens > 0
+                                      AND estimated_cost IS NULL THEN 1 ELSE 0 END),0) AS unpriced_runs,
+                  COALESCE(SUM(CASE WHEN model_id IS NULL
+                                      AND prompt_tokens + completion_tokens > 0 THEN 1 ELSE 0 END),0) AS unresolved_runs
+           FROM runs WHERE owner_id=? AND created_at>=?""",
+        (owner_id, period_start),
+    ).fetchone()
+    cost_rows = conn.execute(
+        """SELECT cost_currency AS currency, SUM(estimated_cost) AS amount, COUNT(*) AS runs
+           FROM runs WHERE owner_id=? AND created_at>=? AND estimated_cost IS NOT NULL
+                         AND cost_currency IS NOT NULL AND cost_currency<>''
+           GROUP BY cost_currency ORDER BY cost_currency""",
+        (owner_id, period_start),
+    ).fetchall()
+    model_rows = conn.execute(
+        """SELECT COALESCE(model_ref,'') AS model_ref, COALESCE(model_id,'') AS model_id,
+                  cost_currency AS currency, COUNT(*) AS runs,
+                  COALESCE(SUM(prompt_tokens),0) AS prompt_tokens,
+                  COALESCE(SUM(completion_tokens),0) AS completion_tokens,
+                  SUM(estimated_cost) AS estimated_cost
+           FROM runs WHERE owner_id=? AND created_at>=? AND model_id IS NOT NULL
+           GROUP BY model_ref, model_id, cost_currency
+           ORDER BY prompt_tokens + completion_tokens DESC, runs DESC LIMIT 20""",
+        (owner_id, period_start),
+    ).fetchall()
+    prompt_tokens = int(totals["prompt_tokens"] or 0)
+    completion_tokens = int(totals["completion_tokens"] or 0)
+    return {
+        "period_start": period_start,
+        "generated_at": generated_at,
+        "runs": int(totals["runs"] or 0),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+        "priced_runs": int(totals["priced_runs"] or 0),
+        "unpriced_runs": int(totals["unpriced_runs"] or 0),
+        "unresolved_runs": int(totals["unresolved_runs"] or 0),
+        "costs": [
+            {"currency": row["currency"], "amount": round(float(row["amount"] or 0), 10), "runs": int(row["runs"])}
+            for row in cost_rows
+        ],
+        "models": [
+            {
+                "model_ref": row["model_ref"], "model_id": row["model_id"],
+                "currency": row["currency"], "runs": int(row["runs"]),
+                "prompt_tokens": int(row["prompt_tokens"] or 0),
+                "completion_tokens": int(row["completion_tokens"] or 0),
+                "estimated_cost": (
+                    round(float(row["estimated_cost"]), 10)
+                    if row["estimated_cost"] is not None else None
+                ),
+            }
+            for row in model_rows
+        ],
+    }
 
 
 # ---- WeKnora 知识库连接配置（WB-188）------------------------------------

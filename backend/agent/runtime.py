@@ -54,7 +54,7 @@ from agent.tools import (
 )
 from config import settings
 import server_client
-from storage import db, provider_seed
+from storage import db, model_governance, provider_seed
 from storage.models import Session, User
 
 
@@ -630,6 +630,12 @@ async def _run_chat_inner(
         workspace_key = str(current_root().resolve().relative_to(settings.WORKSPACE_ROOT.resolve())).replace("\\", "/")
     except ValueError:
         workspace_key = "default"
+    effective_token_budget = max(0, int(max_total_tokens or 0))
+    budget_source = "explicit" if effective_token_budget else "account_default"
+    if not effective_token_budget:
+        effective_token_budget = db.get_model_default_run_token_budget(user.id)
+        if not effective_token_budget:
+            budget_source = "disabled"
     run, created = db.create_run(
         session_id=session_id, owner_id=user.id, project_id=session.project_id,
         work_item_id=work_item_id, mode="ask" if ask else ("plan" if plan else "exec"),
@@ -644,6 +650,8 @@ async def _run_chat_inner(
             "missing_bundle_skills": bundle_resolution["missing_skills"],
             "skill_releases": skill_release_snapshots,
             "connectors": active_connectors, "knowledge_ids": active_knowledge,
+            "token_budget": effective_token_budget,
+            "token_budget_source": budget_source,
         },
     )
     run_id = run.id
@@ -713,6 +721,12 @@ async def _run_chat_inner(
         # uses the same real configured LLM; failure falls back to a bounded recent
         # window and never blocks the actual run for more than the configured timeout.
         model_id, model_base, model_key, model_path = resolve_model_config(user.id, model)
+        run = db.set_run_model_snapshot(
+            run_id,
+            model_ref=model_governance.effective_model_ref(user.id, model),
+            model_id=model_id,
+            snapshot=model_governance.build_run_snapshot(user.id, model, model_id),
+        )
         llm_messages = await session_context.build_llm_messages(
             session,
             history_messages,
@@ -1005,9 +1019,9 @@ async def _run_chat_inner(
                 )
 
             total_prompt += round_prompt
-            if max_total_tokens > 0 and total_prompt + total_completion > max_total_tokens:
+            if effective_token_budget > 0 and total_prompt + total_completion > effective_token_budget:
                 raise RuntimeBudgetExceeded(
-                    f"Token budget exceeded: {total_prompt + total_completion} > {max_total_tokens}"
+                    f"Token budget exceeded: {total_prompt + total_completion} > {effective_token_budget}"
                 )
 
             if stopped:
@@ -1204,7 +1218,7 @@ async def _run_chat_inner(
             output={"status": "token_budget_exceeded", "partial_chars": len(assistant_text)},
             level="ERROR", status_message=str(e),
         )
-        yield events.error("本次自动化已达到 token 成本上限")
+        yield events.error("本次运行已达到 token 上限")
         mid = _persist_partial()
         db.update_run_runtime(
             run_id, prompt_tokens=total_prompt or last_prompt,

@@ -184,6 +184,11 @@ export interface AgentRun {
   workspace: string
   idempotency_key?: string | null
   retry_of?: string | null
+  model_ref?: string | null
+  model_id?: string | null
+  model_snapshot?: Record<string, unknown>
+  estimated_cost?: number | null
+  cost_currency?: string | null
   plan: { text: string; [key: string]: unknown }[]
   permission_snapshot: Record<string, unknown>
   checkpoint: Record<string, unknown>
@@ -382,6 +387,31 @@ export interface ModelsResponse {
   providers: Provider[]
   custom: ModelOption[]
   models: ModelOption[]
+}
+
+export interface ModelGovernance {
+  policy: { default_run_token_budget: number }
+  usage: {
+    period_start: number
+    generated_at: number
+    runs: number
+    prompt_tokens: number
+    completion_tokens: number
+    total_tokens: number
+    priced_runs: number
+    unpriced_runs: number
+    unresolved_runs: number
+    costs: { currency: string; amount: number; runs: number }[]
+    models: {
+      model_ref: string
+      model_id: string
+      currency: string | null
+      runs: number
+      prompt_tokens: number
+      completion_tokens: number
+      estimated_cost: number | null
+    }[]
+  }
 }
 
 export interface CustomModelInput {

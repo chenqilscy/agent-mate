@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from auth.deps import current_user
-from storage import db, provider_seed
+from storage import db, model_governance, provider_seed
 
 router = APIRouter(prefix="/api", tags=["models"])
 
@@ -34,40 +34,15 @@ def _effective_base_path(owner_id: str, prov: dict) -> tuple[str, str]:
 
 
 # 能力词表（WB-132）：模态 + 工具 + 推理。前端徽标一一对应。
-CAPABILITIES = ["text", "image", "audio", "video", "tools", "reasoning"]
+CAPABILITIES = model_governance.CAPABILITIES
 
 
 def _default_capabilities(model_id: str) -> list[str]:
-    """按模型名给启发式默认能力（可编辑；铁律#1：仅作起点，不当真值断言）。"""
-    m = (model_id or "").lower()
-    caps = ["text", "tools"]
-    # 注意别用会误命中版本号的裸 "-v"（如 deepseek-v4 ≠ vision）。
-    if any(k in m for k in ("4o", "-vl", "vl-", "vision", "omni", "multimodal", "glm-4v", "pixtral", "gemini", "claude-3", "claude-4", "4.5v", "-vision")):
-        caps.append("image")
-    if any(k in m for k in ("reasoner", "o1", "o3", "o4", "r1", "deepseek-r", "think", "reasoning", "qwq")):
-        caps.append("reasoning")
-    return caps
+    return model_governance.default_capabilities(model_id)
 
 
-_META_KEYS = ("capabilities", "input_cost", "input_cost_cached", "output_cost", "context_window", "currency", "note")
-
-
-def _effective_meta(model_ref: str, model_id: str, stored: dict[str, dict]) -> dict:
-    """有效元数据，优先级：用户覆盖(custom) > 内置准确默认(preset，来自官方文档) > 名字启发式(default)。
-    source 供 UI 显示来源 / 判断可否「恢复默认」。"""
-    s = stored.get(model_ref)
-    if s:
-        return {**{k: s.get(k) for k in _META_KEYS}, "source": "custom"}
-    curated = provider_seed.MODEL_DEFAULTS.get((model_id or "").lower())
-    if curated:
-        out = {k: curated.get(k) for k in _META_KEYS}
-        out["capabilities"] = curated.get("capabilities") or _default_capabilities(model_id)
-        return {**out, "source": "preset"}
-    return {
-        **{k: None for k in _META_KEYS},
-        "capabilities": _default_capabilities(model_id),
-        "source": "default",
-    }
+def _effective_meta(owner_id: str, model_ref: str, model_id: str, stored: dict[str, dict]) -> dict:
+    return model_governance.effective_meta(owner_id, model_ref, model_id, stored)
 
 
 def _provider_models_mgmt(owner_id: str, prov: dict) -> list[dict]:
@@ -129,7 +104,7 @@ def list_models() -> dict:
         mgmt = _provider_models_mgmt(user.id, prov)
         for m in mgmt:  # WB-132: 每个厂商模型附能力/成本（覆盖∨启发式默认）
             ref = _sel_key_provider(prov["id"], m["model_id"])
-            m["meta"] = _effective_meta(ref, m["model_id"], stored_meta)
+            m["meta"] = _effective_meta(user.id, ref, m["model_id"], stored_meta)
         eff_base, eff_path = _effective_base_path(user.id, prov)
         providers.append({
             "id": prov["id"],
@@ -163,7 +138,7 @@ def list_models() -> dict:
 
     custom = [_pack_custom(r) for r in db.list_custom_models(user.id, include_secrets=False)]
     for cm in custom:  # WB-132: 自定义模型也附 meta（ref = 自定义名）
-        cm["meta"] = _effective_meta(cm["name"], cm.get("model_id") or "", stored_meta)
+        cm["meta"] = _effective_meta(user.id, cm["name"], cm.get("model_id") or "", stored_meta)
 
     # 「默认模型」= 用户在「配置模型」里选定、按 owner 存 DB 的 ref（WB-136，取代 .env LLM_MODEL）。
     # 校验它仍指向一个可运行模型（厂商有 key 的模型 ∨ 自定义）；失效（撤 key/删模型）则自愈清空。
@@ -189,6 +164,31 @@ def list_models() -> dict:
         "custom": custom,
         "models": models,
     }
+
+
+class ModelGovernanceIn(BaseModel):
+    default_run_token_budget: int = Field(default=0, ge=0, le=10_000_000)
+
+
+def _model_governance_payload(owner_id: str) -> dict:
+    return {
+        "policy": {
+            "default_run_token_budget": db.get_model_default_run_token_budget(owner_id),
+        },
+        "usage": db.get_model_governance_summary(owner_id),
+    }
+
+
+@router.get("/models/governance")
+def get_model_governance() -> dict:
+    return _model_governance_payload(current_user().id)
+
+
+@router.put("/models/governance")
+def set_model_governance(body: ModelGovernanceIn) -> dict:
+    user = current_user()
+    db.set_model_default_run_token_budget(user.id, body.default_run_token_budget)
+    return _model_governance_payload(user.id)
 
 
 # ---- provider keys + model overrides (WB-128) --------------------------
