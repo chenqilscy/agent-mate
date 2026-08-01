@@ -1770,6 +1770,14 @@ body.dark .project-scope.ant-btn.on { background: #343A42; }
 .my-proj .mp-more { margin-top: 3px; }
 .pj-feed-more { min-height: 46px; padding: 10px 4px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-3); font-size: 11.5px; }
 .pj-feed-more .ant-btn { height: 28px; }
+.pj-health.ant-pro-card { margin-bottom: 12px; border: 1px solid var(--border); background: var(--card); }
+.pj-health > .ant-pro-card-body { padding: 14px; }
+.pj-health-head { margin-bottom: 10px; display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.pj-health-head b { color: var(--text); font-size: 13px; }
+.pj-health-head span { color: var(--text-3); font-size: 11px; }
+.pj-health-progress { margin: 11px 0 8px; display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 8px; color: var(--text-2); font-size: 11.5px; }
+.pj-health-progress .ant-progress { margin: 0; }
+.pj-health-link.ant-btn { height: 24px; padding: 0 7px; font-size: 11.5px; }
 .sb-show-all { width: 100%; justify-content: flex-start; color: var(--brand-600); }
 
 @media (max-width: 640px) {
@@ -1785,4 +1793,6 @@ body.dark .project-scope.ant-btn.on { background: #343A42; }
 body.dark .home-console.ant-pro-card,
 body.dark .home-console.ant-pro-card > .ant-pro-card-body,
 body.dark .home-metric.ant-pro-card,
-body.dark .hcard.ant-pro-card { background: #22272D; }
+body.dark .hcard.ant-pro-card,
+body.dark .pj-health.ant-pro-card,
+body.dark .pj-health.ant-pro-card > .ant-pro-card-body { background: #22272D; }

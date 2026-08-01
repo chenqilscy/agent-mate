@@ -21,6 +21,7 @@ _STATUSES = {
     "decision": {"proposed", "accepted", "superseded"},
 }
 _SEVERITIES = {"low", "medium", "high", "critical"}
+_SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 
 
 def _access(project_id: str, account: Account) -> Role:
@@ -77,6 +78,34 @@ def _decorate(item: dict) -> dict:
         "work_item_title": work_item.get("title", "") if work_item else "",
         "milestone_name": milestone.get("name", "") if milestone else "",
     }
+
+
+def _notify_risk_escalation(project_id: str, item: dict, account: Account,
+                            previous: dict | None = None) -> None:
+    """Notify on first high/critical entry or upward escalation; reads never write."""
+    if item.get("record_type") != "risk" or item.get("status") == "closed":
+        return
+    severity = str(item.get("severity") or "")
+    if severity not in {"high", "critical"}:
+        return
+    previous_active = bool(previous and previous.get("status") != "closed")
+    previous_rank = _SEVERITY_RANK.get(str(previous.get("severity") or ""), 0) if previous_active else 0
+    if previous is not None and _SEVERITY_RANK[severity] <= previous_rank:
+        return
+    label = "严重" if severity == "critical" else "高"
+    for member in db.list_project_members(project_id):
+        account_id = member["account_id"]
+        if account_id == account.id:
+            continue
+        db.add_notification(
+            account_id=account_id,
+            kind="project_risk",
+            title=f"项目出现{label}风险",
+            body=str(item.get("title") or "")[:200],
+            project_id=project_id,
+            actor_name=account.name,
+            dedupe_key=f"project-risk:{item['id']}:{severity}",
+        )
 
 
 class CreateBody(BaseModel):
@@ -141,6 +170,7 @@ def create_record(project_id: str, body: CreateBody, account: Account = CurrentA
         project_id=project_id, record_id=item["id"], actor_id=account.id,
         kind="created", detail=json.dumps({"record_type": item["record_type"], "title": item["title"]}, ensure_ascii=False),
     )
+    _notify_risk_escalation(project_id, item, account)
     return _decorate(item)
 
 
@@ -166,6 +196,7 @@ def update_record(project_id: str, record_id: str, body: UpdateBody,
         project_id=project_id, record_id=record_id, actor_id=account.id,
         kind="updated", detail=json.dumps(changes, ensure_ascii=False),
     )
+    _notify_risk_escalation(project_id, updated, account, current)
     return _decorate(updated)
 
 

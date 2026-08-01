@@ -302,6 +302,45 @@ export interface ProjectGovernanceRecord {
   resolved_at: number;
 }
 
+export type ProjectHealthStatus = "healthy" | "attention" | "critical";
+export interface ProjectHealth {
+  status: ProjectHealthStatus;
+  source: "server";
+  stale: boolean;
+  computed_at: number;
+  as_of: string;
+  summary: {
+    total_tasks: number;
+    completed_tasks: number;
+    completion_percent: number;
+    overdue_tasks: number;
+    blocked_tasks: number;
+    open_milestones: number;
+    overdue_milestones: number;
+    open_risks: number;
+    high_risks: number;
+    critical_risks: number;
+    pending_decisions: number;
+  };
+  reasons: Array<{ code: string; count: number; label: string }>;
+  milestones: Array<{
+    id: string;
+    name: string;
+    status: string;
+    health: ProjectHealthStatus;
+    reasons: string[];
+    due_date: string;
+    overdue: boolean;
+    total_tasks: number;
+    completed_tasks: number;
+    completion_percent: number;
+    blocked_tasks: number;
+    high_risks: number;
+    critical_risks: number;
+    pending_decisions: number;
+  }>;
+}
+
 export interface Activity {
   id?: string;
   actor?: string;

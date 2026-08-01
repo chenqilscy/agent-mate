@@ -57,6 +57,7 @@ import type {
   Milestone,
   Project,
   ProjectCustomField,
+  ProjectHealth,
   Sprint,
   WorkItem,
 } from "../../types";
@@ -155,6 +156,7 @@ interface ProjectWorkContextValue {
   roots: WorkItem[];
   members: Member[];
   milestones: Milestone[];
+  health: ProjectHealth | null;
   customFields: ProjectCustomField[];
   sprints: Sprint[];
   selectedSprintId: string;
@@ -239,6 +241,7 @@ export function ProjectWorkProvider({
   const [items, setItems] = useState<WorkItem[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [health, setHealth] = useState<ProjectHealth | null>(null);
   const [activity, setActivity] = useState<Activity[]>([]);
   const [customFields, setCustomFields] = useState<ProjectCustomField[]>([]);
   const [sprints, setSprints] = useState<Sprint[]>([]);
@@ -307,6 +310,7 @@ export function ProjectWorkProvider({
       consoleApi.workItems(project.id),
       consoleApi.projectMembers(project.id),
       consoleApi.milestones(project.id),
+      consoleApi.projectHealth(project.id),
       consoleApi.activity(project.id),
       consoleApi.customFields(project.id),
       consoleApi.sprints(project.id),
@@ -316,6 +320,7 @@ export function ProjectWorkProvider({
       work,
       memberResult,
       milestoneResult,
+      healthResult,
       activityResult,
       fieldResult,
       sprintResult,
@@ -331,6 +336,7 @@ export function ProjectWorkProvider({
       setMembers(memberResult.value.members || []);
     if (milestoneResult.status === "fulfilled")
       setMilestones(milestoneResult.value.milestones || []);
+    if (healthResult.status === "fulfilled") setHealth(healthResult.value);
     if (activityResult.status === "fulfilled")
       setActivity(activityResult.value.activity || []);
     if (fieldResult.status === "fulfilled")
@@ -717,6 +723,7 @@ export function ProjectWorkProvider({
       roots,
       members,
       milestones,
+      health,
       customFields,
       sprints,
       selectedSprintId,
@@ -745,6 +752,7 @@ export function ProjectWorkProvider({
       roots,
       members,
       milestones,
+      health,
       customFields,
       sprints,
       selectedSprintId,
@@ -1561,11 +1569,21 @@ export function ProjectOverview() {
     project,
     roots,
     milestones,
+    health,
     activity,
     loading,
     navigateToTab,
     openTask,
   } = useProjectWork();
+  const [liveHealth, setLiveHealth] = useState<ProjectHealth | null>(health);
+  useEffect(() => {
+    let active = true;
+    consoleApi.projectHealth(project.id).then((result) => {
+      if (active) setLiveHealth(result);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [project.id]);
+  const effectiveHealth = liveHealth || health;
   const done = roots.filter((item) => item.status === "done").length;
   const doing = roots.filter((item) => item.status === "doing").length;
   const overdue = roots.filter(
@@ -1573,6 +1591,11 @@ export function ProjectOverview() {
       item.due_date && item.due_date < today() && item.status !== "done",
   ).length;
   const percent = roots.length ? Math.round((done / roots.length) * 100) : 0;
+  const healthMeta = effectiveHealth?.status === "critical"
+    ? { label: "严重", color: "error" as const, type: "error" as const }
+    : effectiveHealth?.status === "attention"
+      ? { label: "需关注", color: "warning" as const, type: "warning" as const }
+      : { label: "健康", color: "success" as const, type: "success" as const };
   return (
     <div className="tab-stack">
       {!loading && !roots.length && (
@@ -1596,6 +1619,28 @@ export function ProjectOverview() {
           </Empty>
         </Card>
       )}
+      <Card
+        title="项目健康"
+        loading={loading && !effectiveHealth}
+        extra={<Space wrap><Tag color={healthMeta.color}>{healthMeta.label}</Tag><Typography.Text type="secondary">Server 实时计算</Typography.Text></Space>}
+      >
+        <Alert
+          showIcon
+          type={healthMeta.type}
+          title={effectiveHealth?.reasons.length ? effectiveHealth.reasons.map((reason) => `${reason.label} ${reason.count}`).join("；") : "当前没有需要介入的项目风险信号"}
+          description={effectiveHealth ? (
+            <Space wrap>
+              <Tag>阻塞任务 {effectiveHealth.summary.blocked_tasks}</Tag>
+              <Tag>逾期任务 {effectiveHealth.summary.overdue_tasks}</Tag>
+              <Tag>逾期里程碑 {effectiveHealth.summary.overdue_milestones}</Tag>
+              <Tag color={effectiveHealth.summary.critical_risks ? "red" : undefined}>严重风险 {effectiveHealth.summary.critical_risks}</Tag>
+              <Tag color={effectiveHealth.summary.high_risks ? "orange" : undefined}>高风险 {effectiveHealth.summary.high_risks}</Tag>
+              <Tag>待决策 {effectiveHealth.summary.pending_decisions}</Tag>
+              {(effectiveHealth.summary.open_risks || effectiveHealth.summary.pending_decisions) > 0 && <Button type="link" size="small" onClick={() => navigateToTab("governance")}>查看治理台账</Button>}
+            </Space>
+          ) : "正在读取项目健康数据"}
+        />
+      </Card>
       <Row gutter={[16, 16]}>
         <Col xs={12} xl={6}>
           <Card loading={loading}>
@@ -1653,6 +1698,7 @@ export function ProjectOverview() {
             project={project}
             roots={roots}
             milestones={milestones}
+            health={effectiveHealth}
             editable={false}
           />
         </Col>
@@ -1695,12 +1741,14 @@ function MilestoneCard({
   project,
   roots,
   milestones,
+  health,
   editable = true,
   onCreateSprint,
 }: {
   project: Project;
   roots: WorkItem[];
   milestones: Milestone[];
+  health?: ProjectHealth | null;
   editable?: boolean;
   onCreateSprint?: (milestone: Milestone) => void;
 }) {
@@ -1749,6 +1797,7 @@ function MilestoneCard({
             const relatedSprints = sprints.filter(
               (sprint) => sprint.milestone_id === milestone.id,
             );
+            const signal = health?.milestones.find((item) => item.id === milestone.id);
             return (
               <List.Item
                 className={
@@ -1815,6 +1864,11 @@ function MilestoneCard({
                       {milestone.status === "closed" && (
                         <Tag color="green">已关闭</Tag>
                       )}
+                      {signal && milestone.status !== "closed" && (
+                        <Tag color={signal.health === "critical" ? "red" : signal.health === "attention" ? "orange" : "green"}>
+                          {signal.health === "critical" ? "严重" : signal.health === "attention" ? "需关注" : "健康"}
+                        </Tag>
+                      )}
                     </Space>
                   }
                   description={
@@ -1828,11 +1882,12 @@ function MilestoneCard({
                         }
                       />
                       <Typography.Text type="secondary">
-                        {milestone.due_date
-                          ? `截止 ${milestone.due_date}`
+                        {signal?.due_date || milestone.due_date
+                          ? `截止 ${signal?.due_date || milestone.due_date}`
                           : "未设截止日期"}
                         {` · ${relatedSprints.length} 个 Sprint`}
                       </Typography.Text>
+                      {signal?.reasons.length ? <div><Typography.Text type={signal.health === "critical" ? "danger" : "warning"}>{signal.reasons.map((reason) => ({ critical_risk: "严重风险", overdue: "已逾期", blocked_work: "阻塞任务", high_risk: "高风险", pending_decision: "待决策" })[reason] || reason).join(" · ")}</Typography.Text></div> : null}
                     </>
                   }
                 />

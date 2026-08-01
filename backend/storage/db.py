@@ -377,6 +377,14 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_project_governance_project
             ON project_governance(project_id, record_type, status, updated_at DESC);
 
+        -- WB-351：Server 权威健康摘要的最后成功快照；离线只回放并标 stale。
+        CREATE TABLE IF NOT EXISTS project_health_cache (
+            project_id TEXT PRIMARY KEY,
+            payload TEXT NOT NULL,
+            server_computed_at REAL NOT NULL DEFAULT 0,
+            cached_at REAL NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS automations (
             id TEXT PRIMARY KEY,
             owner_id TEXT NOT NULL,
@@ -1736,6 +1744,9 @@ def reconcile_server_project_access(account_id: str, remote_project_ids: set[str
             "DELETE FROM server_member_tombstones WHERE project_id=? AND user_id=?",
             (project.id, account_id),
         )
+        # 权限撤销后不保留该项目的 Server 权威健康快照，避免本机残留
+        # 已不可访问项目的治理摘要。项目重新授权时会从 Server 重新拉取。
+        conn.execute("DELETE FROM project_health_cache WHERE project_id=?", (project.id,))
     conn.commit()
 
 
@@ -4788,6 +4799,30 @@ def mirror_server_project_governance(project_id: str, records: list[dict]) -> No
     else:
         conn.execute("DELETE FROM project_governance WHERE project_id=? AND server_dirty=0", (project_id,))
     conn.commit()
+
+
+def save_project_health_cache(project_id: str, payload: dict[str, Any]) -> None:
+    get_conn().execute(
+        "INSERT INTO project_health_cache (project_id,payload,server_computed_at,cached_at) "
+        "VALUES (?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET "
+        "payload=excluded.payload,server_computed_at=excluded.server_computed_at,cached_at=excluded.cached_at",
+        (project_id, json.dumps(payload, ensure_ascii=False),
+         float(payload.get("computed_at") or 0), time.time()),
+    )
+    get_conn().commit()
+
+
+def get_project_health_cache(project_id: str) -> Optional[dict[str, Any]]:
+    row = get_conn().execute(
+        "SELECT payload FROM project_health_cache WHERE project_id=?", (project_id,),
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        payload = json.loads(row["payload"])
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def set_device_setting(key: str, value: Optional[str]) -> None:

@@ -1,7 +1,7 @@
 import { WbButton, WbTextArea } from '../components/ui/Primitives'
 import { useCallback, useEffect, useState } from 'react'
 import { api, type Assistant } from '../lib/api'
-import type { Automation, ProjectInfo, ServerTimelineEvent, SessionInfo } from '../lib/types'
+import type { Automation, ProjectHealth, ProjectInfo, ServerTimelineEvent, SessionInfo } from '../lib/types'
 import { useProjectStore } from '../stores/projectStore'
 import { useChatStore } from '../stores/chatStore'
 import { useLoadoutStore } from '../stores/loadoutStore'
@@ -19,7 +19,7 @@ import { useWorkItemStore } from '../stores/workItemStore'
 import { useCatalogStore } from '../stores/catalogStore'
 import { useKnowledgeStore } from '../stores/knowledgeStore'
 import { skillDisplayName, useSkillStore } from '../stores/skillStore'
-import { Avatar, Breadcrumb, Empty, Tabs, Tag, Tooltip } from 'antd'
+import { Alert, Avatar, Breadcrumb, Empty, Progress, Space, Tabs, Tag, Tooltip } from 'antd'
 import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
@@ -56,6 +56,40 @@ function projectWriteError(error: unknown): string {
 const IC_ADD = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
 const IC_EDIT = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" /></svg>
 
+function ProjectHealthPanel({ health, onOpenGovernance }: { health: ProjectHealth; onOpenGovernance: () => void }) {
+  const meta = health.status === 'critical'
+    ? { label: '严重', color: 'red', type: 'error' as const }
+    : health.status === 'attention'
+      ? { label: '需关注', color: 'orange', type: 'warning' as const }
+      : { label: '健康', color: 'green', type: 'success' as const }
+  return (
+    <ProCard className="pj-health">
+      <div className="pj-health-head">
+        <b>项目健康</b>
+        <Tag color={meta.color}>{meta.label}</Tag>
+        <span>{health.stale ? 'Server 不可达 · 本机最后同步镜像' : health.source === 'server' ? 'Server 实时计算' : '本机实时计算'}</span>
+      </div>
+      <Alert
+        showIcon
+        type={health.stale && health.status === 'healthy' ? 'warning' : meta.type}
+        title={health.reasons.length ? health.reasons.map((reason) => `${reason.label} ${reason.count}`).join('；') : '当前没有需要介入的项目风险信号'}
+      />
+      <div className="pj-health-progress">
+        <span>整体进度</span><Progress percent={health.summary.completion_percent} size="small" />
+      </div>
+      <Space wrap size={[4, 6]}>
+        <Tag>阻塞 {health.summary.blocked_tasks}</Tag>
+        <Tag>任务逾期 {health.summary.overdue_tasks}</Tag>
+        <Tag>里程碑逾期 {health.summary.overdue_milestones}</Tag>
+        <Tag color={health.summary.critical_risks ? 'red' : undefined}>严重风险 {health.summary.critical_risks}</Tag>
+        <Tag color={health.summary.high_risks ? 'orange' : undefined}>高风险 {health.summary.high_risks}</Tag>
+        <Tag>待决策 {health.summary.pending_decisions}</Tag>
+        {(health.summary.open_risks || health.summary.pending_decisions) > 0 && <WbButton className="btn-ghost pj-health-link" onClick={onOpenGovernance}>查看治理台账</WbButton>}
+      </Space>
+    </ProCard>
+  )
+}
+
 // Project home = a workbench (§11): breadcrumb + 4 tabs + a live 项目配置 sidebar.
 // Execution is a sub-item — the composer starts one; the 动态 tab lists them.
 export function ProjectHomeView() {
@@ -75,6 +109,7 @@ export function ProjectHomeView() {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [timeline, setTimeline] = useState<ServerTimelineEvent[]>([])
   const [timelineStale, setTimelineStale] = useState(false)
+  const [health, setHealth] = useState<ProjectHealth | null>(null)
   const [activityExpanded, setActivityExpanded] = useState(false)
   const [editInstr, setEditInstr] = useState(false)
   const [instrDraft, setInstrDraft] = useState('')
@@ -132,6 +167,10 @@ export function ProjectHomeView() {
   }, [pid, active?.origin, setActive, loadWork, loadBindings])
 
   useEffect(() => { if (!kbLoaded) void loadKbs() }, [kbLoaded, loadKbs])
+  useEffect(() => {
+    if (!pid || (tab !== '动态' && tab !== '治理')) return
+    api.projectHealth(pid).then(setHealth).catch(() => setHealth(null))
+  }, [pid, tab])
 
   if (!project) return <section className="view active" data-view="project" />
 
@@ -275,7 +314,9 @@ export function ProjectHomeView() {
           <div className="pjh-body">
             {tab === '治理' && <ProjectGovernance projectId={project.id} canWrite={canWrite} />}
             {tab === '动态' && (
-              activityFeed.length ? (
+              <>
+                {health && <ProjectHealthPanel health={health} onOpenGovernance={() => setTab('治理')} />}
+                {activityFeed.length ? (
                 <>
                   <List dataSource={visibleActivity} renderItem={(item) => (
                     <List.Item
@@ -297,7 +338,8 @@ export function ProjectHomeView() {
                 </>
               ) : (
                 <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有执行记录。在下方描述任务，开始项目的第一次执行。" />
-              )
+              )}
+              </>
             )}
 
             {tab === '计划' && <KanbanBoard canWrite={canWrite} />}

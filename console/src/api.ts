@@ -16,6 +16,7 @@ import type {
   PmPreferences,
   Project,
   ProjectGovernanceRecord,
+  ProjectHealth,
   ProjectCustomField,
   SkillData,
   SkillRelease,
@@ -382,6 +383,8 @@ export const consoleApi = {
     apiRequest<ProjectGovernanceRecord>("PATCH", `/projects/${encodeURIComponent(id)}/governance/${encodeURIComponent(recordId)}`, body),
   deleteGovernance: (id: string, recordId: string) =>
     apiRequest<{ ok: boolean }>("DELETE", `/projects/${encodeURIComponent(id)}/governance/${encodeURIComponent(recordId)}`),
+  projectHealth: (id: string) =>
+    apiRequest<ProjectHealth>("GET", `/projects/${encodeURIComponent(id)}/health`),
   activity: (id: string) =>
     apiRequest<{ activity: Activity[] }>(
       "GET",

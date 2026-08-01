@@ -290,6 +290,7 @@ def init_db() -> None:
             body TEXT NOT NULL DEFAULT '',
             project_id TEXT,
             actor_name TEXT,
+            dedupe_key TEXT NOT NULL DEFAULT '',
             read INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL
         );
@@ -540,6 +541,14 @@ def init_db() -> None:
     have_cm = {r["name"] for r in conn.execute("PRAGMA table_info(comments)").fetchall()}
     if "work_item_id" not in have_cm:
         conn.execute("ALTER TABLE comments ADD COLUMN work_item_id TEXT NOT NULL DEFAULT ''")
+    # WB-351：事件通知按语义键去重；普通通知 dedupe_key='' 不受约束。
+    have_notif = {r["name"] for r in conn.execute("PRAGMA table_info(server_notifications)").fetchall()}
+    if "dedupe_key" not in have_notif:
+        conn.execute("ALTER TABLE server_notifications ADD COLUMN dedupe_key TEXT NOT NULL DEFAULT ''")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_server_notifs_dedupe "
+        "ON server_notifications(account_id,dedupe_key) WHERE dedupe_key!=''"
+    )
     # WB-290：旧 Console 自建知识库升级为中央 WeKnora 绑定。旧行绝不假装已迁移。
     have_kb = {r["name"] for r in conn.execute("PRAGMA table_info(knowledge_bases)").fetchall()}
     for _col, _ddl in (
@@ -2573,13 +2582,17 @@ def list_comments(project_id: str, work_item_id: str = "", limit: int = 200) -> 
 
 
 def add_notification(*, account_id: str, kind: str, title: str, body: str = "",
-                     project_id: Optional[str] = None, actor_name: Optional[str] = None) -> None:
-    get_conn().execute(
-        "INSERT INTO server_notifications (id,account_id,kind,title,body,project_id,actor_name,read,created_at) "
-        "VALUES (?,?,?,?,?,?,?,0,?)",
-        (new_uuid(), account_id, kind, title, body, project_id, actor_name, time.time()),
+                     project_id: Optional[str] = None, actor_name: Optional[str] = None,
+                     dedupe_key: str = "") -> bool:
+    cur = get_conn().execute(
+        "INSERT OR IGNORE INTO server_notifications "
+        "(id,account_id,kind,title,body,project_id,actor_name,dedupe_key,read,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,0,?)",
+        (new_uuid(), account_id, kind, title, body, project_id, actor_name,
+         dedupe_key[:500], time.time()),
     )
     get_conn().commit()
+    return cur.rowcount > 0
 
 
 def list_notifications(account_id: str, limit: int = 50) -> list[dict]:

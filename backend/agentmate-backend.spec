@@ -32,7 +32,7 @@ datas += collect_data_files('playwright')
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=['..'],
     binaries=[],
     datas=datas,
     hiddenimports=hidden,
