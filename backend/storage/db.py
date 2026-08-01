@@ -2869,21 +2869,46 @@ def _row_to_catalog_connector(r: sqlite3.Row) -> CatalogConnector:
 
 
 def connector_specs() -> dict[str, dict[str, Any]]:
-    """连接器名 → 启动 spec（enabled 行），替代 mcp_client 里原硬编码的 CONNECTORS 字典。
-    Server 同名定义覆盖 builtin；Server 不下发或被清空时自动回退 builtin。"""
-    rows = get_conn().execute(
-        "SELECT name, launch FROM catalog_connectors WHERE enabled=1 "
-        "ORDER BY CASE scope WHEN 'server' THEN 0 ELSE 1 END, sort, name"
+    """Return connector launch specs from the App's trusted runtime registry.
+
+    Server rows are control-plane catalog data, never executable authority.  A
+    Server row may select/rename a bundled connector only when its launch
+    declaration exactly matches the App-shipped definition for the same slug.
+    A drifted declaration is fail-closed; a Server-only slug remains browseable
+    through ``connector_catalog_specs`` but cannot spawn a local process.
+    """
+    conn = get_conn()
+    trusted_rows = conn.execute(
+        "SELECT slug,name,launch FROM catalog_connectors "
+        "WHERE enabled=1 AND scope='builtin' ORDER BY sort,name"
     ).fetchall()
-    out: dict[str, dict[str, Any]] = {}
-    for r in rows:
-        if r["name"] in out:
-            continue
+    server_rows = conn.execute(
+        "SELECT slug,name,launch FROM catalog_connectors "
+        "WHERE enabled=1 AND scope='server' ORDER BY sort,name"
+    ).fetchall()
+
+    def _launch(row: sqlite3.Row) -> dict[str, Any] | None:
         try:
-            spec = json.loads(r["launch"]) if r["launch"] else {}
+            value = json.loads(row["launch"]) if row["launch"] else {}
         except (json.JSONDecodeError, TypeError):
-            spec = {}
-        out[r["name"]] = spec if isinstance(spec, dict) else {}
+            return None
+        return value if isinstance(value, dict) and value else None
+
+    server_by_slug = {row["slug"]: row for row in server_rows if row["slug"]}
+    out: dict[str, dict[str, Any]] = {}
+    for row in trusted_rows:
+        trusted = _launch(row)
+        if trusted is None:
+            continue
+        server_row = server_by_slug.get(row["slug"])
+        if server_row is None:
+            out[row["name"]] = trusted
+            continue
+        declared = _launch(server_row)
+        if declared == trusted:
+            # The remote name is display metadata; execution still uses the
+            # immutable local definition that passed the equality gate.
+            out[server_row["name"]] = trusted
     return out
 
 
@@ -2948,9 +2973,12 @@ def connector_catalog_specs() -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for row in rows:
-        if row["name"] in seen:
+        # slug is the stable identity.  A Server rename must replace the local
+        # card instead of producing two cards whose names happen to differ.
+        identity = row["slug"] or row["name"]
+        if identity in seen:
             continue
-        seen.add(row["name"])
+        seen.add(identity)
         out.append({
             "slug": row["slug"], "name": row["name"], "icon": row["icon"], "description": row["description"],
             "status": row["status"], "scope": row["scope"],
@@ -2959,20 +2987,30 @@ def connector_catalog_specs() -> list[dict[str, Any]]:
 
 
 def replace_server_connector_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
-    """把 Server 的公开连接器定义映射进本机运行目录；密钥值和 OAuth 状态永不接收。"""
+    """Mirror Server connector metadata and an untrusted compatibility declaration.
+
+    ``launch`` is retained only so :func:`connector_specs` can compare it with
+    the App-shipped definition.  It is never used directly to spawn a process;
+    credential values and OAuth state are never accepted.
+    """
     conn = get_conn()
     now = time.time()
     rows: list[tuple[Any, ...]] = []
     seen_names: set[str] = set()
+    seen_slugs: set[str] = set()
     skipped = 0
     for index, raw in enumerate(items):
         if not isinstance(raw, dict):
             skipped += 1
             continue
         name = str(raw.get("name", "")).strip()
+        slug = str(raw.get("slug", "")).strip()
         status = str(raw.get("status", "")).strip()
         launch = raw.get("launch")
-        if not name or name in seen_names or status not in {"rdy", "tok"} or not isinstance(launch, dict):
+        if (
+            not name or name in seen_names or slug in seen_slugs or not _SKILL_SLUG_RE.fullmatch(slug)
+            or status not in {"rdy", "tok"} or not isinstance(launch, dict)
+        ):
             skipped += 1
             continue
         builtin_server = str(launch.get("builtin_server", "")).strip()
@@ -2993,10 +3031,7 @@ def replace_server_connector_catalog(items: list[dict[str, Any]]) -> dict[str, i
             if key in {"builtin_server", "builtin", "command", "args", "secret_env", "requires", "requires_bin"}
         }
         seen_names.add(name)
-        slug = str(raw.get("slug", "")).strip()
-        if not _SKILL_SLUG_RE.fullmatch(slug):
-            skipped += 1
-            continue
+        seen_slugs.add(slug)
         rows.append((
             new_uuid(), "server", None, slug, name, str(raw.get("icon", "🔗")),
             str(raw.get("desc") or raw.get("description") or ""), status,

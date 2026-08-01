@@ -6,7 +6,7 @@
 |---|---|---|---|
 | App REST API | 外部系统 → AgentMate | 代表真实用户管理项目、会话、自动化 | 用户 Bearer；按 owner/项目成员权限校验 |
 | Automation Webhook | 外部系统 → AgentMate | CI、监控、工单、CRM 事件触发无人值守任务 | 每条自动化独立 HMAC 密钥、时间窗、幂等键 |
-| MCP Connector | AgentMate → 外部系统 | Agent 在一次 Run 内查询或操作外部工具 | 连接器配置与工具权限；MCP 工具仍受 Run 审批/沙箱约束 |
+| MCP Connector | AgentMate → 外部系统 | Agent 在一次 Run 内查询或操作外部工具 | 本机可信启动定义 + 连接凭据；Server 目录不能下发可执行命令，MCP 调用受 Run 超时/取消约束 |
 | Skill | AgentMate 内部 | 封装指令、文件、工具绑定和权限声明 | 不是网络鉴权协议，也不直接提供公网入口 |
 | Channel | 双向消息 | Telegram、邮件等人机消息入口/结果投递 | 渠道账户绑定和发送者映射；不是通用系统事件总线 |
 

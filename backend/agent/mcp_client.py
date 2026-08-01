@@ -157,7 +157,7 @@ async def open_connectors(
     for idx, name in enumerate(names):
         spec = specs.get(name)
         if not spec:
-            skipped.append({"name": name, "reason": "未内置该连接器"})
+            skipped.append({"name": name, "reason": "本机未提供可信运行定义或定义不兼容"})
             continue
         missing = [k for k in spec.get("requires", []) if not os.environ.get(k, "").strip()]
         if missing:

@@ -65,7 +65,7 @@ Server 管理以下 AgentMate 自有控制面对象：
 
 - 专家定义与推荐位；
 - 专家团定义；
-- 连接器定义与推荐位；
+- 连接器公开元数据、兼容性声明与推荐位；
 - Skill 定义、文件与推荐位；
 - 内置工具的运营目录与 Skill 绑定策略；
 - 其它受控模板/目录分类。
@@ -93,7 +93,8 @@ Server 管理以下 AgentMate 自有控制面对象：
 ```
 
 其中专家必须有稳定 slug 与可注入 persona；Skill 必须形成可校验的本地安装快照并声明工具与权限；
-连接器必须有受支持 launch spec、凭据门禁和工具协议。参考页后续变化只形成复核信号，不自动覆盖
+连接器可以声明所需 launch spec、凭据门禁和工具协议，但本机真正可执行的 launch spec 必须随 App
+发布并进入可信注册表，Server 声明只用于逐字段兼容匹配。参考页后续变化只形成复核信号，不自动覆盖
 已发布数据。来源索引和核实摘要见
 [`WorkBuddy/official-sources.md`](WorkBuddy/official-sources.md#动态能力目录)。
 
@@ -107,7 +108,8 @@ Server snapshot 并原子替换本机 `catalog_downlink` 的 Server scope，未�
 |---|---|---|
 | 账号、组织、server-origin 项目、成员/角色、邀请 | Server | Server → App 镜像 |
 | 工作项、里程碑、评论、presence、通知 | Server | App backend 代理，必要时本地镜像 |
-| AgentMate 专家/团队/连接器/Skill 定义与推荐位 | Server | Server → App 条件全量快照 pull |
+| AgentMate 专家/团队/Skill 定义及连接器公开元数据/推荐位 | Server | Server → App 条件全量快照 pull |
+| MCP 连接器本机启动定义 | App 随版本交付的可信注册表 | Server 只能声明兼容目标；完全匹配后由 App 本地定义执行 |
 | 内置工具定义与运营目录 | Server `tool_catalog`；native 由 App 签名实现，shell 由 Server 下发 | Console 管策略/跨平台脚本；App 校验镜像并执行裁决 |
 | server-origin 项目知识库与 WeKnora 服务凭据 | Server | Console 管理；App 按项目 token 代理检索/显式上传，不下发 provider ID/Key |
 | 第三方 SkillHub 市场、Key、技能包 | App 本地/第三方 | App 直连，不经过 Server |
@@ -151,11 +153,12 @@ deployment-only，不能通过通用设置 API 伪装成热更新。
 
 - 专家必须有可注入 persona 和稳定 slug。
 - 专家团成员必须引用稳定 expert slug；成员清单本身不构成多 Agent 调度。
-- 连接器必须有受支持 launch spec、工具清单和本机凭据门禁。
+- 连接器目录必须按稳定 slug 解析到 App 本地可信 launch spec；Server-only 或声明漂移的定义只可浏览、不可执行。
 - Skill 必须在 App 本地形成可校验的安装快照；未安装目录定义不能冒充已运行内容。
 
-Server 下发只改变控制面定义；App runtime 是本机最终执行裁决者。未知工具、版本不兼容、缺凭据、
-未安装或被撤回的能力必须拒绝运行并给出明确原因。
+Server 下发只改变控制面定义；App runtime 是本机最终执行裁决者。MCP 子进程只按 App 随版本交付的
+可信定义启动，Server 的 `command/args` 不会直接进入进程创建。未知工具、版本不兼容、缺凭据、
+未安装、定义漂移或被撤回的能力必须拒绝运行并给出明确原因。
 
 ### 6.1 内置工具目录
 
