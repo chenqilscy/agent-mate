@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -18,7 +19,7 @@ import server_sync  # noqa: E402
 from auth.deps import set_current_user_id  # noqa: E402
 from config import settings  # noqa: E402
 from routers import work_items as work_items_router  # noqa: E402
-from storage import db  # noqa: E402
+from storage import background_job_store as job_store, db  # noqa: E402
 from storage.models import LOCAL_USER_ID, Role  # noqa: E402
 
 
@@ -32,6 +33,7 @@ class WorkItemDeliveryCollaborationTest(unittest.IsolatedAsyncioTestCase):
         settings.WORKSPACE_ROOT = Path(self.tmp.name) / "workspace"
         settings.WORKSPACE_ROOT.mkdir(parents=True)
         db.init_db()
+        job_store.ensure_tables()
         self.project = db.create_project(owner_id=LOCAL_USER_ID, name="delivery")
         self.item = db.create_work_item(
             project_id=self.project.id, owner_id=LOCAL_USER_ID,
@@ -124,6 +126,52 @@ class WorkItemDeliveryCollaborationTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as read_error:
             work_items_router.get_item_delivery(self.item.id)
         self.assertEqual(404, read_error.exception.status_code)
+
+    async def test_expired_worker_attempt_creates_linked_retry_run(self) -> None:
+        launch, _ = db.create_work_item_launch(
+            work_item_id=self.item.id, owner_id=LOCAL_USER_ID,
+            idempotency_key=f"work-item:{self.item.id}:recover",
+        )
+        session = db.create_session(
+            owner_id=LOCAL_USER_ID, title="recover", kind="projexec", project_id=self.project.id,
+        )
+        launch = db.attach_work_item_launch_session(launch["id"], session.id)
+        first_run, _ = db.create_run(
+            session_id=session.id, owner_id=LOCAL_USER_ID, project_id=self.project.id,
+            work_item_id=self.item.id, mode="exec", workspace=f"projects/{self.project.id}",
+            idempotency_key=launch["idempotency_key"],
+        )
+        db.set_run_status(
+            first_run.id, "failed", error_code="worker_restarted", error_message="interrupted",
+        )
+        job, _ = job_store.enqueue(
+            owner_id=LOCAL_USER_ID, kind=work_item_runner.JOB_KIND, entity_id=launch["id"],
+            idempotency_key=f"work-item-launch:{launch['id']}", max_attempts=3,
+        )
+        base = time.time() + 1
+        job_store.claim(job["id"], "old", base, 5)
+        job_store.recover_expired(base + 6)
+        recovered = job_store.claim(job["id"], "new", base + 6, 5)
+
+        async def completed_retry(session_arg, user, _prompt, **kwargs):
+            self.assertEqual(first_run.id, kwargs["retry_of"])
+            run, created = db.create_run(
+                session_id=session_arg.id, owner_id=user.id, project_id=session_arg.project_id,
+                work_item_id=self.item.id, mode="exec", workspace=f"projects/{self.project.id}",
+                idempotency_key=kwargs["idempotency_key"], retry_of=kwargs["retry_of"],
+            )
+            self.assertTrue(created)
+            db.set_run_status(run.id, "completed")
+            yield "event: done\ndata: {}\n\n"
+
+        with patch.object(work_item_runner.runtime, "run_chat", side_effect=completed_retry):
+            await work_item_runner._execute_job(recovered)
+        job_store.finish_success(job["id"], "new")
+        saved = db.get_work_item_launch(launch["id"])
+        retry_run = db.get_run(saved["run_id"])
+        self.assertEqual("completed", saved["status"])
+        self.assertEqual(first_run.id, retry_run.retry_of)
+        self.assertEqual("succeeded", job_store.get(job["id"])["status"])
 
     async def test_acceptance_rolls_back_when_artifact_validation_failed(self) -> None:
         session = db.create_session(

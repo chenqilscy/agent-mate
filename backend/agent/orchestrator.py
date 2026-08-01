@@ -7,12 +7,13 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agent import runtime
+from agent import background_worker, runtime
 from config import settings
 from storage import db, orchestration_store as store
 from storage.models import User
 
 _NODE_KEY_RE = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
+JOB_KIND = "orchestration"
 _TASKS: dict[str, asyncio.Task[None]] = {}
 _ACTIVE_SESSIONS: dict[str, set[str]] = {}
 
@@ -175,7 +176,8 @@ async def _execute_node(
                     event_error = str(data.get("message") or "execution failed")
         except asyncio.CancelledError:
             cancelled = True
-            event_error = "cancelled_by_user"
+            current = store.get(orchestration["id"], user.id) or {}
+            event_error = "cancelled_by_user" if current.get("cancel_requested") else "worker_stopped"
         except Exception as exc:  # noqa: BLE001
             event_error = str(exc)
         finally:
@@ -185,7 +187,8 @@ async def _execute_node(
         text = "".join(output).strip()
         status = "completed" if run and run.status == "completed" and not event_error and text else "failed"
         if cancelled:
-            status = "cancelled"
+            current = store.get(orchestration["id"], user.id) or {}
+            status = "cancelled" if current.get("cancel_requested") else "failed"
         error = event_error or (run.error_message if run else "run was not created") or ""
         if status == "failed" and run and run.status == "completed" and not text and not error:
             error = "agent completed without deliverable output"
@@ -200,10 +203,14 @@ async def _execute_node(
             completion_tokens=run.completion_tokens if run else 0,
         )
         if cancelled:
-            store.finish_node(
-                orchestration["id"], node["node_key"], status="cancelled",
-                run_id=run.id if run else None, error=error,
-            )
+            current = store.get(orchestration["id"], user.id) or {}
+            if current.get("cancel_requested"):
+                store.finish_node(
+                    orchestration["id"], node["node_key"], status="cancelled",
+                    run_id=run.id if run else None, error=error,
+                )
+            else:
+                store.reset_node(orchestration["id"], node["node_key"])
             raise asyncio.CancelledError
         if retryable and remaining_budget >= 256:
             await asyncio.sleep(_retry_delay(error, attempt_index))
@@ -325,18 +332,21 @@ async def run_orchestration(orchestration_id: str, user: User, team: dict[str, A
         lead = next((m for m in members if m.get("lead")), members[0] if members else None)
         if not lead:
             raise ValueError("expert team has no executable members")
-        specialist_limit = min(
-            orchestration["max_parallel"], max(1, orchestration["max_nodes"] - 1),
-        )
-        plan = build_role_plan(team, specialist_limit)
-        for item in plan:
-            store.add_node(
-                orchestration_id, node_key=item["id"], title=item["title"], role=item["role"],
-                expert_slug=item["expert_slug"], instruction=item["instruction"],
-                depends_on=item["depends_on"],
+        if orchestration["status"] == "planning":
+            specialist_limit = min(
+                orchestration["max_parallel"], max(1, orchestration["max_nodes"] - 1),
             )
-        store.set_status(orchestration_id, "running")
-        while True:
+            plan = build_role_plan(team, specialist_limit)
+            existing = {node["node_key"] for node in store.list_nodes(orchestration_id)}
+            for item in plan:
+                if item["id"] not in existing:
+                    store.add_node(
+                        orchestration_id, node_key=item["id"], title=item["title"], role=item["role"],
+                        expert_slug=item["expert_slug"], instruction=item["instruction"],
+                        depends_on=item["depends_on"],
+                    )
+            store.set_status(orchestration_id, "running")
+        while (store.get(orchestration_id, user.id) or {}).get("status") == "running":
             current = store.get(orchestration_id, user.id) or {}
             if current.get("cancel_requested"):
                 store.set_status(orchestration_id, "cancelled", error="cancelled_by_user")
@@ -400,20 +410,29 @@ async def run_orchestration(orchestration_id: str, user: User, team: dict[str, A
                         + _dependency_context(failed, store.list_nodes(orchestration_id)),
                         token_budget=recovery_budget,
                     )
-        store.set_status(orchestration_id, "reviewing")
+        current_status = (store.get(orchestration_id, user.id) or {}).get("status")
+        if current_status == "running":
+            store.set_status(orchestration_id, "reviewing")
+        current = store.get(orchestration_id, user.id) or {}
+        if current.get("cancel_requested"):
+            store.set_status(orchestration_id, "cancelled", error="cancelled_by_user")
+            return
         nodes = store.list_nodes(orchestration_id)
-        reviewer = store.add_node(
-            orchestration_id, node_key="reviewer", title="主编审稿", role=str(lead.get("role") or "主编"),
-            expert_slug=str(lead["expert_slug"]), instruction="冲突审查与最终综合",
-            depends_on=[node["node_key"] for node in nodes if node["node_key"] != "planner"],
-        )
+        reviewer = store.get_node(orchestration_id, "reviewer")
+        if reviewer is None:
+            reviewer = store.add_node(
+                orchestration_id, node_key="reviewer", title="主编审稿", role=str(lead.get("role") or "主编"),
+                expert_slug=str(lead["expert_slug"]), instruction="冲突审查与最终综合",
+                depends_on=[node["node_key"] for node in nodes if node["node_key"] != "planner"],
+            )
         current = store.get(orchestration_id, user.id) or {}
         remaining = orchestration["max_total_tokens"] - current.get("prompt_tokens", 0) - current.get("completion_tokens", 0)
         if remaining < 256:
             raise RuntimeError("orchestration token budget exhausted before review")
-        reviewer = await _execute_node(
-            orchestration, user, reviewer, _review_prompt(orchestration, nodes), token_budget=remaining,
-        )
+        if reviewer["status"] == "pending":
+            reviewer = await _execute_node(
+                orchestration, user, reviewer, _review_prompt(orchestration, nodes), token_budget=remaining,
+            )
         if reviewer["status"] == "failed" and _is_transient(str(reviewer.get("error") or "")):
             # The reviewer is the only node without a later sibling that can trigger
             # the sequential provider-recovery path. Give it one fresh round while
@@ -445,7 +464,11 @@ async def run_orchestration(orchestration_id: str, user: User, team: dict[str, A
         artifact_id = _artifact(orchestration, reviewer, final_nodes)
         store.set_status(orchestration_id, "completed", artifact_id=artifact_id)
     except asyncio.CancelledError:
-        store.set_status(orchestration_id, "cancelled", error="cancelled_by_user")
+        current = store.get(orchestration_id, user.id) or {}
+        if current.get("cancel_requested"):
+            store.set_status(orchestration_id, "cancelled", error="cancelled_by_user")
+        else:
+            store.prepare_resume(orchestration_id, "worker_stopped")
         raise
     except Exception as exc:  # noqa: BLE001
         store.set_status(orchestration_id, "failed", error=str(exc))
@@ -454,24 +477,77 @@ async def run_orchestration(orchestration_id: str, user: User, team: dict[str, A
         _TASKS.pop(orchestration_id, None)
 
 
+async def _execute_job(job: dict[str, Any]) -> None:
+    orchestration_id = str(job["entity_id"])
+    item = store.get(orchestration_id, str(job["owner_id"]))
+    user = db.get_user(str(job["owner_id"]))
+    if not item or not user:
+        raise background_worker.TerminalJobError("编排或运行账户不存在", code="scope_missing")
+    team = resolve_team(item["team_name"])
+    if not team:
+        raise background_worker.TerminalJobError("专家团队不存在", code="team_missing")
+    if int(job["attempt"]) > 1:
+        store.prepare_resume(orchestration_id)
+    await run_orchestration(orchestration_id, user, team)
+    current = store.get(orchestration_id, user.id) or {}
+    if current.get("status") == "completed":
+        return
+    if current.get("status") == "failed":
+        raise background_worker.TerminalJobError(
+            str(current.get("error") or "编排失败"), code="orchestration_failed",
+        )
+    if current.get("status") == "cancelled":
+        raise background_worker.TerminalJobError("编排已取消", code="cancelled_by_user")
+    raise RuntimeError("编排未进入终态")
+
+
+async def _recover(_job: dict[str, Any]) -> None:
+    store.ensure_tables()
+    for item in store.list_active():
+        background_worker.enqueue(
+            owner_id=item["owner_id"], kind=JOB_KIND, entity_id=item["id"],
+            idempotency_key=f"orchestration:{item['id']}", payload={}, max_attempts=3,
+        )
+
+
+def _fail_job(job: dict[str, Any]) -> None:
+    store.fail_nonterminal(
+        str(job.get("entity_id") or ""),
+        str(job.get("error_message") or job.get("error_code") or "background_job_failed"),
+    )
+
+
+background_worker.register_handler(JOB_KIND, _execute_job, recover=_recover, failed=_fail_job)
+
+
 def start(orchestration_id: str, user: User, team: dict[str, Any]) -> None:
-    task = asyncio.create_task(run_orchestration(orchestration_id, user, team))
-    _TASKS[orchestration_id] = task
+    _ = team  # the durable handler resolves the authoritative catalog again at execution time
+    _, _, task = background_worker.enqueue(
+        owner_id=user.id, kind=JOB_KIND, entity_id=orchestration_id,
+        idempotency_key=f"orchestration:{orchestration_id}", payload={}, max_attempts=3,
+    )
+    if task:
+        _TASKS[orchestration_id] = task
+        task.add_done_callback(lambda _done: _TASKS.pop(orchestration_id, None))
 
 
-def cancel(orchestration_id: str) -> None:
+def cancel(orchestration_id: str) -> asyncio.Task[None] | None:
     store.request_cancel(orchestration_id)
     for session_id in list(_ACTIVE_SESSIONS.get(orchestration_id, set())):
         runtime.request_stop(session_id)
-    task = _TASKS.get(orchestration_id)
-    if task and not task.done():
-        task.cancel()
+    item = store.get(orchestration_id)
+    task = background_worker.cancel_entity(item["owner_id"], JOB_KIND, orchestration_id) if item else None
+    if task is None:
+        task = _TASKS.get(orchestration_id)
+        if task and not task.done():
+            task.cancel()
+    return task
 
 
 async def cancel_and_wait(orchestration_id: str, timeout: float = 5.0) -> dict[str, Any] | None:
     """Cancel active child Runs and return only after durable state has converged."""
     task = _TASKS.get(orchestration_id)
-    cancel(orchestration_id)
+    task = cancel(orchestration_id) or task
     if task and not task.done():
         try:
             await asyncio.wait_for(asyncio.shield(task), timeout=max(0.1, timeout))

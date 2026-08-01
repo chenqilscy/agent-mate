@@ -4158,6 +4158,21 @@ def attach_work_item_launch_session(launch_id: str, session_id: str) -> dict:
     return get_work_item_launch(launch_id)  # type: ignore[return-value]
 
 
+def mark_work_item_launch_retry(
+    launch_id: str, *, run_id: Optional[str], error_code: str, error_message: str,
+) -> dict:
+    get_conn().execute(
+        "UPDATE work_item_launches SET status='running',run_id=?,error_code=?,error_message=?,"
+        "updated_at=? WHERE id=? AND status IN ('queued','running')",
+        (run_id, error_code[:120], error_message[:500], time.time(), launch_id),
+    )
+    get_conn().commit()
+    launch = get_work_item_launch(launch_id)
+    if not launch:
+        raise KeyError(launch_id)
+    return launch
+
+
 def finish_work_item_launch(
     launch_id: str, *, status: str, run_id: Optional[str] = None,
     error_code: Optional[str] = None, error_message: Optional[str] = None,
@@ -4530,6 +4545,14 @@ def list_device_settings_audit(limit: int = 100) -> list[dict]:
         "SELECT id,setting_key,actor_id,action,before_value,after_value,created_at "
         "FROM device_settings_audit ORDER BY created_at DESC LIMIT ?",
         (max(1, min(int(limit), 200)),),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_active_work_item_launches() -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM work_item_launches WHERE status IN ('queued','running') "
+        "ORDER BY created_at"
     ).fetchall()
     return [dict(row) for row in rows]
 

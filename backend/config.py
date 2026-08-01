@@ -148,6 +148,20 @@ class Settings:
         5.0, float(os.getenv("SESSION_SUMMARY_TIMEOUT_SECONDS", "30"))
     )
 
+    # 统一后台任务 worker（WB-345）：仅控制本地并发、扫描和租约，不改变各领域自己的预算。
+    BACKGROUND_JOB_MAX_CONCURRENCY: int = max(
+        1, min(16, int(os.getenv("BACKGROUND_JOB_MAX_CONCURRENCY", "4")))
+    )
+    BACKGROUND_JOB_SCAN_SECONDS: float = max(
+        0.2, float(os.getenv("BACKGROUND_JOB_SCAN_SECONDS", "2"))
+    )
+    BACKGROUND_JOB_LEASE_SECONDS: float = max(
+        5.0, float(os.getenv("BACKGROUND_JOB_LEASE_SECONDS", "30"))
+    )
+    BACKGROUND_JOB_RETRY_BACKOFF_SECONDS: float = max(
+        0.1, float(os.getenv("BACKGROUND_JOB_RETRY_BACKOFF_SECONDS", "2"))
+    )
+
     # 语音输入本地 ASR（WB-139）。faster-whisper 小模型在本机把录音转文字，音频不出本机。
     # ASR_ENABLED=0 彻底关闭端点；模型首次使用会下载到 ASR_MODEL_DIR（需联网一次）。
     # ASR_MODEL：faster-whisper 尺寸（tiny/base/small/medium/large-v3）或本地路径，默认 base（中文够用、CPU 秒级）。

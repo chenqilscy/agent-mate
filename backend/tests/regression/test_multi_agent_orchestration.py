@@ -93,15 +93,36 @@ class MultiAgentOrchestrationTest(unittest.TestCase):
         self.assertEqual(run.id, saved["nodes"][0]["run_id"])
         self.assertEqual("真实成员输出", saved["nodes"][0]["output"])
 
-    def test_process_recovery_marks_nonterminal_work_failed(self) -> None:
+    def test_process_recovery_preserves_completed_nodes_and_requeues_interrupted_node(self) -> None:
         item, _ = store.create(
             owner_id=LOCAL_USER_ID, project_id=None, team_name="产品战略团队", goal="目标",
             idempotency_key=None, max_nodes=5, max_parallel=2, max_total_tokens=8000,
         )
-        store.ensure_tables()
+        completed = store.add_node(
+            item["id"], node_key="completed", title="已完成", role="成员",
+            expert_slug="data-report-analyst", instruction="完成", depends_on=[],
+        )
+        done_session = db.create_session(owner_id=LOCAL_USER_ID, title="done")
+        done_attempt = store.start_attempt(item["id"], completed["node_key"], done_session.id)
+        store.finish_attempt(done_attempt["id"], status="completed", run_id=None)
+        store.finish_node(
+            item["id"], completed["node_key"], status="completed", run_id=None, output="证据",
+        )
+        interrupted = store.add_node(
+            item["id"], node_key="interrupted", title="中断", role="成员",
+            expert_slug="data-report-analyst", instruction="继续", depends_on=["completed"],
+        )
+        running_session = db.create_session(owner_id=LOCAL_USER_ID, title="running")
+        store.start_attempt(item["id"], interrupted["node_key"], running_session.id)
+        store.set_status(item["id"], "running")
+        store.prepare_resume(item["id"])
         recovered = store.get(item["id"], LOCAL_USER_ID)
-        self.assertEqual("failed", recovered["status"])
-        self.assertEqual("process_restarted", recovered["error"])
+        self.assertEqual("running", recovered["status"])
+        by_key = {node["node_key"]: node for node in recovered["nodes"]}
+        self.assertEqual("completed", by_key["completed"]["status"])
+        self.assertEqual("pending", by_key["interrupted"]["status"])
+        self.assertEqual("failed", by_key["interrupted"]["attempts"][0]["status"])
+        self.assertEqual("worker_restarted", by_key["interrupted"]["attempts"][0]["error"])
 
     def test_attempts_preserve_retry_trace_and_aggregate_cost(self) -> None:
         item, _ = store.create(

@@ -36,7 +36,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from agent import scheduler, skills as agent_skills, telemetry
+from agent import background_worker, scheduler, skills as agent_skills, telemetry
 from auth.middleware import AuthMiddleware
 from channels import manager as channel_manager
 from config import FROZEN, settings
@@ -120,9 +120,19 @@ async def _start_scheduler() -> None:
     scheduler.start()
 
 
+@app.on_event("startup")
+async def _start_background_worker() -> None:
+    await background_worker.start()
+
+
 @app.on_event("shutdown")
 async def _stop_scheduler() -> None:
     await scheduler.stop()
+
+
+@app.on_event("shutdown")
+async def _stop_background_worker() -> None:
+    await background_worker.stop()
 
 
 @app.on_event("startup")

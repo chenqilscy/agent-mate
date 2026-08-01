@@ -81,23 +81,6 @@ def ensure_tables() -> None:
             ON orchestration_attempts(orchestration_id,node_key,attempt);
         """
     )
-    # A process crash cannot leave a run looking active forever.
-    now = time.time()
-    conn.execute(
-        "UPDATE orchestrations SET status='failed',error='process_restarted',ended_at=?,updated_at=? "
-        "WHERE status IN ('planning','running','reviewing')",
-        (now, now),
-    )
-    conn.execute(
-        "UPDATE orchestration_nodes SET status='failed',error='process_restarted',ended_at=? "
-        "WHERE status='running'",
-        (now,),
-    )
-    conn.execute(
-        "UPDATE orchestration_attempts SET status='failed',error='process_restarted',ended_at=? "
-        "WHERE status='running'",
-        (now,),
-    )
     conn.commit()
 
 
@@ -192,6 +175,67 @@ def list_for(owner_id: str, limit: int = 50) -> list[dict[str, Any]]:
         (owner_id, max(1, min(limit, 200))),
     ).fetchall()
     return [_orchestration(row, include_nodes=False) or {} for row in rows]
+
+
+def list_active() -> list[dict[str, Any]]:
+    rows = db.get_conn().execute(
+        "SELECT * FROM orchestrations WHERE status IN ('planning','running','reviewing') "
+        "ORDER BY created_at"
+    ).fetchall()
+    return [_orchestration(row, include_nodes=False) or {} for row in rows]
+
+
+def prepare_resume(orchestration_id: str, error: str = "worker_restarted") -> None:
+    """Close the interrupted attempt and make its node eligible for a fresh Run."""
+    conn = db.get_conn()
+    now = time.time()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "UPDATE orchestration_attempts SET status='failed',error=?,ended_at=? "
+            "WHERE orchestration_id=? AND status='running'",
+            (error[:2000], now, orchestration_id),
+        )
+        conn.execute(
+            "UPDATE orchestration_nodes SET status='pending',session_id=NULL,run_id=NULL,"
+            "output='',error='',ended_at=NULL WHERE orchestration_id=? AND status='running'",
+            (orchestration_id,),
+        )
+        conn.execute(
+            "UPDATE orchestrations SET error='',ended_at=NULL,updated_at=? WHERE id=? "
+            "AND status IN ('planning','running','reviewing')",
+            (now, orchestration_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def fail_nonterminal(orchestration_id: str, error: str) -> None:
+    conn = db.get_conn()
+    now = time.time()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "UPDATE orchestration_attempts SET status='failed',error=?,ended_at=? "
+            "WHERE orchestration_id=? AND status='running'",
+            (error[:2000], now, orchestration_id),
+        )
+        conn.execute(
+            "UPDATE orchestration_nodes SET status='failed',error=?,ended_at=? "
+            "WHERE orchestration_id=? AND status IN ('pending','running')",
+            (error[:2000], now, orchestration_id),
+        )
+        conn.execute(
+            "UPDATE orchestrations SET status='failed',error=?,ended_at=?,updated_at=? "
+            "WHERE id=? AND status IN ('planning','running','reviewing')",
+            (error[:1000], now, now, orchestration_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def set_status(orchestration_id: str, status: str, *, error: str = "", artifact_id: str | None = None) -> None:
