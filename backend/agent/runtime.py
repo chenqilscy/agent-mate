@@ -376,8 +376,6 @@ async def _run_chat_inner(
     # checkout (or the shared default for ad-hoc chats). WB-087: an assistant may
     # override this (dedicated / project:<id>) via the `workspace` spec.
     use_root(workspace_root(workspace, session.project_id))
-    # Work-item tools (WB-030) act on THIS project's plan items as this owner.
-    set_work_context(session.project_id, user.id)
     # 安全中心（WB-152）：本 owner 作为工具执行归属，run_command 据此查黑名单 + 记审计。
     security.set_security_context(user.id)
     # Skill package is machine-shared, while installation/enabled state is owner-scoped (WB-249).
@@ -443,6 +441,9 @@ async def _run_chat_inner(
             system_prompt += f"\n- …另有 {len(skill_candidates) - len(candidate_lines)} 个，请用 skills_list 搜索。"
     is_server_project = bool(project and project.origin == "server")
     server_token = db.get_server_identity(user.id) if is_server_project else None
+    # Work-item tools act as the current project member; Server-origin writes
+    # retain their Bearer authority instead of mutating a local mirror.
+    set_work_context(session.project_id, user.id, server_token=server_token or "")
     # Console 可能在上次全量 pull 后新增/删除 KB；每次项目执行前轻量读取当前绑定，避免要求
     # 每个成员手动同步。不可达时保留 last-known ids，真正调用仍会诚实失败且不回退本地。
     if is_server_project and server_token and project:
@@ -477,7 +478,7 @@ async def _run_chat_inner(
             system_prompt += (
                 "\n\n# 项目计划项（待办）\n本项目的待办可用工具管理：list_work_items 查看、"
                 "set_work_item_status 更新状态。若用户把某个待办「添加到输入框」交给你处理，"
-                "完成或推进后请调用 set_work_item_status 回写它的状态（如置为「完成」）。"
+                "完成或推进后请调用 set_work_item_status 回写；Agent 完成只能提交「待验收」，不得自行验收。"
             )
 
     skill_tools = []

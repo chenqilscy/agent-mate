@@ -20,7 +20,7 @@ from storage.models import Role
 
 router = APIRouter(prefix="/api", tags=["work_items"])
 
-STATUSES = {"todo", "doing", "paused", "done"}
+STATUSES = {"todo", "doing", "paused", "review", "done"}
 PRIORITIES = {"", "low", "medium", "high", "urgent"}
 MAX_ATTACHMENTS = 20
 MAX_LABELS = 20
@@ -355,6 +355,8 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
     if not existing:
         raise HTTPException(404, "work item not found")
     _require_project_write(existing.project_id, user.id)
+    if body.status == "done" and existing.status == "review":
+        raise HTTPException(409, "待验收工作项只能通过交付验收完成")
     tok = _server_write_token(existing.project_id, authorization)
     if tok:
         fs = body.model_fields_set
@@ -483,6 +485,8 @@ async def accept_item_delivery(
     if not item:
         raise HTTPException(404, "work item not found")
     _require_project_write(item.project_id, user.id)
+    if item.status != "review":
+        raise HTTPException(409, "工作项尚未进入待验收状态")
     run = db.get_run_for(body.run_id, user.id)
     if not run or run.work_item_id != item.id:
         raise HTTPException(404, "run not found")
@@ -500,7 +504,8 @@ async def accept_item_delivery(
     tok = _server_write_token(item.project_id, authorization)
     if tok:
         updated = await asyncio.to_thread(
-            server_client.update_work_item, tok, item.project_id, item.id, {"status": "done"}
+            server_client.accept_work_item, tok, item.project_id, item.id,
+            run_id=run.id, artifact_count=len(artifacts),
         )
         if not updated:
             raise HTTPException(503, "Server 暂不可达，交付未验收")

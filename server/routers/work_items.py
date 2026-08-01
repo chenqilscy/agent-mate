@@ -17,7 +17,7 @@ from models import Account, Role, can_write
 
 router = APIRouter(prefix="/api", tags=["work-items"])
 
-_STATUSES = {"todo", "doing", "paused", "done"}
+_STATUSES = {"todo", "doing", "paused", "review", "done"}
 _PRIORITIES = {"", "low", "medium", "high", "urgent"}
 # 记入活动流的关键字段（值变化时逐条留痕，来自真实操作）。
 _TRACKED = ("status", "assignee", "priority", "due_date", "milestone_id", "sprint_id")
@@ -286,6 +286,8 @@ def update_item(project_id: str, wid: str, body: UpdateBody, account: Account = 
     if not it or it["project_id"] != project_id:
         raise HTTPException(404, "work item not found")
     changes = body.model_dump(exclude_unset=True)
+    if changes.get("status") == "done" and it["status"] == "review":
+        raise HTTPException(409, "review work item requires delivery acceptance")
     if "priority" in changes and changes["priority"] not in _PRIORITIES:
         raise HTTPException(400, "invalid priority")
     _validate_scalar(changes, it)
@@ -305,6 +307,29 @@ def update_item(project_id: str, wid: str, body: UpdateBody, account: Account = 
             db.log_work_item_activity(project_id=project_id, work_item_id=wid, actor=account.name,
                                       kind=k, detail=f"{old}→{new}")
     return _decorate(updated, by_id)
+
+
+class AcceptBody(BaseModel):
+    run_id: str = Field(min_length=1, max_length=120)
+    artifact_count: int = Field(ge=1, le=10000)
+
+
+@router.post("/projects/{project_id}/work-items/{wid}/accept")
+def accept_item(project_id: str, wid: str, body: AcceptBody, account: Account = CurrentAccount) -> dict:
+    """Close only after the local execution plane attests verified artifacts."""
+    _require_write(project_id, account)
+    it = db.get_work_item(wid)
+    if not it or it["project_id"] != project_id:
+        raise HTTPException(404, "work item not found")
+    if it["status"] != "review":
+        raise HTTPException(409, "work item is not awaiting acceptance")
+    updated = db.update_work_item(wid, status="done")
+    assert updated is not None
+    db.log_work_item_activity(
+        project_id=project_id, work_item_id=wid, actor=account.name,
+        kind="accepted", detail=f"run={body.run_id}; artifacts={body.artifact_count}",
+    )
+    return _decorate(updated, _members_maps(project_id)[0])
 
 
 @router.delete("/projects/{project_id}/work-items/{wid}")

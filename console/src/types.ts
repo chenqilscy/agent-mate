@@ -215,7 +215,7 @@ export interface WorkItem {
   project_id: string;
   title: string;
   description: string;
-  status: "todo" | "doing" | "paused" | "done";
+  status: "todo" | "doing" | "paused" | "review" | "done";
   priority: "" | "low" | "medium" | "high" | "urgent";
   source: string;
   assignee: string;

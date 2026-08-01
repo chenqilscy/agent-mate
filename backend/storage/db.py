@@ -4049,6 +4049,22 @@ def update_work_item(
     return get_work_item(item_id)
 
 
+def apply_server_work_item_status(
+    item_id: str, status: str, *, server_updated_at: Optional[float] = None,
+) -> Optional[WorkItem]:
+    """Apply an already-confirmed Server status without creating a local dirty fork."""
+    now = float(server_updated_at or time.time())
+    get_conn().execute(
+        """UPDATE work_items SET status=?,updated_at=?,server_updated_at=?,server_dirty=0
+           WHERE id=? AND EXISTS (
+             SELECT 1 FROM projects p WHERE p.id=work_items.project_id AND p.origin='server'
+           )""",
+        (status, now, now, item_id),
+    )
+    get_conn().commit()
+    return get_work_item(item_id)
+
+
 def delete_work_item(item_id: str) -> None:
     conn = get_conn()
     row = conn.execute("SELECT project_id FROM work_items WHERE id=?", (item_id,)).fetchone()

@@ -628,7 +628,7 @@ export interface AppNotification {
   created_at: number
 }
 
-export type WorkStatus = 'todo' | 'doing' | 'paused' | 'done'
+export type WorkStatus = 'todo' | 'doing' | 'paused' | 'review' | 'done'
 // 专业 PM 优先级（WB-108，与 Server 对齐）。'' = 未设。
 export type WorkPriority = '' | 'low' | 'medium' | 'high' | 'urgent'
 

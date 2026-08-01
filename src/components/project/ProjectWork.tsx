@@ -15,6 +15,7 @@ const COLS: { key: WorkStatus; label: string }[] = [
   { key: 'todo', label: '待开始' },
   { key: 'doing', label: '进行中' },
   { key: 'paused', label: '暂停' },
+  { key: 'review', label: '待验收' },
   { key: 'done', label: '完成' },
 ]
 // 优先级（WB-108，与 Server 对齐）。'' = 未设；颜色沿用状态点的调色。
@@ -33,9 +34,10 @@ const STATUS_OPTS: { key: WorkStatus; label: string }[] = [
   { key: 'todo', label: '待开始' },
   { key: 'doing', label: '进行中' },
   { key: 'paused', label: '已暂停' },
+  { key: 'review', label: '待验收' },
   { key: 'done', label: '已完成' },
 ]
-const DOT: Record<WorkStatus, string> = { todo: '#9AA0A6', doing: '#3D6BFF', paused: '#F0A020', done: '#16B37A' }
+const DOT: Record<WorkStatus, string> = { todo: '#9AA0A6', doing: '#3D6BFF', paused: '#F0A020', review: '#8B5CF6', done: '#16B37A' }
 
 // 添加数据源 (WB-028): honest placeholder — the picker UI is real, but wiring a live
 // TAPD/CNB/GitHub sync is a large external integration, so the actions say「敬请期待」
@@ -888,7 +890,7 @@ export function WorkloadView() {
     const overdue = g.items.filter((x) => x.due_date && x.due_date < today && x.status !== 'done').length
     const est = g.items.reduce((a, x) => a + (x.estimate_h || 0), 0)
     const spent = g.items.reduce((a, x) => a + (x.spent_h || 0), 0)
-    return { id, name: g.name, t, todo: c('todo'), doing: c('doing'), paused: c('paused'), done, overdue, pct: t ? Math.round((done / t) * 100) : 0, est, spent }
+    return { id, name: g.name, t, todo: c('todo'), doing: c('doing'), paused: c('paused'), review: c('review'), done, overdue, pct: t ? Math.round((done / t) * 100) : 0, est, spent }
   }).sort((a, b) => (a.id === '' ? 1 : 0) - (b.id === '' ? 1 : 0) || b.t - a.t)
 
   if (rows.length === 0) return <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有任务" />
@@ -903,10 +905,10 @@ export function WorkloadView() {
             <span className="wb-label-chip sm">{r.t} 项</span>
           </div>
           <div style={{ display: 'flex', height: 9, borderRadius: 99, overflow: 'hidden', background: 'var(--border-2)', marginBottom: 9 }}>
-            {r.t > 0 && <>{seg(r.todo, DOT.todo)}{seg(r.doing, DOT.doing)}{seg(r.paused, DOT.paused)}{seg(r.done, DOT.done)}</>}
+            {r.t > 0 && <>{seg(r.todo, DOT.todo)}{seg(r.doing, DOT.doing)}{seg(r.paused, DOT.paused)}{seg(r.review, DOT.review)}{seg(r.done, DOT.done)}</>}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11.5, color: 'var(--text-3)' }}>
-            <span>待办 {r.todo}</span><span style={{ color: DOT.doing }}>进行 {r.doing}</span><span style={{ color: DOT.done }}>完成 {r.done} · {r.pct}%</span>{r.overdue > 0 && <span style={{ color: '#EF4444' }}>逾期 {r.overdue}</span>}
+            <span>待办 {r.todo}</span><span style={{ color: DOT.doing }}>进行 {r.doing}</span><span style={{ color: DOT.review }}>待验收 {r.review}</span><span style={{ color: DOT.done }}>完成 {r.done} · {r.pct}%</span>{r.overdue > 0 && <span style={{ color: '#EF4444' }}>逾期 {r.overdue}</span>}
           </div>
           {(r.est > 0 || r.spent > 0) && <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--text-3)' }}>⏱ 预估 {r.est}h · 投入 {r.spent}h</div>}
         </div>

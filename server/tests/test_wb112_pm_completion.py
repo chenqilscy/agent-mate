@@ -17,7 +17,7 @@ from routers.pm import (  # noqa: E402
     CustomFieldBody, SprintBody, create_custom_field, create_sprint, export_pm_csv, sprint_burndown,
 )
 from routers.work_items import (  # noqa: E402
-    CreateBody, UpdateBody, create_item, delete_item, list_items, update_item,
+    AcceptBody, CreateBody, UpdateBody, accept_item, create_item, delete_item, list_items, update_item,
 )
 
 
@@ -89,6 +89,20 @@ class PMCompletionTest(unittest.TestCase):
         delete_item(self.project.id, parent["id"], self.account)
         self.assertEqual("", db.get_work_item(child["id"])["parent_id"])
         self.assertEqual([], db.get_work_item(dependent["id"])["dependency_ids"])
+
+    def test_review_is_a_first_class_shared_work_item_status(self) -> None:
+        item = create_item(
+            self.project.id, CreateBody(title="Agent delivery", status="review"), self.account,
+        )
+        self.assertEqual("review", item["status"])
+        self.assertEqual("review", list_items(self.project.id, self.account)["items"][0]["status"])
+        with self.assertRaises(HTTPException) as blocked:
+            update_item(self.project.id, item["id"], UpdateBody(status="done"), self.account)
+        self.assertEqual(409, blocked.exception.status_code)
+        accepted = accept_item(
+            self.project.id, item["id"], AcceptBody(run_id="run-1", artifact_count=2), self.account,
+        )
+        self.assertEqual("done", accepted["status"])
 
 
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ from agent.sandbox import SandboxError, current_root, relpath, resolve_in_sandbo
 from config import scrubbed_env, settings
 import server_client
 from storage import db
+from storage.models import Role
 
 MAX_OUTPUT = 6000
 CMD_TIMEOUT = 30
@@ -483,14 +484,21 @@ _WI_STATUS = {
     "todo": "todo", "待开始": "todo", "待办": "todo",
     "doing": "doing", "进行中": "doing",
     "paused": "paused", "暂停": "paused", "已暂停": "paused",
-    "done": "done", "完成": "done", "已完成": "done",
+    "review": "review", "待验收": "review", "提交验收": "review",
+    # Agent can submit work, but only a human acceptance action may close it.
+    "done": "review", "完成": "review", "已完成": "review",
 }
-_WI_LABEL = {"todo": "待开始", "doing": "进行中", "paused": "暂停", "done": "完成"}
+_WI_LABEL = {"todo": "待开始", "doing": "进行中", "paused": "暂停", "review": "待验收", "done": "完成"}
 
 
-def set_work_context(project_id: str | None, owner_id: str | None) -> None:
-    """Set the active project/owner for work-item tools (run_chat calls this)."""
-    _work_ctx.set({"project_id": project_id, "owner_id": owner_id} if project_id and owner_id else None)
+def set_work_context(
+    project_id: str | None, owner_id: str | None, *, server_token: str = "",
+) -> None:
+    """Set the active project/member authority for work-item tools."""
+    _work_ctx.set(
+        {"project_id": project_id, "owner_id": owner_id, "server_token": server_token}
+        if project_id and owner_id else None
+    )
 
 
 def _list_work_items_run(args: dict[str, Any]) -> ToolOutcome:
@@ -522,12 +530,24 @@ def _set_work_item_status_run(args: dict[str, Any]) -> ToolOutcome:
     raw = str(args.get("status", "")).strip()
     status = _WI_STATUS.get(raw) or _WI_STATUS.get(raw.lower())
     if not status:
-        return ToolOutcome(text=f"未知状态「{raw}」。可用：待开始 / 进行中 / 暂停 / 完成。")
-    # Owner + project scoping: only touch items the caller owns in THIS project.
-    wi = db.get_work_item(item_id, owner_id=ctx["owner_id"])
-    if not wi or wi.project_id != ctx["project_id"]:
+        return ToolOutcome(text=f"未知状态「{raw}」。可用：待开始 / 进行中 / 暂停 / 待验收。")
+    wi = db.get_work_item(item_id)
+    role = db.project_access_role(ctx["project_id"], ctx["owner_id"])
+    if not wi or wi.project_id != ctx["project_id"] or role in {None, Role.VIEWER}:
         return ToolOutcome(text=f"未找到计划项 id={item_id}（或不属于当前项目）。可先用 list_work_items 核对 id。")
-    db.update_work_item(item_id, status=status)
+    project = db.get_project(ctx["project_id"])
+    if project and project.origin == "server":
+        token = str(ctx.get("server_token") or "")
+        if not token:
+            return ToolOutcome(text="Server 项目当前没有可用登录凭据，状态未更新。")
+        updated = server_client.update_work_item(token, wi.project_id, wi.id, {"status": status})
+        if not updated:
+            return ToolOutcome(text="Server 暂不可达，状态未更新。")
+        db.apply_server_work_item_status(
+            wi.id, status, server_updated_at=float(updated.get("updated_at") or 0) or None,
+        )
+    else:
+        db.update_work_item(item_id, status=status)
     label = _WI_LABEL.get(status, status)
     return ToolOutcome(
         text=f"已将计划项「{wi.title}」状态改为「{label}」。",
@@ -541,13 +561,13 @@ set_work_item_status = Tool(
     name="set_work_item_status",
     description=(
         "修改当前项目某个计划项（待办）的状态。item_id 来自任务引用或 list_work_items；"
-        "status 取 待开始 / 进行中 / 暂停 / 完成 之一。完成或推进了关联待办后应调用它回写状态。"
+        "status 取 待开始 / 进行中 / 暂停 / 待验收 之一。Agent 认为完成时也只能提交待验收，不能自行验收。"
     ),
     parameters={
         "type": "object",
         "properties": {
             "item_id": {"type": "string", "description": "计划项 id"},
-            "status": {"type": "string", "description": "目标状态：待开始 / 进行中 / 暂停 / 完成"},
+            "status": {"type": "string", "description": "目标状态：待开始 / 进行中 / 暂停 / 待验收；完成会归一为待验收"},
         },
         "required": ["item_id", "status"],
     },

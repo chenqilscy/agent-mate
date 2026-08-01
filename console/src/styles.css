@@ -174,7 +174,7 @@ body {
 .project-lane-heading { padding-inline: 2px; }
 .project-kanban {
   display: grid;
-  grid-template-columns: repeat(4, minmax(230px, 1fr));
+  grid-template-columns: repeat(5, minmax(230px, 1fr));
   gap: 12px;
   overflow-x: auto;
   padding-bottom: 4px;
@@ -412,7 +412,7 @@ body {
   .project-plan-toolbar-group > .ant-space { width: 100%; }
   .project-plan-toolbar-view { grid-column: auto; grid-row: auto; justify-content: flex-start; }
   .project-plan-toolbar .ant-input-search { width: min(100%, 260px); }
-  .project-kanban { grid-template-columns: repeat(4, 260px); }
+  .project-kanban { grid-template-columns: repeat(5, 260px); }
   .task-editor-content-layout,
   .task-editor-plan-grid { grid-template-columns: 1fr; }
   .task-editor-advanced-grid { grid-template-columns: 1fr; }

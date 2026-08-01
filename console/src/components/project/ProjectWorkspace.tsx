@@ -67,6 +67,7 @@ const STATUS_OPTIONS = [
   { value: "todo", label: "待办" },
   { value: "doing", label: "进行中" },
   { value: "paused", label: "暂停" },
+  { value: "review", label: "待验收" },
   { value: "done", label: "完成" },
 ] as const;
 const PRIORITY_OPTIONS = [
@@ -89,6 +90,7 @@ const STATUS_META: Record<
   todo: { label: "待办", color: "default" },
   doing: { label: "进行中", color: "processing" },
   paused: { label: "暂停", color: "warning" },
+  review: { label: "待验收", color: "purple" },
   done: { label: "完成", color: "success" },
 };
 

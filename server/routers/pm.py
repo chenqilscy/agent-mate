@@ -171,7 +171,7 @@ def update_pm_preferences(project_id: str, body: PmPreferencesBody,
     if "wip" in values:
         if not can_manage(role):
             raise HTTPException(403, "requires Admin/Owner to change WIP limits")
-        if set(values["wip"]) - {"todo", "doing", "paused", "done"}:
+        if set(values["wip"]) - {"todo", "doing", "paused", "review", "done"}:
             raise HTTPException(400, "invalid WIP status")
         if any(not isinstance(limit, int) or isinstance(limit, bool) or limit < 0 or limit > 100000
                for limit in values["wip"].values()):

@@ -14,7 +14,7 @@ from fastapi import HTTPException
 BACKEND = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BACKEND))
 
-from agent import work_item_runner  # noqa: E402
+from agent import tools as agent_tools, work_item_runner  # noqa: E402
 import server_sync  # noqa: E402
 from auth.deps import set_current_user_id  # noqa: E402
 from config import settings  # noqa: E402
@@ -97,7 +97,7 @@ class WorkItemDeliveryCollaborationTest(unittest.IsolatedAsyncioTestCase):
         run = db.get_run(delivery["runs"][0]["id"])
         self.assertEqual(self.item.id, run.work_item_id)
         self.assertEqual("Owner", run.permission_snapshot["project_role"])
-        self.assertEqual("doing", db.get_work_item(self.item.id).status)
+        self.assertEqual("review", db.get_work_item(self.item.id).status)
 
         result = await work_items_router.accept_item_delivery(
             self.item.id, work_items_router.AcceptWorkItemDeliveryBody(run_id=run.id),
@@ -161,6 +161,12 @@ class WorkItemDeliveryCollaborationTest(unittest.IsolatedAsyncioTestCase):
                 idempotency_key=kwargs["idempotency_key"], retry_of=kwargs["retry_of"],
             )
             self.assertTrue(created)
+            path = settings.WORKSPACE_ROOT / run.workspace / "retry.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# retry delivery", encoding="utf-8")
+            db.upsert_artifact(
+                run_id=run.id, path="retry.md", full_path=path, source_tool="write_file",
+            )
             db.set_run_status(run.id, "completed")
             yield "event: done\ndata: {}\n\n"
 
@@ -172,6 +178,7 @@ class WorkItemDeliveryCollaborationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("completed", saved["status"])
         self.assertEqual(first_run.id, retry_run.retry_of)
         self.assertEqual("succeeded", job_store.get(job["id"])["status"])
+        self.assertEqual("review", db.get_work_item(self.item.id).status)
 
     async def test_acceptance_rolls_back_when_artifact_validation_failed(self) -> None:
         session = db.create_session(
@@ -191,9 +198,10 @@ class WorkItemDeliveryCollaborationTest(unittest.IsolatedAsyncioTestCase):
             "UPDATE artifacts SET validation_status='failed' WHERE id=?", (artifact.id,)
         )
         db.get_conn().commit(); db.set_run_status(run.id, "completed")
+        db.update_work_item(self.item.id, status="review")
         with self.assertRaisesRegex(ValueError, "invalid artifacts"):
             db.accept_work_item_delivery(self.item.id, run.id, LOCAL_USER_ID)
-        self.assertEqual("todo", db.get_work_item(self.item.id).status)
+        self.assertEqual("review", db.get_work_item(self.item.id).status)
         self.assertEqual("completed", db.get_run(run.id).status)
         self.assertEqual("pending", db.get_artifact(artifact.id).acceptance_status)
 
@@ -223,6 +231,131 @@ class WorkItemDeliveryCollaborationTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("prompt", json.dumps(payload).lower())
         self.assertNotIn("secret", json.dumps(payload).lower())
         self.assertNotIn("private", json.dumps(payload).lower())
+
+    async def test_pending_agent_delivery_blocks_generic_done_but_manual_done_remains_valid(self) -> None:
+        session = db.create_session(
+            owner_id=LOCAL_USER_ID, title="review", kind="projexec", project_id=self.project.id,
+        )
+        run, _ = db.create_run(
+            session_id=session.id, owner_id=LOCAL_USER_ID, project_id=self.project.id,
+            work_item_id=self.item.id, mode="exec", workspace=f"projects/{self.project.id}",
+        )
+        path = settings.WORKSPACE_ROOT / run.workspace / "review.md"
+        path.parent.mkdir(parents=True, exist_ok=True); path.write_text("review", encoding="utf-8")
+        db.upsert_artifact(run_id=run.id, path="review.md", full_path=path, source_tool="write_file")
+        db.set_run_status(run.id, "completed")
+        db.update_work_item(self.item.id, status="review")
+
+        with self.assertRaises(HTTPException) as blocked:
+            work_items_router.update_item(
+                self.item.id, work_items_router.UpdateWorkItemBody(status="done"), authorization="",
+            )
+        self.assertEqual(409, blocked.exception.status_code)
+        self.assertEqual("review", db.get_work_item(self.item.id).status)
+
+        manual = db.create_work_item(
+            project_id=self.project.id, owner_id=LOCAL_USER_ID, title="manual", status="doing",
+        )
+        updated = work_items_router.update_item(
+            manual.id, work_items_router.UpdateWorkItemBody(status="done"), authorization="",
+        )
+        self.assertEqual("done", updated["status"])
+
+    async def test_server_origin_acceptance_uses_dedicated_attested_transition(self) -> None:
+        session = db.create_session(
+            owner_id=LOCAL_USER_ID, title="server review", kind="projexec", project_id=self.project.id,
+        )
+        run, _ = db.create_run(
+            session_id=session.id, owner_id=LOCAL_USER_ID, project_id=self.project.id,
+            work_item_id=self.item.id, mode="exec", workspace=f"projects/{self.project.id}",
+        )
+        path = settings.WORKSPACE_ROOT / run.workspace / "server-review.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("verified", encoding="utf-8")
+        db.upsert_artifact(
+            run_id=run.id, path="server-review.md", full_path=path, source_tool="write_file",
+        )
+        db.set_run_status(run.id, "completed")
+        db.update_work_item(self.item.id, status="review")
+        db.get_conn().execute("UPDATE projects SET origin='server' WHERE id=?", (self.project.id,))
+        db.get_conn().commit()
+
+        with (
+            patch.object(work_items_router, "_server_write_token", return_value="server-token"),
+            patch.object(
+                work_items_router.server_client, "accept_work_item",
+                return_value={"id": self.item.id, "status": "done"},
+            ) as remote_accept,
+        ):
+            result = await work_items_router.accept_item_delivery(
+                self.item.id, work_items_router.AcceptWorkItemDeliveryBody(run_id=run.id),
+                authorization="Bearer server-token",
+            )
+
+        remote_accept.assert_called_once_with(
+            "server-token", self.project.id, self.item.id,
+            run_id=run.id, artifact_count=1,
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual("done", db.get_work_item(self.item.id).status)
+        self.assertEqual("accepted", db.get_run(run.id).status)
+
+    async def test_agent_completion_intent_submits_review_and_empty_run_pauses(self) -> None:
+        agent_tools.set_work_context(self.project.id, LOCAL_USER_ID)
+        outcome = agent_tools._set_work_item_status_run({"item_id": self.item.id, "status": "完成"})
+        self.assertIn("待验收", outcome.text)
+        self.assertEqual("review", db.get_work_item(self.item.id).status)
+
+        empty = db.create_work_item(
+            project_id=self.project.id, owner_id=LOCAL_USER_ID, title="empty delivery",
+        )
+
+        async def completed_without_artifact(session, user, _prompt, **kwargs):
+            run, _ = db.create_run(
+                session_id=session.id, owner_id=user.id, project_id=session.project_id,
+                work_item_id=empty.id, mode="exec", workspace=f"projects/{session.project_id}",
+                idempotency_key=kwargs["idempotency_key"],
+            )
+            db.set_run_status(run.id, "completed")
+            yield "event: done\ndata: {}\n\n"
+
+        with patch.object(work_item_runner.runtime, "run_chat", side_effect=completed_without_artifact):
+            result = await work_items_router.execute_item(
+                empty.id, work_items_router.ExecuteWorkItemBody(idempotency_key="empty"),
+                authorization="",
+            )
+            await work_item_runner._tasks[result["launch"]["id"]]
+
+        launch = db.get_work_item_launch(result["launch"]["id"])
+        self.assertEqual("failed", launch["status"])
+        self.assertEqual("artifact_missing", launch["error_code"])
+        self.assertEqual("paused", db.get_work_item(empty.id).status)
+
+    async def test_project_member_agent_status_uses_server_authority_and_submits_review(self) -> None:
+        member = db.create_user(name="member", password="pw", role=Role.MEMBER)
+        db.add_project_member(self.project.id, member.id, Role.MEMBER)
+        agent_tools.set_work_context(self.project.id, member.id)
+        local = agent_tools._set_work_item_status_run({"item_id": self.item.id, "status": "doing"})
+        self.assertIn("进行中", local.text)
+        self.assertEqual("doing", db.get_work_item(self.item.id).status)
+
+        db.get_conn().execute("UPDATE projects SET origin='server' WHERE id=?", (self.project.id,))
+        db.get_conn().commit()
+        agent_tools.set_work_context(self.project.id, member.id, server_token="server-token")
+        with patch.object(
+            agent_tools.server_client, "update_work_item",
+            return_value={"id": self.item.id, "status": "review", "updated_at": 12345.0},
+        ) as remote_update:
+            remote = agent_tools._set_work_item_status_run({"item_id": self.item.id, "status": "完成"})
+        remote_update.assert_called_once_with(
+            "server-token", self.project.id, self.item.id, {"status": "review"},
+        )
+        self.assertIn("待验收", remote.text)
+        self.assertEqual("review", db.get_work_item(self.item.id).status)
+        row = db.get_conn().execute(
+            "SELECT server_dirty FROM work_items WHERE id=?", (self.item.id,),
+        ).fetchone()
+        self.assertEqual(0, row["server_dirty"])
 
 
 if __name__ == "__main__":

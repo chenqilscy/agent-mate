@@ -280,6 +280,18 @@ def update_work_item(token: str, project_id: str, wid: str, body: dict[str, Any]
     return d if isinstance(d, dict) else None
 
 
+def accept_work_item(
+    token: str, project_id: str, wid: str, *, run_id: str, artifact_count: int,
+) -> Optional[dict[str, Any]]:
+    """Record an App-verified delivery acceptance in the Server authority."""
+    d = _post(
+        f"/api/projects/{project_id}/work-items/{wid}/accept",
+        token,
+        {"run_id": run_id, "artifact_count": artifact_count},
+    )
+    return d if isinstance(d, dict) else None
+
+
 def delete_work_item(token: str, project_id: str, wid: str) -> bool:
     return _delete(f"/api/projects/{project_id}/work-items/{wid}", token)
 
