@@ -746,6 +746,36 @@ export interface AutomationFire {
   finished_at: number | null
 }
 
+export type GovernanceRecordType = 'risk' | 'decision'
+export type RiskStatus = 'open' | 'mitigating' | 'closed'
+export type DecisionStatus = 'proposed' | 'accepted' | 'superseded'
+export type RiskSeverity = 'low' | 'medium' | 'high' | 'critical'
+
+export interface ProjectGovernanceRecord {
+  id: string
+  project_id: string
+  record_type: GovernanceRecordType
+  title: string
+  description: string
+  status: RiskStatus | DecisionStatus
+  severity: RiskSeverity | ''
+  owner_id: string
+  owner_name?: string
+  response: string
+  rationale: string
+  work_item_id: string
+  work_item_title?: string
+  milestone_id: string
+  milestone_name?: string
+  run_id: string
+  artifact_id: string
+  evidence_label: string
+  created_by: string
+  created_at: number
+  updated_at: number
+  resolved_at: number
+}
+
 export interface AutomationWebhookDelivery {
   id: string
   idempotency_key: string

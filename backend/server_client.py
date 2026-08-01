@@ -318,6 +318,30 @@ def delete_milestone(token: str, project_id: str, mid: str) -> bool:
     return _delete(f"/api/projects/{project_id}/milestones/{mid}", token)
 
 
+# ---- 风险与决策台账（WB-350）：server-origin 项目走 Server 权威 ----
+
+def list_project_governance(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
+    d = _get(f"/api/projects/{project_id}/governance", token)
+    records = d.get("records") if isinstance(d, dict) else None
+    return records if isinstance(records, list) else None
+
+
+def create_project_governance(token: str, project_id: str,
+                              body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    d = _post(f"/api/projects/{project_id}/governance", token, body)
+    return d if isinstance(d, dict) else None
+
+
+def update_project_governance(token: str, project_id: str, record_id: str,
+                              body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    d = _patch(f"/api/projects/{project_id}/governance/{record_id}", token, body)
+    return d if isinstance(d, dict) else None
+
+
+def delete_project_governance(token: str, project_id: str, record_id: str) -> bool:
+    return _delete(f"/api/projects/{project_id}/governance/{record_id}", token)
+
+
 # ---- 项目配置 / 成员写代理（WB-112c）：server-origin 项目的成员·角色·配置以 Console 为权威 ----
 # 只写协作元数据（名/角色/指令/loadout 名字数组），绝无凭据/工作区文件（红线 1/2）。
 

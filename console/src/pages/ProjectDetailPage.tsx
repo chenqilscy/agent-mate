@@ -47,6 +47,7 @@ import {
   ProjectWorkProvider,
 } from "../components/project/ProjectWorkspace";
 import type { ProjectWorkspaceTab } from "../components/project/ProjectWorkspace";
+import { ProjectGovernance } from "../components/project/ProjectGovernance";
 import { navigate } from "../router";
 import type {
   CatalogData,
@@ -74,6 +75,7 @@ const PROJECT_TABS: readonly ProjectWorkspaceTab[] = [
   "sprints",
   "gantt",
   "iterations",
+  "governance",
   "knowledge",
   "collab",
   "config",
@@ -83,6 +85,7 @@ type ProjectWorkspaceSection =
   | "work"
   | "planning"
   | "team"
+  | "governance"
   | "knowledge"
   | "config";
 const PROJECT_SECTION_BY_TAB: Record<
@@ -98,6 +101,7 @@ const PROJECT_SECTION_BY_TAB: Record<
   sprints: "planning",
   gantt: "planning",
   iterations: "planning",
+  governance: "governance",
   knowledge: "knowledge",
   collab: "team",
   config: "config",
@@ -110,6 +114,7 @@ const PROJECT_SECTION_DEFAULT: Record<
   work: "plan",
   planning: "milestones",
   team: "workload",
+  governance: "governance",
   knowledge: "knowledge",
   config: "config",
 };
@@ -205,6 +210,8 @@ export default function ProjectDetailPage({
         return <ProjectIterations sectionOnly="sprints" />;
       case "iterations":
         return <ProjectIterations sectionOnly="fields" />;
+      case "governance":
+        return project ? <ProjectGovernance project={project} /> : null;
       case "knowledge":
         return project ? <KnowledgeTab project={project} /> : null;
       case "collab":
@@ -313,6 +320,13 @@ export default function ProjectDetailPage({
                 children: renderProjectSection([
                   { key: "workload", label: "负载" },
                   { key: "collab", label: "协作" },
+                ]),
+              },
+              {
+                key: "governance",
+                label: "治理",
+                children: renderProjectSection([
+                  { key: "governance", label: "风险与决策" },
                 ]),
               },
               {

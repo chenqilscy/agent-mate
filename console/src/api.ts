@@ -15,6 +15,7 @@ import type {
   PlatformSettingsPayload,
   PmPreferences,
   Project,
+  ProjectGovernanceRecord,
   ProjectCustomField,
   SkillData,
   SkillRelease,
@@ -370,6 +371,17 @@ export const consoleApi = {
       "DELETE",
       `/projects/${encodeURIComponent(id)}/milestones/${encodeURIComponent(milestoneId)}`,
     ),
+  governance: (id: string) =>
+    apiRequest<{ records: ProjectGovernanceRecord[] }>(
+      "GET",
+      `/projects/${encodeURIComponent(id)}/governance`,
+    ),
+  createGovernance: (id: string, body: Partial<ProjectGovernanceRecord> & Pick<ProjectGovernanceRecord, "record_type" | "title">) =>
+    apiRequest<ProjectGovernanceRecord>("POST", `/projects/${encodeURIComponent(id)}/governance`, body),
+  updateGovernance: (id: string, recordId: string, body: Partial<ProjectGovernanceRecord>) =>
+    apiRequest<ProjectGovernanceRecord>("PATCH", `/projects/${encodeURIComponent(id)}/governance/${encodeURIComponent(recordId)}`, body),
+  deleteGovernance: (id: string, recordId: string) =>
+    apiRequest<{ ok: boolean }>("DELETE", `/projects/${encodeURIComponent(id)}/governance/${encodeURIComponent(recordId)}`),
   activity: (id: string) =>
     apiRequest<{ activity: Activity[] }>(
       "GET",

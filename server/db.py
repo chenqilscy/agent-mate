@@ -381,6 +381,42 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones(project_id, sort);
 
+        CREATE TABLE IF NOT EXISTS project_governance (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            record_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT '',
+            owner_id TEXT NOT NULL DEFAULT '',
+            response TEXT NOT NULL DEFAULT '',
+            rationale TEXT NOT NULL DEFAULT '',
+            work_item_id TEXT NOT NULL DEFAULT '',
+            milestone_id TEXT NOT NULL DEFAULT '',
+            run_id TEXT NOT NULL DEFAULT '',
+            artifact_id TEXT NOT NULL DEFAULT '',
+            evidence_label TEXT NOT NULL DEFAULT '',
+            created_by TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            resolved_at REAL NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_governance_project
+            ON project_governance(project_id, record_type, status, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS project_governance_activity (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            record_id TEXT NOT NULL,
+            actor_id TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_governance_activity
+            ON project_governance_activity(project_id, record_id, created_at DESC);
+
         CREATE TABLE IF NOT EXISTS work_item_activity (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
@@ -1179,6 +1215,7 @@ def project_delete_counts(project_id: str) -> dict[str, int]:
     tables = {
         "members": "project_members", "tasks": "work_items", "knowledge_bases": "knowledge_bases",
         "milestones": "milestones", "sprints": "sprints", "comments": "comments",
+        "governance": "project_governance",
     }
     return {
         key: int(conn.execute(f"SELECT COUNT(*) FROM {table} WHERE project_id=?", (project_id,)).fetchone()[0])
@@ -1197,6 +1234,7 @@ def delete_project(project_id: str) -> bool:
     for table in (
         "project_members", "invites", "timeline_events", "comments", "server_notifications",
         "work_item_activity", "work_items", "project_custom_fields", "sprints", "milestones",
+        "project_governance_activity", "project_governance",
         "kb_documents", "project_pm_settings", "project_pm_views",
     ):
         conn.execute(f"DELETE FROM {table} WHERE project_id=?", (project_id,))
@@ -1971,6 +2009,98 @@ def update_work_item(wid: str, **fields: Any) -> Optional[dict]:
     return get_work_item(wid) if cur.rowcount else None
 
 
+# ---- 项目风险与决策台账（WB-350）----------------------------------------
+
+def get_project_governance(record_id: str) -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT * FROM project_governance WHERE id=?", (record_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_project_governance(project_id: str) -> list[dict]:
+    return [dict(row) for row in get_conn().execute(
+        "SELECT * FROM project_governance WHERE project_id=? ORDER BY updated_at DESC,id",
+        (project_id,),
+    ).fetchall()]
+
+
+def create_project_governance(
+    *, project_id: str, record_type: str, title: str, description: str, status: str,
+    severity: str, owner_id: str, response: str, rationale: str,
+    work_item_id: str, milestone_id: str, run_id: str, artifact_id: str,
+    evidence_label: str, created_by: str,
+) -> dict:
+    record_id = new_uuid(); now = time.time()
+    resolved_at = now if status in {"closed", "accepted", "superseded"} else 0.0
+    get_conn().execute(
+        """INSERT INTO project_governance
+           (id,project_id,record_type,title,description,status,severity,owner_id,response,rationale,
+            work_item_id,milestone_id,run_id,artifact_id,evidence_label,created_by,created_at,updated_at,resolved_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (record_id, project_id, record_type, title, description, status, severity, owner_id,
+         response, rationale, work_item_id, milestone_id, run_id, artifact_id, evidence_label,
+         created_by, now, now, resolved_at),
+    )
+    get_conn().commit()
+    return get_project_governance(record_id)  # type: ignore[return-value]
+
+
+def update_project_governance(record_id: str, **fields: Any) -> Optional[dict]:
+    allowed = {
+        "title", "description", "status", "severity", "owner_id", "response", "rationale",
+        "work_item_id", "milestone_id", "run_id", "artifact_id", "evidence_label",
+    }
+    sets: list[str] = []
+    values: list[Any] = []
+    for key, value in fields.items():
+        if key in allowed and value is not None:
+            sets.append(f"{key}=?"); values.append(value)
+    if not sets:
+        return get_project_governance(record_id)
+    if "status" in fields:
+        resolved = time.time() if fields["status"] in {"closed", "accepted", "superseded"} else 0.0
+        sets.append("resolved_at=?"); values.append(resolved)
+    sets.append("updated_at=?"); values.append(time.time())
+    values.append(record_id)
+    cur = get_conn().execute(
+        f"UPDATE project_governance SET {', '.join(sets)} WHERE id=?", values,
+    )
+    get_conn().commit()
+    return get_project_governance(record_id) if cur.rowcount else None
+
+
+def delete_project_governance(record_id: str) -> bool:
+    cur = get_conn().execute("DELETE FROM project_governance WHERE id=?", (record_id,))
+    get_conn().commit()
+    return cur.rowcount > 0
+
+
+def log_project_governance_activity(
+    *, project_id: str, record_id: str, actor_id: str, kind: str, detail: str = "",
+) -> None:
+    get_conn().execute(
+        """INSERT INTO project_governance_activity
+           (id,project_id,record_id,actor_id,kind,detail,created_at) VALUES (?,?,?,?,?,?,?)""",
+        (new_uuid(), project_id, record_id, actor_id, kind, detail[:2000], time.time()),
+    )
+    get_conn().commit()
+
+
+def list_project_governance_activity(project_id: str, record_id: str = "") -> list[dict]:
+    if record_id:
+        rows = get_conn().execute(
+            "SELECT * FROM project_governance_activity WHERE project_id=? AND record_id=? ORDER BY created_at DESC",
+            (project_id, record_id),
+        ).fetchall()
+    else:
+        rows = get_conn().execute(
+            "SELECT * FROM project_governance_activity WHERE project_id=? ORDER BY created_at DESC LIMIT 500",
+            (project_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def list_project_custom_fields(project_id: str) -> list[dict]:
     rows = get_conn().execute(
         "SELECT * FROM project_custom_fields WHERE project_id=? ORDER BY sort,created_at", (project_id,),
@@ -2104,6 +2234,11 @@ def delete_work_item(wid: str) -> bool:
     if row is not None:
         project_id = row["project_id"]
         now = time.time()
+        conn.execute(
+            "UPDATE project_governance SET work_item_id='',updated_at=? "
+            "WHERE work_item_id=? AND project_id=?",
+            (now, wid, project_id),
+        )
         # 删除父项默认提升直接子任务为根任务，避免一个普通删除动作静默吞掉整组工作。
         conn.execute(
             "UPDATE work_items SET parent_id='',updated_at=? WHERE parent_id=? AND project_id=?",
@@ -2338,6 +2473,11 @@ def delete_milestone(mid: str) -> bool:
     row = conn.execute("SELECT project_id FROM milestones WHERE id=?", (mid,)).fetchone()
     if row is not None:
         # 只解绑同项目任务，不碰别项目里恰好同 id 引用（WB-157）。
+        conn.execute(
+            "UPDATE project_governance SET milestone_id='',updated_at=? "
+            "WHERE milestone_id=? AND project_id=?",
+            (time.time(), mid, row["project_id"]),
+        )
         conn.execute("UPDATE work_items SET milestone_id='' WHERE milestone_id=? AND project_id=?",
                      (mid, row["project_id"]))
         conn.execute(

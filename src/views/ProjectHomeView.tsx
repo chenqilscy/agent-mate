@@ -13,6 +13,7 @@ import { KanbanBoard, TaskList, WorkloadView, GanttView } from '../components/pr
 import { AssetsManager } from '../components/project/AssetsManager'
 import { MembersModal } from '../components/project/MembersModal'
 import { ProjectBindingsModal, type ProjectBindingKind } from '../components/project/ProjectBindingsModal'
+import { ProjectGovernance } from '../components/project/ProjectGovernance'
 import { ServerCommentsPanel } from '../components/server/ServerCommentsPanel'
 import { useWorkItemStore } from '../stores/workItemStore'
 import { useCatalogStore } from '../stores/catalogStore'
@@ -23,7 +24,7 @@ import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
 
-type Tab = '动态' | '计划' | '任务' | '负载' | '甘特' | '资产' | '讨论'
+type Tab = '动态' | '计划' | '任务' | '负载' | '甘特' | '治理' | '资产' | '讨论'
 type Kind = 'conn' | 'exp' | 'skill' | 'kb'
 const FIELD: Record<Kind, 'connectors' | 'experts' | 'skills' | 'knowledge_ids'> = {
   conn: 'connectors', exp: 'experts', skill: 'skills', kb: 'knowledge_ids',
@@ -268,10 +269,11 @@ export function ProjectHomeView() {
             className="pjh-tabs"
             activeKey={tab}
             onChange={(key) => setTab(key as Tab)}
-            items={(['动态', '计划', '任务', '负载', '甘特', '资产', '讨论'] as Tab[]).map((key) => ({ key, label: key }))}
+            items={(['动态', '计划', '任务', '负载', '甘特', '治理', '资产', '讨论'] as Tab[]).map((key) => ({ key, label: key }))}
           />
 
           <div className="pjh-body">
+            {tab === '治理' && <ProjectGovernance projectId={project.id} canWrite={canWrite} />}
             {tab === '动态' && (
               activityFeed.length ? (
                 <>

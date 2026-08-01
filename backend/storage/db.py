@@ -351,6 +351,32 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_milestones_project
             ON milestones(project_id, sort);
 
+        CREATE TABLE IF NOT EXISTS project_governance (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            record_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT '',
+            owner_id TEXT NOT NULL DEFAULT '',
+            response TEXT NOT NULL DEFAULT '',
+            rationale TEXT NOT NULL DEFAULT '',
+            work_item_id TEXT NOT NULL DEFAULT '',
+            milestone_id TEXT NOT NULL DEFAULT '',
+            run_id TEXT NOT NULL DEFAULT '',
+            artifact_id TEXT NOT NULL DEFAULT '',
+            evidence_label TEXT NOT NULL DEFAULT '',
+            created_by TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            resolved_at REAL NOT NULL DEFAULT 0,
+            server_updated_at REAL NOT NULL DEFAULT 0,
+            server_dirty INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_governance_project
+            ON project_governance(project_id, record_type, status, updated_at DESC);
+
         CREATE TABLE IF NOT EXISTS automations (
             id TEXT PRIMARY KEY,
             owner_id TEXT NOT NULL,
@@ -1973,8 +1999,16 @@ def rename_session(session_id: str, title: str) -> None:
 
 
 def delete_session(session_id: str) -> None:
-    get_conn().execute("DELETE FROM sessions WHERE id=?", (session_id,))
-    get_conn().commit()
+    conn = get_conn()
+    now = time.time()
+    conn.execute(
+        "UPDATE project_governance SET run_id='',artifact_id='',updated_at=? "
+        "WHERE run_id IN (SELECT id FROM runs WHERE session_id=?) "
+        "OR artifact_id IN (SELECT a.id FROM artifacts a JOIN runs r ON r.id=a.run_id WHERE r.session_id=?)",
+        (now, session_id, session_id),
+    )
+    conn.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+    conn.commit()
 
 
 def clear_conversations(owner_id: str) -> int:
@@ -4072,6 +4106,11 @@ def delete_work_item(item_id: str) -> None:
         project_id = row["project_id"]
         now = time.time()
         conn.execute(
+            "UPDATE project_governance SET work_item_id='',updated_at=? "
+            "WHERE work_item_id=? AND project_id=?",
+            (now, item_id, project_id),
+        )
+        conn.execute(
             "UPDATE work_items SET parent_id='',updated_at=? WHERE parent_id=? AND project_id=?",
             (now, item_id, project_id),
         )
@@ -4143,6 +4182,13 @@ def update_milestone(mid: str, **fields: Any) -> Optional[dict]:
 
 def delete_milestone(mid: str) -> None:
     conn = get_conn()
+    row = conn.execute("SELECT project_id FROM milestones WHERE id=?", (mid,)).fetchone()
+    if row:
+        conn.execute(
+            "UPDATE project_governance SET milestone_id='',updated_at=? "
+            "WHERE milestone_id=? AND project_id=?",
+            (time.time(), mid, row["project_id"]),
+        )
     conn.execute("UPDATE work_items SET milestone_id='' WHERE milestone_id=?", (mid,))  # 解绑任务
     conn.execute("DELETE FROM milestones WHERE id=?", (mid,))
     conn.commit()
@@ -4635,6 +4681,113 @@ def claim_device_owner(user_id: str) -> bool:
     )
     conn.commit()
     return get_device_owner_id() == user_id
+
+
+# ---- 项目风险与决策台账（WB-350；Server 权威镜像 + 本地项目自管）-----------
+
+_GOVERNANCE_FIELDS = (
+    "record_type", "title", "description", "status", "severity", "owner_id", "response",
+    "rationale", "work_item_id", "milestone_id", "run_id", "artifact_id", "evidence_label",
+    "created_by", "resolved_at",
+)
+
+
+def get_project_governance(record_id: str) -> Optional[dict]:
+    row = get_conn().execute("SELECT * FROM project_governance WHERE id=?", (record_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_project_governance(project_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM project_governance WHERE project_id=? ORDER BY updated_at DESC,id",
+        (project_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def create_project_governance(*, project_id: str, record_type: str, title: str,
+                              description: str = "", status: str, severity: str = "",
+                              owner_id: str = "", response: str = "", rationale: str = "",
+                              work_item_id: str = "", milestone_id: str = "", run_id: str = "",
+                              artifact_id: str = "", evidence_label: str = "",
+                              created_by: str = "") -> dict:
+    record_id = new_uuid(); now = time.time()
+    resolved_at = now if status in {"closed", "accepted", "superseded"} else 0.0
+    get_conn().execute(
+        """INSERT INTO project_governance
+           (id,project_id,record_type,title,description,status,severity,owner_id,response,rationale,
+            work_item_id,milestone_id,run_id,artifact_id,evidence_label,created_by,created_at,updated_at,resolved_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (record_id, project_id, record_type, title, description, status, severity, owner_id,
+         response, rationale, work_item_id, milestone_id, run_id, artifact_id, evidence_label,
+         created_by, now, now, resolved_at),
+    )
+    get_conn().commit()
+    return get_project_governance(record_id)  # type: ignore[return-value]
+
+
+def update_project_governance(record_id: str, **fields: Any) -> Optional[dict]:
+    sets: list[str] = []; values: list[Any] = []
+    for key, value in fields.items():
+        if key in _GOVERNANCE_FIELDS and value is not None and key not in {"record_type", "created_by", "resolved_at"}:
+            sets.append(f"{key}=?"); values.append(value)
+    if not sets:
+        return get_project_governance(record_id)
+    if "status" in fields:
+        sets.append("resolved_at=?")
+        values.append(time.time() if fields["status"] in {"closed", "accepted", "superseded"} else 0.0)
+    sets.append(
+        "server_dirty=CASE WHEN EXISTS (SELECT 1 FROM projects p "
+        "WHERE p.id=project_governance.project_id AND p.origin='server') THEN 1 ELSE server_dirty END"
+    )
+    sets.append("updated_at=?"); values.extend([time.time(), record_id])
+    get_conn().execute(f"UPDATE project_governance SET {', '.join(sets)} WHERE id=?", values)
+    get_conn().commit()
+    return get_project_governance(record_id)
+
+
+def delete_project_governance(record_id: str) -> bool:
+    cur = get_conn().execute("DELETE FROM project_governance WHERE id=?", (record_id,))
+    get_conn().commit()
+    return cur.rowcount > 0
+
+
+def mirror_server_project_governance(project_id: str, records: list[dict]) -> None:
+    """Server 完整快照覆盖该 Server 项目的只读本地缓存；写路径已 fail closed。"""
+    conn = get_conn(); remote_ids: set[str] = set()
+    for item in records:
+        record_id = str(item.get("id") or "")
+        if not record_id:
+            continue
+        remote_ids.add(record_id)
+        updated_at = float(item.get("updated_at") or item.get("created_at") or time.time())
+        values = [str(item.get(key) or "") for key in _GOVERNANCE_FIELDS if key != "resolved_at"]
+        resolved_at = float(item.get("resolved_at") or 0)
+        conn.execute(
+            """INSERT INTO project_governance
+               (id,project_id,record_type,title,description,status,severity,owner_id,response,rationale,
+                work_item_id,milestone_id,run_id,artifact_id,evidence_label,created_by,created_at,updated_at,
+                resolved_at,server_updated_at,server_dirty)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
+               ON CONFLICT(id) DO UPDATE SET record_type=excluded.record_type,title=excluded.title,
+               description=excluded.description,status=excluded.status,severity=excluded.severity,
+               owner_id=excluded.owner_id,response=excluded.response,rationale=excluded.rationale,
+               work_item_id=excluded.work_item_id,milestone_id=excluded.milestone_id,run_id=excluded.run_id,
+               artifact_id=excluded.artifact_id,evidence_label=excluded.evidence_label,
+               created_by=excluded.created_by,updated_at=excluded.updated_at,resolved_at=excluded.resolved_at,
+               server_updated_at=excluded.server_updated_at,server_dirty=0""",
+            (record_id, project_id, *values, float(item.get("created_at") or updated_at), updated_at,
+             resolved_at, updated_at),
+        )
+    if remote_ids:
+        placeholders = ",".join("?" for _ in remote_ids)
+        conn.execute(
+            f"DELETE FROM project_governance WHERE project_id=? AND id NOT IN ({placeholders}) AND server_dirty=0",
+            (project_id, *remote_ids),
+        )
+    else:
+        conn.execute("DELETE FROM project_governance WHERE project_id=? AND server_dirty=0", (project_id,))
+    conn.commit()
 
 
 def set_device_setting(key: str, value: Optional[str]) -> None:

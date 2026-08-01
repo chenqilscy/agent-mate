@@ -112,6 +112,7 @@ export type ProjectWorkspaceTab =
   | "sprints"
   | "gantt"
   | "iterations"
+  | "governance"
   | "knowledge"
   | "collab"
   | "config";
@@ -1540,7 +1541,8 @@ export function ProjectWorkspaceActions({
     activeTab === "tasks" ||
     activeTab === "milestones" ||
     activeTab === "sprints" ||
-    activeTab === "iterations"
+    activeTab === "iterations" ||
+    activeTab === "governance"
   )
     return null;
   return (

@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelsResponse, OpsSummary, Orchestration, ProjectInfo, ProjectMember, SessionInfo, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectInfo, ProjectMember, SessionInfo, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -441,6 +441,14 @@ export const api = {
   updateMilestone: (id: string, patch: { name?: string; description?: string; due_date?: string | null; status?: 'open' | 'closed'; sort?: number }) =>
     send<Milestone>('PATCH', `/milestones/${id}`, patch),
   deleteMilestone: (id: string) => send<{ ok: boolean }>('DELETE', `/milestones/${id}`),
+
+  listProjectGovernance: (project: string) =>
+    get<{ records: ProjectGovernanceRecord[] }>(`/governance?project=${encodeURIComponent(project)}`),
+  createProjectGovernance: (body: Partial<ProjectGovernanceRecord> & Pick<ProjectGovernanceRecord, 'project_id' | 'record_type' | 'title'>) =>
+    send<ProjectGovernanceRecord>('POST', '/governance', body),
+  updateProjectGovernance: (id: string, patch: Partial<ProjectGovernanceRecord>) =>
+    send<ProjectGovernanceRecord>('PATCH', `/governance/${id}`, patch),
+  deleteProjectGovernance: (id: string) => send<{ ok: boolean }>('DELETE', `/governance/${id}`),
 
   listAutomations: () => get<{ automations: Automation[] }>('/automations'),
 
