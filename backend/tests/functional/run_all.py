@@ -20,12 +20,20 @@ def main():
         results.append((s, rc))
     print(f"\n{'=' * 70}\nAGGREGATE\n{'=' * 70}")
     failed = 0
+    skipped = 0
     for s, rc in results:
-        verdict = "PASS" if rc == 0 else ("SKIP (no LLM)" if rc == 2 else "FAIL")
-        if rc == 1: failed += 1
+        verdict = "PASS" if rc == 0 else ("BLOCKED" if rc == 2 else "FAIL")
+        if rc == 2:
+            skipped += 1
+        elif rc != 0:
+            failed += 1
         print(f"  {verdict:14} {s}")
-    print(f"\n{failed} suite(s) failed.")
-    return failed
+    print(f"\n{failed} suite(s) failed; {skipped} suite(s) skipped.")
+    if failed:
+        return 1
+    if skipped:
+        return 2
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main())

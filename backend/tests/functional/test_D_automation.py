@@ -3,7 +3,7 @@ in-flight dedup, the REAL scheduler firing a due automation, project binding,
 disabled-never-fires)."""
 import sys, time, sqlite3, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from agentmate_testkit import Checker, call, health_llm, account, DB, wipe_users
+from agentmate_testkit import Checker, call, health_llm, account, DB, TEST_MODEL, wipe_users
 
 U = "dtest_auto"
 c = Checker()
@@ -26,7 +26,7 @@ c.check("bad trigger_kind -> 400", call("POST", "/automations", tok, {"name": "x
 c.check("interval_min < 1 -> 400", call("POST", "/automations", tok, {"name": "x", "prompt": "y", "interval_min": 0})[0] == 400)
 c.check("daily bad at_time -> 400", call("POST", "/automations", tok, {"name": "x", "prompt": "y", "trigger_kind": "daily", "at_time": "26:00"})[0] == 400)
 c.check("empty name/prompt -> 400", call("POST", "/automations", tok, {"name": "", "prompt": ""})[0] == 400)
-a = call("POST", "/automations", tok, {"name": "自测", "prompt": TINY, "trigger_kind": "interval", "interval_min": 120, "enabled": False})[1]
+a = call("POST", "/automations", tok, {"name": "自测", "prompt": TINY, "trigger_kind": "interval", "interval_min": 120, "model": TEST_MODEL, "enabled": False})[1]
 aid = a["id"]
 c.check("create disabled ok", a["enabled"] is False and bool(aid))
 c.check("PATCH enable+rename+interval", (lambda r: r["enabled"] and r["name"] == "改名" and r["interval_min"] == 90)(call("PATCH", f"/automations/{aid}", tok, {"enabled": True, "name": "改名", "interval_min": 90})[1]))
@@ -56,7 +56,7 @@ c.check("run appears in cross-automation feed", any(x["id"] == run_sid for x in 
 
 # ── D3 in-flight dedup: two rapid run-now share one session (WB-040) ──
 c.section("D3 在飞去重(连点不重复跑)")
-along = call("POST", "/automations", tok, {"name": "去重测试", "prompt": "写一段 300 字的自我介绍，尽量详细。", "enabled": False})[1]
+along = call("POST", "/automations", tok, {"name": "去重测试", "prompt": "写一段 300 字的自我介绍，尽量详细。", "model": TEST_MODEL, "enabled": False})[1]
 alid = along["id"]
 s1 = call("POST", f"/automations/{alid}/run", tok)[1].get("session_id")
 s2 = call("POST", f"/automations/{alid}/run", tok)[1].get("session_id")  # while first still in flight
@@ -65,8 +65,8 @@ if s1: call("POST", f"/chat/{s1}/stop", tok)
 
 # ── D4 & D6: the REAL scheduler fires a due ENABLED automation, not a disabled one ──
 c.section("D4/D6 调度器到点真触发(启用触发 / 停用不触发)")
-aen = call("POST", "/automations", tok, {"name": "到点触发", "prompt": TINY, "trigger_kind": "interval", "interval_min": 60, "enabled": True})[1]["id"]
-adis = call("POST", "/automations", tok, {"name": "停用不触发", "prompt": TINY, "trigger_kind": "interval", "interval_min": 60, "enabled": False})[1]["id"]
+aen = call("POST", "/automations", tok, {"name": "到点触发", "prompt": TINY, "trigger_kind": "interval", "interval_min": 60, "model": TEST_MODEL, "enabled": True})[1]["id"]
+adis = call("POST", "/automations", tok, {"name": "停用不触发", "prompt": TINY, "trigger_kind": "interval", "interval_min": 60, "model": TEST_MODEL, "enabled": False})[1]["id"]
 force_due(aen); force_due(adis)  # both "due" now; only the enabled one is eligible
 fired = None
 for _ in range(50):  # scheduler scans every 20s; allow ~50s
@@ -79,7 +79,7 @@ c.check("D6 disabled automation did NOT fire", len(runs_of(adis)) == 0, str(len(
 
 # ── D5 bound automation: its run belongs to the bound project ──
 c.section("D5 绑定工作空间的自动化运行归入该项目")
-abnd = call("POST", "/automations", tok, {"name": "绑定项目", "prompt": TINY, "project_id": pid, "enabled": False})[1]["id"]
+abnd = call("POST", "/automations", tok, {"name": "绑定项目", "prompt": TINY, "project_id": pid, "model": TEST_MODEL, "enabled": False})[1]["id"]
 bsid = call("POST", f"/automations/{abnd}/run", tok)[1].get("session_id")
 time.sleep(1.0)
 brun = next((x for x in runs_of(abnd) if x["id"] == bsid), None)

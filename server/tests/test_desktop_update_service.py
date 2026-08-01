@@ -6,6 +6,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SERVER = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVER))
@@ -143,13 +144,16 @@ class DesktopUpdateServiceTest(unittest.TestCase):
             db.get_conn().execute("SELECT COUNT(*) FROM desktop_update_events").fetchone()[0],
         )
 
-        for index in range(5):
-            update_store.record_event(
-                device_id=f"device-cap-{index:03d}",
-                channel="beta",
-                event="install_failed",
-                error_code=f"error-{index}",
-            )
+        # Windows can return the same timestamp for a tight burst. The cap must
+        # retain insertion order rather than treating random UUIDs as chronology.
+        with patch.object(update_store.time, "time", return_value=1_800_000_000.0):
+            for index in range(5):
+                update_store.record_event(
+                    device_id=f"device-cap-{index:03d}",
+                    channel="beta",
+                    event="install_failed",
+                    error_code=f"error-{index}",
+                )
         rows = db.get_conn().execute(
             "SELECT error_code FROM desktop_update_events ORDER BY created_at,id"
         ).fetchall()

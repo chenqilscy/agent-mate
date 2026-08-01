@@ -22,6 +22,7 @@ from config import settings as _settings
 BASE = os.environ.get("AGENTMATE_TEST_BASE", "http://127.0.0.1:8101/api")
 DB = os.environ.get("AGENTMATE_DB", str(_BACKEND / "agentmate.db"))
 WS = Path(os.environ.get("AGENTMATE_WORKSPACE", str(_BACKEND / "workspace")))
+TEST_MODEL = f"test:{_settings.LLM_MODEL}"
 PW = "pw1234"
 THROTTLE = 2.0  # seconds paced before each real /chat run (rate-limit friendly)
 
@@ -80,7 +81,7 @@ def stream(token, body, stop_when=None, until_type=None, max_seconds=45):
     time.sleep(THROTTLE)
     # WB-136 后新账号没有默认模型是正常产品行为；E2E 明确选择 backend/.env 的测试模型，
     # 避免把“未配置默认模型”误报成技能/连接器失效。`test:<id>` 走 runtime 的 legacy 显式模型分支。
-    body = {"model": f"test:{_settings.LLM_MODEL}", **body}
+    body = {"model": TEST_MODEL, **body}
     data = json.dumps(body).encode()
     req = urllib.request.Request(BASE + "/chat", data=data, method="POST")
     req.add_header("Content-Type", "application/json")

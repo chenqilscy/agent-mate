@@ -301,7 +301,7 @@ def record_event(
     if excess > 0:
         conn.execute(
             "DELETE FROM desktop_update_events WHERE id IN ("
-            "SELECT id FROM desktop_update_events ORDER BY created_at ASC,id ASC LIMIT ?"
+            "SELECT id FROM desktop_update_events ORDER BY created_at ASC,rowid ASC LIMIT ?"
             ")",
             (excess,),
         )

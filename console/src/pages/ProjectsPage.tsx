@@ -89,8 +89,9 @@ export default function ProjectsPage({
       title: "说明",
       dataIndex: "instruction",
       ellipsis: true,
-      render: (value) => {
-        const instruction = String(value || "").trim();
+      render: (_value, item) => {
+        const instruction =
+          typeof item.instruction === "string" ? item.instruction.trim() : "";
         return instruction && instruction !== "-" ? (
           instruction
         ) : (

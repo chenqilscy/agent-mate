@@ -140,7 +140,9 @@ class TokenLifecycleHttpTest(unittest.TestCase):
             401,
             self.client.get(f"{self.server_url}/api/auth/verify", headers=headers).status_code,
         )
-        me = self.client.get(f"{self.backend_url}/api/me", headers=headers)
+        revoked_me = self.client.get(f"{self.backend_url}/api/me", headers=headers)
+        self.assertEqual(401, revoked_me.status_code, revoked_me.text)
+        me = self.client.get(f"{self.backend_url}/api/me")
         self.assertEqual(200, me.status_code, me.text)
         self.assertFalse(me.json()["authenticated"])
 

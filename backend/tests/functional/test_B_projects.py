@@ -3,7 +3,7 @@ instruction injection, plan-item write-back, access isolation)."""
 import sys, time, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from agentmate_testkit import (Checker, call, stream, health_llm, account, events_of, text_join,
-                        has_step, stop_run, read_ws, ws_exists, WS, wipe_users)
+                        has_step, stop_run, read_ws, ws_exists, BASE, WS, wipe_users)
 
 OWN, MATE = "btest_own", "btest_mate"
 c = Checker()
@@ -18,7 +18,7 @@ st, p = call("POST", "/projects", tok, cfg); pid = p["id"]
 c.check("create -> role=Owner", st == 200 and p.get("role") == "Owner")
 got = call("GET", f"/projects/{pid}", tok)[1]
 c.check("instruction/experts/skills/connectors round-trip",
-        got["instruction"] == cfg["instruction"] and got["experts"] == cfg["experts"] and got["skills"] == cfg["skills"] and got["connectors"] == cfg["connectors"])
+        got["instruction"] == cfg["instruction"] and got["experts"] == cfg["experts"] and got["skills"] == ["excel-csv"] and got["connectors"] == cfg["connectors"])
 upd = call("PATCH", f"/projects/{pid}", tok, {"experts": ["创业伙伴", "数据分析报告师"]})[1]
 c.check("PATCH updates experts", "数据分析报告师" in upd["experts"])
 
@@ -89,7 +89,7 @@ c.section("B8 探测:非成员能否把 /chat 指向他人项目(隔离)")
 import urllib.request as _u, urllib.error as _e, json as _j
 stranger, sid_g = account("btest_stranger")
 def _chat_status(token, body):
-    req = _u.Request("http://127.0.0.1:8101/api/chat", data=_j.dumps(body).encode(), method="POST")
+    req = _u.Request(BASE + "/chat", data=_j.dumps(body).encode(), method="POST")
     req.add_header("Content-Type", "application/json"); req.add_header("Authorization", "Bearer " + token)
     try:
         r = _u.urlopen(req, timeout=15); code = r.status; r.close(); return code

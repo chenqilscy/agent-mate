@@ -13,6 +13,7 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "validate:v1-rc": "pwsh -NoLogo -NoProfile -NonInteractive -File scripts/validate-v1-rc.ps1",
     "release:validate": "node scripts/validate-desktop-release.mjs",
     "gen:api": "openapi-typescript http://localhost:8101/openapi.json -o src/lib/api-types.ts"
   },

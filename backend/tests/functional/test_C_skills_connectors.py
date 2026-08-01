@@ -105,7 +105,11 @@ c.section("C8 计划模式禁用连接器")
 evs, sid = stream(tok, {"text": "只回复 OK。", "connectors": ["时间助手"], "plan": True}, until_type="done", max_seconds=40)
 stop_run(tok, sid)
 lbl = loadout_label(evs)
-c.check("C8 connectors not opened in plan mode", (lbl is None) or ("时间助手" not in lbl), repr(lbl))
+c.check(
+    "C8 connector is skipped with a transparent plan-mode reason",
+    (lbl is None) or ("未就绪" in lbl and "计划模式不启用外部连接器" in lbl),
+    repr(lbl),
+)
 
 # C9 — Telegram (built-in but token-gated) without a token → not-ready, not silent
 c.section("C9 Telegram 无 token → 连接器未就绪(不静默失败)")

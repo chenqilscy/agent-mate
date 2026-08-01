@@ -161,7 +161,10 @@ export function SkillBundleModal({ open, onClose }: { open: boolean; onClose: ()
               value={undefined}
               placeholder={installed.length ? '添加一个已安装技能' : '请先安装技能'}
               disabled={!addOptions.length}
-              onChange={(value) => setSkills((current) => [...current, value])}
+              onChange={(value) => {
+                if (!value) return
+                setSkills((current) => [...current, value])
+              }}
             />
             <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
               {skills.map((slug, index) => {
