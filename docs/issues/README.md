@@ -18,12 +18,11 @@
 |----|------|--------|------|------|
 | [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) | ⏸ | P1 | fullstack | 正式桌面更新服务缺少生产域名、CI 签名材料与上线验收 |
 | [WB-344](WB-344-v1-controlled-user-pilot.md) | ⏸ | P1 | misc | V1.0 受控真实用户试用缺少参与者、安装版本与连续证据 |
-| [WB-360](WB-360-ci-hermetic-quality-gate.md) | ⬜ | P1 | misc | 完整 V1 质量门禁未自动执行且测试依赖在线模型下载 |
 | [WB-361](WB-361-server-external-integration-relay.md) | ⬜ | P1 | backend | Server 缺少面向外部系统的服务身份与设备投递中继 |
 | [WB-362](WB-362-federated-sso-auth-hardening.md) | ⬜ | P1 | fullstack | Server 缺少微信 Google Telegram 联合登录与公网鉴权加固 |
 | [WB-363](WB-363-versioned-migrations-and-architecture-docs.md) | ⬜ | P2 | backend | 数据库升级缺少版本化迁移且架构文档已漂移 |
 
 ## 已关闭归档
 
-共 357 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 358 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。

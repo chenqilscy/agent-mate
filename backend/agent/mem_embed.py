@@ -32,10 +32,18 @@ _model = None
 _local_unavailable = False
 
 
+def _model_downloads_disabled() -> bool:
+    return os.getenv("AGENTMATE_DISABLE_EMBED_MODEL_DOWNLOAD", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 # ---- 本地后端（fastembed）------------------------------------------------
 
 def _local_model():
     global _model, _local_unavailable
+    if _model_downloads_disabled():
+        return None
     if _model is not None or _local_unavailable:
         return _model
     with _lock:

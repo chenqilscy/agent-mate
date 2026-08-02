@@ -15,6 +15,7 @@ $node = (Get-Command node -CommandType Application -ErrorAction Stop |
     Select-Object -First 1 -ExpandProperty Source)
 $tsc = Join-Path $repoRoot "node_modules/typescript/bin/tsc"
 $vite = Join-Path $repoRoot "node_modules/vite/bin/vite.js"
+$previousEmbedDownloadPolicy = $env:AGENTMATE_DISABLE_EMBED_MODEL_DOWNLOAD
 
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "[BLOCKED] Project Python runtime is missing: $python"
@@ -54,6 +55,9 @@ function Invoke-NativeStep {
 
 Push-Location $repoRoot
 try {
+    # Regression and integration lanes must never depend on a cold HuggingFace
+    # download. Tests requiring semantic vectors inject an explicit fake/model.
+    $env:AGENTMATE_DISABLE_EMBED_MODEL_DOWNLOAD = "1"
     if ($Live -and $IsolatedLive) {
         throw "Choose either -Live or -IsolatedLive, not both."
     }
@@ -135,5 +139,11 @@ try {
     Write-Host "This verdict covers only the selected lanes. Signed installer, clean-machine install, updater and pilot evidence remain separate release requirements."
 }
 finally {
+    if ($null -eq $previousEmbedDownloadPolicy) {
+        Remove-Item Env:AGENTMATE_DISABLE_EMBED_MODEL_DOWNLOAD -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:AGENTMATE_DISABLE_EMBED_MODEL_DOWNLOAD = $previousEmbedDownloadPolicy
+    }
     Pop-Location
 }

@@ -1,0 +1,47 @@
+name: AgentMate V1 quality gate
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: quality-${{ gitea.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      AGENTMATE_DISABLE_EMBED_MODEL_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            server/requirements.txt
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: Install Node dependencies
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+      - name: Create project Python runtime
+        shell: pwsh
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/Scripts/python.exe -m pip install --upgrade pip
+          backend/.venv/Scripts/python.exe -m pip install -r backend/requirements.txt -r server/requirements.txt
+      - name: Run App Console Backend Server and integration gates
+        shell: pwsh
+        run: pwsh -NoLogo -NoProfile -NonInteractive -File scripts/validate-v1-rc.ps1
