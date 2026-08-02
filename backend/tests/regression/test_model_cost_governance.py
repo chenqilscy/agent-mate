@@ -168,7 +168,7 @@ class ModelCostGovernanceTest(unittest.TestCase):
         ):
             asyncio.run(collect(self.session))
             explicit_session = db.create_session(owner_id=LOCAL_USER_ID, title="explicit")
-            asyncio.run(collect(explicit_session, max_total_tokens=100))
+            asyncio.run(collect(explicit_session, max_total_tokens=100_000))
 
         default_run = db.list_runs(LOCAL_USER_ID, session_id=self.session.id)[0]
         explicit_run = db.list_runs(LOCAL_USER_ID, session_id=explicit_session.id)[0]
@@ -176,6 +176,29 @@ class ModelCostGovernanceTest(unittest.TestCase):
         self.assertEqual("account_default", default_run.permission_snapshot["token_budget_source"])
         self.assertEqual("completed", explicit_run.status)
         self.assertEqual("explicit", explicit_run.permission_snapshot["token_budget_source"])
+
+    def test_cached_prompt_tokens_use_snapshot_cached_rate(self) -> None:
+        db.set_model_meta(
+            LOCAL_USER_ID, "cached", capabilities=["text"], input_cost=10,
+            input_cost_cached=2, output_cost=20, context_window=128_000,
+            currency="USD", note="cached test",
+        )
+        run, _ = db.create_run(
+            session_id=self.session.id, owner_id=LOCAL_USER_ID,
+            project_id=None, mode="exec",
+        )
+        db.set_run_model_snapshot(
+            run.id, model_ref="cached", model_id="cached-v1",
+            snapshot=model_governance.build_run_snapshot(
+                LOCAL_USER_ID, "cached", "cached-v1",
+            ),
+        )
+        priced = db.update_run_runtime(
+            run.id, prompt_tokens=1_000_000, cached_prompt_tokens=750_000,
+            completion_tokens=100_000,
+        )
+        self.assertEqual(750_000, priced.cached_prompt_tokens)
+        self.assertEqual(6.0, priced.estimated_cost)
 
 
 if __name__ == "__main__":

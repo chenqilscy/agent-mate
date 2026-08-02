@@ -83,6 +83,7 @@ def build_run_snapshot(owner_id: str, selection: str | None, model_id: str) -> d
 
 def estimate_cost(
     snapshot: dict[str, Any], prompt_tokens: int, completion_tokens: int,
+    cached_prompt_tokens: int = 0,
 ) -> tuple[float | None, str | None]:
     """Estimate provider cost without currency conversion or invented cache-hit usage."""
     prompt = max(0, int(prompt_tokens))
@@ -93,11 +94,19 @@ def estimate_cost(
     if not isinstance(pricing, dict):
         return None, None
     input_cost = pricing.get("input_per_million")
+    cached_input_cost = pricing.get("cached_input_per_million")
     output_cost = pricing.get("output_per_million")
     currency = str(pricing.get("currency") or "").strip()
     if input_cost is None or output_cost is None or not currency:
         return None, None
-    estimated = (prompt * float(input_cost) + completion * float(output_cost)) / 1_000_000
+    cached = min(prompt, max(0, int(cached_prompt_tokens)))
+    uncached = prompt - cached
+    cached_rate = float(cached_input_cost) if cached_input_cost is not None else float(input_cost)
+    estimated = (
+        uncached * float(input_cost)
+        + cached * cached_rate
+        + completion * float(output_cost)
+    ) / 1_000_000
     return round(estimated, 10), currency
 
 

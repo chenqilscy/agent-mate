@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import aclosing
+from dataclasses import dataclass
 import math
 from typing import Any, Iterable
 
@@ -24,6 +25,22 @@ _SUMMARY_SYSTEM = """你是 AgentMate 的会话压缩器。把旧对话压缩成
 - 尚未完成的事项、风险和下一步
 不得猜测、不得宣称未发生的结果、不得把临时寒暄写入摘要。
 输出简洁 Markdown，按「目标与约束 / 已确认事实与决定 / 未完成事项」组织；没有内容的分组可省略。"""
+
+
+@dataclass(frozen=True)
+class SummaryResult:
+    content: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_prompt_tokens: int = 0
+
+
+@dataclass(frozen=True)
+class ContextBuildResult:
+    messages: list[dict[str, Any]]
+    summary_prompt_tokens: int = 0
+    summary_completion_tokens: int = 0
+    summary_cached_prompt_tokens: int = 0
 
 
 def approx_tokens(text: str) -> int:
@@ -168,9 +185,10 @@ async def _generate_summary(
     api_base: str | None,
     api_key: str | None,
     chat_path: str,
-) -> str:
+) -> SummaryResult:
     prompt = _summary_source(existing_summary, messages)
     content = ""
+    prompt_tokens = completion_tokens = cached_prompt_tokens = 0
     async with aclosing(stream_chat(
         [
             {"role": "system", "content": _SUMMARY_SYSTEM},
@@ -186,10 +204,19 @@ async def _generate_summary(
     )) as deltas:
         async for delta in deltas:
             content += delta.content or ""
+            if delta.usage:
+                prompt_tokens = int(delta.usage.get("prompt_tokens") or prompt_tokens)
+                completion_tokens = int(delta.usage.get("completion_tokens") or completion_tokens)
+                details = delta.usage.get("prompt_tokens_details") or {}
+                cached_prompt_tokens = int(
+                    details.get("cached_tokens")
+                    or delta.usage.get("prompt_cache_hit_tokens")
+                    or cached_prompt_tokens
+                )
     result = content.strip()
     if not result:
         raise RuntimeError("会话摘要未返回内容")
-    return result
+    return SummaryResult(result, prompt_tokens, completion_tokens, cached_prompt_tokens)
 
 
 def _assemble(system_prompt: str, summary: str, recent: list[Message], new_user_text: str) -> list[dict[str, Any]]:
@@ -208,7 +235,7 @@ def _assemble(system_prompt: str, summary: str, recent: list[Message], new_user_
     return messages
 
 
-async def build_llm_messages(
+async def build_llm_context(
     session: Session,
     history: list[Message],
     *,
@@ -218,29 +245,32 @@ async def build_llm_messages(
     api_base: str | None,
     api_key: str | None,
     chat_path: str,
-) -> list[dict[str, Any]]:
+    history_token_budget: int | None = None,
+) -> ContextBuildResult:
     """Build bounded context; compact old turns with the real configured LLM."""
+    history_budget = max(1, int(history_token_budget or settings.SESSION_HISTORY_TOKEN_BUDGET))
     valid = _valid_messages(history)
     cursor = max(0, min(session.summary_cursor, len(valid)))
     pending = valid[cursor:]
     current_tokens = approx_tokens(session.summary) + sum(_message_tokens(item) for item in pending)
-    if current_tokens <= settings.SESSION_HISTORY_TOKEN_BUDGET:
-        return _assemble(system_prompt, session.summary, pending, new_user_text)
+    if current_tokens <= history_budget:
+        return ContextBuildResult(_assemble(system_prompt, session.summary, pending, new_user_text))
 
     recent_budget = min(
         settings.SESSION_RECENT_TOKEN_BUDGET,
-        settings.SESSION_HISTORY_TOKEN_BUDGET,
+        history_budget,
     )
     recent, old_count = _recent_suffix(pending, recent_budget)
     recent = _fit_recent(recent, recent_budget)
     if old_count <= 0:
-        return _assemble(system_prompt, session.summary, recent, new_user_text)
+        return ContextBuildResult(_assemble(system_prompt, session.summary, recent, new_user_text))
 
     old = pending[:old_count]
     summary_chunk = _summary_chunk(session.summary, old)
     summary = session.summary
+    summary_prompt = summary_completion = summary_cached = 0
     try:
-        candidate = await asyncio.wait_for(
+        generated = await asyncio.wait_for(
             _generate_summary(
                 session.summary,
                 summary_chunk,
@@ -251,6 +281,13 @@ async def build_llm_messages(
             ),
             timeout=settings.SESSION_SUMMARY_TIMEOUT_SECONDS,
         )
+        if isinstance(generated, SummaryResult):
+            candidate = generated.content
+            summary_prompt = generated.prompt_tokens
+            summary_completion = generated.completion_tokens
+            summary_cached = generated.cached_prompt_tokens
+        else:  # compatibility for focused tests and older custom adapters
+            candidate = str(generated)
         new_cursor = cursor + len(summary_chunk)
         if db.update_session_summary(
             session.id,
@@ -271,11 +308,21 @@ async def build_llm_messages(
     recent_tokens = sum(_message_tokens(item) for item in recent)
     summary_budget = max(
         256,
-        settings.SESSION_HISTORY_TOKEN_BUDGET - recent_tokens,
+        history_budget - recent_tokens,
     )
-    return _assemble(
-        system_prompt,
-        _clip_text(summary, summary_budget),
-        recent,
-        new_user_text,
+    return ContextBuildResult(
+        _assemble(
+            system_prompt,
+            _clip_text(summary, summary_budget),
+            recent,
+            new_user_text,
+        ),
+        summary_prompt,
+        summary_completion,
+        summary_cached,
     )
+
+
+async def build_llm_messages(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    """Compatibility wrapper for callers that only need assembled messages."""
+    return (await build_llm_context(*args, **kwargs)).messages

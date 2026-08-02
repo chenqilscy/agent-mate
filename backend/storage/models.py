@@ -92,6 +92,7 @@ class Run:
     error_code: Optional[str]
     error_message: Optional[str]
     prompt_tokens: int
+    cached_prompt_tokens: int
     completion_tokens: int
     tool_calls: int
     started_at: Optional[float]

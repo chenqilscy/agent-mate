@@ -206,6 +206,7 @@ def init_db() -> None:
             error_code TEXT,
             error_message TEXT,
             prompt_tokens INTEGER NOT NULL DEFAULT 0,
+            cached_prompt_tokens INTEGER NOT NULL DEFAULT 0,
             completion_tokens INTEGER NOT NULL DEFAULT 0,
             tool_calls INTEGER NOT NULL DEFAULT 0,
             started_at REAL,
@@ -1191,6 +1192,7 @@ def _migrate_columns() -> None:
         ("model_snapshot", "model_snapshot TEXT NOT NULL DEFAULT '{}'"),
         ("estimated_cost", "estimated_cost REAL"),
         ("cost_currency", "cost_currency TEXT"),
+        ("cached_prompt_tokens", "cached_prompt_tokens INTEGER NOT NULL DEFAULT 0"),
     ):
         if col not in have_runs:
             conn.execute(f"ALTER TABLE runs ADD COLUMN {ddl}")
@@ -2180,6 +2182,7 @@ def _row_to_run(row: sqlite3.Row) -> Run:
         permission_snapshot=_load_json(row["permission_snapshot"], {}),
         checkpoint=_load_json(row["checkpoint"], {}), error_code=row["error_code"],
         error_message=row["error_message"], prompt_tokens=int(row["prompt_tokens"] or 0),
+        cached_prompt_tokens=int(row["cached_prompt_tokens"] or 0),
         completion_tokens=int(row["completion_tokens"] or 0), tool_calls=int(row["tool_calls"] or 0),
         started_at=row["started_at"], ended_at=row["ended_at"],
         created_at=row["created_at"], updated_at=row["updated_at"],
@@ -2452,23 +2455,26 @@ def set_run_status(
 def update_run_runtime(
     run_id: str, *, permission_snapshot: Optional[dict[str, Any]] = None,
     plan: Optional[list[dict[str, Any]]] = None, prompt_tokens: Optional[int] = None,
+    cached_prompt_tokens: Optional[int] = None,
     completion_tokens: Optional[int] = None, tool_calls: Optional[int] = None,
 ) -> Run:
     run = get_run(run_id)
     if not run:
         raise KeyError(run_id)
     next_prompt = run.prompt_tokens if prompt_tokens is None else max(0, int(prompt_tokens))
+    next_cached = run.cached_prompt_tokens if cached_prompt_tokens is None else max(0, int(cached_prompt_tokens))
+    next_cached = min(next_prompt, next_cached)
     next_completion = run.completion_tokens if completion_tokens is None else max(0, int(completion_tokens))
     from storage import model_governance
     estimated_cost, cost_currency = model_governance.estimate_cost(
-        run.model_snapshot, next_prompt, next_completion,
+        run.model_snapshot, next_prompt, next_completion, next_cached,
     )
     get_conn().execute(
-        """UPDATE runs SET permission_snapshot=?, plan=?, prompt_tokens=?, completion_tokens=?,
+        """UPDATE runs SET permission_snapshot=?, plan=?, prompt_tokens=?, cached_prompt_tokens=?, completion_tokens=?,
            tool_calls=?,estimated_cost=?,cost_currency=?,updated_at=? WHERE id=?""",
         (json.dumps(permission_snapshot if permission_snapshot is not None else run.permission_snapshot, ensure_ascii=False),
          json.dumps(plan if plan is not None else run.plan, ensure_ascii=False),
-         next_prompt, next_completion,
+         next_prompt, next_cached, next_completion,
          run.tool_calls if tool_calls is None else max(0, int(tool_calls)),
          estimated_cost, cost_currency, time.time(), run_id),
     )

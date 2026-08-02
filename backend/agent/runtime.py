@@ -247,9 +247,12 @@ def _trace_to_sse(item: dict[str, Any]) -> str:
     return ""
 
 
-def _usage_event(prompt_tokens: int, completion_tokens: int, schemas: list[dict[str, Any]], system_prompt: str) -> str:
+def _usage_event(
+    prompt_tokens: int, completion_tokens: int, schemas: list[dict[str, Any]],
+    system_prompt: str, context_window: int = settings.CONTEXT_WINDOW,
+) -> str:
     used = prompt_tokens + completion_tokens
-    pct = used / settings.CONTEXT_WINDOW * 100
+    pct = used / max(1, context_window) * 100
     sys_tok = _approx_tokens(system_prompt)
     tools_tok = _approx_tokens(json.dumps(schemas, ensure_ascii=False))
     detail = {
@@ -260,6 +263,25 @@ def _usage_event(prompt_tokens: int, completion_tokens: int, schemas: list[dict[
         "技能": 0,
     }
     return events.usage(pct=pct, used=used, detail=detail)
+
+
+def _cached_prompt_tokens(usage: dict[str, Any]) -> int:
+    details = usage.get("prompt_tokens_details") or {}
+    return max(0, int(
+        details.get("cached_tokens")
+        or usage.get("prompt_cache_hit_tokens")
+        or 0
+    ))
+
+
+def _history_budget(
+    context_window: int, system_prompt: str, requested_output: int,
+) -> int:
+    """Reserve room for system/tool contracts and output before adding history."""
+    output_reserve = requested_output or min(8192, max(1024, context_window // 8))
+    tool_reserve = min(12_000, max(2048, context_window // 10))
+    available = context_window - _approx_tokens(system_prompt) - output_reserve - tool_reserve
+    return max(256, min(settings.SESSION_HISTORY_TOKEN_BUDGET, available))
 
 
 async def _build_memory_prompt(
@@ -702,6 +724,7 @@ async def _run_chat_inner(
     assistant_text = ""
     last_prompt = 0
     total_prompt = 0
+    total_cached_prompt = 0
     total_completion = 0
     stopped = False
     schemas: list[dict[str, Any]] = []
@@ -746,7 +769,11 @@ async def _run_chat_inner(
             model_id=model_id,
             snapshot=model_governance.build_run_snapshot(user.id, model, model_id),
         )
-        llm_messages = await session_context.build_llm_messages(
+        context_window = max(
+            1024,
+            int(run.model_snapshot.get("context_window") or settings.CONTEXT_WINDOW),
+        )
+        context_result = await session_context.build_llm_context(
             session,
             history_messages,
             new_user_text=llm_user_text,
@@ -755,7 +782,19 @@ async def _run_chat_inner(
             api_base=model_base,
             api_key=model_key,
             chat_path=model_path,
+            history_token_budget=_history_budget(
+                context_window, system_prompt, max_output_tokens,
+            ),
         )
+        llm_messages = context_result.messages
+        total_prompt += context_result.summary_prompt_tokens
+        total_completion += context_result.summary_completion_tokens
+        total_cached_prompt += context_result.summary_cached_prompt_tokens
+        if effective_token_budget > 0 and total_prompt + total_completion >= effective_token_budget:
+            raise RuntimeBudgetExceeded(
+                f"Token budget exhausted by context compaction: "
+                f"{total_prompt + total_completion} >= {effective_token_budget}"
+            )
 
         # Active toolset. Ask mode = no tools (pure Q&A). Otherwise base
         # (plan-filtered) tools + skill tools + connector (MCP) tools; connectors
@@ -983,6 +1022,33 @@ async def _run_chat_inner(
             round_completion = 0
             first_token_at = None
 
+            estimated_round_prompt = sum(
+                _approx_tokens(str(message.get("content") or "")) + 4
+                for message in llm_messages
+            ) + _approx_tokens(json.dumps(schemas, ensure_ascii=False))
+            context_output_room = context_window - estimated_round_prompt
+            if context_output_room <= 0:
+                raise RuntimeBudgetExceeded(
+                    f"Model context exhausted before generation: "
+                    f"{estimated_round_prompt} >= {context_window}"
+                )
+            request_max_tokens = max_output_tokens or context_output_room
+            request_max_tokens = min(request_max_tokens, context_output_room)
+            if effective_token_budget > 0:
+                run_output_room = (
+                    effective_token_budget
+                    - total_prompt
+                    - total_completion
+                    - estimated_round_prompt
+                )
+                if run_output_room <= 0:
+                    raise RuntimeBudgetExceeded(
+                        "Token budget exhausted before generation: "
+                        f"estimated input {estimated_round_prompt}, remaining "
+                        f"{effective_token_budget - total_prompt - total_completion}"
+                    )
+                request_max_tokens = min(request_max_tokens, run_output_room)
+
             with telemetry.generation_observation(
                 name=f"llm.chat.round-{_round + 1}",
                 model=model_id,
@@ -994,7 +1060,7 @@ async def _run_chat_inner(
                     llm_messages, model=model_id, tools=schemas,
                     api_base=model_base, api_key=model_key, chat_path=model_path,
                     temperature=_temperature,
-                    max_tokens=max_output_tokens or None,
+                    max_tokens=max(1, request_max_tokens),
                 )) as deltas:
                     async for delta in deltas:
                         if stop.is_set():
@@ -1024,6 +1090,7 @@ async def _run_chat_inner(
                         if delta.usage:
                             round_prompt = int(delta.usage.get("prompt_tokens") or round_prompt)
                             round_completion += int(delta.usage.get("completion_tokens") or 0)
+                            total_cached_prompt += _cached_prompt_tokens(delta.usage)
                             last_prompt = round_prompt or last_prompt
                             total_completion += int(delta.usage.get("completion_tokens") or 0)
 
@@ -1241,6 +1308,7 @@ async def _run_chat_inner(
         mid = _persist_partial()
         db.update_run_runtime(
             run_id, prompt_tokens=total_prompt or last_prompt,
+            cached_prompt_tokens=total_cached_prompt,
             completion_tokens=total_completion, tool_calls=tool_call_count,
         )
         db.set_run_status(
@@ -1258,7 +1326,7 @@ async def _run_chat_inner(
         )
         yield events.error(str(e))
         mid = _persist_partial()  # 保留已流式的半截回复（WB-160）
-        db.update_run_runtime(run_id, prompt_tokens=total_prompt or last_prompt, completion_tokens=total_completion, tool_calls=tool_call_count)
+        db.update_run_runtime(run_id, prompt_tokens=total_prompt or last_prompt, cached_prompt_tokens=total_cached_prompt, completion_tokens=total_completion, tool_calls=tool_call_count)
         db.set_run_status(run_id, "failed", error_code="llm_error", error_message=str(e))
         db.touch_session(session_id, status="idle")
         finished_ok = True  # status settled; don't let finally override it
@@ -1272,7 +1340,7 @@ async def _run_chat_inner(
         )
         yield events.error(f"执行出错：{e}")
         mid = _persist_partial()  # 保留已流式的半截回复（WB-160）
-        db.update_run_runtime(run_id, prompt_tokens=total_prompt or last_prompt, completion_tokens=total_completion, tool_calls=tool_call_count)
+        db.update_run_runtime(run_id, prompt_tokens=total_prompt or last_prompt, cached_prompt_tokens=total_cached_prompt, completion_tokens=total_completion, tool_calls=tool_call_count)
         db.set_run_status(run_id, "failed", error_code="runtime_error", error_message=str(e))
         db.touch_session(session_id, status="idle")
         finished_ok = True
@@ -1323,7 +1391,8 @@ async def _run_chat_inner(
     db.update_run_runtime(
         run_id,
         plan=[{"text": item["text"]} for item in trace_items if item.get("kind") == "todo"],
-        prompt_tokens=total_prompt, completion_tokens=total_completion, tool_calls=tool_call_count,
+        prompt_tokens=total_prompt, cached_prompt_tokens=total_cached_prompt,
+        completion_tokens=total_completion, tool_calls=tool_call_count,
     )
     db.set_run_status(run_id, "cancelled" if stopped else "completed")
 
@@ -1339,7 +1408,7 @@ async def _run_chat_inner(
 
     db.touch_session(session_id, status="done")
 
-    yield _usage_event(total_prompt, total_completion, schemas, system_prompt)
+    yield _usage_event(total_prompt, total_completion, schemas, system_prompt, context_window)
     yield events.status("done", secs=secs)
     if stopped:
         yield events.text("\n\n_（已停止生成）_")

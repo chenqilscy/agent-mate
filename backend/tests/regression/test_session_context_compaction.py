@@ -67,6 +67,18 @@ class SessionContextCompactionTest(unittest.TestCase):
             chat_path="/chat/completions",
         ))
 
+    def _build_context(self, session=None):
+        return asyncio.run(session_context.build_llm_context(
+            session or db.get_session(self.session.id),
+            db.list_messages(self.session.id),
+            new_user_text="当前问题",
+            system_prompt="系统规则",
+            model="test-model",
+            api_base="http://llm.invalid",
+            api_key="test",
+            chat_path="/chat/completions",
+        ))
+
     def test_schema_migration_and_summary_cas(self) -> None:
         columns = {row["name"] for row in db.get_conn().execute("PRAGMA table_info(sessions)")}
         self.assertTrue({"summary", "summary_cursor", "summary_updated_at"}.issubset(columns))
@@ -161,6 +173,29 @@ class SessionContextCompactionTest(unittest.TestCase):
             settings.SESSION_RECENT_TOKEN_BUDGET + 2,
         )
         self.assertIn("截断", "\n".join(item["content"] for item in history))
+
+    def test_summary_usage_is_returned_for_run_accounting(self) -> None:
+        for role, text in (
+            ("user", "旧问题" * 20),
+            ("assistant", "旧回答" * 20),
+            ("user", "最近问题"),
+            ("assistant", "最近回答"),
+        ):
+            self._add(role, text)
+        generated = session_context.SummaryResult(
+            "## 已确认事实与决定\n- 已压缩",
+            prompt_tokens=31,
+            completion_tokens=7,
+            cached_prompt_tokens=11,
+        )
+        with patch.object(
+            session_context, "_generate_summary", new=AsyncMock(return_value=generated),
+        ):
+            result = self._build_context()
+        self.assertEqual(31, result.summary_prompt_tokens)
+        self.assertEqual(7, result.summary_completion_tokens)
+        self.assertEqual(11, result.summary_cached_prompt_tokens)
+        self.assertIn("已压缩", "\n".join(item["content"] for item in result.messages))
 
 
 if __name__ == "__main__":

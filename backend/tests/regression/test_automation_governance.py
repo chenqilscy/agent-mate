@@ -154,7 +154,8 @@ class AutomationGovernanceTest(unittest.IsolatedAsyncioTestCase):
         run = db.list_runs(LOCAL_USER_ID, session_id=session.id)[0]
         self.assertEqual("failed", run.status)
         self.assertEqual("token_budget_exceeded", run.error_code)
-        self.assertEqual(15, run.prompt_tokens + run.completion_tokens)
+        self.assertEqual(0, run.prompt_tokens + run.completion_tokens)
+        self.assertNotIn("partial", "".join(chunks))
         self.assertIn("token", "".join(chunks).lower())
 
     async def test_stale_running_fire_is_recovered_after_process_restart(self) -> None:
