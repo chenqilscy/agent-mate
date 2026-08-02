@@ -18,6 +18,7 @@ export function ChatView() {
   const streaming = useChatStore((s) => s.streaming)
   const send = useChatStore((s) => s.send)
   const stop = useChatStore((s) => s.stop)
+  const retry = useChatStore((s) => s.retry)
   const pending = useChatStore((s) => s.pending)
   const answer = useChatStore((s) => s.answer)
   const ovOpen = useUIStore((s) => s.ovOpen)
@@ -121,7 +122,7 @@ export function ChatView() {
               <small>输入下方问题，与真实模型流式对话</small>
             </div>
           ) : (
-            <MessageList messages={messages} streaming={streaming} />
+            <MessageList messages={messages} streaming={streaming} onRetry={retry} />
           )}
         </div>
         <div className={`scrolldn ${showDn ? 'show' : ''}`.trim()} aria-label="回到底部" {...clickable} onClick={scrollToBottom}>

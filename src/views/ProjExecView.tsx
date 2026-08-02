@@ -20,6 +20,7 @@ export function ProjExecView() {
   const streaming = useChatStore((s) => s.streaming)
   const send = useChatStore((s) => s.send)
   const stop = useChatStore((s) => s.stop)
+  const retry = useChatStore((s) => s.retry)
   const readOnly = useChatStore((s) => s.readOnly)
   const ownerName = useChatStore((s) => s.ownerName)
   const pending = useChatStore((s) => s.pending)
@@ -93,7 +94,7 @@ export function ProjExecView() {
               <small>在下方描述任务，Agent 会带着本项目的指令与规范执行</small>
             </div>
           ) : (
-            <MessageList messages={messages} streaming={streaming} />
+            <MessageList messages={messages} streaming={streaming} onRetry={retry} />
           )}
         </div>
         <div className={`scrolldn ${showDn ? 'show' : ''}`.trim()} aria-label="回到底部" {...clickable} onClick={() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight }}>

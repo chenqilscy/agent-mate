@@ -147,6 +147,7 @@ export interface ChatMessage {
   usage?: { prompt: number; completion: number } | null
   error?: string
   runId?: string
+  runStatus?: RunStatus
   artifacts?: ArtifactEvent[]
 }
 
@@ -195,6 +196,7 @@ export interface AgentRun {
   error_code?: string | null
   error_message?: string | null
   prompt_tokens: number
+  cached_prompt_tokens: number
   completion_tokens: number
   tool_calls: number
   started_at?: number | null

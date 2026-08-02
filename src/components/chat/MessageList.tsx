@@ -5,12 +5,13 @@ import { CatLogo } from '../../lib/icons'
 import { TraceStream } from './TraceStream'
 import { BotActions } from './BotActions'
 import { clickable } from '../../lib/a11y'
+import { WbButton } from '../ui/Primitives'
 
 const SC_SM = (
   <svg className="sc" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg>
 )
 
-function BotMessage({ msg, streaming }: { msg: ChatMessage; streaming: boolean }) {
+function BotMessage({ msg, streaming, onRetry }: { msg: ChatMessage; streaming: boolean; onRetry?: (messageId: string) => void }) {
   const [collapsed, setCollapsed] = useState(false)
   const running = msg.status === 'running'
   const html = useMemo(() => (msg.content ? renderMarkdown(msg.content) : ''), [msg.content])
@@ -39,13 +40,16 @@ function BotMessage({ msg, streaming }: { msg: ChatMessage; streaming: boolean }
         )}
         {html && <div dangerouslySetInnerHTML={{ __html: html }} />}
         {msg.error && <p style={{ color: '#E5484D' }}>⚠ {msg.error}</p>}
+        {onRetry && msg.runStatus && ['failed', 'cancelled', 'paused'].includes(msg.runStatus) && (
+          <WbButton className="btn-ghost msg-retry" onClick={() => onRetry(msg.id)}>重试本次运行</WbButton>
+        )}
         {!running && (msg.content || msg.error) && <BotActions msg={msg} />}
       </div>
     </div>
   )
 }
 
-export function MessageList({ messages, streaming }: { messages: ChatMessage[]; streaming: boolean }) {
+export function MessageList({ messages, streaming, onRetry }: { messages: ChatMessage[]; streaming: boolean; onRetry?: (messageId: string) => void }) {
   return (
     <>
       {messages.map((m) =>
@@ -54,7 +58,7 @@ export function MessageList({ messages, streaming }: { messages: ChatMessage[]; 
             <div className="bub-me">{m.content}</div>
           </div>
         ) : (
-          <BotMessage key={m.id} msg={m} streaming={streaming} />
+          <BotMessage key={m.id} msg={m} streaming={streaming} onRetry={onRetry} />
         ),
       )}
     </>

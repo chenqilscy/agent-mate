@@ -731,23 +731,30 @@ async def _run_chat_inner(
     tool_call_count = 0
     substantive_actions: list[str] = []
     artifact_paths: list[str] = []
+    persisted_message_id: str | None = None
     t0 = time.time()
 
     def record(item: dict[str, Any]) -> str:
         trace_items.append(item)
         return _trace_to_sse(item)
 
-    def _persist_partial() -> str | None:
+    def _persist_partial(error_message: str | None = None) -> str | None:
         # Persist whatever text/trace already streamed before the run errored out,
         # else on reload the user sees their message with no assistant reply at all
         # (WB-160). Best-effort usage (may be approximate on the error path).
-        if assistant_text.strip() or trace_items:
+        nonlocal persisted_message_id
+        if persisted_message_id:
+            return persisted_message_id
+        if assistant_text.strip() or trace_items or error_message:
             msg = db.add_message(
                 session_id=session_id, role="assistant", content=assistant_text,
                 actor="assistant", trace=trace_items,
                 usage={"prompt": total_prompt or last_prompt, "completion": total_completion or _approx_tokens(assistant_text)},
+                run_id=run_id,
+                error=error_message,
             )
-            return msg.id
+            persisted_message_id = msg.id
+            return persisted_message_id
         return None
 
     # Once the run is registered, everything runs inside the try so a client
@@ -1305,7 +1312,7 @@ async def _run_chat_inner(
             level="ERROR", status_message=str(e),
         )
         yield events.error("本次运行已达到 token 上限")
-        mid = _persist_partial()
+        mid = _persist_partial("本次运行已达到 token 上限")
         db.update_run_runtime(
             run_id, prompt_tokens=total_prompt or last_prompt,
             cached_prompt_tokens=total_cached_prompt,
@@ -1325,7 +1332,7 @@ async def _run_chat_inner(
             level="ERROR", status_message=str(e),
         )
         yield events.error(str(e))
-        mid = _persist_partial()  # 保留已流式的半截回复（WB-160）
+        mid = _persist_partial(str(e))  # 保留已流式的半截回复（WB-160）
         db.update_run_runtime(run_id, prompt_tokens=total_prompt or last_prompt, cached_prompt_tokens=total_cached_prompt, completion_tokens=total_completion, tool_calls=tool_call_count)
         db.set_run_status(run_id, "failed", error_code="llm_error", error_message=str(e))
         db.touch_session(session_id, status="idle")
@@ -1339,7 +1346,7 @@ async def _run_chat_inner(
             level="ERROR", status_message=str(e),
         )
         yield events.error(f"执行出错：{e}")
-        mid = _persist_partial()  # 保留已流式的半截回复（WB-160）
+        mid = _persist_partial(f"执行出错：{e}")  # 保留已流式的半截回复（WB-160）
         db.update_run_runtime(run_id, prompt_tokens=total_prompt or last_prompt, cached_prompt_tokens=total_cached_prompt, completion_tokens=total_completion, tool_calls=tool_call_count)
         db.set_run_status(run_id, "failed", error_code="runtime_error", error_message=str(e))
         db.touch_session(session_id, status="idle")
@@ -1362,8 +1369,10 @@ async def _run_chat_inner(
             if current_run and current_run.status in {"planning", "running", "waiting_approval"}:
                 try:
                     db.set_run_status(run_id, "paused", checkpoint={"reason": "stream_disconnected"})
+                    _persist_partial("运行已暂停，可重试")
                 except ValueError:
                     db.set_run_status(run_id, "cancelled", error_code="stream_disconnected")
+                    _persist_partial("运行已取消，可重试")
         if mcp_stack is not None:
             try:
                 await mcp_stack.aclose()  # terminate connector MCP servers
@@ -1385,6 +1394,7 @@ async def _run_chat_inner(
             actor="assistant",
             trace=trace_items,
             usage={"prompt": total_prompt, "completion": total_completion},
+            run_id=run_id,
         )
         message_id = msg.id
 

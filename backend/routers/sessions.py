@@ -79,9 +79,15 @@ def get_messages(session_id: str) -> dict:
     owner = db.get_user(s.owner_id)
     view["owner_name"] = owner.name if owner else s.owner_id
     view["read_only"] = s.owner_id != me.id
+    messages = []
+    for message in db.list_messages(session_id):
+        item = message.to_dict()
+        run = db.get_run(message.run_id) if message.run_id else None
+        item["run_status"] = run.status if run else None
+        messages.append(item)
     return {
         "session": view,
-        "messages": [m.to_dict() for m in db.list_messages(session_id)],
+        "messages": messages,
     }
 
 

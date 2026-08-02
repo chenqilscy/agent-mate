@@ -174,6 +174,8 @@ def init_db() -> None:
             actor TEXT NOT NULL,
             trace TEXT NOT NULL DEFAULT '[]',
             usage TEXT,
+            run_id TEXT,
+            error TEXT,
             created_at REAL NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
@@ -1196,6 +1198,14 @@ def _migrate_columns() -> None:
     ):
         if col not in have_runs:
             conn.execute(f"ALTER TABLE runs ADD COLUMN {ddl}")
+
+    # WB-358：assistant 消息持久关联产生它的 Run，会话重载后仍能对
+    # failed/cancelled/paused Run 建立可审计的 retry_of 链。
+    have_messages = {r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()}
+    if "run_id" not in have_messages:
+        conn.execute("ALTER TABLE messages ADD COLUMN run_id TEXT")
+    if "error" not in have_messages:
+        conn.execute("ALTER TABLE messages ADD COLUMN error TEXT")
 
     # WB-166 认知记忆：user_memories 增强度/衰减/软状态字段（参考 AgentOS）。
     # importance 0..1 重要度、usage_count 命中次数（强化）、status active/superseded/archived（软状态，不硬删）、
@@ -2611,6 +2621,8 @@ def add_message(
     actor: str,
     trace: Optional[list[dict[str, Any]]] = None,
     usage: Optional[dict[str, Any]] = None,
+    run_id: Optional[str] = None,
+    error: Optional[str] = None,
 ) -> Message:
     m = Message(
         id=new_uuid(),
@@ -2620,11 +2632,13 @@ def add_message(
         actor=actor,
         trace=trace or [],
         usage=usage,
+        run_id=run_id,
+        error=error,
         created_at=time.time(),
     )
     get_conn().execute(
-        """INSERT INTO messages (id,session_id,role,content,actor,trace,usage,created_at)
-           VALUES (?,?,?,?,?,?,?,?)""",
+        """INSERT INTO messages (id,session_id,role,content,actor,trace,usage,run_id,error,created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
         (
             m.id,
             m.session_id,
@@ -2633,6 +2647,8 @@ def add_message(
             m.actor,
             json.dumps(m.trace, ensure_ascii=False),
             json.dumps(m.usage, ensure_ascii=False) if m.usage else None,
+            m.run_id,
+            m.error,
             m.created_at,
         ),
     )
@@ -4337,6 +4353,8 @@ def list_messages(session_id: str) -> list[Message]:
                 actor=row["actor"],
                 trace=json.loads(row["trace"]) if row["trace"] else [],
                 usage=json.loads(row["usage"]) if row["usage"] else None,
+                run_id=row["run_id"],
+                error=row["error"],
                 created_at=row["created_at"],
             )
         )

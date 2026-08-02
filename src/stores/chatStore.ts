@@ -38,7 +38,8 @@ interface ChatState {
   openSession: (id: string) => Promise<void>
   startDraft: (title: string) => void
   startProject: (projectId: string, name: string) => void
-  send: (text: string) => Promise<void>
+  send: (text: string, retryOf?: string) => Promise<void>
+  retry: (messageId: string) => Promise<void>
   answer: (answers: string[]) => void
   stop: () => void
 }
@@ -83,6 +84,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           trace: (m.trace as TraceItem[]) ?? [],
           status: 'done',
           usage: m.usage,
+          runId: m.run_id ?? undefined,
+          runStatus: m.run_status ?? undefined,
+          error: m.error ?? undefined,
         })),
       })
     } catch {
@@ -110,7 +114,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ activeId: null, activeProjectId: projectId, title: name, messages: [], readOnly: false, ownerName: null })
   },
 
-  send: async (text) => {
+  send: async (text, retryOf) => {
     const trimmed = text.trim()
     // Read-only = viewing a teammate's session (M7 C3); the backend would 404 a
     // drive attempt anyway, so refuse locally and keep the view clean.
@@ -159,7 +163,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
           break
         case 'run':
-          patchBot((m) => ({ ...m, runId: ev.data.run.id }))
+          patchBot((m) => ({ ...m, runId: ev.data.run.id, runStatus: 'running' }))
           break
         case 'text':
           patchBot((m) => ({ ...m, content: m.content + ev.data.md }))
@@ -221,11 +225,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           break
         case 'error':
           errored = true
-          patchBot((m) => ({ ...m, error: ev.data.message, status: 'done' }))
+          patchBot((m) => ({ ...m, error: ev.data.message, status: 'done', runStatus: 'failed' }))
           break
         case 'done':
           doneOk = !errored
-          patchBot((m) => ({ ...m, status: 'done' }))
+          patchBot((m) => ({ ...m, status: 'done', runStatus: errored ? m.runStatus : 'completed' }))
           break
       }
     }
@@ -247,6 +251,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         connectors: loadout.connectors,
         knowledgeIds: loadout.knowledgeIds,
         refs: loadout.refs,
+        retryOf,
         signal: controller.signal,
         onEvent,
       })
@@ -264,6 +269,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((s) => (s.abort === controller ? { streaming: false, abort: null, pending: null } : {}))
       get().loadSessions()
     }
+  },
+
+  retry: async (messageId) => {
+    const state = get()
+    if (state.streaming || state.readOnly) return
+    const index = state.messages.findIndex((message) => message.id === messageId)
+    const message = index >= 0 ? state.messages[index] : undefined
+    if (!message?.runId || !message.runStatus || !['failed', 'cancelled', 'paused'].includes(message.runStatus)) return
+    const userMessage = state.messages.slice(0, index).reverse().find((candidate) => candidate.role === 'user')
+    if (!userMessage) return
+    await get().send(userMessage.content, message.runId)
   },
 
   // Submit ask_user answers — POSTs to /answer, which wakes the suspended agent
@@ -287,7 +303,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // dispatches `done` — so finalise the in-flight bubble here, else it stays a
     // zombie 'running' spinner with no actions until the session is reopened (WB-001).
     set((s) => ({
-      messages: s.messages.map((m) => (m.status === 'running' ? { ...m, status: 'done' } : m)),
+      messages: s.messages.map((m) => (m.status === 'running' ? { ...m, status: 'done', runStatus: 'paused' } : m)),
       streaming: false,
       abort: null,
       pending: null,

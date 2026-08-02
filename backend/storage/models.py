@@ -321,6 +321,8 @@ class Message:
     actor: str  # user id or "assistant" — for the future team timeline
     trace: list[dict[str, Any]] = field(default_factory=list)
     usage: Optional[dict[str, Any]] = None
+    run_id: Optional[str] = None
+    error: Optional[str] = None
     created_at: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
