@@ -7,7 +7,7 @@
 
 - 活动状态 `open` / `in-progress` / `deferred`：每个问题一个 `WB-<编号>-<slug>.md` 文件。
 - 终态 `fixed` / `wontfix`：运行 `python scripts/archive_issues.py --apply` 后进入 [`archive/`](archive/README.md)。
-- 编号全局递增且不复用；当前最大编号是 `WB-363`，可用 `python scripts/archive_issues.py --next-id` 查询。
+- 编号全局递增且不复用；当前最大编号是 `WB-364`，可用 `python scripts/archive_issues.py --next-id` 查询。
 - 活动文件 frontmatter 是权威状态；下表是活动状态镜像。
 
 ## 活动台账
@@ -23,6 +23,7 @@
 | [WB-361](WB-361-server-external-integration-relay.md) | ⬜ | P1 | backend | Server 缺少面向外部系统的服务身份与设备投递中继 |
 | [WB-362](WB-362-federated-sso-auth-hardening.md) | ⬜ | P1 | fullstack | Server 缺少微信 Google Telegram 联合登录与公网鉴权加固 |
 | [WB-363](WB-363-versioned-migrations-and-architecture-docs.md) | ⬜ | P2 | backend | 数据库升级缺少版本化迁移且架构文档已漂移 |
+| [WB-364](WB-364-provider-output-token-cap.md) | ⬜ | P1 | backend | 动态上下文预算可生成超过模型输出上限的 max_tokens |
 
 ## 已关闭归档
 
