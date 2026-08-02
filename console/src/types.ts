@@ -341,9 +341,22 @@ export interface ProjectHealth {
   }>;
 }
 
+export interface ProjectHealthTransition {
+  id: string;
+  project_id: string;
+  from_status: ProjectHealthStatus;
+  to_status: ProjectHealthStatus;
+  direction: "worsened" | "recovered";
+  rank_delta: number;
+  source: "server";
+  snapshot: ProjectHealth;
+  created_at: number;
+}
+
 export interface ProjectHealthPortfolioItem {
   project: Pick<Project, "id" | "name" | "role" | "updated_at"> & { origin: "server" };
   health: ProjectHealth;
+  last_transition: ProjectHealthTransition | null;
 }
 export interface ProjectHealthPortfolio {
   items: ProjectHealthPortfolioItem[];

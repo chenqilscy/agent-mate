@@ -69,17 +69,20 @@ class ProjectHealthTest(unittest.TestCase):
         self.assertEqual(404, denied.exception.status_code)
 
     def test_high_risk_notifications_only_on_entry_or_upgrade(self) -> None:
+        risk_notifications = lambda account_id: [
+            row for row in db.list_notifications(account_id) if row["kind"] == "project_risk"
+        ]
         risk = create_record(self.project.id, CreateBody(
             record_type="risk", title="capacity", severity="high",
         ), self.member)
-        self.assertEqual(1, len(db.list_notifications(self.owner.id)))
-        self.assertEqual(1, len(db.list_notifications(self.viewer.id)))
-        self.assertEqual(0, len(db.list_notifications(self.member.id)))
+        self.assertEqual(1, len(risk_notifications(self.owner.id)))
+        self.assertEqual(1, len(risk_notifications(self.viewer.id)))
+        self.assertEqual(0, len(risk_notifications(self.member.id)))
         update_record(self.project.id, risk["id"], UpdateBody(response="mitigate"), self.member)
-        self.assertEqual(1, len(db.list_notifications(self.owner.id)))
+        self.assertEqual(1, len(risk_notifications(self.owner.id)))
         update_record(self.project.id, risk["id"], UpdateBody(severity="critical"), self.member)
         update_record(self.project.id, risk["id"], UpdateBody(severity="critical"), self.member)
-        self.assertEqual(2, len(db.list_notifications(self.owner.id)))
+        self.assertEqual(2, len(risk_notifications(self.owner.id)))
         health = project_health(self.project.id, self.owner)
         self.assertEqual("critical", health["status"])
         self.assertEqual(1, health["summary"]["critical_risks"])

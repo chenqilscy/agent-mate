@@ -385,6 +385,29 @@ def init_db() -> None:
             cached_at REAL NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS project_health_state (
+            project_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            snapshot TEXT NOT NULL,
+            source TEXT NOT NULL,
+            checked_at REAL NOT NULL,
+            changed_at REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS project_health_events (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            from_status TEXT NOT NULL,
+            to_status TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            rank_delta INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            snapshot TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_health_events_project
+            ON project_health_events(project_id, created_at DESC);
+
         CREATE TABLE IF NOT EXISTS automations (
             id TEXT PRIMARY KEY,
             owner_id TEXT NOT NULL,
@@ -1747,6 +1770,8 @@ def reconcile_server_project_access(account_id: str, remote_project_ids: set[str
         # 权限撤销后不保留该项目的 Server 权威健康快照，避免本机残留
         # 已不可访问项目的治理摘要。项目重新授权时会从 Server 重新拉取。
         conn.execute("DELETE FROM project_health_cache WHERE project_id=?", (project.id,))
+        conn.execute("DELETE FROM project_health_state WHERE project_id=?", (project.id,))
+        conn.execute("DELETE FROM project_health_events WHERE project_id=?", (project.id,))
     conn.commit()
 
 
@@ -1781,6 +1806,19 @@ def get_server_identity(user_id: str) -> Optional[str]:
         conn.commit()
         return None
     return token
+
+
+def list_server_identities() -> list[tuple[str, str]]:
+    """Return only locally valid, non-revoked identity tokens for guarded background calls."""
+    now = time.time()
+    rows = get_conn().execute(
+        "SELECT si.user_id,si.server_token FROM server_identities si "
+        "JOIN auth_tokens at ON at.token=si.server_token AND at.expires_at>? "
+        "LEFT JOIN pending_token_revocations pr ON pr.token=si.server_token "
+        "WHERE pr.token IS NULL ORDER BY si.user_id",
+        (now,),
+    ).fetchall()
+    return [(str(row["user_id"]), str(row["server_token"])) for row in rows]
 
 
 def clear_server_identity_by_token(server_token: str) -> None:
@@ -4823,6 +4861,86 @@ def get_project_health_cache(project_id: str) -> Optional[dict[str, Any]]:
     except (json.JSONDecodeError, TypeError):
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def observe_project_health(project_id: str, payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Atomically establish a baseline or append exactly one status transition."""
+    from shared.project_health import classify_health_transition
+
+    status = str(payload.get("status") or "")
+    if status not in {"healthy", "attention", "critical"}:
+        return None
+    source = str(payload.get("source") or "local")
+    snapshot = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    now = time.time()
+    conn = get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute(
+            "SELECT status FROM project_health_state WHERE project_id=?", (project_id,),
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO project_health_state (project_id,status,snapshot,source,checked_at,changed_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (project_id, status, snapshot, source, now, now),
+            )
+            conn.commit()
+            return None
+        transition = classify_health_transition(str(row["status"]), status)
+        if transition is None:
+            conn.execute(
+                "UPDATE project_health_state SET snapshot=?,source=?,checked_at=? WHERE project_id=?",
+                (snapshot, source, now, project_id),
+            )
+            conn.commit()
+            return None
+        event = {
+            "id": new_uuid(), "project_id": project_id, **transition,
+            "source": source, "snapshot": payload, "created_at": now,
+        }
+        conn.execute(
+            "INSERT INTO project_health_events "
+            "(id,project_id,from_status,to_status,direction,rank_delta,source,snapshot,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (event["id"], project_id, event["from_status"], event["to_status"],
+             event["direction"], event["rank_delta"], source, snapshot, now),
+        )
+        conn.execute(
+            "UPDATE project_health_state SET status=?,snapshot=?,source=?,checked_at=?,changed_at=? "
+            "WHERE project_id=?",
+            (status, snapshot, source, now, now, project_id),
+        )
+        conn.commit()
+        return event
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def list_project_health_events(project_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    rows = get_conn().execute(
+        "SELECT * FROM project_health_events WHERE project_id=? ORDER BY created_at DESC LIMIT ?",
+        (project_id, limit),
+    ).fetchall()
+    events = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["snapshot"] = json.loads(item["snapshot"])
+        except (json.JSONDecodeError, TypeError):
+            item["snapshot"] = {}
+        events.append(item)
+    return events
+
+
+def list_local_project_owners() -> list[tuple[str, str]]:
+    return [
+        (str(row["id"]), str(row["owner_id"]))
+        for row in get_conn().execute(
+            "SELECT id,owner_id FROM projects WHERE origin='local' ORDER BY id",
+        ).fetchall()
+    ]
 
 
 def set_device_setting(key: str, value: Optional[str]) -> None:

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 import db
 from auth import CurrentAccount
 from models import Account, Role, can_write
+from project_health_service import observe_project_health
 
 router = APIRouter(prefix="/api", tags=["milestones"])
 
@@ -61,10 +62,14 @@ def create_item(project_id: str, body: CreateBody, account: Account = CurrentAcc
     _require_write(project_id, account)
     if body.status not in _STATUSES:
         raise HTTPException(400, "invalid status")
-    return db.create_milestone(
+    due_date = _validate_due_date(body.due_date)
+    observe_project_health(project_id, actor_name=account.name)
+    created = db.create_milestone(
         project_id=project_id, name=body.name.strip(),
-        description=body.description, due_date=_validate_due_date(body.due_date), status=body.status,
+        description=body.description, due_date=due_date, status=body.status,
     )
+    observe_project_health(project_id, actor_name=account.name)
+    return created
 
 
 class UpdateBody(BaseModel):
@@ -90,9 +95,11 @@ def update_item(project_id: str, mid: str, body: UpdateBody, account: Account = 
             raise HTTPException(400, "empty milestone name")
     if "due_date" in changes:
         changes["due_date"] = _validate_due_date(changes["due_date"])
+    observe_project_health(project_id, actor_name=account.name)
     updated = db.update_milestone(mid, **changes)
     if not updated:
         raise HTTPException(404, "milestone not found")
+    observe_project_health(project_id, actor_name=account.name)
     return updated
 
 
@@ -102,5 +109,7 @@ def delete_item(project_id: str, mid: str, account: Account = CurrentAccount) ->
     it = db.get_milestone(mid)
     if not it or it["project_id"] != project_id:
         raise HTTPException(404, "milestone not found")
+    observe_project_health(project_id, actor_name=account.name)
     db.delete_milestone(mid)
+    observe_project_health(project_id, actor_name=account.name)
     return {"ok": True}

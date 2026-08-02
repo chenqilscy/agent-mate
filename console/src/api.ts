@@ -18,6 +18,7 @@ import type {
   ProjectGovernanceRecord,
   ProjectHealth,
   ProjectHealthPortfolio,
+  ProjectHealthTransition,
   ProjectCustomField,
   SkillData,
   SkillRelease,
@@ -388,6 +389,10 @@ export const consoleApi = {
     apiRequest<ProjectHealth>("GET", `/projects/${encodeURIComponent(id)}/health`),
   projectHealthPortfolio: () =>
     apiRequest<ProjectHealthPortfolio>("GET", "/project-health"),
+  projectHealthScan: () =>
+    apiRequest<{ scanned: number; events: ProjectHealthTransition[] }>("POST", "/project-health/scan"),
+  projectHealthEvents: (id: string) =>
+    apiRequest<{ events: ProjectHealthTransition[]; source: "server"; stale: false }>("GET", `/projects/${encodeURIComponent(id)}/health-events`),
   activity: (id: string) =>
     apiRequest<{ activity: Activity[] }>(
       "GET",

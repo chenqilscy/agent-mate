@@ -13,6 +13,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 import server_client
+from project_health_service import observe_local_project_health
 from agent import work_item_runner
 from auth.deps import current_user
 from storage import db
@@ -331,6 +332,7 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
     local_values = body.model_dump()
     _validate_local_fields(local_values)
     _sanitize_local_refs(body.project_id, None, local_values)
+    observe_local_project_health(body.project_id, user.id, actor_name=user.name)
     wi = db.create_work_item(
         project_id=body.project_id, owner_id=user.id, title=local_values["title"], status=status, source=body.source,
         description=(body.description or "").strip(), due_date=local_values["due_date"],
@@ -341,6 +343,7 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
         custom_fields=body.custom_fields, dependency_ids=local_values["dependency_ids"],
         sprint_id=local_values["sprint_id"],
     )
+    observe_local_project_health(body.project_id, user.id, actor_name=user.name)
     return _view(wi, user)
 
 
@@ -383,6 +386,7 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
     local_changes = body.model_dump(exclude_unset=True)
     _validate_local_fields(local_changes, existing)
     _sanitize_local_refs(existing.project_id, item_id, local_changes)
+    observe_local_project_health(existing.project_id, user.id, actor_name=user.name)
     wi = db.update_work_item(
         item_id,
         title=local_changes.get("title"),
@@ -405,6 +409,7 @@ def update_item(item_id: str, body: UpdateWorkItemBody, authorization: str = Hea
     )
     if not wi:
         raise HTTPException(404, "work item not found")
+    observe_local_project_health(existing.project_id, user.id, actor_name=user.name)
     return _view(wi, user)
 
 
@@ -413,7 +418,8 @@ def delete_item(item_id: str, authorization: str = Header(default="")) -> dict:
     existing = db.get_work_item(item_id)
     if not existing:
         raise HTTPException(404, "work item not found")
-    _require_project_write(existing.project_id, current_user().id)
+    user = current_user()
+    _require_project_write(existing.project_id, user.id)
     tok = _server_write_token(existing.project_id, authorization)
     if tok:
         if server_client.delete_work_item(tok, existing.project_id, item_id):
@@ -423,7 +429,9 @@ def delete_item(item_id: str, authorization: str = Header(default="")) -> dict:
             return {"ok": True}
         # server-origin + Server 不可达：本地删除会被下次镜像还原，如实报错（WB-158）。
         raise HTTPException(503, "Server 暂不可达，未删除，请稍后重试")
+    observe_local_project_health(existing.project_id, user.id, actor_name=user.name)
     db.delete_work_item(item_id)
+    observe_local_project_health(existing.project_id, user.id, actor_name=user.name)
     return {"ok": True}
 
 

@@ -201,6 +201,16 @@ def get_project_health_portfolio(token: str) -> Optional[dict[str, Any]]:
     return portfolio if isinstance(portfolio, dict) and isinstance(portfolio.get("items"), list) else None
 
 
+def scan_project_health(token: str) -> Optional[dict[str, Any]]:
+    result = _post("/api/project-health/scan", token)
+    return result if isinstance(result, dict) and isinstance(result.get("events"), list) else None
+
+
+def list_project_health_events(token: str, project_id: str) -> Optional[dict[str, Any]]:
+    result = _get(f"/api/projects/{project_id}/health-events", token)
+    return result if isinstance(result, dict) and isinstance(result.get("events"), list) else None
+
+
 def post_timeline(token: str, project_id: str, event: dict[str, Any]) -> bool:
     """把一条时间线事件推给 Server（WB-062 Phase 3）。成功(200) → True；未接/不可达/非 200 → False
     （outbox 保留待补推）。event 只含元数据（title/summary/ext_id），绝无凭据/工作区文件。"""

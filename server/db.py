@@ -296,6 +296,29 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_server_notifs_account ON server_notifications(account_id, created_at DESC);
 
+        CREATE TABLE IF NOT EXISTS project_health_state (
+            project_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            snapshot TEXT NOT NULL,
+            source TEXT NOT NULL,
+            checked_at REAL NOT NULL,
+            changed_at REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS project_health_events (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            from_status TEXT NOT NULL,
+            to_status TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            rank_delta INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            snapshot TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_health_events_project
+            ON project_health_events(project_id, created_at DESC);
+
         CREATE TABLE IF NOT EXISTS work_items (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
@@ -1242,6 +1265,7 @@ def delete_project(project_id: str) -> bool:
         raise ValueError("project still has knowledge bases")
     for table in (
         "project_members", "invites", "timeline_events", "comments", "server_notifications",
+        "project_health_state", "project_health_events",
         "work_item_activity", "work_items", "project_custom_fields", "sprints", "milestones",
         "project_governance_activity", "project_governance",
         "kb_documents", "project_pm_settings", "project_pm_views",
@@ -2617,6 +2641,77 @@ def mark_notifications_read(account_id: str, ids: Optional[list[str]] = None) ->
     else:
         conn.execute("UPDATE server_notifications SET read=1 WHERE account_id=?", (account_id,))
     conn.commit()
+
+
+def observe_project_health(project_id: str, payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Atomically establish the Server baseline or append one health transition."""
+    from shared.project_health import classify_health_transition
+
+    status = str(payload.get("status") or "")
+    if status not in {"healthy", "attention", "critical"}:
+        return None
+    source = "server"
+    snapshot = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    now = time.time()
+    conn = get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute(
+            "SELECT status FROM project_health_state WHERE project_id=?", (project_id,),
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO project_health_state (project_id,status,snapshot,source,checked_at,changed_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (project_id, status, snapshot, source, now, now),
+            )
+            conn.commit()
+            return None
+        transition = classify_health_transition(str(row["status"]), status)
+        if transition is None:
+            conn.execute(
+                "UPDATE project_health_state SET snapshot=?,source=?,checked_at=? WHERE project_id=?",
+                (snapshot, source, now, project_id),
+            )
+            conn.commit()
+            return None
+        event = {
+            "id": new_uuid(), "project_id": project_id, **transition,
+            "source": source, "snapshot": payload, "created_at": now,
+        }
+        conn.execute(
+            "INSERT INTO project_health_events "
+            "(id,project_id,from_status,to_status,direction,rank_delta,source,snapshot,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (event["id"], project_id, event["from_status"], event["to_status"],
+             event["direction"], event["rank_delta"], source, snapshot, now),
+        )
+        conn.execute(
+            "UPDATE project_health_state SET status=?,snapshot=?,source=?,checked_at=?,changed_at=? "
+            "WHERE project_id=?",
+            (status, snapshot, source, now, now, project_id),
+        )
+        conn.commit()
+        return event
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def list_project_health_events(project_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    rows = get_conn().execute(
+        "SELECT * FROM project_health_events WHERE project_id=? ORDER BY created_at DESC LIMIT ?",
+        (project_id, limit),
+    ).fetchall()
+    events = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["snapshot"] = json.loads(item["snapshot"])
+        except (json.JSONDecodeError, TypeError):
+            item["snapshot"] = {}
+        events.append(item)
+    return events
 
 
 _ONLINE_WINDOW = 120  # 秒：last_seen 在此窗口内算 online（客户端每请求刷新 + 轮询）

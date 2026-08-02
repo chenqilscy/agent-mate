@@ -14,6 +14,7 @@ const KIND_ICON: Record<string, string> = {
   member_added: '👋',
   role_changed: '🔁',
   member_removed: '🚪',
+  project_health: '⚠️',
 }
 
 function ago(ts: number): string {
@@ -59,7 +60,7 @@ export function MessageCenter({ onClose }: { onClose: () => void }) {
           {items.length === 0 ? (
             <div className="msg-empty">
               <span className="msg-empty-ic">🔔</span>
-              还没有消息。加入项目、角色变更等协作事件会出现在这里。
+              还没有消息。项目健康升级、成员或角色变更等事件会出现在这里。
             </div>
           ) : (
             items.map((n) => (

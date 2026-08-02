@@ -6,6 +6,23 @@ from datetime import date
 from typing import Any, Iterable, Mapping
 
 
+HEALTH_STATUS_RANK = {"healthy": 0, "attention": 1, "critical": 2}
+
+
+def classify_health_transition(previous: str, current: str) -> dict[str, Any] | None:
+    """Describe a real status change; baseline/duplicates stay side-effect free."""
+    if previous not in HEALTH_STATUS_RANK or current not in HEALTH_STATUS_RANK or previous == current:
+        return None
+    previous_rank = HEALTH_STATUS_RANK[previous]
+    current_rank = HEALTH_STATUS_RANK[current]
+    return {
+        "from_status": previous,
+        "to_status": current,
+        "direction": "worsened" if current_rank > previous_rank else "recovered",
+        "rank_delta": current_rank - previous_rank,
+    }
+
+
 def _value(item: Any, key: str, default: Any = "") -> Any:
     if isinstance(item, Mapping):
         return item.get(key, default)

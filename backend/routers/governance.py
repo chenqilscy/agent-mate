@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 import server_client
+from project_health_service import observe_local_project_health
 from auth.deps import current_user
 from storage import db
 from storage.models import Role
@@ -150,7 +151,10 @@ def create_record(body: CreateBody, authorization: str = Header(default="")) -> 
         if records is not None:
             db.mirror_server_project_governance(body.project_id, records)
         return created
-    return db.create_project_governance(project_id=body.project_id, created_by=user.id, **values)
+    observe_local_project_health(body.project_id, user.id, actor_name=user.name)
+    created = db.create_project_governance(project_id=body.project_id, created_by=user.id, **values)
+    observe_local_project_health(body.project_id, user.id, actor_name=user.name)
+    return created
 
 
 @router.patch("/governance/{record_id}")
@@ -170,7 +174,10 @@ def update_record(record_id: str, body: UpdateBody, authorization: str = Header(
         if records is not None:
             db.mirror_server_project_governance(project_id, records)
         return updated
-    return db.update_project_governance(record_id, **changes) or current
+    observe_local_project_health(project_id, user.id, actor_name=user.name)
+    updated = db.update_project_governance(record_id, **changes) or current
+    observe_local_project_health(project_id, user.id, actor_name=user.name)
+    return updated
 
 
 @router.delete("/governance/{record_id}")
@@ -187,5 +194,7 @@ def delete_record(record_id: str, authorization: str = Header(default="")) -> di
         if records is not None:
             db.mirror_server_project_governance(project_id, records)
         return {"ok": True}
+    observe_local_project_health(project_id, user.id, actor_name=user.name)
     db.delete_project_governance(record_id)
+    observe_local_project_health(project_id, user.id, actor_name=user.name)
     return {"ok": True}

@@ -9,16 +9,23 @@ import uuid
 from typing import Optional
 
 import server_sync
-from project_health_service import ProjectHealthNotFound, resolve_project_health
+import server_client
+from project_health_service import (
+    ProjectHealthNotFound,
+    resolve_project_health,
+    scan_local_project_health,
+)
 from agent import runtime
 from config import settings
 from storage import db
 from storage.models import Automation, AutomationFire, LOCAL_USER_ID
 
 SCAN_SECONDS = 20
+HEALTH_SCAN_SECONDS = 300
 
 _task: Optional[asyncio.Task] = None
 _running: set[str] = set()  # durable fire ids currently driven by this process
+_last_health_scan_at = 0.0
 
 
 def _run_kind(trigger_kind: str) -> str:
@@ -215,8 +222,29 @@ def _launch(fire_id: str) -> None:
     asyncio.create_task(_fire_guarded(fire_id))
 
 
+async def _scan_health_transitions(now: float) -> None:
+    global _last_health_scan_at
+    if now - _last_health_scan_at < HEALTH_SCAN_SECONDS:
+        return
+    _last_health_scan_at = now
+
+    def _scan() -> None:
+        try:
+            scan_local_project_health()
+            for _user_id, token in db.list_server_identities():
+                server_client.scan_project_health(token)
+        finally:
+            conn = getattr(db._local, "conn", None)
+            if conn is not None:
+                conn.close()
+                db._local.conn = None
+
+    await asyncio.to_thread(_scan)
+
+
 async def _scan_once(now: Optional[float] = None) -> None:
     now = time.time() if now is None else now
+    await _scan_health_transitions(now)
     for recovered in db.recover_stale_automation_fires(now):
         if recovered.status == "dead_letter":
             auto = db.get_automation(recovered.automation_id, recovered.owner_id)

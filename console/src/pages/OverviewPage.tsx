@@ -9,6 +9,9 @@ import type { Account, Project, ProjectHealthPortfolio, ProjectHealthStatus } fr
 
 const HEALTH_LABEL: Record<ProjectHealthStatus, string> = { critical: "严重风险", attention: "需关注", healthy: "健康" };
 const HEALTH_COLOR: Record<ProjectHealthStatus, string> = { critical: "error", attention: "warning", healthy: "success" };
+const transitionLabel = (item: ProjectHealthPortfolio["items"][number]) => item.last_transition
+  ? `${item.last_transition.direction === "worsened" ? "最近恶化" : "最近恢复"}：${HEALTH_LABEL[item.last_transition.from_status]} → ${HEALTH_LABEL[item.last_transition.to_status]}`
+  : item.health.reasons[0]?.label || "当前无异常项";
 
 export default function OverviewPage({ account }: { account: Account }) {
   const { message } = App.useApp();
@@ -24,7 +27,7 @@ export default function OverviewPage({ account }: { account: Account }) {
       account.is_platform_admin ? consoleApi.catalog("EXPERT_DEFS", true) : Promise.resolve({ items: [] }),
       account.is_platform_admin ? consoleApi.catalog("CONN_DEFS", true) : Promise.resolve({ items: [] }),
       account.is_platform_admin ? consoleApi.skills() : Promise.resolve({ items: [] }),
-      consoleApi.projectHealthPortfolio(),
+      consoleApi.projectHealthScan().catch(() => null).then(() => consoleApi.projectHealthPortfolio()),
     ]).then(([projectResult, orgResult, experts, connectors, skills, healthPortfolio]) => {
       setProjects(projectResult.projects || []);
       setPortfolio(healthPortfolio);
@@ -64,7 +67,7 @@ export default function OverviewPage({ account }: { account: Account }) {
             <List.Item actions={[<Button type="link" key="open" onClick={() => navigate(`/projects/${item.project.id}`)}>处理</Button>]}>
               <List.Item.Meta
                 title={<Space wrap><span>{item.project.name}</span><Tag color={HEALTH_COLOR[item.health.status]}>{HEALTH_LABEL[item.health.status]}</Tag><Tag>{item.project.role}</Tag></Space>}
-                description={item.health.reasons[0]?.label || "当前无异常项"}
+                description={transitionLabel(item)}
               />
               <div className="overview-health-progress">
                 <Typography.Text type="secondary">任务完成 {item.health.summary.completion_percent}%</Typography.Text>

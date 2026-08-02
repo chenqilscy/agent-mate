@@ -21,6 +21,9 @@ const ROLE_LABEL: Record<string, string> = { Owner: '所有者', Admin: '管理�
 type ProjectScope = 'all' | 'server' | 'local'
 type HealthScope = 'all' | ProjectHealthStatus
 const HEALTH_LABEL: Record<ProjectHealthStatus, string> = { critical: '严重风险', attention: '需关注', healthy: '健康' }
+const transitionLabel = (item: ProjectHealthPortfolio['items'][number]) => item.last_transition
+  ? `${item.last_transition.direction === 'worsened' ? '最近恶化' : '最近恢复'}：${HEALTH_LABEL[item.last_transition.from_status]} → ${HEALTH_LABEL[item.last_transition.to_status]}`
+  : item.health.reasons[0]?.label || '当前无异常项'
 
 export function ProjectsView() {
   const projects = useProjectStore((s) => s.projects)
@@ -170,7 +173,7 @@ export function ProjectsView() {
                     <button key={item.project.id} type="button" disabled={!project} onClick={() => project && openProject(project)}>
                       <span className={`project-health-dot is-${item.health.status}`} />
                       <span>{item.project.name}</span>
-                      <small>{item.health.reasons[0]?.label || '当前无异常项'}</small>
+                      <small>{transitionLabel(item)}</small>
                     </button>
                   )
                 })}

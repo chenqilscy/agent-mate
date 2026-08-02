@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 import db
 from auth import CurrentAccount
 from models import Account, Role, can_write
+from project_health_service import observe_project_health
 
 router = APIRouter(prefix="/api", tags=["governance"])
 
@@ -165,12 +166,14 @@ def create_record(project_id: str, body: CreateBody, account: Account = CurrentA
         values["severity"] = "medium"
     _validate(values["record_type"], values)
     _validate_refs(project_id, values)
+    observe_project_health(project_id, actor_name=account.name)
     item = db.create_project_governance(project_id=project_id, created_by=account.id, **values)
     db.log_project_governance_activity(
         project_id=project_id, record_id=item["id"], actor_id=account.id,
         kind="created", detail=json.dumps({"record_type": item["record_type"], "title": item["title"]}, ensure_ascii=False),
     )
     _notify_risk_escalation(project_id, item, account)
+    observe_project_health(project_id, actor_name=account.name)
     return _decorate(item)
 
 
@@ -189,6 +192,7 @@ def update_record(project_id: str, record_id: str, body: UpdateBody,
     merged = {**current, **changes}
     _validate(current["record_type"], merged)
     _validate_refs(project_id, merged)
+    observe_project_health(project_id, actor_name=account.name)
     updated = db.update_project_governance(record_id, **changes)
     if not updated:
         raise HTTPException(404, "governance record not found")
@@ -197,6 +201,7 @@ def update_record(project_id: str, record_id: str, body: UpdateBody,
         kind="updated", detail=json.dumps(changes, ensure_ascii=False),
     )
     _notify_risk_escalation(project_id, updated, account, current)
+    observe_project_health(project_id, actor_name=account.name)
     return _decorate(updated)
 
 
@@ -211,5 +216,7 @@ def delete_record(project_id: str, record_id: str, account: Account = CurrentAcc
         project_id=project_id, record_id=record_id, actor_id=account.id,
         kind="deleted", detail=json.dumps({"record_type": current["record_type"], "title": current["title"]}, ensure_ascii=False),
     )
+    observe_project_health(project_id, actor_name=account.name)
     db.delete_project_governance(record_id)
+    observe_project_health(project_id, actor_name=account.name)
     return {"ok": True}

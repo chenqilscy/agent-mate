@@ -817,6 +817,18 @@ export interface ProjectHealth {
   milestones: MilestoneHealth[]
 }
 
+export interface ProjectHealthTransition {
+  id: string
+  project_id: string
+  from_status: ProjectHealthStatus
+  to_status: ProjectHealthStatus
+  direction: 'worsened' | 'recovered'
+  rank_delta: number
+  source: 'local' | 'server'
+  snapshot: ProjectHealth
+  created_at: number
+}
+
 export interface ProjectHealthPortfolioItem {
   project: {
     id: string
@@ -826,6 +838,7 @@ export interface ProjectHealthPortfolioItem {
     updated_at: number
   }
   health: ProjectHealth
+  last_transition: ProjectHealthTransition | null
 }
 export interface ProjectHealthPortfolio {
   items: ProjectHealthPortfolioItem[]

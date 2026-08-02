@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 import db
 from auth import CurrentAccount
 from models import Account, Role, can_write
+from project_health_service import observe_project_health
 
 router = APIRouter(prefix="/api", tags=["work-items"])
 
@@ -243,6 +244,7 @@ def create_item(project_id: str, body: CreateBody, account: Account = CurrentAcc
             "custom_fields": body.custom_fields, "dependency_ids": body.dependency_ids,
             "sprint_id": body.sprint_id}
     _sanitize_refs(project_id, None, refs)
+    observe_project_health(project_id, actor_name=account.name)
     item = db.create_work_item(
         project_id=project_id, title=values["title"], status=body.status,
         source=body.source, assignee=_norm_assignee(body.assignee, by_id, by_name),
@@ -254,6 +256,7 @@ def create_item(project_id: str, body: CreateBody, account: Account = CurrentAcc
     )
     db.log_work_item_activity(project_id=project_id, work_item_id=item["id"],
                               actor=account.name, kind="created", detail=item["title"])
+    observe_project_health(project_id, actor_name=account.name)
     return _decorate(item, by_id)
 
 
@@ -295,6 +298,7 @@ def update_item(project_id: str, wid: str, body: UpdateBody, account: Account = 
     by_id, by_name = _members_maps(project_id)
     if "assignee" in changes:
         changes["assignee"] = _norm_assignee(changes["assignee"], by_id, by_name)
+    observe_project_health(project_id, actor_name=account.name)
     updated = db.update_work_item(wid, **changes)
     if not updated:
         raise HTTPException(404, "work item not found")
@@ -306,6 +310,7 @@ def update_item(project_id: str, wid: str, body: UpdateBody, account: Account = 
                 old, new = by_id.get(old, old) or "未指派", by_id.get(new, new) or "未指派"
             db.log_work_item_activity(project_id=project_id, work_item_id=wid, actor=account.name,
                                       kind=k, detail=f"{old}→{new}")
+    observe_project_health(project_id, actor_name=account.name)
     return _decorate(updated, by_id)
 
 
@@ -323,12 +328,14 @@ def accept_item(project_id: str, wid: str, body: AcceptBody, account: Account = 
         raise HTTPException(404, "work item not found")
     if it["status"] != "review":
         raise HTTPException(409, "work item is not awaiting acceptance")
+    observe_project_health(project_id, actor_name=account.name)
     updated = db.update_work_item(wid, status="done")
     assert updated is not None
     db.log_work_item_activity(
         project_id=project_id, work_item_id=wid, actor=account.name,
         kind="accepted", detail=f"run={body.run_id}; artifacts={body.artifact_count}",
     )
+    observe_project_health(project_id, actor_name=account.name)
     return _decorate(updated, _members_maps(project_id)[0])
 
 
@@ -338,7 +345,9 @@ def delete_item(project_id: str, wid: str, account: Account = CurrentAccount) ->
     it = db.get_work_item(wid)
     if not it or it["project_id"] != project_id:
         raise HTTPException(404, "work item not found")
+    observe_project_health(project_id, actor_name=account.name)
     db.delete_work_item(wid)
+    observe_project_health(project_id, actor_name=account.name)
     return {"ok": True}
 
 

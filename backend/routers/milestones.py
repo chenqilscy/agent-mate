@@ -9,6 +9,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 import server_client
+from project_health_service import observe_local_project_health
 from auth.deps import current_user
 from storage import db
 from storage.models import Role
@@ -108,10 +109,13 @@ def create_item(body: CreateMilestoneBody, authorization: str = Header(default="
             return created
         # server-origin + Server 不可达：别造会被下次镜像抹掉的本地里程碑，如实报错（WB-158）。
         raise HTTPException(503, "Server 暂不可达，里程碑未创建，请稍后重试")
-    return db.create_milestone(
+    observe_local_project_health(body.project_id, user.id, actor_name=user.name)
+    created = db.create_milestone(
         project_id=body.project_id, name=name, description=body.description,
         due_date=(body.due_date or None), status=status,
     )
+    observe_local_project_health(body.project_id, user.id, actor_name=user.name)
+    return created
 
 
 @router.patch("/milestones/{mid}")
@@ -135,9 +139,11 @@ def update_item(mid: str, body: UpdateMilestoneBody, authorization: str = Header
                 return up
             # server-origin + Server 不可达：本地改动会被下次镜像还原，如实报错（WB-158）。
             raise HTTPException(503, "Server 暂不可达，改动未保存，请稍后重试")
+    observe_local_project_health(existing["project_id"], user.id, actor_name=user.name)
     updated = db.update_milestone(mid, **body.model_dump(exclude_unset=True))
     if not updated:
         raise HTTPException(404, "milestone not found")
+    observe_local_project_health(existing["project_id"], user.id, actor_name=user.name)
     return updated
 
 
@@ -157,5 +163,7 @@ def delete_item(mid: str, authorization: str = Header(default="")) -> dict:
             return {"ok": True}
         # server-origin + Server 不可达：本地删除会被下次镜像还原，如实报错（WB-158）。
         raise HTTPException(503, "Server 暂不可达，未删除，请稍后重试")
+    observe_local_project_health(existing["project_id"], user.id, actor_name=user.name)
     db.delete_milestone(mid)
+    observe_local_project_health(existing["project_id"], user.id, actor_name=user.name)
     return {"ok": True}
