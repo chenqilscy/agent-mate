@@ -12,6 +12,7 @@ sys.path.insert(0, str(BACKEND))
 
 from auth.deps import set_current_user_id  # noqa: E402
 from config import settings  # noqa: E402
+import project_health_service  # noqa: E402
 from routers import notifications, project_health  # noqa: E402
 from storage import db  # noqa: E402
 from storage.models import LOCAL_USER_ID  # noqa: E402
@@ -68,11 +69,11 @@ class ProjectHealthRegressionTest(unittest.TestCase):
             "summary": {"overdue_tasks": 7, "critical_risks": 2},
             "reasons": [], "milestones": [],
         }
-        with patch.object(project_health.server_client, "get_project_health", return_value=authoritative):
+        with patch.object(project_health_service.server_client, "get_project_health", return_value=authoritative):
             self.assertIs(authoritative, project_health.project_health(
                 "server-project", authorization="Bearer token",
             ))
-        with patch.object(project_health.server_client, "get_project_health", return_value=None):
+        with patch.object(project_health_service.server_client, "get_project_health", return_value=None):
             stale = project_health.project_health("server-project", authorization="Bearer token")
         self.assertEqual("server-cache", stale["source"])
         self.assertTrue(stale["stale"])

@@ -27,6 +27,7 @@ function iconOf(name: string): string {
 
 function triggerLabel(a: Automation): string {
   if (a.trigger_kind === 'webhook') return 'Webhook 事件'
+  if (a.trigger_kind === 'health_daily') return `项目健康日报 · 每天 ${a.at_time}`
   return a.trigger_kind === 'daily' ? `每天 ${a.at_time}` : `每 ${a.interval_min} 分钟`
 }
 
@@ -466,10 +467,11 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
   }, [auto, loadRuns])
 
   const selectedProject = projects.find((p) => p.id === projectId)
-  const canSave = name.trim().length > 0 && prompt.trim().length > 0 && !busy
+  const canSave = name.trim().length > 0 && prompt.trim().length > 0 && (kind !== 'health_daily' || Boolean(projectId))
+  const canSubmit = canSave && !busy
 
   const save = async () => {
-    if (!canSave) return
+    if (!canSubmit) return
     setBusy(true)
     const payload: CreateAutomationInput = {
       name: name.trim(),
@@ -555,7 +557,7 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
           <WbButton className="btn-ghost danger-b" onClick={del}>删除</WbButton>
         )}
         <WbButton className="btn-ghost" onClick={onClose}>取消</WbButton>
-        <WbButton className="btn-dark" disabled={!canSave} onClick={save}>保存</WbButton>
+        <WbButton className="btn-dark" disabled={!canSubmit} onClick={save}>保存</WbButton>
       </div>
 
       <div className="auto-ed">
@@ -599,6 +601,7 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
             <div className="seg2">
               <b className={kind === 'interval' ? 'on' : ''} {...clickable} onClick={() => setKind('interval')}>每隔一段</b>
               <b className={kind === 'daily' ? 'on' : ''} {...clickable} onClick={() => setKind('daily')}>每天定时</b>
+              <b className={kind === 'health_daily' ? 'on' : ''} {...clickable} onClick={() => setKind('health_daily')}>健康日报</b>
               <b className={kind === 'webhook' ? 'on' : ''} {...clickable} onClick={() => setKind('webhook')}>Webhook</b>
             </div>
             {kind === 'interval' ? (
@@ -607,16 +610,21 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
                 <WbInput type="number" min={1} aria-label="间隔分钟" value={intervalMinutes} onChange={(e) => setIntervalMinutes(Number(e.target.value) || 1)} />
                 分钟运行一次
               </div>
-            ) : kind === 'daily' ? (
+            ) : kind === 'daily' || kind === 'health_daily' ? (
               <div className="auto-trig-in">
                 每天
                 <WbInput type="time" aria-label="每天运行时间" value={atTime} onChange={(e) => setAtTime(e.target.value)} />
-                运行
+                {kind === 'health_daily' ? '读取权威项目健康快照并运行' : '运行'}
               </div>
             ) : (
               <div className="auto-trig-in">由外部系统使用 HMAC 签名请求触发；保存后可配置地址和密钥。</div>
             )}
           </div>
+          {kind === 'health_daily' && (
+            <div className="auto-trig-note">
+              必须绑定工作空间。在线时读取 Server 权威健康度；离线时只使用明确标记为过期的最后快照。
+            </div>
+          )}
 
           {auto && auto.trigger_kind === 'webhook' && (
             <>

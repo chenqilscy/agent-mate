@@ -5913,12 +5913,12 @@ def _migrate_assistants() -> None:
 def compute_next_run(kind: str, interval_min: int, at_time: str, now: float) -> float:
     """Next fire time (epoch seconds) for a trigger, relative to `now`.
 
-    interval → now + N minutes. daily → the next local HH:MM strictly after now.
+    interval → now + N minutes. daily / health_daily → the next local HH:MM strictly after now.
     Webhooks are event-driven and use 0 as a non-schedulable sentinel.
     """
     if kind == "webhook":
         return 0
-    if kind == "daily":
+    if kind in {"daily", "health_daily"}:
         try:
             hh, mm = (int(x) for x in at_time.split(":", 1))
         except (ValueError, AttributeError):
@@ -6001,7 +6001,7 @@ def get_automation(auto_id: str, owner_id: Optional[str] = None) -> Optional[Aut
 def list_due_automations(now: float) -> list[Automation]:
     rows = get_conn().execute(
         "SELECT * FROM automations WHERE enabled=1 "
-        "AND trigger_kind IN ('interval','daily') AND next_run_at<=? ORDER BY next_run_at ASC",
+        "AND trigger_kind IN ('interval','daily','health_daily') AND next_run_at<=? ORDER BY next_run_at ASC",
         (now,),
     ).fetchall()
     return [_row_to_automation(r) for r in rows]

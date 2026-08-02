@@ -16,13 +16,14 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from agent import scheduler
+from project_health_service import ProjectHealthNotFound
 from agent.sandbox import project_root
 from auth.deps import current_user
 from storage import db
 
 router = APIRouter(prefix="/api", tags=["automations"])
 
-TRIGGER_KINDS = {"interval", "daily", "webhook"}
+TRIGGER_KINDS = {"interval", "daily", "health_daily", "webhook"}
 WEBHOOK_MAX_BODY = 64 * 1024
 WEBHOOK_CLOCK_SKEW_SEC = 300
 _IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$")
@@ -110,10 +111,10 @@ def _fire_view(fire) -> dict:
 
 def _validate(kind: str, interval_min: int, at_time: str) -> None:
     if kind not in TRIGGER_KINDS:
-        raise HTTPException(400, "trigger_kind must be 'interval', 'daily' or 'webhook'")
+        raise HTTPException(400, "trigger_kind must be 'interval', 'daily', 'health_daily' or 'webhook'")
     if kind == "interval" and interval_min < 1:
         raise HTTPException(400, "interval_min must be >= 1")
-    if kind == "daily":
+    if kind in {"daily", "health_daily"}:
         try:
             hh, mm = (int(x) for x in at_time.split(":", 1))
             assert 0 <= hh < 24 and 0 <= mm < 60
@@ -152,7 +153,9 @@ def create_automation(body: CreateAutomationBody) -> dict:
         raise HTTPException(400, "name and prompt are required")
     _validate(body.trigger_kind, body.interval_min, body.at_time)
     _validate_governance(body.model_dump())
-    if body.project_id and db.get_project(body.project_id, user.id) is None:
+    if body.trigger_kind == "health_daily" and not body.project_id:
+        raise HTTPException(400, "health_daily requires project_id")
+    if body.project_id and db.project_access_role(body.project_id, user.id) is None:
         raise HTTPException(404, "project not found")
     a = db.create_automation(
         owner_id=user.id, name=name, prompt=prompt, trigger_kind=body.trigger_kind,
@@ -168,10 +171,10 @@ def create_automation(body: CreateAutomationBody) -> dict:
 @router.patch("/automations/{auto_id}")
 def update_automation(auto_id: str, body: UpdateAutomationBody) -> dict:
     user = current_user()
-    if db.get_automation(auto_id, user.id) is None:
+    cur = db.get_automation(auto_id, user.id)
+    if cur is None:
         raise HTTPException(404, "automation not found")
     if body.trigger_kind is not None or body.interval_min is not None or body.at_time is not None:
-        cur = db.get_automation(auto_id, user.id)
         _validate(
             body.trigger_kind or cur.trigger_kind,
             body.interval_min if body.interval_min is not None else cur.interval_min,
@@ -179,11 +182,15 @@ def update_automation(auto_id: str, body: UpdateAutomationBody) -> dict:
         )
     # Send only fields the client actually set (exclude_unset) so an explicit null
     # clears a nullable column (project_id / model) while an omitted field stays put
-    # (WB-037/038). Setting a workspace must resolve to a project this user owns;
+    # (WB-037/038). Setting a workspace must resolve to a project this user can access;
     # clearing (null) skips the ownership check.
     data = body.model_dump(exclude_unset=True)
     _validate_governance(data)
-    if data.get("project_id") is not None and db.get_project(data["project_id"], user.id) is None:
+    merged_kind = data.get("trigger_kind", cur.trigger_kind)
+    merged_project = data.get("project_id", cur.project_id)
+    if merged_kind == "health_daily" and not merged_project:
+        raise HTTPException(400, "health_daily requires project_id")
+    if data.get("project_id") is not None and db.project_access_role(data["project_id"], user.id) is None:
         raise HTTPException(404, "project not found")
     a = db.update_automation(auto_id, **data)
     return _view(a)
@@ -203,7 +210,10 @@ async def run_automation(auto_id: str, body: RunAutomationBody | None = None) ->
     user = current_user()
     if db.get_automation(auto_id, user.id) is None:
         raise HTTPException(404, "automation not found")
-    fire = await scheduler.run_now(auto_id, body.idempotency_key if body else None)
+    try:
+        fire = await scheduler.run_now(auto_id, body.idempotency_key if body else None)
+    except ProjectHealthNotFound:
+        raise HTTPException(409, "automation project is no longer accessible") from None
     return {
         "ok": fire is not None,
         "session_id": fire.session_id if fire else None,

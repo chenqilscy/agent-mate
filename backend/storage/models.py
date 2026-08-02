@@ -257,7 +257,7 @@ class Automation:
     owner_id: str
     name: str
     prompt: str
-    trigger_kind: str  # "interval" | "daily" | "webhook"
+    trigger_kind: str  # "interval" | "daily" | "health_daily" | "webhook"
     interval_min: int  # for trigger_kind == "interval"
     at_time: str  # "HH:MM" (local) for trigger_kind == "daily"
     project_id: Optional[str]

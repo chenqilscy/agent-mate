@@ -677,7 +677,7 @@ export interface Milestone {
   sort: number
 }
 
-export type TriggerKind = 'interval' | 'daily' | 'webhook'
+export type TriggerKind = 'interval' | 'daily' | 'health_daily' | 'webhook'
 
 export interface Automation {
   id: string
@@ -727,7 +727,7 @@ export interface AutomationFire {
   automation_id: string
   owner_id: string
   fire_key: string
-  trigger_kind: 'scheduled' | 'manual' | 'replay' | 'webhook'
+  trigger_kind: 'scheduled' | 'health_daily' | 'manual' | 'replay' | 'webhook'
   planned_at: number
   status: 'queued' | 'running' | 'retry_wait' | 'succeeded' | 'dead_letter' | 'ignored'
   attempt: number

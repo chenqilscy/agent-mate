@@ -282,8 +282,9 @@
 .auto-more svg { width: 16px; height: 16px; }
 .pop-item.danger { color: #E5484D; }
 .auto-trig { border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
-.auto-trig .seg2 { margin-left: 0; width: fit-content; }
+.auto-trig .seg2 { margin-left: 0; width: fit-content; max-width: 100%; flex-wrap: wrap; }
 .auto-trig-in { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); margin-top: 12px; }
+.auto-trig-note { margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--text-2); }
 .auto-trig-in input { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-family: inherit; font-size: 13px; color: var(--text); background: var(--card); outline: none; }
 .auto-trig-in input[type="number"] { width: 72px; }
 .auto-trig-in input:focus { border-color: var(--brand); }
