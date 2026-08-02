@@ -321,6 +321,7 @@ class ModelMetaIn(BaseModel):
     input_cost_cached: float | None = Field(default=None, ge=0)  # 缓存命中输入价（WB-134）
     output_cost: float | None = Field(default=None, ge=0)
     context_window: int | None = Field(default=None, ge=0)
+    max_output_tokens: int | None = Field(default=None, ge=1)
     currency: str | None = Field(default=None, max_length=8)  # ¥/$ 等（WB-134）
     note: str | None = Field(default=None, max_length=300)
     reset: bool = False  # true = 清除覆盖，回准确默认/启发式
@@ -338,6 +339,7 @@ def set_model_meta(body: ModelMetaIn) -> dict:
         capabilities=caps, input_cost=body.input_cost, input_cost_cached=body.input_cost_cached,
         output_cost=body.output_cost, context_window=body.context_window,
         currency=(body.currency or None), note=(body.note or None),
+        max_output_tokens=body.max_output_tokens,
     )
     return {"ok": True}
 

@@ -345,6 +345,7 @@ export interface ModelMeta {
   input_cost_cached: number | null // 缓存命中输入价（WB-134）
   output_cost: number | null
   context_window: number | null
+  max_output_tokens: number | null
   currency: string | null // ¥/$ 等（WB-134）
   note: string | null
   source?: 'default' | 'preset' | 'custom' // default=名字启发式 · preset=官方文档默认 · custom=用户覆盖

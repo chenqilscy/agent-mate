@@ -130,6 +130,11 @@ class Settings:
     # Clamped to >=1 so a misconfigured CONTEXT_WINDOW=0 can't divide-by-zero
     # at the end of a stream (WB-022).
     CONTEXT_WINDOW: int = max(1, int(os.getenv("CONTEXT_WINDOW", "1000000")))
+    # Provider/model metadata may override this. Keep the unknown-model fallback
+    # conservative: a context window is not the same as one-call output capacity.
+    DEFAULT_MAX_OUTPUT_TOKENS: int = max(
+        1, int(os.getenv("DEFAULT_MAX_OUTPUT_TOKENS", "8192"))
+    )
     # WB-325：历史会话上下文独立预算。超过上限后，旧轮次由真实 LLM 压缩为持久化滚动摘要，
     # 最近轮次保留原文；即使摘要端点失败也只回退到有界最近窗口。
     SESSION_HISTORY_TOKEN_BUDGET: int = max(

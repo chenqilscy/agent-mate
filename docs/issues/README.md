@@ -23,9 +23,8 @@
 | [WB-361](WB-361-server-external-integration-relay.md) | ⬜ | P1 | backend | Server 缺少面向外部系统的服务身份与设备投递中继 |
 | [WB-362](WB-362-federated-sso-auth-hardening.md) | ⬜ | P1 | fullstack | Server 缺少微信 Google Telegram 联合登录与公网鉴权加固 |
 | [WB-363](WB-363-versioned-migrations-and-architecture-docs.md) | ⬜ | P2 | backend | 数据库升级缺少版本化迁移且架构文档已漂移 |
-| [WB-364](WB-364-provider-output-token-cap.md) | ⬜ | P1 | backend | 动态上下文预算可生成超过模型输出上限的 max_tokens |
 
 ## 已关闭归档
 
-共 355 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 356 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。

@@ -829,6 +829,7 @@ def init_db() -> None:
             input_cost_cached REAL,
             output_cost REAL,
             context_window INTEGER,
+            max_output_tokens INTEGER,
             currency TEXT,
             note TEXT,
             updated_at REAL NOT NULL,
@@ -1185,6 +1186,8 @@ def _migrate_columns() -> None:
     for col, ddl in (("input_cost_cached", "input_cost_cached REAL"), ("currency", "currency TEXT")):
         if col not in have_mm:
             conn.execute(f"ALTER TABLE model_meta ADD COLUMN {ddl}")
+    if "max_output_tokens" not in have_mm:
+        conn.execute("ALTER TABLE model_meta ADD COLUMN max_output_tokens INTEGER")
 
     # WB-346：Run 固化实际模型与非敏感价格快照；历史行保持空，不猜测过去使用的模型/价格。
     have_runs = {r["name"] for r in conn.execute("PRAGMA table_info(runs)").fetchall()}
@@ -5623,7 +5626,7 @@ def _row_to_model_meta(row: sqlite3.Row) -> dict:
     return d
 
 
-_META_COLS = "capabilities, input_cost, input_cost_cached, output_cost, context_window, currency, note"
+_META_COLS = "capabilities, input_cost, input_cost_cached, output_cost, context_window, max_output_tokens, currency, note"
 
 
 def get_model_meta(owner_id: str, model_ref: str) -> Optional[dict]:
@@ -5650,14 +5653,15 @@ def list_model_meta(owner_id: str) -> dict[str, dict]:
 def set_model_meta(owner_id: str, model_ref: str, *, capabilities: list[str],
                    input_cost: float | None, input_cost_cached: float | None,
                    output_cost: float | None, context_window: int | None,
-                   currency: str | None, note: str | None) -> dict:
+                   currency: str | None, note: str | None,
+                   max_output_tokens: int | None = None) -> dict:
     get_conn().execute(
         """INSERT OR REPLACE INTO model_meta
            (owner_id, model_ref, capabilities, input_cost, input_cost_cached, output_cost,
-            context_window, currency, note, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            context_window, max_output_tokens, currency, note, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
         (owner_id, model_ref, json.dumps(capabilities), input_cost, input_cost_cached,
-         output_cost, context_window, currency, note, time.time()),
+         output_cost, context_window, max_output_tokens, currency, note, time.time()),
     )
     get_conn().commit()
     return get_model_meta(owner_id, model_ref) or {}

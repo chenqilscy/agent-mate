@@ -10,7 +10,7 @@ from storage import db, provider_seed
 CAPABILITIES = ["text", "image", "audio", "video", "tools", "reasoning"]
 META_KEYS = (
     "capabilities", "input_cost", "input_cost_cached", "output_cost",
-    "context_window", "currency", "note",
+    "context_window", "max_output_tokens", "currency", "note",
 )
 
 
@@ -68,6 +68,7 @@ def build_run_snapshot(owner_id: str, selection: str | None, model_id: str) -> d
         "provider_id": provider_id or None,
         "capabilities": list(meta.get("capabilities") or []),
         "context_window": meta.get("context_window"),
+        "max_output_tokens": meta.get("max_output_tokens"),
         "pricing": {
             "input_per_million": meta.get("input_cost"),
             "cached_input_per_million": meta.get("input_cost_cached"),

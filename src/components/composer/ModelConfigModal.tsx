@@ -45,7 +45,7 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
   const [busy, setBusy] = useState(false)
   // 模型能力/成本编辑（WB-132）。metaEditing = 正在编辑的 model_ref。
   const [metaEditing, setMetaEditing] = useState<string | null>(null)
-  const [metaDraft, setMetaDraft] = useState({ caps: [] as string[], input: '', cached: '', output: '', ctx: '', currency: '', note: '' })
+  const [metaDraft, setMetaDraft] = useState({ caps: [] as string[], input: '', cached: '', output: '', ctx: '', maxOutput: '', currency: '', note: '' })
   // custom form
   const [editing, setEditing] = useState<ModelOption | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -170,6 +170,7 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
       cached: meta?.input_cost_cached != null ? String(meta.input_cost_cached) : '',
       output: meta?.output_cost != null ? String(meta.output_cost) : '',
       ctx: meta?.context_window != null ? String(meta.context_window) : '',
+      maxOutput: meta?.max_output_tokens != null ? String(meta.max_output_tokens) : '',
       currency: meta?.currency ?? '',
       note: meta?.note ?? '',
     })
@@ -185,7 +186,7 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
     try {
       await api.setModelMeta(ref, {
         capabilities: metaDraft.caps, input_cost: num(metaDraft.input), input_cost_cached: num(metaDraft.cached),
-        output_cost: num(metaDraft.output), context_window: int(metaDraft.ctx),
+        output_cost: num(metaDraft.output), context_window: int(metaDraft.ctx), max_output_tokens: int(metaDraft.maxOutput),
         currency: metaDraft.currency.trim() || null, note: metaDraft.note.trim() || null,
       })
       toast('已保存能力/成本'); setMetaEditing(null); await refresh()
@@ -276,6 +277,7 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
       </div>
       <div className="mc-costrow">
         <WbInput className="np-input" inputMode="numeric" placeholder="上下文 tokens" value={metaDraft.ctx} onChange={(e) => setMetaDraft((d) => ({ ...d, ctx: e.target.value }))} />
+        <WbInput className="np-input" inputMode="numeric" placeholder="单次输出 tokens" value={metaDraft.maxOutput} onChange={(e) => setMetaDraft((d) => ({ ...d, maxOutput: e.target.value }))} />
         <WbInput className="np-input" style={{ maxWidth: 96 }} placeholder="币种 ¥/$" maxLength={8} value={metaDraft.currency} onChange={(e) => setMetaDraft((d) => ({ ...d, currency: e.target.value }))} />
       </div>
       <div className="mc-fbtns">

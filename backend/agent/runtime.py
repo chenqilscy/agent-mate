@@ -62,6 +62,21 @@ class RuntimeBudgetExceeded(RuntimeError):
     """Raised before another tool/LLM round once the configured token cap is reached."""
 
 
+def _request_output_limit(
+    *, requested: int, model_cap: int, context_room: int, run_room: int | None = None,
+) -> int:
+    """Clamp one generation by explicit request, provider/model cap and live budgets."""
+    limits = [max(1, int(model_cap)), int(context_room)]
+    if requested > 0:
+        limits.append(int(requested))
+    if run_room is not None:
+        limits.append(int(run_room))
+    value = min(limits)
+    if value <= 0:
+        raise RuntimeBudgetExceeded("No output token room remains for this generation")
+    return value
+
+
 def _knowledge_tools(
     owner_id: str, active_knowledge: list[str], *, ask: bool, remote_project: bool = False,
 ) -> list[Tool]:
@@ -780,6 +795,10 @@ async def _run_chat_inner(
             1024,
             int(run.model_snapshot.get("context_window") or settings.CONTEXT_WINDOW),
         )
+        model_output_cap = max(
+            1,
+            int(run.model_snapshot.get("max_output_tokens") or settings.DEFAULT_MAX_OUTPUT_TOKENS),
+        )
         context_result = await session_context.build_llm_context(
             session,
             history_messages,
@@ -790,7 +809,7 @@ async def _run_chat_inner(
             api_key=model_key,
             chat_path=model_path,
             history_token_budget=_history_budget(
-                context_window, system_prompt, max_output_tokens,
+                context_window, system_prompt, min(max_output_tokens or model_output_cap, model_output_cap),
             ),
         )
         llm_messages = context_result.messages
@@ -1039,8 +1058,7 @@ async def _run_chat_inner(
                     f"Model context exhausted before generation: "
                     f"{estimated_round_prompt} >= {context_window}"
                 )
-            request_max_tokens = max_output_tokens or context_output_room
-            request_max_tokens = min(request_max_tokens, context_output_room)
+            run_output_room: int | None = None
             if effective_token_budget > 0:
                 run_output_room = (
                     effective_token_budget
@@ -1054,7 +1072,12 @@ async def _run_chat_inner(
                         f"estimated input {estimated_round_prompt}, remaining "
                         f"{effective_token_budget - total_prompt - total_completion}"
                     )
-                request_max_tokens = min(request_max_tokens, run_output_room)
+            request_max_tokens = _request_output_limit(
+                requested=max_output_tokens,
+                model_cap=model_output_cap,
+                context_room=context_output_room,
+                run_room=run_output_room,
+            )
 
             with telemetry.generation_observation(
                 name=f"llm.chat.round-{_round + 1}",
