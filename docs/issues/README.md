@@ -7,7 +7,7 @@
 
 - 活动状态 `open` / `in-progress` / `deferred`：每个问题一个 `WB-<编号>-<slug>.md` 文件。
 - 终态 `fixed` / `wontfix`：运行 `python scripts/archive_issues.py --apply` 后进入 [`archive/`](archive/README.md)。
-- 编号全局递增且不复用；当前最大编号是 `WB-364`，可用 `python scripts/archive_issues.py --next-id` 查询。
+- 编号全局递增且不复用；当前最大编号是 `WB-365`，可用 `python scripts/archive_issues.py --next-id` 查询。
 - 活动文件 frontmatter 是权威状态；下表是活动状态镜像。
 
 ## 活动台账
@@ -20,6 +20,7 @@
 | [WB-344](WB-344-v1-controlled-user-pilot.md) | ⏸ | P1 | misc | V1.0 受控真实用户试用缺少参与者、安装版本与连续证据 |
 | [WB-362](WB-362-federated-sso-auth-hardening.md) | ⬜ | P1 | fullstack | Server 缺少微信 Google Telegram 联合登录与公网鉴权加固 |
 | [WB-363](WB-363-versioned-migrations-and-architecture-docs.md) | ⬜ | P2 | backend | 数据库升级缺少版本化迁移且架构文档已漂移 |
+| [WB-365](WB-365-governance-activity-ordering.md) | ⬜ | P2 | backend | 项目治理活动流在同时间戳下排序不稳定 |
 
 ## 已关闭归档
 
