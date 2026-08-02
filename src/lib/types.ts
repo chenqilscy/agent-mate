@@ -240,6 +240,18 @@ export interface OpsSummary {
   }
 }
 
+export interface BackgroundHealth {
+  healthy: boolean
+  components: {
+    name: string
+    last_attempt_at: number | null
+    last_success_at: number | null
+    last_failure_at: number | null
+    consecutive_failures: number
+    last_error: string | null
+  }[]
+}
+
 export type OrchestrationStatus = 'planning' | 'running' | 'reviewing' | 'completed' | 'failed' | 'cancelled'
 
 export interface OrchestrationAttempt {

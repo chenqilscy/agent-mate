@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from config import settings
+from agent import worker_health
 from storage import background_job_store as jobs
 
 log = logging.getLogger("agentmate.background_worker")
@@ -169,12 +170,21 @@ async def scan_once(now: float | None = None) -> None:
             _launch(job["id"])
 
 
+async def _scan_tick() -> None:
+    try:
+        await scan_once()
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        worker_health.record_failure("background_worker.scan", exc)
+        log.exception("background job scan failed")
+    else:
+        worker_health.record_success("background_worker.scan")
+
+
 async def _loop() -> None:
     while True:
-        try:
-            await scan_once()
-        except Exception:  # noqa: BLE001
-            log.exception("background job scan failed")
+        await _scan_tick()
         await asyncio.sleep(settings.BACKGROUND_JOB_SCAN_SECONDS)
 
 
@@ -186,7 +196,7 @@ async def start() -> None:
     jobs.ensure_tables()
     for spec in list(_handlers.values()):
         await _call(spec.recover, {})
-    await scan_once()
+    await _scan_tick()
     _loop_task = asyncio.create_task(_loop())
 
 

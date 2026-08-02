@@ -4,10 +4,17 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from auth.deps import current_user
+from agent import worker_health
 from channels import manager
 from storage import db
 
 router = APIRouter(prefix="/api", tags=["operations"])
+
+
+@router.get("/ops/background-health")
+def background_health() -> dict:
+    current_user()  # keep the operational endpoint behind the normal auth boundary
+    return worker_health.snapshot()
 
 
 @router.get("/ops/summary")

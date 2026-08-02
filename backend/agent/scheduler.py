@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import time
 import uuid
 from typing import Optional
@@ -15,7 +16,7 @@ from project_health_service import (
     resolve_project_health,
     scan_local_project_health,
 )
-from agent import runtime
+from agent import runtime, worker_health
 from config import settings
 from storage import db
 from storage.models import Automation, AutomationFire, LOCAL_USER_ID
@@ -26,6 +27,7 @@ HEALTH_SCAN_SECONDS = 300
 _task: Optional[asyncio.Task] = None
 _running: set[str] = set()  # durable fire ids currently driven by this process
 _last_health_scan_at = 0.0
+log = logging.getLogger("agentmate.scheduler")
 
 
 def _run_kind(trigger_kind: str) -> str:
@@ -284,17 +286,30 @@ async def _scan_once(now: Optional[float] = None) -> None:
         _launch(fire.id)
 
 
+async def _guard_component(name: str, operation) -> None:
+    try:
+        await operation()
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 -- keep the recurring loop alive
+        worker_health.record_failure(name, exc)
+        log.exception("background component failed: component=%s", name)
+    else:
+        worker_health.record_success(name)
+
+
+async def _tick() -> None:
+    await _guard_component("automation_scheduler.scan", _scan_once)
+    if settings.server_enabled:
+        await _guard_component(
+            "server_sync.outbox",
+            lambda: asyncio.to_thread(server_sync.flush_outbox),
+        )
+
+
 async def _loop() -> None:
     while True:
-        try:
-            await _scan_once()
-        except Exception:  # never let a scan error stop the loop
-            pass
-        try:
-            if settings.server_enabled:
-                await asyncio.to_thread(server_sync.flush_outbox)
-        except Exception:
-            pass
+        await _tick()
         await asyncio.sleep(SCAN_SECONDS)
 
 
