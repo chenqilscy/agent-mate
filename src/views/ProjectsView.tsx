@@ -10,7 +10,7 @@ import { ServerConnectModal } from '../components/server/ServerConnectModal'
 import { useCatalog } from '../stores/catalogStore'
 import { useServerStore } from '../stores/serverStore'
 import { api } from '../lib/api'
-import type { ProjectInfo } from '../lib/types'
+import type { ProjectHealthPortfolio, ProjectHealthStatus, ProjectInfo } from '../lib/types'
 import { Dropdown, Empty, Input, Tag } from 'antd'
 import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
@@ -19,6 +19,8 @@ import { clickable } from '../lib/a11y'
 // A shared project (M7 C2) carries the caller's role; owned projects show no badge.
 const ROLE_LABEL: Record<string, string> = { Owner: '所有者', Admin: '管理员', Member: '成员', Viewer: '只读' }
 type ProjectScope = 'all' | 'server' | 'local'
+type HealthScope = 'all' | ProjectHealthStatus
+const HEALTH_LABEL: Record<ProjectHealthStatus, string> = { critical: '严重风险', attention: '需关注', healthy: '健康' }
 
 export function ProjectsView() {
   const projects = useProjectStore((s) => s.projects)
@@ -30,6 +32,8 @@ export function ProjectsView() {
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<ProjectScope>('all')
+  const [healthScope, setHealthScope] = useState<HealthScope>('all')
+  const [portfolio, setPortfolio] = useState<ProjectHealthPortfolio | null>(null)
   const [membersProject, setMembersProject] = useState<ProjectInfo | null>(null)
   const [loginOpen, setLoginOpen] = useState(false)
   const [serverOpen, setServerOpen] = useState(false)
@@ -40,7 +44,10 @@ export function ProjectsView() {
   const serverChecked = useServerStore((s) => s.checked)
   const refreshServer = useServerStore((s) => s.refreshStatus)
 
-  useEffect(() => { load() }, [load])
+  const loadPortfolio = async () => {
+    try { setPortfolio(await api.projectHealthPortfolio()) } catch { setPortfolio(null) }
+  }
+  useEffect(() => { load(); void loadPortfolio() }, [load])
   useEffect(() => { if (!serverChecked) void refreshServer() }, [serverChecked, refreshServer])
 
   // Open the project workbench (home), not straight into an execution (§11).
@@ -59,9 +66,11 @@ export function ProjectsView() {
   const localCount = projects.filter((project) => project.origin !== 'server').length
   const serverCount = projects.length - localCount
   const normalizedQuery = query.trim().toLowerCase()
+  const healthByProject = new Map(portfolio?.items.map((item) => [item.project.id, item.health]))
   const shownProjects = projects.filter((project) => {
     if (scope === 'server' && project.origin !== 'server') return false
     if (scope === 'local' && project.origin === 'server') return false
+    if (healthScope !== 'all' && healthByProject.get(project.id)?.status !== healthScope) return false
     return project.name.toLowerCase().includes(normalizedQuery)
   })
 
@@ -71,6 +80,7 @@ export function ProjectsView() {
     try {
       const result = await api.serverPull()
       await load()
+      await loadPortfolio()
       toast(`同步完成 · ${result.synced} 个团队项目`)
     } catch {
       toast('同步失败，请检查 Server 连接')
@@ -133,7 +143,44 @@ export function ProjectsView() {
           )}
         </div>
 
+        {portfolio && (
+          <ProCard className="project-health-portfolio" title="项目健康总览" extra={portfolio.stale ? <Tag color="warning">含离线缓存</Tag> : <span className="project-health-fresh">实时数据</span>}>
+            <div className="project-health-summary">
+              <button type="button" className="project-health-metric is-critical" onClick={() => setHealthScope('critical')}>
+                <b>{portfolio.summary.critical_projects}</b><span>严重风险</span>
+              </button>
+              <button type="button" className="project-health-metric is-attention" onClick={() => setHealthScope('attention')}>
+                <b>{portfolio.summary.attention_projects}</b><span>需关注</span>
+              </button>
+              <button type="button" className="project-health-metric is-healthy" onClick={() => setHealthScope('healthy')}>
+                <b>{portfolio.summary.healthy_projects}</b><span>健康</span>
+              </button>
+              <div className="project-health-rollup">
+                <span>逾期任务 {portfolio.summary.overdue_tasks}</span>
+                <span>阻塞任务 {portfolio.summary.blocked_tasks}</span>
+                <span>严重风险 {portfolio.summary.critical_risks}</span>
+                <span>待决策 {portfolio.summary.pending_decisions}</span>
+              </div>
+            </div>
+            {!!portfolio.items.length && (
+              <div className="project-health-priority" aria-label="优先关注项目">
+                {portfolio.items.slice(0, 3).map((item) => {
+                  const project = projects.find((candidate) => candidate.id === item.project.id)
+                  return (
+                    <button key={item.project.id} type="button" disabled={!project} onClick={() => project && openProject(project)}>
+                      <span className={`project-health-dot is-${item.health.status}`} />
+                      <span>{item.project.name}</span>
+                      <small>{item.health.reasons[0]?.label || '当前无异常项'}</small>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </ProCard>
+        )}
+
         <div className="sec-row projects-owned">
+          <div className="projects-filter-groups">
           <div className="project-scopes" role="group" aria-label="项目范围">
             {([
               ['all', `全部 ${projects.length}`],
@@ -149,6 +196,12 @@ export function ProjectsView() {
                 {label}
               </WbButton>
             ))}
+          </div>
+          <div className="project-scopes" role="group" aria-label="健康状态">
+            {([['all', '全部状态'], ['critical', '严重'], ['attention', '关注'], ['healthy', '健康']] as [HealthScope, string][]).map(([key, label]) => (
+              <WbButton key={key} className={`project-scope ${healthScope === key ? 'on' : ''}`.trim()} aria-pressed={healthScope === key} onClick={() => setHealthScope(key)}>{label}</WbButton>
+            ))}
+          </div>
           </div>
           <Input.Search className="search-box" allowClear placeholder="搜索项目" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
@@ -166,6 +219,8 @@ export function ProjectsView() {
                   <Tag className={`project-source ${p.origin === 'server' ? 'is-server' : ''}`}>{p.origin === 'server' ? '团队项目' : '本机项目'}</Tag>
                   {p.origin === 'server' && p.role && <Tag className="pj-rolebadge sm">{ROLE_LABEL[p.role] || p.role}</Tag>}
                   {!!p.sync_conflicts && <Tag color="warning">同步冲突 {p.sync_conflicts}</Tag>}
+                  {healthByProject.has(p.id) && <Tag className={`project-health-tag is-${healthByProject.get(p.id)!.status}`}>{HEALTH_LABEL[healthByProject.get(p.id)!.status]}</Tag>}
+                  {healthByProject.get(p.id)?.stale && <Tag color="warning">缓存</Tag>}
                 </div>
                 <div className={`my-proj-desc ${p.instruction ? '' : 'is-empty'}`.trim()}>{p.instruction || '尚未设置项目指令'}</div>
                 <div className="my-proj-meta">

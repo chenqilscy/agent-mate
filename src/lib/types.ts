@@ -817,6 +817,34 @@ export interface ProjectHealth {
   milestones: MilestoneHealth[]
 }
 
+export interface ProjectHealthPortfolioItem {
+  project: {
+    id: string
+    name: string
+    origin: 'local' | 'server'
+    role: string
+    updated_at: number
+  }
+  health: ProjectHealth
+}
+export interface ProjectHealthPortfolio {
+  items: ProjectHealthPortfolioItem[]
+  summary: {
+    total_projects: number
+    critical_projects: number
+    attention_projects: number
+    healthy_projects: number
+    stale_projects: number
+    overdue_tasks: number
+    blocked_tasks: number
+    critical_risks: number
+    pending_decisions: number
+  }
+  source: 'local' | 'server' | 'server-cache' | 'mixed'
+  stale: boolean
+  computed_at: number
+}
+
 export interface AutomationWebhookDelivery {
   id: string
   idempotency_key: string

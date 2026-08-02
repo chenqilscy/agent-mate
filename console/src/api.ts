@@ -17,6 +17,7 @@ import type {
   Project,
   ProjectGovernanceRecord,
   ProjectHealth,
+  ProjectHealthPortfolio,
   ProjectCustomField,
   SkillData,
   SkillRelease,
@@ -385,6 +386,8 @@ export const consoleApi = {
     apiRequest<{ ok: boolean }>("DELETE", `/projects/${encodeURIComponent(id)}/governance/${encodeURIComponent(recordId)}`),
   projectHealth: (id: string) =>
     apiRequest<ProjectHealth>("GET", `/projects/${encodeURIComponent(id)}/health`),
+  projectHealthPortfolio: () =>
+    apiRequest<ProjectHealthPortfolio>("GET", "/project-health"),
   activity: (id: string) =>
     apiRequest<{ activity: Activity[] }>(
       "GET",

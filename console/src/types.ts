@@ -341,6 +341,28 @@ export interface ProjectHealth {
   }>;
 }
 
+export interface ProjectHealthPortfolioItem {
+  project: Pick<Project, "id" | "name" | "role" | "updated_at"> & { origin: "server" };
+  health: ProjectHealth;
+}
+export interface ProjectHealthPortfolio {
+  items: ProjectHealthPortfolioItem[];
+  summary: {
+    total_projects: number;
+    critical_projects: number;
+    attention_projects: number;
+    healthy_projects: number;
+    stale_projects: number;
+    overdue_tasks: number;
+    blocked_tasks: number;
+    critical_risks: number;
+    pending_decisions: number;
+  };
+  source: "server";
+  stale: boolean;
+  computed_at: number;
+}
+
 export interface Activity {
   id?: string;
   actor?: string;

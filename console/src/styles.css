@@ -82,7 +82,9 @@ body {
 .catalog-tabs { margin: -8px 0 16px; }
 .page-loading { min-height: 55vh; display: grid; place-items: center; }
 .section-row, .section-card { margin-top: 16px; }
-.overview-stat-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.overview-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; }
+.overview-health-progress { width: 150px; margin-inline-start: 20px; }
+.overview-health-progress .ant-progress { margin: 4px 0 0; }
 .table-scroll-hint { display: none; margin: 0 0 8px !important; }
 .compat-list-items, .compat-list-actions { margin: 0; padding: 0; list-style: none; }
 .compat-list-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-block-end: 1px solid color-mix(in srgb, currentColor 10%, transparent); }
@@ -429,6 +431,7 @@ body {
 @media (max-width: 640px) {
   .console-create-action-label { display: none; }
   .overview-stat-grid { grid-template-columns: 1fr; }
+  .overview-health-progress { display: none; }
   .skill-search, .skill-filter { width: 100%; }
   .ant-pro-table-list-toolbar-container { align-items: stretch; }
   .ant-pro-table-list-toolbar-right { width: 100%; }

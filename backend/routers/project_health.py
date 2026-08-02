@@ -3,7 +3,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
 
-from project_health_service import ProjectHealthNotFound, resolve_project_health
+from project_health_service import (
+    ProjectHealthNotFound,
+    resolve_project_health,
+    resolve_project_health_portfolio,
+)
 from auth.deps import current_user
 
 router = APIRouter(prefix="/api", tags=["project_health"])
@@ -22,3 +26,9 @@ def project_health(project: str, authorization: str = Header(default="")) -> dic
         return resolve_project_health(project, user.id, server_token=_bearer(authorization))
     except ProjectHealthNotFound:
         raise HTTPException(404, "project not found") from None
+
+
+@router.get("/project-health/portfolio")
+def project_health_portfolio(authorization: str = Header(default="")) -> dict:
+    user = current_user()
+    return resolve_project_health_portfolio(user.id, server_token=_bearer(authorization))

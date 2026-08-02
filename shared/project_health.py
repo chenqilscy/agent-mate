@@ -133,3 +133,46 @@ def build_project_health(
         "reasons": reasons,
         "milestones": milestone_health,
     }
+
+
+def build_health_portfolio(
+    items: Iterable[Mapping[str, Any]],
+    *,
+    source: str,
+    computed_at: float | None = None,
+) -> dict[str, Any]:
+    """Aggregate already-authorized project health without duplicating UI rules."""
+    calculated_at = float(computed_at if computed_at is not None else time.time())
+    rows = [dict(item) for item in items]
+    rank = {"critical": 0, "attention": 1, "healthy": 2}
+    rows.sort(
+        key=lambda row: (
+            rank.get(str(_value(_value(row, "health", {}), "status") or ""), 3),
+            -float(_value(_value(row, "project", {}), "updated_at", 0) or 0),
+            str(_value(_value(row, "project", {}), "name") or "").casefold(),
+        )
+    )
+
+    def health_count(status: str) -> int:
+        return sum(str(_value(_value(row, "health", {}), "status") or "") == status for row in rows)
+
+    def summary_total(key: str) -> int:
+        return sum(int(_value(_value(_value(row, "health", {}), "summary", {}), key, 0) or 0) for row in rows)
+
+    return {
+        "items": rows,
+        "summary": {
+            "total_projects": len(rows),
+            "critical_projects": health_count("critical"),
+            "attention_projects": health_count("attention"),
+            "healthy_projects": health_count("healthy"),
+            "stale_projects": sum(bool(_value(_value(row, "health", {}), "stale", False)) for row in rows),
+            "overdue_tasks": summary_total("overdue_tasks"),
+            "blocked_tasks": summary_total("blocked_tasks"),
+            "critical_risks": summary_total("critical_risks"),
+            "pending_decisions": summary_total("pending_decisions"),
+        },
+        "source": source,
+        "stale": any(bool(_value(_value(row, "health", {}), "stale", False)) for row in rows),
+        "computed_at": calculated_at,
+    }
