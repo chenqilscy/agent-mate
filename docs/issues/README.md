@@ -7,7 +7,7 @@
 
 - 活动状态 `open` / `in-progress` / `deferred`：每个问题一个 `WB-<编号>-<slug>.md` 文件。
 - 终态 `fixed` / `wontfix`：运行 `python scripts/archive_issues.py --apply` 后进入 [`archive/`](archive/README.md)。
-- 编号全局递增且不复用；当前最大编号是 `WB-354`，可用 `python scripts/archive_issues.py --next-id` 查询。
+- 编号全局递增且不复用；当前最大编号是 `WB-363`，可用 `python scripts/archive_issues.py --next-id` 查询。
 - 活动文件 frontmatter 是权威状态；下表是活动状态镜像。
 
 ## 活动台账
@@ -18,7 +18,6 @@
 |----|------|--------|------|------|
 | [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) | ⏸ | P1 | fullstack | 正式桌面更新服务缺少生产域名、CI 签名材料与上线验收 |
 | [WB-344](WB-344-v1-controlled-user-pilot.md) | ⏸ | P1 | misc | V1.0 受控真实用户试用缺少参与者、安装版本与连续证据 |
-| [WB-355](WB-355-project-health-ant-regression.md) | 🟡 | P0 | frontend | 项目健康面板绕过 Ant 按钮契约导致完整回归失败 |
 | [WB-356](WB-356-memory-embedding-blocks-event-loop.md) | ⬜ | P1 | backend | 长期记忆嵌入在对话事件循环中同步执行 |
 | [WB-357](WB-357-conversation-budget-accounting.md) | ⬜ | P1 | backend | 长对话摘要与模型上下文未纳入统一硬预算 |
 | [WB-358](WB-358-chat-run-retry-ui.md) | ⬜ | P1 | frontend | App 未暴露失败和暂停 Run 的重试恢复入口 |
@@ -30,5 +29,5 @@
 
 ## 已关闭归档
 
-共 351 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 352 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。

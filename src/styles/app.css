@@ -1763,10 +1763,10 @@ body.dark .auto-tabs .ant-tabs-tab-active { background: var(--chip); }
 .project-health-metric.is-healthy b { color: var(--brand-600); }
 .project-health-rollup { min-width: 0; padding: 8px 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; gap: 6px 12px; color: var(--text-2); font-size: 11px; }
 .project-health-priority { margin-top: 10px; border-top: 1px solid var(--border); display: grid; }
-.project-health-priority button { min-width: 0; padding: 9px 2px; border: 0; border-bottom: 1px solid var(--border-2); background: transparent; color: var(--text); display: grid; grid-template-columns: 10px minmax(110px, 1fr) minmax(150px, 2fr); align-items: center; gap: 8px; cursor: pointer; text-align: left; }
-.project-health-priority button:last-child { border-bottom: 0; }
-.project-health-priority button:hover span { color: var(--brand-600); }
-.project-health-priority button small { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-health-priority-item.ant-btn { width: 100%; height: auto; min-width: 0; padding: 9px 2px; border: 0; border-bottom: 1px solid var(--border-2); border-radius: 0; background: transparent; color: var(--text); display: grid; grid-template-columns: 10px minmax(110px, 1fr) minmax(150px, 2fr); align-items: center; gap: 8px; text-align: left; }
+.project-health-priority-item.ant-btn:last-child { border-bottom: 0; }
+.project-health-priority-item.ant-btn:hover span { color: var(--brand-600); }
+.project-health-priority-item.ant-btn small { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-health-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); }
 .project-health-dot.is-critical { background: #D84A4A; }
 .project-health-dot.is-attention { background: #C98316; }
@@ -1815,8 +1815,8 @@ body.dark .project-scope.ant-btn.on { background: #343A42; }
   .projects-filter-groups { align-items: flex-start; flex-direction: column; }
   .project-health-summary { grid-template-columns: repeat(3, 1fr); }
   .project-health-rollup { grid-column: 1 / -1; }
-  .project-health-priority button { grid-template-columns: 10px minmax(0, 1fr); }
-  .project-health-priority button small { grid-column: 2; }
+.project-health-priority-item.ant-btn { grid-template-columns: 10px minmax(0, 1fr); }
+.project-health-priority-item.ant-btn small { grid-column: 2; }
   .projects-owned .search-box { width: 100%; margin-left: 0; }
   .projects-list .my-proj { min-height: 104px; }
   .my-proj-meta span:nth-child(n+3) { display: none; }

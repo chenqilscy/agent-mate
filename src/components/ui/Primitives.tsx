@@ -52,6 +52,7 @@ const BORDERLESS_VISUAL_CLASSES = new Set([
 
 const ASYMMETRIC_VISUAL_CLASSES = new Set([
   'asst-seg-btn',
+  'project-health-priority-item',
   'shell-nav-toggle',
 ])
 

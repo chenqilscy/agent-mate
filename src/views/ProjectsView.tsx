@@ -149,15 +149,15 @@ export function ProjectsView() {
         {portfolio && (
           <ProCard className="project-health-portfolio" title="项目健康总览" extra={portfolio.stale ? <Tag color="warning">含离线缓存</Tag> : <span className="project-health-fresh">实时数据</span>}>
             <div className="project-health-summary">
-              <button type="button" className="project-health-metric is-critical" onClick={() => setHealthScope('critical')}>
+              <WbButton className="project-health-metric is-critical" onClick={() => setHealthScope('critical')}>
                 <b>{portfolio.summary.critical_projects}</b><span>严重风险</span>
-              </button>
-              <button type="button" className="project-health-metric is-attention" onClick={() => setHealthScope('attention')}>
+              </WbButton>
+              <WbButton className="project-health-metric is-attention" onClick={() => setHealthScope('attention')}>
                 <b>{portfolio.summary.attention_projects}</b><span>需关注</span>
-              </button>
-              <button type="button" className="project-health-metric is-healthy" onClick={() => setHealthScope('healthy')}>
+              </WbButton>
+              <WbButton className="project-health-metric is-healthy" onClick={() => setHealthScope('healthy')}>
                 <b>{portfolio.summary.healthy_projects}</b><span>健康</span>
-              </button>
+              </WbButton>
               <div className="project-health-rollup">
                 <span>逾期任务 {portfolio.summary.overdue_tasks}</span>
                 <span>阻塞任务 {portfolio.summary.blocked_tasks}</span>
@@ -170,11 +170,11 @@ export function ProjectsView() {
                 {portfolio.items.slice(0, 3).map((item) => {
                   const project = projects.find((candidate) => candidate.id === item.project.id)
                   return (
-                    <button key={item.project.id} type="button" disabled={!project} onClick={() => project && openProject(project)}>
+                    <WbButton className="project-health-priority-item" key={item.project.id} disabled={!project} onClick={() => project && openProject(project)}>
                       <span className={`project-health-dot is-${item.health.status}`} />
                       <span>{item.project.name}</span>
                       <small>{transitionLabel(item)}</small>
-                    </button>
+                    </WbButton>
                   )
                 })}
               </div>
