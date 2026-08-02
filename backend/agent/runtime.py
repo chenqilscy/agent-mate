@@ -262,6 +262,26 @@ def _usage_event(prompt_tokens: int, completion_tokens: int, schemas: list[dict[
     return events.usage(pct=pct, used=used, detail=detail)
 
 
+async def _build_memory_prompt(
+    owner_id: str, query_text: str, project_id: str | None,
+) -> str:
+    """Keep model loading, embedding HTTP and legacy-vector backfill off-loop."""
+    def _worker() -> str:
+        try:
+            return memory.build_memory_prompt(
+                owner_id,
+                query_text,
+                project_id=project_id,
+            )
+        finally:
+            # asyncio's executor threads are long-lived.  A thread-local SQLite
+            # connection left behind here pins temporary DB files on Windows and
+            # keeps stale database paths across owner/test boundaries.
+            db.close_thread_connection()
+
+    return await asyncio.to_thread(_worker)
+
+
 async def run_chat(
     session: Session,
     user: User,
@@ -366,9 +386,7 @@ async def _run_chat_inner(
     system_prompt += build_personalization_prompt(user.id)
     # 用户记忆（WB-148）：此前记住的关于用户的长期事实，注入系统提示 → 之后对话「记得」。无则空串。
     # WB-167：本地嵌入可用时按【当前这轮 user_text】的语义相关性检索 top-N（否则按强度排序）。
-    system_prompt += memory.build_memory_prompt(
-        user.id, query_text=user_text, project_id=session.project_id,
-    )
+    system_prompt += await _build_memory_prompt(user.id, user_text, session.project_id)
     if session.project_id:
         system_prompt += workspace_memory.build_workspace_prompt(session.project_id)
 

@@ -71,6 +71,17 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def close_thread_connection() -> None:
+    """Close and forget the current thread's connection after bounded worker work."""
+    conn = getattr(_local, "conn", None)
+    if conn is None:
+        return
+    try:
+        conn.close()
+    finally:
+        delattr(_local, "conn")
+
+
 def new_uuid() -> str:
     return str(uuid.uuid4())
 
