@@ -206,6 +206,31 @@ def scan_project_health(token: str) -> Optional[dict[str, Any]]:
     return result if isinstance(result, dict) and isinstance(result.get("events"), list) else None
 
 
+def pull_relay_events(
+    token: str, device_id: str, *, device_name: str = "AgentMate App", limit: int = 10,
+) -> Optional[list[dict[str, Any]]]:
+    result = _post(
+        "/api/relay/pull", token,
+        {"device_id": device_id, "device_name": device_name, "limit": limit},
+    )
+    events = result.get("events") if isinstance(result, dict) else None
+    return events if isinstance(events, list) else None
+
+
+def acknowledge_relay_event(
+    token: str, event_id: str, *, device_id: str, lease_token: str,
+    status: str, error_code: str = "", error_message: str = "",
+) -> bool:
+    result = _post(
+        f"/api/relay/events/{event_id}/ack", token,
+        {
+            "device_id": device_id, "lease_token": lease_token, "status": status,
+            "error_code": error_code, "error_message": error_message,
+        },
+    )
+    return isinstance(result, dict) and isinstance(result.get("event"), dict)
+
+
 def list_project_health_events(token: str, project_id: str) -> Optional[dict[str, Any]]:
     result = _get(f"/api/projects/{project_id}/health-events", token)
     return result if isinstance(result, dict) and isinstance(result.get("events"), list) else None

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import platform
+import uuid
 
 import server_client
 from agent.skills import _TOOL_REGISTRY, canonical_skill_keys
@@ -21,6 +22,17 @@ from storage.models import LOCAL_USER_ID
 
 
 _CATALOG_REVISION_KEY = "server.catalog_revision"
+_RELAY_DEVICE_ID_KEY = "server.relay_device_id"
+
+
+def relay_device_id() -> str:
+    """Stable opaque local device target. It contains no hostname/user data."""
+    current = db.get_device_setting(_RELAY_DEVICE_ID_KEY)
+    if current:
+        return current
+    created = f"device-{uuid.uuid4()}"
+    db.set_device_setting(_RELAY_DEVICE_ID_KEY, created)
+    return created
 
 
 def _capability_report(revision: str) -> dict:

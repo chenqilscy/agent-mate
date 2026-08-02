@@ -90,6 +90,65 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_server_tokens_account ON server_tokens(account_id);
 
+        -- Scoped machine identities and durable external-event relay (WB-361).
+        -- Only token hashes and delivery metadata are stored; no App credentials,
+        -- conversation text or workspace files enter the control plane.
+        CREATE TABLE IF NOT EXISTS service_accounts (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            scopes TEXT NOT NULL DEFAULT '[]',
+            token_hash TEXT NOT NULL,
+            token_hint TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            rotated_at REAL,
+            revoked_at REAL,
+            UNIQUE(owner_id, name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_service_accounts_owner
+            ON service_accounts(owner_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS relay_devices (
+            owner_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            last_seen REAL NOT NULL,
+            PRIMARY KEY(owner_id, device_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS relay_events (
+            id TEXT PRIMARY KEY,
+            service_account_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            automation_id TEXT NOT NULL,
+            event_key TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            payload_sha256 TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempt INTEGER NOT NULL DEFAULT 0,
+            max_attempts INTEGER NOT NULL DEFAULT 5,
+            available_at REAL NOT NULL,
+            lease_token_hash TEXT,
+            lease_until REAL,
+            error_code TEXT,
+            error_message TEXT,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            acknowledged_at REAL,
+            UNIQUE(service_account_id, event_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_relay_events_pull
+            ON relay_events(owner_id, device_id, status, available_at, created_at);
+
+        CREATE TABLE IF NOT EXISTS service_rate_windows (
+            service_account_id TEXT NOT NULL,
+            window_start INTEGER NOT NULL,
+            count INTEGER NOT NULL,
+            PRIMARY KEY(service_account_id, window_start)
+        );
+
         CREATE TABLE IF NOT EXISTS orgs (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,

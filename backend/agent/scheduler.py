@@ -26,6 +26,7 @@ HEALTH_SCAN_SECONDS = 300
 
 _task: Optional[asyncio.Task] = None
 _running: set[str] = set()  # durable fire ids currently driven by this process
+_relay_tasks: dict[str, asyncio.Task] = {}
 _last_health_scan_at = 0.0
 log = logging.getLogger("agentmate.scheduler")
 
@@ -217,11 +218,11 @@ async def _fire_guarded(fire_id: str) -> None:
         _running.discard(fire_id)
 
 
-def _launch(fire_id: str) -> None:
+def _launch(fire_id: str) -> Optional[asyncio.Task]:
     if fire_id in _running:
-        return
+        return None
     _running.add(fire_id)
-    asyncio.create_task(_fire_guarded(fire_id))
+    return asyncio.create_task(_fire_guarded(fire_id))
 
 
 async def _scan_health_transitions(now: float) -> None:
@@ -298,6 +299,68 @@ async def _guard_component(name: str, operation) -> None:
         worker_health.record_success(name)
 
 
+async def _process_relay_event(
+    owner_id: str, token: str, device_id: str, event: dict,
+) -> None:
+    event_id = str(event.get("id") or "")
+    try:
+        auto = db.get_automation(str(event.get("automation_id") or ""), owner_id)
+        if auto is None or auto.trigger_kind != "webhook" or not auto.enabled:
+            await asyncio.to_thread(
+                server_client.acknowledge_relay_event,
+                token, event_id, device_id=device_id,
+                lease_token=str(event.get("lease_token") or ""), status="failed",
+                error_code="automation_unavailable",
+                error_message="Target webhook automation is missing or disabled",
+            )
+            return
+        payload = {
+            "server_relay": {"event_id": event_id, "event_key": event.get("event_key")},
+            "payload": event.get("payload") if isinstance(event.get("payload"), dict) else {},
+        }
+        fire, _ = await run_webhook(auto.id, "server-relay", event_id, payload)
+        if fire is None:
+            # Concurrency policy is busy. Do not ack: the durable Server lease will
+            # expire and make the same idempotent event available later.
+            return
+        while fire.id in _running:
+            await asyncio.sleep(0.1)
+        final = db.get_automation_fire(fire.id, owner_id)
+        succeeded = bool(final and final.status == "succeeded")
+        await asyncio.to_thread(
+            server_client.acknowledge_relay_event,
+            token, event_id, device_id=device_id,
+            lease_token=str(event.get("lease_token") or ""),
+            status="succeeded" if succeeded else "failed",
+            error_code="" if succeeded else str((final.error_code if final else "fire_missing") or "run_failed"),
+            error_message="" if succeeded else str((final.error_message if final else "Local fire missing") or "Local run failed"),
+        )
+    finally:
+        _relay_tasks.pop(event_id, None)
+
+
+async def _poll_relay_once() -> None:
+    def _pull() -> tuple[str, list[tuple[str, str, dict]]]:
+        device = server_sync.relay_device_id()
+        batches: list[tuple[str, str, dict]] = []
+        try:
+            for owner_id, token in db.list_server_identities():
+                events = server_client.pull_relay_events(token, device)
+                if events:
+                    batches.extend((owner_id, token, event) for event in events)
+        finally:
+            db.close_thread_connection()
+        return device, batches
+
+    device_id, batches = await asyncio.to_thread(_pull)
+    for owner_id, token, event in batches:
+        event_id = str(event.get("id") or "")
+        if not event_id or event_id in _relay_tasks:
+            continue
+        task = asyncio.create_task(_process_relay_event(owner_id, token, device_id, event))
+        _relay_tasks[event_id] = task
+
+
 async def _tick() -> None:
     await _guard_component("automation_scheduler.scan", _scan_once)
     if settings.server_enabled:
@@ -305,6 +368,7 @@ async def _tick() -> None:
             "server_sync.outbox",
             lambda: asyncio.to_thread(server_sync.flush_outbox),
         )
+        await _guard_component("server_relay.poll", _poll_relay_once)
 
 
 async def _loop() -> None:
@@ -414,3 +478,9 @@ async def stop() -> None:
         except BaseException:
             pass
         _task = None
+    relay = list(_relay_tasks.values())
+    for task in relay:
+        task.cancel()
+    if relay:
+        await asyncio.gather(*relay, return_exceptions=True)
+    _relay_tasks.clear()

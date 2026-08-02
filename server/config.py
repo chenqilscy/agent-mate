@@ -30,6 +30,15 @@ class Settings:
     TOKEN_LEGACY_GRACE_SECONDS: int = max(
         1, int(os.getenv("AGENTMATE_SERVER_TOKEN_LEGACY_GRACE_SECONDS", "604800"))
     )
+    RELAY_RATE_LIMIT_PER_MINUTE: int = max(
+        1, int(os.getenv("AGENTMATE_RELAY_RATE_LIMIT_PER_MINUTE", "60"))
+    )
+    RELAY_LEASE_SECONDS: int = max(
+        10, int(os.getenv("AGENTMATE_RELAY_LEASE_SECONDS", "120"))
+    )
+    RELAY_MAX_ATTEMPTS: int = max(
+        1, int(os.getenv("AGENTMATE_RELAY_MAX_ATTEMPTS", "5"))
+    )
     # Public desktop update telemetry is best-effort operational data, never an
     # unbounded audit log. Dedupe retries and enforce both age and row caps.
     UPDATE_EVENT_DEDUPE_SECONDS: int = max(

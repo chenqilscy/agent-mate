@@ -5,12 +5,13 @@
 | 接入面 | 方向 | 适用场景 | 身份与边界 |
 |---|---|---|---|
 | App REST API | 外部系统 → AgentMate | 代表真实用户管理项目、会话、自动化 | 用户 Bearer；按 owner/项目成员权限校验 |
-| Automation Webhook | 外部系统 → AgentMate | CI、监控、工单、CRM 事件触发无人值守任务 | 每条自动化独立 HMAC 密钥、时间窗、幂等键 |
+| Local Automation Webhook | 同机外部系统 → App | 本机 CI、监控、工单事件触发任务 | 每条自动化独立 HMAC 密钥、时间窗、幂等键 |
+| Server Relay | 互联网外部系统 → Server → App | SaaS/CI/CRM 投递到可能离线的指定设备 | scoped service token + HMAC；Server 持久队列；设备租约与 ack |
 | MCP Connector | AgentMate → 外部系统 | Agent 在一次 Run 内查询或操作外部工具 | 本机可信启动定义 + 连接凭据；Server 目录不能下发可执行命令，MCP 调用受 Run 超时/取消约束 |
 | Skill | AgentMate 内部 | 封装指令、文件、工具绑定和权限声明 | 不是网络鉴权协议，也不直接提供公网入口 |
 | Channel | 双向消息 | Telegram、邮件等人机消息入口/结果投递 | 渠道账户绑定和发送者映射；不是通用系统事件总线 |
 
-建议先按事件方向选接入面：外部事件启动任务用 Webhook，Run 主动访问外部服务用 MCP；需要用户身份的管理操作
+建议先按事件方向选接入面：同机事件用 Local Webhook，公网事件用 Server Relay，Run 主动访问外部服务用 MCP；需要用户身份的管理操作
 才使用 REST API。不要把 Skill 当成外部 API，也不要把用户 Bearer 填进第三方 Webhook 配置。
 
 ## 2. Automation Webhook
@@ -72,14 +73,50 @@ print(urllib.request.urlopen(request).read().decode())
 投递审计只保存幂等键、正文 SHA-256、状态和关联 fire，不保存原始 HTTP 正文。为支持本机崩溃恢复与重试，解析后的
 JSON 只保存在本地 fire 执行记录中，并作为明确标注的“不可信事实输入”交给模型；它不会进入 Server outbox。
 
-## 3. Local-first 网络边界
+## 3. Server Relay（公网到离线设备）
+
+### 3.1 安全拓扑
+
+App 后台每 20 秒使用已登录的 Server 用户 token 向 Server 长轮询式 pull，首次 pull 会登记一个本机持久的不透明
+`device-<uuid>`。外部系统只连 Server HTTPS，不得把 App 的 `127.0.0.1:8101` 暴露到公网。Server 只保存事件 JSON、目标
+automation/device 和投递状态，不保存 LLM/连接器凭据、会话正文或工作区文件。
+
+### 3.2 开通步骤
+
+1. App 使用目标用户登录 Server，保持运行一轮；
+2. 用用户 Bearer 调 `GET /api/relay/devices` 取目标 `device_id`；
+3. 用同一用户 Bearer 调 `POST /api/integrations/service-accounts`，创建包含 `relay:write` / `relay:read` 的服务身份；
+4. 立即把仅显示一次的 `ams_...` token 存入外部系统 secret manager。读取列表不会回显 token；遗失只能 rotate，旧 token 立即失效；
+5. 在 App 为同一用户创建已启用的 Webhook 自动化，将其本地 `automation_id` 作为事件目标。
+
+### 3.3 事件契约
+
+`POST /api/relay/events` 的 JSON 最大 64 KiB：
+
+```json
+{
+  "event_key": "build-20260803-42",
+  "device_id": "device-00000000-0000-0000-0000-000000000000",
+  "automation_id": "local-automation-uuid",
+  "payload": {"event": "build.failed", "build_id": "42"}
+}
+```
+
+`Authorization: Bearer ams_...`；`X-AgentMate-Timestamp` 与 `X-AgentMate-Signature` 的签名方法与 2.2 相同，但 HMAC secret 是
+service token。`event_key` 在同一服务身份内幂等：完全相同的重试返回原事件，换目标或正文返回 `409`。
+
+Server 按分钟对服务身份限速（默认 60）。App pull 后获得有时租约；离线/崩溃未 ack 时租约到期自动重投，错账号、
+错设备或过期 lease token 不能确认。外部系统可使用 `relay:read` token 调 `GET /api/relay/events/{event_id}` 查询
+`pending / leased / succeeded / failed / dead_letter`。
+
+## 4. Local-first 网络边界
 
 默认 backend 只监听 `127.0.0.1:8101`，所以同机脚本和本机服务可直接调用；互联网 SaaS 无法直接回调该地址。
-若需要远程回调，应由用户控制的 HTTPS 网关/隧道或未来 Server Hub 转发到本机，并同时满足：
+若需要远程回调，优先使用上述 Server Relay。只有自托管特殊网关场景才应将 HTTPS 网关/隧道转发到本机，并同时满足：
 
 - TLS、来源限速、请求体上限和访问日志脱敏；
 - 网关不得终止或重写上述 HMAC 正文，除非重新按本机 hook secret 签名；
 - hook secret 不进入前端源码、Git、日志、Server 目录或普通环境透传；
 - 离线时由网关持久重试，同一业务事件始终复用同一幂等键。
 
-当前实现没有提供托管公网 Hub；这属于部署能力，不应通过把本机 FastAPI 直接暴露到公网来替代。
+Server Relay 是应用层持久中继；生产部署仍需由用户基建提供 TLS、域名、备份与可用性。

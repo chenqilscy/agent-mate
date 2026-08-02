@@ -24,7 +24,7 @@ _CONSOLE_NEXT = _CONSOLE_DIST / "index.html"
 
 import db  # noqa: E402
 from config import settings  # noqa: E402
-from routers import accounts, auth, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, timeline, work_items  # noqa: E402
+from routers import accounts, auth, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, relay, timeline, work_items  # noqa: E402
 
 db.init_db()
 
@@ -75,6 +75,7 @@ app.include_router(pm.router)
 app.include_router(knowledge.router)
 app.include_router(desktop_updates.router)
 app.include_router(platform_settings.router)
+app.include_router(relay.router)
 
 
 @app.get("/{console_path:path}", response_class=HTMLResponse, include_in_schema=False)

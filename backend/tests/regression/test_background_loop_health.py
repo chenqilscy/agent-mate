@@ -46,6 +46,7 @@ class BackgroundLoopHealthTest(unittest.IsolatedAsyncioTestCase):
             patch.object(type(settings), "server_enabled", new_callable=PropertyMock, return_value=True),
             patch.object(scheduler, "_scan_once", AsyncMock()),
             patch.object(scheduler.server_sync, "flush_outbox", side_effect=RuntimeError("server down")),
+            patch.object(scheduler, "_poll_relay_once", AsyncMock()),
             self.assertLogs("agentmate.scheduler", level="ERROR"),
         ):
             await scheduler._tick()
