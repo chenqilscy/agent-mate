@@ -1,9 +1,9 @@
 """Domain models.
 
-Multi-user is pre-embedded from M1 (decision A.3): every business row carries
-UUID primary keys plus owner_id / project_id, and roles are a fixed enum. In
-single-machine mode these are filled with the fixed local user, so switching on
-the account system later (M7) touches only the auth middleware, not these tables.
+Multi-user was pre-embedded from M1 (decision A.3): every business row carries
+UUID primary keys plus owner_id / project_id, and roles are a fixed enum. M7
+resolves Server-issued Bearer identities through the auth middleware; requests
+without one use LOCAL_USER only as an anonymous local data scope.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class Role(str, enum.Enum):
     VIEWER = "Viewer"
 
 
-# The fixed local user injected in single-machine mode.
+# Anonymous data scope for pure-local or signed-out use; not a login account.
 LOCAL_USER_ID = "00000000-0000-0000-0000-000000000001"
 LOCAL_USER_NAME = "奇"
 

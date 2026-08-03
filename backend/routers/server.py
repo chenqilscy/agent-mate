@@ -23,6 +23,13 @@ def _bearer(authorization: str) -> str:
     return authorization[7:].strip() if authorization[:7].lower() == "bearer " else ""
 
 
+def _required_server_token(authorization: str) -> str:
+    token = _bearer(authorization)
+    if not token:
+        raise HTTPException(status_code=401, detail="server identity required")
+    return token
+
+
 @router.post("/server/pull")
 def server_pull(authorization: str = Header(default="")) -> dict:
     if not server_client.server_enabled():
@@ -116,17 +123,24 @@ def server_login(body: ServerLoginBody) -> dict:
     """代理登录/注册到 Server。前端拿到返回的 token 后存为自己的 token，即以 Server 账号身份操作。"""
     if not server_client.server_enabled():
         raise HTTPException(400, "server not configured")
-    res = server_client.server_login((body.name or "").strip(), body.password, body.create_account)
-    if not res or not res.get("token"):
-        raise HTTPException(401, "Server 登录失败（账号密码错误或 Server 不可达）")
-    return res
+    status, result = server_client.server_login_ex(
+        (body.name or "").strip(), body.password, body.create_account,
+    )
+    if status == "ok" and result and result.get("token"):
+        return result
+    if status == "rejected" and result:
+        raise HTTPException(int(result.get("code") or 400), result.get("detail") or "Server 拒绝登录")
+    raise HTTPException(503, "Server 暂不可达，请稍后重试")
 
 
 @router.get("/server/projects/{project_id}/comments")
 def server_comments(project_id: str, authorization: str = Header(default="")) -> dict:
     if not server_client.server_enabled():
         return {"server": False, "comments": []}
-    return {"server": True, "comments": server_client.list_comments(_bearer(authorization), project_id) or []}
+    comments = server_client.list_comments(_required_server_token(authorization), project_id)
+    if comments is None:
+        raise HTTPException(503, "Server 暂不可达，评论未加载")
+    return {"server": True, "comments": comments}
 
 
 class CommentBody(BaseModel):
@@ -137,9 +151,11 @@ class CommentBody(BaseModel):
 def server_post_comment(project_id: str, body: CommentBody, authorization: str = Header(default="")) -> dict:
     if not server_client.server_enabled():
         raise HTTPException(400, "server not configured")
-    c = server_client.post_comment(_bearer(authorization), project_id, (body.body or "").strip())
+    c = server_client.post_comment(
+        _required_server_token(authorization), project_id, (body.body or "").strip()
+    )
     if not c:
-        raise HTTPException(400, "评论失败（无权限或 Server 不可达）")
+        raise HTTPException(503, "Server 暂不可达，评论未提交")
     return c
 
 
@@ -148,16 +164,23 @@ def server_post_comment(project_id: str, body: CommentBody, authorization: str =
 def server_item_comments(project_id: str, wid: str, authorization: str = Header(default="")) -> dict:
     if not server_client.server_enabled():
         return {"server": False, "comments": []}
-    return {"server": True, "comments": server_client.list_item_comments(_bearer(authorization), project_id, wid) or []}
+    comments = server_client.list_item_comments(
+        _required_server_token(authorization), project_id, wid
+    )
+    if comments is None:
+        raise HTTPException(503, "Server 暂不可达，任务评论未加载")
+    return {"server": True, "comments": comments}
 
 
 @router.post("/server/projects/{project_id}/work-items/{wid}/comments")
 def server_post_item_comment(project_id: str, wid: str, body: CommentBody, authorization: str = Header(default="")) -> dict:
     if not server_client.server_enabled():
         raise HTTPException(400, "server not configured")
-    c = server_client.post_item_comment(_bearer(authorization), project_id, wid, (body.body or "").strip())
+    c = server_client.post_item_comment(
+        _required_server_token(authorization), project_id, wid, (body.body or "").strip()
+    )
     if not c:
-        raise HTTPException(400, "评论失败（无权限或 Server 不可达）")
+        raise HTTPException(503, "Server 暂不可达，任务评论未提交")
     return c
 
 
@@ -165,7 +188,10 @@ def server_post_item_comment(project_id: str, wid: str, body: CommentBody, autho
 def server_presence(project_id: str, authorization: str = Header(default="")) -> dict:
     if not server_client.server_enabled():
         return {"server": False, "presence": []}
-    return {"server": True, "presence": server_client.list_presence(_bearer(authorization), project_id) or []}
+    presence = server_client.list_presence(_required_server_token(authorization), project_id)
+    if presence is None:
+        raise HTTPException(503, "Server 暂不可达，在线状态未加载")
+    return {"server": True, "presence": presence}
 
 
 @router.get("/server/projects/{project_id}/timeline")

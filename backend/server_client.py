@@ -1,7 +1,8 @@
 """本地 backend 作为 AgentMate Server 客户端（WB-062）。
 
-所有调用 **guarded**：未接 Server（AGENTMATE_SERVER_URL 空）/ 不可达 / 非 200 → 返回 None，**从不抛异常**，
-保证离线/未登录纯本地照跑（架构设计 §6「回退优先」）。这些是**同步阻塞**调用（httpx.get）——
+后台与缓存读取调用保持 **guarded**：未接 Server（AGENTMATE_SERVER_URL 空）/ 不可达 / 非 200 → 返回 None，
+保证离线/未登录纯本地照跑。用户发起的权威写入与无缓存读取使用 strict 模式：Server 4xx 原样转成
+HTTP 错误，只有网络异常/5xx 才按不可达处理。这些是**同步阻塞**调用（httpx.get）——
 调用方必须在工作线程里跑它，别占事件循环（WB-002 教训）。同步 payload 绝不含 LLM 凭据或
 连接器 secret。WB-290 的知识库上传是唯一例外：只在用户显式调用 knowledge_add 时，把目标文件
 发送到已鉴权的项目知识库路由；绝不自动同步沙箱。
@@ -11,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import httpx
+from fastapi import HTTPException
 
 from config import settings
 
@@ -22,8 +24,24 @@ def server_enabled() -> bool:
     return bool(settings.AGENTMATE_SERVER_URL)
 
 
-def _get(path: str, token: str) -> Optional[Any]:
-    """带 token GET Server 的 `path`，返回解析后的 JSON 或 None（guarded，从不抛）。"""
+def _rejection_detail(response: httpx.Response) -> Any:
+    """Extract FastAPI's public error detail without exposing transport internals."""
+    try:
+        payload = response.json()
+    except Exception:  # noqa: BLE001 - non-JSON rejections still need a stable message
+        return "Server 拒绝请求"
+    if isinstance(payload, dict) and "detail" in payload:
+        return payload["detail"]
+    return "Server 拒绝请求"
+
+
+def _raise_rejection(response: httpx.Response, strict: bool) -> None:
+    if strict and 400 <= response.status_code < 500:
+        raise HTTPException(response.status_code, _rejection_detail(response))
+
+
+def _get(path: str, token: str, *, strict: bool = False) -> Optional[Any]:
+    """GET Server JSON; strict user paths preserve authoritative 4xx rejections."""
     if not token or not settings.AGENTMATE_SERVER_URL:
         return None
     try:
@@ -33,8 +51,11 @@ def _get(path: str, token: str) -> Optional[Any]:
             timeout=_TIMEOUT,
         )
         if r.status_code != 200:
+            _raise_rejection(r, strict)
             return None
         return r.json()
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001 —— 网络/解析任何错都当「未接/不可达」，回退本地
         return None
 
@@ -72,8 +93,8 @@ def verify_token(token: str) -> Optional[dict[str, Any]]:
     return account if status == "valid" else None
 
 
-def _post(path: str, token: str, body: Optional[dict] = None) -> Optional[Any]:
-    """带 token POST Server 的 `path`，返回解析后的 JSON 或 None（guarded，从不抛）。"""
+def _post(path: str, token: str, body: Optional[dict] = None, *, strict: bool = False) -> Optional[Any]:
+    """POST Server JSON; background calls stay guarded, strict user writes preserve 4xx."""
     if not settings.AGENTMATE_SERVER_URL:
         return None
     try:
@@ -83,14 +104,17 @@ def _post(path: str, token: str, body: Optional[dict] = None) -> Optional[Any]:
             json=body or {}, timeout=_TIMEOUT,
         )
         if r.status_code != 200:
+            _raise_rejection(r, strict)
             return None
         return r.json()
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         return None
 
 
-def _patch(path: str, token: str, body: Optional[dict] = None) -> Optional[Any]:
-    """带 token PATCH Server 的 `path`（guarded，从不抛）。"""
+def _patch(path: str, token: str, body: Optional[dict] = None, *, strict: bool = False) -> Optional[Any]:
+    """PATCH Server JSON; strict user writes preserve authoritative 4xx."""
     if not token or not settings.AGENTMATE_SERVER_URL:
         return None
     try:
@@ -99,19 +123,29 @@ def _patch(path: str, token: str, body: Optional[dict] = None) -> Optional[Any]:
             headers={"Authorization": f"Bearer {token}"},
             json=body or {}, timeout=_TIMEOUT,
         )
-        return r.json() if r.status_code == 200 else None
+        if r.status_code != 200:
+            _raise_rejection(r, strict)
+            return None
+        return r.json()
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         return None
 
 
-def _delete(path: str, token: str) -> bool:
-    """带 token DELETE Server 的 `path`（guarded，从不抛）。成功(200)→True。"""
+def _delete(path: str, token: str, *, strict: bool = False) -> bool:
+    """DELETE Server; strict user writes preserve authoritative 4xx."""
     if not token or not settings.AGENTMATE_SERVER_URL:
         return False
     try:
         r = httpx.delete(f"{settings.AGENTMATE_SERVER_URL}{path}",
                          headers={"Authorization": f"Bearer {token}"}, timeout=_TIMEOUT)
-        return r.status_code == 200
+        if r.status_code != 200:
+            _raise_rejection(r, strict)
+            return False
+        return True
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001
         return False
 
@@ -246,28 +280,30 @@ def sso_poll(attempt_id: str, attempt_token: str) -> tuple[str, Optional[dict[st
 
 
 def list_comments(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
-    d = _get(f"/api/projects/{project_id}/comments", token)
+    d = _get(f"/api/projects/{project_id}/comments", token, strict=True)
     c = d.get("comments") if isinstance(d, dict) else None
     return c if isinstance(c, list) else None
 
 
 def post_comment(token: str, project_id: str, body: str) -> Optional[dict[str, Any]]:
-    return _post(f"/api/projects/{project_id}/comments", token, {"body": body})
+    return _post(f"/api/projects/{project_id}/comments", token, {"body": body}, strict=True)
 
 
 def list_item_comments(token: str, project_id: str, wid: str) -> Optional[list[dict[str, Any]]]:
     """任务级评论（WB-118）：拉 Server `work-items/{wid}/comments`。"""
-    d = _get(f"/api/projects/{project_id}/work-items/{wid}/comments", token)
+    d = _get(f"/api/projects/{project_id}/work-items/{wid}/comments", token, strict=True)
     c = d.get("comments") if isinstance(d, dict) else None
     return c if isinstance(c, list) else None
 
 
 def post_item_comment(token: str, project_id: str, wid: str, body: str) -> Optional[dict[str, Any]]:
-    return _post(f"/api/projects/{project_id}/work-items/{wid}/comments", token, {"body": body})
+    return _post(
+        f"/api/projects/{project_id}/work-items/{wid}/comments", token, {"body": body}, strict=True,
+    )
 
 
 def list_presence(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
-    d = _get(f"/api/projects/{project_id}/presence", token)
+    d = _get(f"/api/projects/{project_id}/presence", token, strict=True)
     p = d.get("presence") if isinstance(d, dict) else None
     return p if isinstance(p, list) else None
 
@@ -426,12 +462,12 @@ def list_work_items(token: str, project_id: str) -> Optional[list[dict[str, Any]
 
 
 def create_work_item(token: str, project_id: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
-    d = _post(f"/api/projects/{project_id}/work-items", token, body)
+    d = _post(f"/api/projects/{project_id}/work-items", token, body, strict=True)
     return d if isinstance(d, dict) else None
 
 
 def update_work_item(token: str, project_id: str, wid: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
-    d = _patch(f"/api/projects/{project_id}/work-items/{wid}", token, body)
+    d = _patch(f"/api/projects/{project_id}/work-items/{wid}", token, body, strict=True)
     return d if isinstance(d, dict) else None
 
 
@@ -443,12 +479,13 @@ def accept_work_item(
         f"/api/projects/{project_id}/work-items/{wid}/accept",
         token,
         {"run_id": run_id, "artifact_count": artifact_count},
+        strict=True,
     )
     return d if isinstance(d, dict) else None
 
 
 def delete_work_item(token: str, project_id: str, wid: str) -> bool:
-    return _delete(f"/api/projects/{project_id}/work-items/{wid}", token)
+    return _delete(f"/api/projects/{project_id}/work-items/{wid}", token, strict=True)
 
 
 # ---- 里程碑 milestones 代理（WB-108）：server-origin 项目的里程碑走 Server 权威 ----
@@ -460,17 +497,17 @@ def list_milestones(token: str, project_id: str) -> Optional[list[dict[str, Any]
 
 
 def create_milestone(token: str, project_id: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
-    d = _post(f"/api/projects/{project_id}/milestones", token, body)
+    d = _post(f"/api/projects/{project_id}/milestones", token, body, strict=True)
     return d if isinstance(d, dict) else None
 
 
 def update_milestone(token: str, project_id: str, mid: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
-    d = _patch(f"/api/projects/{project_id}/milestones/{mid}", token, body)
+    d = _patch(f"/api/projects/{project_id}/milestones/{mid}", token, body, strict=True)
     return d if isinstance(d, dict) else None
 
 
 def delete_milestone(token: str, project_id: str, mid: str) -> bool:
-    return _delete(f"/api/projects/{project_id}/milestones/{mid}", token)
+    return _delete(f"/api/projects/{project_id}/milestones/{mid}", token, strict=True)
 
 
 # ---- 风险与决策台账（WB-350）：server-origin 项目走 Server 权威 ----
@@ -483,18 +520,18 @@ def list_project_governance(token: str, project_id: str) -> Optional[list[dict[s
 
 def create_project_governance(token: str, project_id: str,
                               body: dict[str, Any]) -> Optional[dict[str, Any]]:
-    d = _post(f"/api/projects/{project_id}/governance", token, body)
+    d = _post(f"/api/projects/{project_id}/governance", token, body, strict=True)
     return d if isinstance(d, dict) else None
 
 
 def update_project_governance(token: str, project_id: str, record_id: str,
                               body: dict[str, Any]) -> Optional[dict[str, Any]]:
-    d = _patch(f"/api/projects/{project_id}/governance/{record_id}", token, body)
+    d = _patch(f"/api/projects/{project_id}/governance/{record_id}", token, body, strict=True)
     return d if isinstance(d, dict) else None
 
 
 def delete_project_governance(token: str, project_id: str, record_id: str) -> bool:
-    return _delete(f"/api/projects/{project_id}/governance/{record_id}", token)
+    return _delete(f"/api/projects/{project_id}/governance/{record_id}", token, strict=True)
 
 
 # ---- 项目配置 / 成员写代理（WB-112c）：server-origin 项目的成员·角色·配置以 Console 为权威 ----
@@ -508,7 +545,7 @@ def get_project(token: str, project_id: str) -> Optional[dict[str, Any]]:
 
 def update_project(token: str, project_id: str, patch: dict[str, Any]) -> Optional[dict[str, Any]]:
     """代理项目配置更新（name/instruction/connectors/experts/skills）到 Console。"""
-    d = _patch(f"/api/projects/{project_id}", token, patch)
+    d = _patch(f"/api/projects/{project_id}", token, patch, strict=True)
     return d if isinstance(d, dict) else None
 
 
@@ -591,14 +628,16 @@ def import_project_knowledge_url(
 
 def add_member(token: str, project_id: str, name: str, role: str) -> Optional[dict[str, Any]]:
     """按账号名加成员到 Console 项目（Console 侧按名解析 account）。返回结果 dict 或 None。"""
-    d = _post(f"/api/projects/{project_id}/members", token, {"name": name, "role": role})
+    d = _post(f"/api/projects/{project_id}/members", token, {"name": name, "role": role}, strict=True)
     return d if isinstance(d, dict) else None
 
 
 def update_member(token: str, project_id: str, account_id: str, role: str) -> Optional[dict[str, Any]]:
-    d = _patch(f"/api/projects/{project_id}/members/{account_id}", token, {"role": role})
+    d = _patch(
+        f"/api/projects/{project_id}/members/{account_id}", token, {"role": role}, strict=True,
+    )
     return d if isinstance(d, dict) else None
 
 
 def remove_member(token: str, project_id: str, account_id: str) -> bool:
-    return _delete(f"/api/projects/{project_id}/members/{account_id}", token)
+    return _delete(f"/api/projects/{project_id}/members/{account_id}", token, strict=True)

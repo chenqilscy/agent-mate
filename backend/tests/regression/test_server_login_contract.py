@@ -20,13 +20,34 @@ class ServerLoginContractTest(unittest.TestCase):
         self.assertTrue(body.create_account)
         with (
             patch.object(server_router.server_client, "server_enabled", return_value=True),
-            patch.object(server_router.server_client, "server_login", return_value={
+            patch.object(server_router.server_client, "server_login_ex", return_value=("ok", {
                 "token": "token", "account": {"id": "alice"},
-            }) as login,
+            })) as login,
         ):
             result = server_router.server_login(body)
         self.assertEqual("token", result["token"])
         login.assert_called_once_with("alice", "secret", True)
+
+    def test_rejection_and_outage_remain_distinct(self) -> None:
+        body = server_router.ServerLoginBody(name="alice", password="wrong", register=False)
+        with (
+            patch.object(server_router.server_client, "server_enabled", return_value=True),
+            patch.object(server_router.server_client, "server_login_ex", return_value=(
+                "rejected", {"code": 401, "detail": "invalid credentials"},
+            )),
+            self.assertRaises(server_router.HTTPException) as rejected,
+        ):
+            server_router.server_login(body)
+        self.assertEqual(401, rejected.exception.status_code)
+        self.assertEqual("invalid credentials", rejected.exception.detail)
+
+        with (
+            patch.object(server_router.server_client, "server_enabled", return_value=True),
+            patch.object(server_router.server_client, "server_login_ex", return_value=("unreachable", None)),
+            self.assertRaises(server_router.HTTPException) as unavailable,
+        ):
+            server_router.server_login(body)
+        self.assertEqual(503, unavailable.exception.status_code)
 
 
 if __name__ == "__main__":

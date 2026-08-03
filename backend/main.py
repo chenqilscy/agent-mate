@@ -1,8 +1,9 @@
 """AgentMate backend entrypoint (FastAPI + SSE).
 
 Local-first: this runs on the user's machine as a localhost service. The browser
-(Vite dev server, or the Tauri shell in M5) is just the display. All routes pass
-through the auth dependency which, in M1, injects the fixed local user.
+(Vite dev server, or the Tauri shell) is just the display. Requests resolve a
+Server-issued Bearer identity through the auth middleware; without one they use
+the anonymous LOCAL_USER data scope, which is not a login account.
 """
 from __future__ import annotations
 

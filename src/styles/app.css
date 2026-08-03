@@ -1299,12 +1299,12 @@ body.dark .ph-illus { filter: brightness(.72) saturate(.78); }
 .ovpanel.pe.open.expanded { width: 100%; }
 .ovpanel.pe.open.expanded .ov-inner { width: 100%; padding: 0; }
 .pe-top { min-height: 48px; display: flex; align-items: center; gap: 4px; padding: 7px 10px; border-bottom: 1px solid var(--border-2); }
-.pe-top-btn { width: 32px; min-width: 32px; height: 32px; padding: 0; border-radius: 8px; color: var(--text-3); box-shadow: none; }
+.pe-top-btn { width: 32px; min-width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; color: var(--text-3); box-shadow: none; }
 .pe-top-btn:hover, .pe-top-btn.on { background: var(--chip); color: var(--text); }
 .pe-top-btn svg { width: 15px; height: 15px; }
 .pe-top-title { flex: 1; min-width: 0; padding: 0 8px; overflow: hidden; color: var(--text-2); font-size: 12.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .pe-tabs { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--border-2); overflow-x: auto; }
-.pe-tab { display: inline-flex; gap: 6px; align-items: center; height: 30px; padding: 6px 10px; border-radius: 8px; color: var(--text-2); font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; box-shadow: none; }
+.pe-tab { display: inline-flex; gap: 6px; align-items: center; height: 30px; padding: 6px 10px; border: 0; border-radius: 8px; color: var(--text-2); font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; box-shadow: none; }
 .pe-tab:hover { color: var(--text); }
 .pe-tab.active { background: var(--chip); color: var(--text); }
 .pe-tab svg { width: 13px; height: 13px; }
@@ -1338,7 +1338,7 @@ body.dark .ph-illus { filter: brightness(.72) saturate(.78); }
 .pe-overview-empty { padding: 7px; color: var(--text-3); font-size: 12px; }
 
 .pe-flow-pop { width: 300px; }
-.pe-flow-item { width: 100%; height: 34px; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; color: var(--text); box-shadow: none; }
+.pe-flow-item { width: 100%; height: 34px; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 0; border-radius: 8px; color: var(--text); box-shadow: none; }
 .pe-flow-item:not(:disabled):hover { background: var(--chip); }
 .pe-flow-item > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .pe-flow-item small { flex-shrink: 0; color: var(--brand-600); font-size: 11px; }
