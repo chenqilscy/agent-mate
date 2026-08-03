@@ -143,6 +143,33 @@ export const consoleApi = {
     apiRequest<AuthResponse>("POST", "/auth/login", { name, password }),
   register: (name: string, password: string) =>
     apiRequest<AuthResponse>("POST", "/auth/register", { name, password }),
+  ssoProviders: () =>
+    apiRequest<{ providers: { id: string; label: string }[] }>("GET", "/auth/sso/providers"),
+  ssoStart: (provider: string, invite_code = "") =>
+    apiRequest<{ attempt_id: string; attempt_token: string; auth_url: string; expires_at: number }>(
+      "POST", "/auth/sso/start", { provider, invite_code },
+    ),
+  ssoPoll: (attempt_id: string, attempt_token: string) =>
+    apiRequest<{
+      status: "pending" | "error" | "completed";
+      error_code?: string;
+      token?: string;
+      account?: Account;
+    }>("POST", "/auth/sso/poll", { attempt_id, attempt_token }),
+  adminSsoProviders: () =>
+    apiRequest<{ providers: { id: string; label: string; enabled: boolean; client_id: string; secret_configured: boolean; updated_at: number }[] }>(
+      "GET", "/admin/sso/providers",
+    ),
+  saveSsoProvider: (
+    provider: string,
+    body: { enabled: boolean; client_id: string; client_secret?: string },
+  ) => apiRequest<{ provider: { id: string; label: string; enabled: boolean; client_id: string; secret_configured: boolean; updated_at: number } }>(
+    "PUT", `/admin/sso/providers/${encodeURIComponent(provider)}`, body,
+  ),
+  createSsoSignupInvite: (ttl_seconds = 86400) =>
+    apiRequest<{ invite: { id: string; expires_at: number }; code: string }>(
+      "POST", "/admin/sso/signup-invites", { ttl_seconds },
+    ),
   logout: () => apiRequest<{ ok: boolean }>("POST", "/auth/logout"),
   skills: () =>
     apiRequest<{ items: CatalogItem<SkillData>[] }>(

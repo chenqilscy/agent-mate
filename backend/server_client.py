@@ -142,6 +142,70 @@ def server_logout(token: str) -> bool:
     return bool(isinstance(result, dict) and result.get("ok") is True)
 
 
+def sso_providers() -> list[dict[str, str]]:
+    """Public configured provider list. Unreachable Server is an honest empty list."""
+    if not settings.AGENTMATE_SERVER_URL:
+        return []
+    try:
+        response = httpx.get(
+            f"{settings.AGENTMATE_SERVER_URL}/api/auth/sso/providers", timeout=_TIMEOUT,
+        )
+        body = response.json() if response.status_code == 200 else {}
+        items = body.get("providers") if isinstance(body, dict) else None
+        return items if isinstance(items, list) else []
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def sso_start(
+    provider: str, *, invite_code: str = "", token: str = "",
+) -> tuple[str, Optional[dict[str, Any]]]:
+    if not settings.AGENTMATE_SERVER_URL:
+        return "unreachable", None
+    try:
+        response = httpx.post(
+            f"{settings.AGENTMATE_SERVER_URL}/api/auth/sso/start",
+            headers=({"Authorization": f"Bearer {token}"} if token else {}),
+            json={"provider": provider, "mode": "login", "invite_code": invite_code},
+            timeout=_TIMEOUT,
+        )
+    except Exception:  # noqa: BLE001
+        return "unreachable", None
+    try:
+        body = response.json()
+    except Exception:  # noqa: BLE001
+        body = None
+    if response.status_code == 200 and isinstance(body, dict):
+        return "ok", body
+    if 400 <= response.status_code < 500:
+        detail = body.get("detail") if isinstance(body, dict) else "sso_start_rejected"
+        return "rejected", {"code": response.status_code, "detail": detail}
+    return "unreachable", None
+
+
+def sso_poll(attempt_id: str, attempt_token: str) -> tuple[str, Optional[dict[str, Any]]]:
+    if not settings.AGENTMATE_SERVER_URL:
+        return "unreachable", None
+    try:
+        response = httpx.post(
+            f"{settings.AGENTMATE_SERVER_URL}/api/auth/sso/poll",
+            json={"attempt_id": attempt_id, "attempt_token": attempt_token},
+            timeout=_TIMEOUT,
+        )
+    except Exception:  # noqa: BLE001
+        return "unreachable", None
+    try:
+        body = response.json()
+    except Exception:  # noqa: BLE001
+        body = None
+    if response.status_code == 200 and isinstance(body, dict):
+        return "ok", body
+    if 400 <= response.status_code < 500:
+        detail = body.get("detail") if isinstance(body, dict) else "sso_poll_rejected"
+        return "rejected", {"code": response.status_code, "detail": detail}
+    return "unreachable", None
+
+
 def list_comments(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
     d = _get(f"/api/projects/{project_id}/comments", token)
     c = d.get("comments") if isinstance(d, dict) else None

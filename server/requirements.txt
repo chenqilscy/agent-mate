@@ -1,3 +1,5 @@
 # AgentMate Server 中心服务依赖（WB-061）。与 backend 解耦，但依赖同族，可复用同一 venv 起本地。
 fastapi
 uvicorn[standard]
+httpx
+PyJWT[crypto]>=2.10,<3

@@ -75,6 +75,8 @@ body {
 .login-card .ant-pro-form-login-main { width: 100%; }
 .login-mode { margin-bottom: 18px; }
 .login-error { margin-bottom: 16px; }
+.login-sso { margin-top: 14px; }
+.login-sso-actions { width: 100%; margin-top: 12px; }
 
 .ant-pro-layout .ant-pro-layout-content { min-width: 0; }
 .ant-pro-page-container-children-container { padding-block-end: 32px; }

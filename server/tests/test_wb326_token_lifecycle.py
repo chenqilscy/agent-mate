@@ -44,12 +44,13 @@ class ServerTokenLifecycleTest(unittest.TestCase):
         self.assertEqual(expires_at, db.token_expires_at(token))
 
         db.get_conn().execute(
-            "UPDATE server_tokens SET expires_at=? WHERE token=?", (time.time() - 1, token)
+            "UPDATE server_tokens SET expires_at=? WHERE token=?",
+            (time.time() - 1, db._token_key(token)),
         )
         db.get_conn().commit()
         self.assertIsNone(db.account_id_for_token(token))
         self.assertIsNone(db.get_conn().execute(
-            "SELECT 1 FROM server_tokens WHERE token=?", (token,)
+            "SELECT 1 FROM server_tokens WHERE token=?", (db._token_key(token),)
         ).fetchone())
 
     def test_delete_token_is_idempotent(self) -> None:
@@ -80,7 +81,8 @@ class ServerTokenLifecycleTest(unittest.TestCase):
         before = time.time()
         db.init_db()
         expires_at = db.get_conn().execute(
-            "SELECT expires_at FROM server_tokens WHERE token='legacy-token'"
+            "SELECT expires_at FROM server_tokens WHERE token=?",
+            (db._token_key("legacy-token"),),
         ).fetchone()["expires_at"]
         compatibility_window = min(
             settings.TOKEN_TTL_SECONDS, settings.TOKEN_LEGACY_GRACE_SECONDS
@@ -90,6 +92,7 @@ class ServerTokenLifecycleTest(unittest.TestCase):
             expires_at,
             before + compatibility_window + 1,
         )
+        self.assertEqual(self.account.id, db.account_id_for_token("legacy-token"))
         db.init_db()  # migration is idempotent
 
 

@@ -21,7 +21,19 @@ class Settings:
     HOST: str = os.getenv("AGENTMATE_SERVER_HOST", "127.0.0.1")
     PORT: int = int(os.getenv("AGENTMATE_SERVER_PORT", "8100"))
     # pbkdf2 迭代次数（与 backend 一致的口令散列强度）。
-    PBKDF2_ITERS: int = int(os.getenv("AGENTMATE_SERVER_PBKDF2_ITERS", "100000"))
+    PBKDF2_ITERS: int = int(os.getenv("AGENTMATE_SERVER_PBKDF2_ITERS", "600000"))
+    AUTH_RATE_LIMIT_PER_MINUTE: int = max(
+        1, int(os.getenv("AGENTMATE_AUTH_RATE_LIMIT_PER_MINUTE", "10"))
+    )
+    SSO_PUBLIC_BASE_URL: str = os.getenv(
+        "AGENTMATE_SSO_PUBLIC_BASE_URL", f"http://127.0.0.1:{PORT}"
+    ).strip().rstrip("/")
+    SSO_STATE_TTL_SECONDS: int = max(
+        60, int(os.getenv("AGENTMATE_SSO_STATE_TTL_SECONDS", "600"))
+    )
+    SSO_REGISTRATION_POLICY: str = os.getenv(
+        "AGENTMATE_SSO_REGISTRATION_POLICY", "invite_only"
+    ).strip().lower()
     # Server Bearer token 有界生命周期（WB-326）。默认 30 天；存量无 expires_at 的 token
     # 升级后仅保留 7 天兼容窗口，避免无限续用，同时不强制所有在线用户立即掉线。
     TOKEN_TTL_SECONDS: int = max(

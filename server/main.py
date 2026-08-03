@@ -24,7 +24,7 @@ _CONSOLE_NEXT = _CONSOLE_DIST / "index.html"
 
 import db  # noqa: E402
 from config import settings  # noqa: E402
-from routers import accounts, auth, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, relay, timeline, work_items  # noqa: E402
+from routers import accounts, auth, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, relay, sso, timeline, work_items  # noqa: E402
 
 db.init_db()
 
@@ -59,6 +59,7 @@ def health() -> dict:
 
 
 app.include_router(auth.router)
+app.include_router(sso.router)
 app.include_router(accounts.router)
 app.include_router(orgs.router)
 app.include_router(projects.router)

@@ -1,10 +1,11 @@
 """账号鉴权（WB-061）：注册 / 登录 / 登出 / 我，以及 token 校验端点（供本地 backend 客户端调用）。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 import db
+import sso_store
 from auth import CurrentAccount, bearer_token
 from models import Account
 
@@ -23,7 +24,10 @@ class LoginBody(BaseModel):
 
 
 @router.post("/auth/register")
-def register(body: RegisterBody) -> dict:
+def register(body: RegisterBody, request: Request) -> dict:
+    ip = request.client.host if request.client else "unknown"
+    if not sso_store.check_rate_limit(f"register:{ip}"):
+        raise HTTPException(429, "too_many_attempts")
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "empty name")
@@ -35,10 +39,16 @@ def register(body: RegisterBody) -> dict:
 
 
 @router.post("/auth/login")
-def login(body: LoginBody) -> dict:
-    rec = db.get_account_by_name((body.name or "").strip())
+def login(body: LoginBody, request: Request) -> dict:
+    name = (body.name or "").strip()
+    ip = request.client.host if request.client else "unknown"
+    if not sso_store.check_rate_limit(f"login:{ip}:{name.lower()}"):
+        raise HTTPException(429, "too_many_attempts")
+    rec = db.get_account_by_name(name)
     if not rec or not db.verify_password(body.password, rec[1]):
         raise HTTPException(401, "invalid credentials")
+    if db.password_needs_rehash(rec[1]):
+        db.upgrade_password_hash(rec[0].id, body.password)
     token, expires_at = db.create_token(rec[0].id)
     return {"token": token, "expires_at": expires_at, "account": rec[0].to_dict()}
 

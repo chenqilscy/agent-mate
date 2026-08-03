@@ -41,6 +41,14 @@ export interface AuthResult {
   user: { id: string; name: string; role: string; plan: string }
 }
 
+export interface SsoProvider { id: 'google' | 'wechat' | 'telegram'; label: string }
+export interface SsoStartResult {
+  attempt_id: string
+  attempt_token: string
+  auth_url: string
+  expires_at: number
+}
+
 export class SkillSecurityError extends Error {
   code: string
   report: SkillSecurityReport
@@ -146,6 +154,13 @@ export const api = {
     send<AuthResult>('POST', '/auth/register', { name, password }),
   login: (name: string, password: string) =>
     send<AuthResult>('POST', '/auth/login', { name, password }),
+  ssoProviders: () => get<{ providers: SsoProvider[] }>('/auth/sso/providers'),
+  ssoStart: (provider: string, invite_code = '') =>
+    send<SsoStartResult>('POST', '/auth/sso/start', { provider, invite_code }),
+  ssoPoll: (attempt_id: string, attempt_token: string) =>
+    send<({ status: 'pending' | 'error'; error_code?: string } | ({ status: 'completed' } & AuthResult))>(
+      'POST', '/auth/sso/poll', { attempt_id, attempt_token },
+    ),
   logout: () => send<{ ok: boolean }>('POST', '/auth/logout'),
 
   // 厂商预置 + 自定义兜底（WB-128）。providers 供配置弹窗分组；models 是 picker 扁平可选列表。

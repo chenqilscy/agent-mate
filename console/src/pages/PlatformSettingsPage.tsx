@@ -1,6 +1,6 @@
 import {
   Alert, App, Button, Card, Descriptions, Form, Input, InputNumber, Popconfirm,
-  Space, Table, Tag, Typography,
+  Space, Switch, Table, Tag, Typography,
 } from "antd";
 import { PageContainer } from "@ant-design/pro-components";
 import { ApiError, consoleApi } from "../api";
@@ -12,6 +12,16 @@ type Draft = {
   weknora_api_key: string;
   embedding_model_id: string;
   invite_ttl_seconds: number;
+};
+
+type SsoProviderConfig = {
+  id: string;
+  label: string;
+  enabled: boolean;
+  client_id: string;
+  client_secret?: string;
+  secret_configured: boolean;
+  updated_at: number;
 };
 
 const sourceLabel: Record<string, string> = {
@@ -38,12 +48,14 @@ async function validateHttpUrl(_rule: unknown, value?: string): Promise<void> {
 }
 
 export default function PlatformSettingsPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm<Draft>();
   const [data, setData] = useState<PlatformSettingsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [ssoProviders, setSsoProviders] = useState<SsoProviderConfig[]>([]);
+  const [ssoSaving, setSsoSaving] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -64,6 +76,46 @@ export default function PlatformSettingsPage() {
   };
 
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void consoleApi.adminSsoProviders()
+      .then((result) => setSsoProviders(result.providers))
+      .catch((reason) => message.error(errorText(reason)));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const patchSso = (id: string, patch: Partial<SsoProviderConfig>) => {
+    setSsoProviders((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
+  };
+
+  const saveSso = async (provider: SsoProviderConfig) => {
+    setSsoSaving(provider.id);
+    try {
+      const body: { enabled: boolean; client_id: string; client_secret?: string } = {
+        enabled: provider.enabled,
+        client_id: provider.client_id,
+      };
+      if (provider.client_secret?.trim()) body.client_secret = provider.client_secret.trim();
+      const result = await consoleApi.saveSsoProvider(provider.id, body);
+      patchSso(provider.id, { ...result.provider, client_secret: "" });
+      message.success(`${provider.label} 登录配置已保存`);
+    } catch (reason) {
+      message.error(errorText(reason));
+    } finally {
+      setSsoSaving("");
+    }
+  };
+
+  const createSsoInvite = async () => {
+    try {
+      const result = await consoleApi.createSsoSignupInvite();
+      modal.info({
+        title: "一次性 SSO 注册邀请码",
+        content: <Typography.Text copyable code>{result.code}</Typography.Text>,
+        okText: "已安全保存",
+      });
+    } catch (reason) {
+      message.error(errorText(reason));
+    }
+  };
 
   const save = async (draft: Draft) => {
     setSaving(true);
@@ -117,6 +169,48 @@ export default function PlatformSettingsPage() {
         </Card>
         <Card title="协作策略" loading={loading} style={{ marginTop: 16 }} extra={<Popconfirm title="恢复邀请策略部署值？" onConfirm={() => void clear(["collaboration.invite_ttl_seconds"])}><Button>恢复部署值</Button></Popconfirm>}>
           <Form.Item name="invite_ttl_seconds" label="项目邀请有效期（秒）" extra="0 表示永不过期；仅影响之后创建的邀请。"><InputNumber min={0} max={31536000} style={{ width: "100%" }} /></Form.Item>
+        </Card>
+        <Card
+          title="联合登录 · Google / 微信 / Telegram"
+          style={{ marginTop: 16 }}
+          extra={<Button onClick={() => void createSsoInvite()}>生成首次注册邀请码</Button>}
+        >
+          <Alert
+            type="warning"
+            showIcon
+            title="先登记公开 HTTPS 回调，再启用入口"
+            description="Client Secret 只写不回显；留空表示保持当前值。未启用或凭据不完整的入口不会显示在 App/Console 登录页。"
+            style={{ marginBottom: 16 }}
+          />
+          <Space direction="vertical" size={12} style={{ width: "100%" }}>
+            {ssoProviders.map((provider) => (
+              <Card key={provider.id} size="small">
+                <Space direction="vertical" style={{ width: "100%" }}>
+                  <Space>
+                    <Switch checked={provider.enabled} onChange={(enabled) => patchSso(provider.id, { enabled })} />
+                    <Typography.Text strong>{provider.label}</Typography.Text>
+                    <Tag color={provider.secret_configured ? "green" : "default"}>
+                      {provider.secret_configured ? "密钥已配置" : "密钥未配置"}
+                    </Tag>
+                  </Space>
+                  <Input
+                    value={provider.client_id}
+                    onChange={(event) => patchSso(provider.id, { client_id: event.target.value })}
+                    placeholder="Client ID / AppID / Bot ID"
+                  />
+                  <Input.Password
+                    value={provider.client_secret || ""}
+                    onChange={(event) => patchSso(provider.id, { client_secret: event.target.value })}
+                    autoComplete="new-password"
+                    placeholder="输入新 Client Secret 以替换"
+                  />
+                  <Button loading={ssoSaving === provider.id} onClick={() => void saveSso(provider)}>
+                    保存 {provider.label}
+                  </Button>
+                </Space>
+              </Card>
+            ))}
+          </Space>
         </Card>
         <Card title="启动级配置边界" style={{ marginTop: 16 }}>
           <Typography.Paragraph type="secondary">以下配置必须通过部署环境管理，不能假装热更新：</Typography.Paragraph>

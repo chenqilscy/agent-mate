@@ -12,6 +12,7 @@ interface AuthState {
   load: () => Promise<void>
   login: (name: string, password: string) => Promise<void>
   register: (name: string, password: string) => Promise<void>
+  ssoLogin: (provider: string, inviteCode?: string) => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -41,6 +42,26 @@ export const useAuthStore = create<AuthState>((set) => ({
     const { token } = await api.register(name, password)
     localStorage.setItem(TOKEN_KEY, token)
     window.location.reload()
+  },
+
+  ssoLogin: async (provider, inviteCode = '') => {
+    const attempt = await api.ssoStart(provider, inviteCode)
+    const popup = window.open(attempt.auth_url, '_blank', 'noopener,noreferrer')
+    if (!popup) throw new Error('popup_blocked')
+    const deadline = Math.min(attempt.expires_at * 1000, Date.now() + 10 * 60_000)
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1000))
+      const result = await api.ssoPoll(attempt.attempt_id, attempt.attempt_token)
+      if (result.status === 'error') throw new Error(result.error_code || 'sso_failed')
+      if (result.status === 'completed') {
+        localStorage.setItem(TOKEN_KEY, result.token)
+        popup.close()
+        window.location.reload()
+        return
+      }
+    }
+    popup.close()
+    throw new Error('sso_timeout')
   },
 
   logout: async () => {

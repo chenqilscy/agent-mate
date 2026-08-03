@@ -1,7 +1,7 @@
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { LoginForm, ProFormText } from "@ant-design/pro-components";
-import { Alert, Card, Segmented, Typography } from "antd";
-import { useState } from "react";
+import { Alert, Button, Card, Divider, Input, Segmented, Space, Typography } from "antd";
+import { useEffect, useState } from "react";
 import { consoleApi, setToken } from "./api";
 import type { Account } from "./types";
 
@@ -12,6 +12,44 @@ interface LoginPageProps {
 export default function LoginPage({ onAuthenticated }: LoginPageProps) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [error, setError] = useState("");
+  const [providers, setProviders] = useState<{ id: string; label: string }[]>([]);
+  const [inviteCode, setInviteCode] = useState("");
+  const [ssoBusy, setSsoBusy] = useState("");
+
+  useEffect(() => {
+    void consoleApi.ssoProviders()
+      .then((result) => setProviders(result.providers))
+      .catch(() => setProviders([]));
+  }, []);
+
+  async function startSso(provider: string) {
+    setError("");
+    setSsoBusy(provider);
+    let popup: Window | null = null;
+    try {
+      const attempt = await consoleApi.ssoStart(provider, inviteCode.trim());
+      popup = window.open(attempt.auth_url, "_blank", "noopener,noreferrer");
+      if (!popup) throw new Error("浏览器阻止了登录弹窗");
+      const deadline = Math.min(attempt.expires_at * 1000, Date.now() + 10 * 60_000);
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        const result = await consoleApi.ssoPoll(attempt.attempt_id, attempt.attempt_token);
+        if (result.status === "error") throw new Error(result.error_code || "联合登录失败");
+        if (result.status === "completed" && result.token && result.account) {
+          setToken(result.token);
+          popup.close();
+          onAuthenticated(result.account);
+          return;
+        }
+      }
+      throw new Error("联合登录已超时，请重试");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "联合登录失败");
+    } finally {
+      popup?.close();
+      setSsoBusy("");
+    }
+  }
 
   async function submit(values: { name: string; password: string }) {
     setError("");
@@ -73,6 +111,28 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
               { min: 4, message: "密码至少 4 个字符" },
             ]}
           />
+          {mode === "login" && providers.length > 0 ? (
+            <div className="login-sso">
+              <Divider plain>或使用联合登录</Divider>
+              <Input
+                value={inviteCode}
+                onChange={(event) => setInviteCode(event.target.value)}
+                placeholder="首次注册邀请码（已有绑定可留空）"
+              />
+              <Space wrap className="login-sso-actions">
+                {providers.map((provider) => (
+                  <Button
+                    key={provider.id}
+                    loading={ssoBusy === provider.id}
+                    disabled={Boolean(ssoBusy) && ssoBusy !== provider.id}
+                    onClick={() => void startSso(provider.id)}
+                  >
+                    {provider.label}
+                  </Button>
+                ))}
+              </Space>
+            </div>
+          ) : null}
         </LoginForm>
       </Card>
     </main>

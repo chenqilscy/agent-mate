@@ -880,6 +880,11 @@ body.dark ::highlight(wb-search-cur) { background-color: #D97706; color: #fff; }
 .np-modal.auth-modal { width: 380px; }
 .auth-switch { margin-top: 12px; font-size: 12.5px; color: var(--text-3); }
 .auth-switch span { color: var(--brand-600); cursor: pointer; margin-left: 5px; font-weight: 600; }
+.auth-sso { margin-top: 16px; }
+.auth-sso-divider { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: var(--text-3); font-size: 12px; }
+.auth-sso-divider::before, .auth-sso-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
+.auth-sso-buttons { display: flex; gap: 8px; margin-top: 10px; }
+.auth-sso-buttons .btn-ghost { flex: 1; min-height: 36px; }
 .np-h { display: flex; align-items: center; gap: 12px; padding: 18px 22px 4px; font-size: 16px; font-weight: 800; flex-shrink: 0; }
 .np-x { margin-left: auto; width: 28px; height: 28px; border-radius: 8px; border: none; background: transparent; cursor: pointer; color: var(--text-2); font-size: 19px; line-height: 1; display: grid; place-items: center; }
 .np-x:hover { background: var(--chip); }

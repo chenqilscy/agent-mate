@@ -27,6 +27,16 @@ class LoginBody(BaseModel):
     password: str
 
 
+class SsoStartBody(BaseModel):
+    provider: str
+    invite_code: str = ""
+
+
+class SsoPollBody(BaseModel):
+    attempt_id: str
+    attempt_token: str
+
+
 def _user_view(user) -> dict:
     return {"id": user.id, "name": user.name, "role": user.role.value, "plan": user.plan}
 
@@ -79,6 +89,41 @@ def login(body: LoginBody) -> dict:
     if status == "rejected":
         raise HTTPException(401, "用户名或密码错误")
     raise HTTPException(503, "AgentMate Server 暂不可达，无法重新登录；已登录会话仍可离线使用")
+
+
+@router.get("/sso/providers")
+def sso_providers() -> dict:
+    return {"providers": server_client.sso_providers()}
+
+
+@router.post("/sso/start")
+def sso_start(body: SsoStartBody) -> dict:
+    status, data = server_client.sso_start(
+        (body.provider or "").strip().lower(), invite_code=(body.invite_code or "").strip(),
+    )
+    if status == "ok" and data:
+        return data
+    if status == "rejected":
+        raise HTTPException(int((data or {}).get("code") or 400), (data or {}).get("detail") or "SSO 启动失败")
+    raise HTTPException(503, "AgentMate Server 暂不可达，无法启动 SSO")
+
+
+@router.post("/sso/poll")
+def sso_poll(body: SsoPollBody) -> dict:
+    status, data = server_client.sso_poll(body.attempt_id, body.attempt_token)
+    if status == "ok" and data:
+        if data.get("status") == "completed":
+            return {
+                "status": "completed",
+                **_mirror_server_account(
+                    str(data.get("token") or ""), data.get("account") or {},
+                    data.get("expires_at"),
+                ),
+            }
+        return data
+    if status == "rejected":
+        raise HTTPException(int((data or {}).get("code") or 400), (data or {}).get("detail") or "SSO 结果无效")
+    raise HTTPException(503, "AgentMate Server 暂不可达，SSO 状态稍后可继续查询")
 
 
 @router.post("/logout")

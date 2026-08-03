@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 from contextlib import closing
 from pathlib import Path
 import socket
@@ -153,9 +154,10 @@ class TokenLifecycleHttpTest(unittest.TestCase):
         )
         self.assertEqual(200, register.status_code, register.text)
         token = register.json()["token"]
+        token_key = "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
         with closing(sqlite3.connect(self.base / "server.db")) as conn:
             conn.execute(
-                "UPDATE server_tokens SET expires_at=? WHERE token=?", (time.time() - 1, token)
+                "UPDATE server_tokens SET expires_at=? WHERE token=?", (time.time() - 1, token_key)
             )
             conn.commit()
         headers = {"Authorization": f"Bearer {token}"}
@@ -165,7 +167,7 @@ class TokenLifecycleHttpTest(unittest.TestCase):
         )
         with closing(sqlite3.connect(self.base / "server.db")) as conn:
             self.assertIsNone(conn.execute(
-                "SELECT 1 FROM server_tokens WHERE token=?", (token,)
+                "SELECT 1 FROM server_tokens WHERE token=?", (token_key,)
             ).fetchone())
 
 

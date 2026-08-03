@@ -90,6 +90,65 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_server_tokens_account ON server_tokens(account_id);
 
+        -- Federated identity broker (WB-362). Provider secrets and transient PKCE
+        -- verifier values stay on Server; public APIs never return them.
+        CREATE TABLE IF NOT EXISTS sso_provider_configs (
+            provider TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            client_id TEXT NOT NULL DEFAULT '',
+            client_secret TEXT NOT NULL DEFAULT '',
+            updated_by TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS external_identities (
+            id TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            email TEXT NOT NULL DEFAULT '',
+            display_name TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            last_login_at REAL NOT NULL,
+            UNIQUE(provider, subject),
+            UNIQUE(account_id, provider)
+        );
+        CREATE INDEX IF NOT EXISTS idx_external_identities_account
+            ON external_identities(account_id, created_at);
+        CREATE TABLE IF NOT EXISTS sso_attempts (
+            id TEXT PRIMARY KEY,
+            state_hash TEXT NOT NULL UNIQUE,
+            attempt_token_hash TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            mode TEXT NOT NULL DEFAULT 'login',
+            account_id TEXT,
+            invite_code_hash TEXT,
+            code_verifier TEXT NOT NULL DEFAULT '',
+            nonce TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            result_account_id TEXT,
+            error_code TEXT,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            completed_at REAL,
+            consumed_at REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sso_attempt_expiry ON sso_attempts(expires_at);
+        CREATE TABLE IF NOT EXISTS sso_signup_invites (
+            id TEXT PRIMARY KEY,
+            code_hash TEXT NOT NULL UNIQUE,
+            created_by TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            consumed_by TEXT,
+            consumed_at REAL
+        );
+        CREATE TABLE IF NOT EXISTS auth_rate_windows (
+            rate_key TEXT NOT NULL,
+            window_start INTEGER NOT NULL,
+            count INTEGER NOT NULL,
+            PRIMARY KEY(rate_key, window_start)
+        );
+
         -- Scoped machine identities and durable external-event relay (WB-361).
         -- Only token hashes and delivery metadata are stored; no App credentials,
         -- conversation text or workspace files enter the control plane.
@@ -921,6 +980,23 @@ def init_db() -> None:
             (now,),
         )
     conn.commit()
+    account_columns = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+    if "password_login_enabled" not in account_columns:
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN password_login_enabled INTEGER NOT NULL DEFAULT 1"
+        )
+    # Raw bearer values were historically stored in the primary-key column. Hash
+    # them once; the prefix makes migration unambiguous because both values are
+    # otherwise 64 hexadecimal characters.
+    for row in conn.execute(
+        "SELECT token FROM server_tokens WHERE token NOT LIKE 'sha256:%'"
+    ).fetchall():
+        raw = str(row["token"])
+        conn.execute(
+            "UPDATE server_tokens SET token=? WHERE token=?",
+            ("sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest(), raw),
+        )
+    conn.commit()
     have_pm = {r["name"] for r in conn.execute("PRAGMA table_info(project_members)").fetchall()}
     if "updated_at" not in have_pm:
         conn.execute("ALTER TABLE project_members ADD COLUMN updated_at REAL NOT NULL DEFAULT 0")
@@ -935,20 +1011,46 @@ def init_db() -> None:
 # ---- password / tokens --------------------------------------------------
 
 def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), settings.PBKDF2_ITERS)
-    return f"pbkdf2${settings.PBKDF2_ITERS}${salt}${dk.hex()}"
+    salt = secrets.token_bytes(16)
+    dk = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=32)
+    return f"scrypt$16384$8$1${salt.hex()}${dk.hex()}"
 
 
 def verify_password(password: str, stored: Optional[str]) -> bool:
     if not stored:
         return False
     try:
-        _algo, iters, salt, hexdk = stored.split("$")
-        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), int(iters))
+        parts = stored.split("$")
+        if parts[0] == "scrypt":
+            _algo, n, r, p, salt, hexdk = parts
+            dk = hashlib.scrypt(
+                password.encode("utf-8"), salt=bytes.fromhex(salt),
+                n=int(n), r=int(r), p=int(p), dklen=len(bytes.fromhex(hexdk)),
+            )
+        else:
+            _algo, iters, salt, hexdk = parts
+            dk = hashlib.pbkdf2_hmac(
+                "sha256", password.encode("utf-8"), bytes.fromhex(salt), int(iters)
+            )
         return secrets.compare_digest(dk.hex(), hexdk)
     except Exception:  # noqa: BLE001
         return False
+
+
+def password_needs_rehash(stored: str) -> bool:
+    return not stored.startswith("scrypt$16384$8$1$")
+
+
+def upgrade_password_hash(account_id: str, password: str) -> None:
+    get_conn().execute(
+        "UPDATE accounts SET password_hash=?,password_login_enabled=1 WHERE id=?",
+        (hash_password(password), account_id),
+    )
+    get_conn().commit()
+
+
+def _token_key(token: str) -> str:
+    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def create_token(account_id: str) -> tuple[str, float]:
@@ -957,7 +1059,7 @@ def create_token(account_id: str) -> tuple[str, float]:
     expires_at = now + settings.TOKEN_TTL_SECONDS
     get_conn().execute(
         "INSERT INTO server_tokens (token, account_id, created_at, expires_at) VALUES (?,?,?,?)",
-        (token, account_id, now, expires_at),
+        (_token_key(token), account_id, now, expires_at),
     )
     get_conn().commit()
     return token, expires_at
@@ -966,12 +1068,12 @@ def create_token(account_id: str) -> tuple[str, float]:
 def account_id_for_token(token: str) -> Optional[str]:
     conn = get_conn()
     row = conn.execute(
-        "SELECT account_id, expires_at FROM server_tokens WHERE token=?", (token,)
+        "SELECT account_id, expires_at FROM server_tokens WHERE token=?", (_token_key(token),)
     ).fetchone()
     if not row:
         return None
     if float(row["expires_at"] or 0) <= time.time():
-        conn.execute("DELETE FROM server_tokens WHERE token=?", (token,))
+        conn.execute("DELETE FROM server_tokens WHERE token=?", (_token_key(token),))
         conn.commit()
         return None
     return row["account_id"]
@@ -979,13 +1081,13 @@ def account_id_for_token(token: str) -> Optional[str]:
 
 def token_expires_at(token: str) -> Optional[float]:
     row = get_conn().execute(
-        "SELECT expires_at FROM server_tokens WHERE token=?", (token,)
+        "SELECT expires_at FROM server_tokens WHERE token=?", (_token_key(token),)
     ).fetchone()
     return float(row["expires_at"]) if row and float(row["expires_at"] or 0) > time.time() else None
 
 
 def delete_token(token: str) -> None:
-    get_conn().execute("DELETE FROM server_tokens WHERE token=?", (token,))
+    get_conn().execute("DELETE FROM server_tokens WHERE token=?", (_token_key(token),))
     get_conn().commit()
 
 
@@ -999,14 +1101,19 @@ def _row_to_account(r: sqlite3.Row) -> Account:
     )
 
 
-def create_account(*, name: str, password: str, email: str = "", plan: str = "体验版") -> Account:
+def create_account(
+    *, name: str, password: str, email: str = "", plan: str = "体验版",
+    password_login_enabled: bool = True,
+) -> Account:
     # 首个注册账号自举为平台管理员（WB-066：可维护 builtin 目录下发）。
     first = get_conn().execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0
     a = Account(id=new_uuid(), name=name[:60], email=email[:120], plan=plan, created_at=time.time(),
                 is_platform_admin=first)
     get_conn().execute(
-        "INSERT INTO accounts (id,name,email,plan,password_hash,created_at,is_platform_admin) VALUES (?,?,?,?,?,?,?)",
-        (a.id, a.name, a.email, a.plan, hash_password(password), a.created_at, int(a.is_platform_admin)),
+        "INSERT INTO accounts (id,name,email,plan,password_hash,created_at,is_platform_admin,password_login_enabled) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (a.id, a.name, a.email, a.plan, hash_password(password), a.created_at,
+         int(a.is_platform_admin), int(password_login_enabled)),
     )
     get_conn().commit()
     return a
@@ -1020,7 +1127,11 @@ def get_account(account_id: str) -> Optional[Account]:
 def get_account_by_name(name: str) -> Optional[tuple[Account, str]]:
     """(account, password_hash) for login, or None."""
     r = get_conn().execute("SELECT * FROM accounts WHERE name=?", (name,)).fetchone()
-    return (_row_to_account(r), r["password_hash"]) if r else None
+    return (
+        (_row_to_account(r), r["password_hash"])
+        if r and bool(r["password_login_enabled"])
+        else None
+    )
 
 
 def find_account_by_name(name: str) -> Optional[Account]:
