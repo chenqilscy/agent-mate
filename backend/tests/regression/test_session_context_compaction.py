@@ -142,8 +142,8 @@ class SessionContextCompactionTest(unittest.TestCase):
 
     def test_summary_failure_falls_back_to_bounded_recent_turn(self) -> None:
         for role, text in (
-            ("user", "很早的问题" * 15),
-            ("assistant", "很早的回答" * 15),
+            ("user", "目标：必须保留客户编号 A-17。" + "很早的问题" * 15),
+            ("assistant", "已确认决定：使用审计模式。" + "很早的回答" * 15),
             ("user", "保留的最近问题"),
             ("assistant", "保留的最近回答"),
         ):
@@ -152,12 +152,29 @@ class SessionContextCompactionTest(unittest.TestCase):
             session_context, "_generate_summary",
             new=AsyncMock(side_effect=RuntimeError("summary unavailable")),
         ):
-            messages = self._build()
+            result = self._build_context()
         self.assertEqual(0, db.get_session(self.session.id).summary_cursor)
-        rendered = "\n".join(message["content"] for message in messages)
-        self.assertNotIn("很早的问题", rendered)
+        self.assertTrue(result.compaction_degraded)
+        self.assertEqual("summary_failed:RuntimeError", result.compaction_reason)
+        self.assertGreaterEqual(result.degraded_excerpt_messages, 1)
+        rendered = "\n".join(message["content"] for message in result.messages)
+        self.assertIn("会话压缩降级", rendered)
+        self.assertIn("A-17", rendered)
         self.assertIn("保留的最近问题", rendered)
         self.assertIn("当前问题", rendered)
+
+    def test_summary_timeout_has_stable_reason_code(self) -> None:
+        self._add("user", "目标：保留订单号 X-9。" * 12)
+        self._add("assistant", "已确认。" * 20)
+        self._add("user", "最近问题")
+        self._add("assistant", "最近回答")
+        with patch.object(
+            session_context, "_generate_summary",
+            new=AsyncMock(side_effect=asyncio.TimeoutError()),
+        ):
+            result = self._build_context()
+        self.assertTrue(result.compaction_degraded)
+        self.assertEqual("summary_timeout", result.compaction_reason)
 
     def test_single_huge_recent_turn_is_explicitly_clipped(self) -> None:
         self._add("user", "超长输入" * 200)

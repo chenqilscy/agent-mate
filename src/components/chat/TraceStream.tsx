@@ -61,6 +61,13 @@ export function TraceStream({ trace, streaming }: { trace: TraceItem[]; streamin
                 </div>
               </div>
             )
+          case 'context_degraded':
+            return (
+              <div key={i} className={`step ${cur ? 'cur' : ''}`.trim()}>
+                <span>⚠</span>
+                <span>较早对话压缩失败，本轮仅带入 {t.excerpt_messages} 条受控原文摘录；下轮会重试压缩。</span>
+              </div>
+            )
           case 'artifact':
             return (
               <div key={i} className={`step ${cur ? 'cur' : ''}`.trim()}>

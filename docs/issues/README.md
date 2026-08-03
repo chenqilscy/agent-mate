@@ -18,11 +18,10 @@
 |----|------|--------|------|------|
 | [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) | ⏸ | P1 | fullstack | 正式桌面更新服务缺少生产域名、CI 签名材料与上线验收 |
 | [WB-344](WB-344-v1-controlled-user-pilot.md) | ⏸ | P1 | misc | V1.0 受控真实用户试用缺少参与者、安装版本与连续证据 |
-| [WB-384](WB-384-compaction-degraded-state.md) | 🟡 | P2 | backend | 长会话摘要失败静默丢弃旧上下文且无降级状态 |
 | [WB-385](WB-385-durable-run-plan.md) | 🟡 | P2 | fullstack | 会话任务列表仅为文本 trace 无稳定状态和恢复能力 |
 | [WB-386](WB-386-model-governance.md) | ⬜ | P2 | fullstack | 模型配置缺少组织策略预算健康检查和受控故障转移 |
 
 ## 已关闭归档
 
-共 383 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 384 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。

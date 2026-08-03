@@ -196,6 +196,14 @@ def _merge_checkpoint(run_id: str, **updates: Any) -> dict[str, Any]:
     return checkpoint
 
 
+def _without_pending_question(run_id: str) -> dict[str, Any]:
+    checkpoint = _merge_checkpoint(run_id)
+    if checkpoint.get("kind") == "ask_user":
+        for key in ("kind", "questions", "source", "tool_call_id", "tool_name", "asked_at", "reason"):
+            checkpoint.pop(key, None)
+    return checkpoint
+
+
 def resolve_model_config(
     owner_id: str, client_model: str | None
 ) -> tuple[str, str | None, str | None, str]:
@@ -277,6 +285,8 @@ def _trace_to_sse(item: dict[str, Any]) -> str:
         return events.todo(item["text"])
     if k == "qa":
         return events.qa_summary(item["qa"])
+    if k == "context_degraded":
+        return events.context_degraded(item["reason"], item["excerpt_messages"])
     if k == "artifact":
         return events.artifact(
             item["name"], item["size"], item["path"], artifact_id=item["id"],
@@ -853,6 +863,23 @@ async def _run_chat_inner(
         total_prompt += context_result.summary_prompt_tokens
         total_completion += context_result.summary_completion_tokens
         total_cached_prompt += context_result.summary_cached_prompt_tokens
+        if context_result.compaction_degraded:
+            degradation = {
+                "degraded": True,
+                "reason": context_result.compaction_reason or "summary_failed",
+                "excerpt_messages": context_result.degraded_excerpt_messages,
+                "retry_on_next_turn": True,
+            }
+            db.set_run_status(
+                run_id, "running",
+                checkpoint=_merge_checkpoint(run_id, context_compaction=degradation),
+            )
+            yield record({
+                "kind": "context_degraded",
+                "reason": degradation["reason"],
+                "excerpt_messages": degradation["excerpt_messages"],
+                "retry_on_next_turn": True,
+            })
         if effective_token_budget > 0 and total_prompt + total_completion >= effective_token_budget:
             raise RuntimeBudgetExceeded(
                 f"Token budget exhausted by context compaction: "
@@ -1247,8 +1274,11 @@ async def _run_chat_inner(
                         db.touch_session(session_id, status="waiting")
                         db.set_run_status(
                             run_id, "waiting_approval",
-                            checkpoint=_question_checkpoint(
-                                questions, source="agent", tool_call_id=call["id"],
+                            checkpoint=_merge_checkpoint(
+                                run_id,
+                                **_question_checkpoint(
+                                    questions, source="agent", tool_call_id=call["id"],
+                                ),
                             ),
                         )
                         yield events.ask_user(questions)
@@ -1257,7 +1287,10 @@ async def _run_chat_inner(
                         answers = (pending or {}).get("answers")
                         db.touch_session(session_id, status="running")
                         if not stop.is_set() and answers is not None:
-                            db.set_run_status(run_id, "running", checkpoint={})
+                            db.set_run_status(
+                                run_id, "running",
+                                checkpoint=_without_pending_question(run_id),
+                            )
                         if stop.is_set() or answers is None:
                             stopped = True
                             tool_trace.update(output={"status": "cancelled"})
@@ -1333,9 +1366,12 @@ async def _run_chat_inner(
                     db.touch_session(session_id, status="waiting")
                     db.set_run_status(
                         run_id, "waiting_approval",
-                        checkpoint=_question_checkpoint(
-                            questions, source="tool_authorization",
-                            tool_call_id=call["id"], tool_name=name,
+                        checkpoint=_merge_checkpoint(
+                            run_id,
+                            **_question_checkpoint(
+                                questions, source="tool_authorization",
+                                tool_call_id=call["id"], tool_name=name,
+                            ),
                         ),
                     )
                     yield events.ask_user(questions)
@@ -1345,7 +1381,10 @@ async def _run_chat_inner(
                     db.touch_session(session_id, status="running")
                     if not stop.is_set() and answers and answers[0] == "允许一次":
                         authorization.approve_once(name, args)
-                        db.set_run_status(run_id, "running", checkpoint={})
+                        db.set_run_status(
+                            run_id, "running",
+                            checkpoint=_without_pending_question(run_id),
+                        )
                     else:
                         outcome = ToolOutcome(text=f"工具 {name} 未获本次授权。")
                         yield record({"kind": "step", "tool": name, "label": outcome.text, "status": "blocked"})
@@ -1537,7 +1576,10 @@ async def _run_chat_inner(
         prompt_tokens=total_prompt, cached_prompt_tokens=total_cached_prompt,
         completion_tokens=total_completion, tool_calls=tool_call_count,
     )
-    db.set_run_status(run_id, "cancelled" if stopped else "completed", checkpoint={})
+    db.set_run_status(
+        run_id, "cancelled" if stopped else "completed",
+        checkpoint=_without_pending_question(run_id),
+    )
 
     chat_trace.update(
         output={"content": assistant_text, "stopped": stopped},

@@ -65,6 +65,14 @@ def qa_summary(qa: list[dict[str, Any]]) -> str:
     return sse("qa_summary", {"qa": qa})
 
 
+def context_degraded(reason: str, excerpt_messages: int) -> str:
+    return sse("context_degraded", {
+        "reason": reason,
+        "excerpt_messages": max(0, int(excerpt_messages)),
+        "retry_on_next_turn": True,
+    })
+
+
 def artifact(
     name: str, size: str, path: str, *, artifact_id: str | None = None,
     run_id: str | None = None, sha256: str | None = None,

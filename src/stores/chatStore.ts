@@ -210,6 +210,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
           set({ pending: null })
           patchBot((m) => ({ ...m, trace: [...m.trace, { kind: 'qa', qa: ev.data.qa }] }))
           break
+        case 'context_degraded':
+          patchBot((m) => ({
+            ...m,
+            trace: [...m.trace, {
+              kind: 'context_degraded',
+              reason: ev.data.reason,
+              excerpt_messages: ev.data.excerpt_messages,
+              retry_on_next_turn: true,
+            }],
+          }))
+          break
         case 'work_item':
           // Agent changed a plan item's status (WB-031) — sync the kanban live.
           useWorkItemStore.getState().applyRemote(ev.data.item)

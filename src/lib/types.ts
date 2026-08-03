@@ -85,6 +85,7 @@ export interface TodoEvent { text: string }
 export interface TextEvent { md: string }
 export interface AskUserEvent { questions: AskQuestion[] }
 export interface QaSummaryEvent { qa: QaPair[] }
+export interface ContextDegradedEvent { reason: string; excerpt_messages: number; retry_on_next_turn: true }
 export type RunStatus = 'draft' | 'planning' | 'waiting_approval' | 'running' | 'paused' | 'failed' | 'completed' | 'accepted' | 'cancelled'
 export interface ArtifactEvent {
   id?: string
@@ -118,6 +119,7 @@ export type SSEEvent =
   | { type: 'text'; data: TextEvent }
   | { type: 'ask_user'; data: AskUserEvent }
   | { type: 'qa_summary'; data: QaSummaryEvent }
+  | { type: 'context_degraded'; data: ContextDegradedEvent }
   | { type: 'artifact'; data: ArtifactEvent }
   | { type: 'work_item'; data: WorkItemEvent }
   | { type: 'usage'; data: UsageEvent }
@@ -133,6 +135,7 @@ export type TraceItem =
   | { kind: 'diff'; op: string; file: string; add: number; del: number }
   | { kind: 'todo'; text: string }
   | { kind: 'qa'; qa: QaPair[] }
+  | { kind: 'context_degraded'; reason: string; excerpt_messages: number; retry_on_next_turn: true }
   | { kind: 'artifact'; artifact: ArtifactEvent }
 
 // ---- domain ---------------------------------------------------------------
