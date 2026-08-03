@@ -93,12 +93,14 @@ def artifact(
     name: str, size: str, path: str, *, artifact_id: str | None = None,
     run_id: str | None = None, sha256: str | None = None,
     mime_type: str | None = None, acceptance_status: str = "pending",
+    is_primary: bool = False, display_order: int = 0,
 ) -> str:
     data: dict[str, Any] = {"name": name, "size": size, "path": path}
     if artifact_id:
         data.update({
             "id": artifact_id, "run_id": run_id, "sha256": sha256,
             "mime_type": mime_type, "acceptance_status": acceptance_status,
+            "is_primary": is_primary, "display_order": max(0, int(display_order)),
         })
     return sse("artifact", data)
 

@@ -31,6 +31,7 @@ from storage.migrations import (
     Migration,
     migrate_message_run_link,
     migrate_model_and_run_audit,
+    migrate_artifact_presentation,
     migrate_project_org_scope,
     migrate_run_plan_version,
     run_migrations,
@@ -248,6 +249,8 @@ def init_db() -> None:
             validation_status TEXT NOT NULL DEFAULT 'passed',
             validation TEXT NOT NULL DEFAULT '{}',
             preview_path TEXT,
+            is_primary INTEGER NOT NULL DEFAULT 0,
+            display_order INTEGER NOT NULL DEFAULT 0,
             acceptance_status TEXT NOT NULL DEFAULT 'pending',
             accepted_by TEXT,
             accepted_at REAL,
@@ -1268,6 +1271,7 @@ def _assert_app_schema(conn: sqlite3.Connection) -> None:
         "user_memories": {"importance", "status", "scope", "project_id"},
         "messages": {"run_id", "error"},
         "runs": {"model_snapshot", "estimated_cost", "cached_prompt_tokens", "plan_version"},
+        "artifacts": {"is_primary", "display_order"},
     }
     missing: list[str] = []
     for table, columns in required.items():
@@ -1286,6 +1290,7 @@ def _migrate_columns() -> None:
         Migration(4, "legacy-schema-completion", _migrate_legacy_schema),
         Migration(5, "durable-run-plan-version", migrate_run_plan_version),
         Migration(6, "project-org-model-policy-scope", migrate_project_org_scope),
+        Migration(7, "artifact-presentation-authority", migrate_artifact_presentation),
     ))
     _assert_app_schema(conn)
 
@@ -2308,6 +2313,7 @@ def _row_to_artifact(row: sqlite3.Row) -> Artifact:
         mime_type=row["mime_type"], source_tool=row["source_tool"], size=int(row["size"] or 0),
         sha256=row["sha256"], validation_status=row["validation_status"],
         validation=_load_json(row["validation"], {}), preview_path=row["preview_path"],
+        is_primary=bool(row["is_primary"]), display_order=int(row["display_order"] or 0),
         acceptance_status=row["acceptance_status"], accepted_by=row["accepted_by"],
         accepted_at=row["accepted_at"], created_at=row["created_at"], updated_at=row["updated_at"],
     )
@@ -2892,7 +2898,8 @@ def create_retry_run(run_id: str, owner_id: str, idempotency_key: Optional[str] 
 def upsert_artifact(
     *, run_id: str, path: str, full_path: Path, source_tool: str,
     kind: str = "file", validation: Optional[dict[str, Any]] = None,
-    preview_path: Optional[str] = None,
+    preview_path: Optional[str] = None, is_primary: Optional[bool] = None,
+    display_order: Optional[int] = None,
 ) -> Artifact:
     run = get_run(run_id)
     if not run:
@@ -2907,23 +2914,60 @@ def upsert_artifact(
     aid = new_uuid()
     mime = mimetypes.guess_type(full_path.name)[0] or "application/octet-stream"
     check = validation or {"exists": True, "sha256": True}
-    get_conn().execute(
-        """INSERT INTO artifacts
-           (id,run_id,owner_id,project_id,kind,path,name,mime_type,source_tool,size,sha256,
-            validation_status,validation,preview_path,acceptance_status,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-           ON CONFLICT(run_id,path) DO UPDATE SET
-             kind=excluded.kind,name=excluded.name,mime_type=excluded.mime_type,
-             source_tool=excluded.source_tool,size=excluded.size,sha256=excluded.sha256,
-             validation_status=excluded.validation_status,validation=excluded.validation,
-             preview_path=excluded.preview_path,acceptance_status='pending',accepted_by=NULL,
-             accepted_at=NULL,updated_at=excluded.updated_at""",
-        (aid, run_id, run.owner_id, run.project_id, kind, path, full_path.name, mime,
-         source_tool, full_path.stat().st_size, digest.hexdigest(), "passed",
-         json.dumps(check, ensure_ascii=False), preview_path, "pending", now, now),
-    )
-    get_conn().commit()
-    row = get_conn().execute("SELECT * FROM artifacts WHERE run_id=? AND path=?", (run_id, path)).fetchone()
+    conn = get_conn()
+    try:
+        # Serialize order allocation and primary promotion across concurrent tool
+        # workers.  This allocation plus the partial unique index keeps exactly
+        # one primary while the index independently rejects duplicate primaries.
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT is_primary,display_order FROM artifacts WHERE run_id=? AND path=?",
+            (run_id, path),
+        ).fetchone()
+        count = int(conn.execute(
+            "SELECT COUNT(*) AS n FROM artifacts WHERE run_id=?", (run_id,),
+        ).fetchone()["n"])
+        if existing:
+            primary = bool(existing["is_primary"]) or is_primary is True
+            order = (
+                int(existing["display_order"] or 0)
+                if display_order is None else max(0, int(display_order))
+            )
+        else:
+            primary = count == 0 or is_primary is True
+            if display_order is None:
+                last = conn.execute(
+                    "SELECT MAX(display_order) AS value FROM artifacts WHERE run_id=?", (run_id,),
+                ).fetchone()["value"]
+                order = int(last) + 1 if last is not None else 0
+            else:
+                order = max(0, int(display_order))
+        if primary:
+            conn.execute("UPDATE artifacts SET is_primary=0 WHERE run_id=?", (run_id,))
+        conn.execute(
+            """INSERT INTO artifacts
+               (id,run_id,owner_id,project_id,kind,path,name,mime_type,source_tool,size,sha256,
+                validation_status,validation,preview_path,is_primary,display_order,
+                acceptance_status,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(run_id,path) DO UPDATE SET
+                 kind=excluded.kind,name=excluded.name,mime_type=excluded.mime_type,
+                 source_tool=excluded.source_tool,size=excluded.size,sha256=excluded.sha256,
+                 validation_status=excluded.validation_status,validation=excluded.validation,
+                 preview_path=COALESCE(excluded.preview_path,artifacts.preview_path),
+                 is_primary=excluded.is_primary,display_order=excluded.display_order,
+                 acceptance_status='pending',accepted_by=NULL,
+                 accepted_at=NULL,updated_at=excluded.updated_at""",
+            (aid, run_id, run.owner_id, run.project_id, kind, path, full_path.name, mime,
+             source_tool, full_path.stat().st_size, digest.hexdigest(), "passed",
+             json.dumps(check, ensure_ascii=False), preview_path, 1 if primary else 0, order,
+             "pending", now, now),
+        )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    row = conn.execute("SELECT * FROM artifacts WHERE run_id=? AND path=?", (run_id, path)).fetchone()
     return _row_to_artifact(row)
 
 
@@ -2939,7 +2983,8 @@ def get_artifact_for(artifact_id: str, user_id: str) -> Optional[Artifact]:
 
 def list_artifacts(run_id: str) -> list[Artifact]:
     rows = get_conn().execute(
-        "SELECT * FROM artifacts WHERE run_id=? ORDER BY created_at DESC,id DESC", (run_id,)
+        """SELECT * FROM artifacts WHERE run_id=?
+           ORDER BY is_primary DESC,display_order,created_at,id""", (run_id,)
     ).fetchall()
     return [_row_to_artifact(row) for row in rows]
 

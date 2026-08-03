@@ -311,6 +311,8 @@ def _trace_to_sse(item: dict[str, Any]) -> str:
             item["name"], item["size"], item["path"], artifact_id=item["id"],
             run_id=item["run_id"], sha256=item["sha256"], mime_type=item["mime_type"],
             acceptance_status=item.get("acceptance_status", "pending"),
+            is_primary=bool(item.get("is_primary")),
+            display_order=int(item.get("display_order") or 0),
         )
     return ""
 
@@ -541,15 +543,20 @@ async def _run_chat_inner(
     bundle_resolution = skill_bundles.resolve(user.id, bundle_ids or [])
 
     active_experts = _dedup(proj_experts + (experts or []))
-    # 技能身份全链路以 slug 为准；兼容旧客户端传展示名。项目 Skill 不再无条件注入正文，
-    # 而是进入精简候选索引；本轮显式选择仍立即加载。
+    # 技能身份全链路以 slug 为准；兼容旧客户端传展示名。项目绑定 Skill 是执行前置
+    # 规程，首轮模型调用前完整加载；其余已安装 Skill 仍通过精简候选索引渐进发现。
     project_skill_candidates = canonical_skill_keys(_dedup(proj_skills), keep_unknown=True)
+    required_project_skills = [] if ask else list(project_skill_candidates)
     active_skills = canonical_skill_keys(
-        _dedup((skills or []) + bundle_resolution["skills"]),
+        _dedup(required_project_skills + (skills or []) + bundle_resolution["skills"]),
         keep_unknown=True,
     )
     active_connectors = _dedup(proj_connectors + (connectors or []))
-    skill_candidates = build_skill_candidates(project_skill_candidates)
+    active_skill_set = set(active_skills)
+    skill_candidates = [
+        item for item in build_skill_candidates(project_skill_candidates)
+        if str(item.get("slug") or "") not in active_skill_set
+    ]
     set_skill_candidates(skill_candidates)
     if skill_candidates and not ask:
         candidate_lines = []
@@ -686,6 +693,21 @@ async def _run_chat_inner(
                 "active_skills", skill_prompt, source="skill.loadout",
                 authority="procedure", priority=700, heading="已启用技能",
             )
+    loaded_skill_slugs = {
+        str(snapshot.get("slug") or "") for snapshot in skill_release_snapshots
+        if snapshot.get("slug")
+    }
+    required_skill_failures: list[dict[str, str]] = []
+    for slug in required_project_skills:
+        if slug in skills_budget_omitted:
+            reason = "项目必需 Skill 超出本轮指令预算，未加载"
+        elif slug in skills_truncated:
+            reason = "项目必需 Skill 指令被截断，拒绝以不完整规程执行"
+        elif slug not in loaded_skill_slugs:
+            reason = skill_skip_reasons.get(slug) or "项目必需 Skill 未安装、未启用或当前环境不兼容"
+        else:
+            continue
+        required_skill_failures.append({"slug": slug, "reason": reason})
     set_active_skill_resources(skill_release_snapshots)
 
     async def report_skill_runs(event: str) -> None:
@@ -754,11 +776,15 @@ async def _run_chat_inner(
         loaded = list(dict.fromkeys(explicitly_loaded_skill_slugs + viewed_skill_slugs))
         return {
             "offered": offered_skill_slugs,
+            "required": required_project_skills,
+            "required_loaded": [slug for slug in required_project_skills if slug in loaded],
             "explicitly_loaded": explicitly_loaded_skill_slugs,
             "viewed_loaded": list(viewed_skill_slugs),
             "loaded": loaded,
             "not_loaded": [slug for slug in offered_skill_slugs if slug not in loaded],
             "matching": "model_semantic_match",
+            "gate": "blocked" if required_skill_failures else "passed",
+            "gate_failures": required_skill_failures,
         }
 
     # Attached / referenced files (＋ menu) are prepended to THIS turn's LLM input
@@ -829,6 +855,7 @@ async def _run_chat_inner(
             "experts": active_experts, "skills": active_skills,
             "skill_candidates": [item["slug"] for item in skill_candidates],
             "project_skill_candidates": project_skill_candidates,
+            "required_project_skills": required_project_skills,
             "skill_bundles": bundle_resolution["bundles"],
             "missing_skill_bundles": bundle_resolution["missing_bundles"],
             "missing_bundle_skills": bundle_resolution["missing_skills"],
@@ -925,6 +952,27 @@ async def _run_chat_inner(
     try:
         yield events.run(run.to_dict())
         yield events.status("running")
+
+        if required_skill_failures:
+            detail = "；".join(
+                f"{item['slug']}：{item['reason']}" for item in required_skill_failures
+            )
+            assistant_text = f"项目要求的 Skill 未能完整加载，已在执行前阻断：{detail}"
+            yield record({
+                "kind": "step", "tool": "skill_preload_gate",
+                "label": assistant_text, "status": "blocked",
+            })
+            yield events.error(assistant_text)
+            mid = _persist_partial(assistant_text)
+            db.set_run_status(
+                run_id, "failed", error_code="required_skill_unavailable",
+                error_message=detail,
+            )
+            db.touch_session(session_id, status="idle")
+            finished_ok = True
+            yield events.done(mid)
+            await report_skill_runs("run_failed")
+            return
 
         policy_notes = list(governance_decision.get("warnings") or [])
         if governance_decision.get("fallback_from"):
@@ -1568,6 +1616,11 @@ async def _run_chat_inner(
                             source_tool=name, kind=descriptor.get("kind", "file"),
                             validation=descriptor.get("validation"),
                             preview_path=descriptor.get("preview_path"),
+                            is_primary=True if descriptor.get("is_primary") is True else None,
+                            display_order=(
+                                int(descriptor["display_order"])
+                                if isinstance(descriptor.get("display_order"), int) else None
+                            ),
                         )
                     except (FileNotFoundError, PermissionError, ValueError):
                         continue
@@ -1575,6 +1628,7 @@ async def _run_chat_inner(
                         "kind": "artifact", "id": artifact.id, "run_id": run_id,
                         "name": artifact.name, "size": str(artifact.size), "path": artifact.path,
                         "sha256": artifact.sha256, "mime_type": artifact.mime_type,
+                        "is_primary": artifact.is_primary, "display_order": artifact.display_order,
                         "acceptance_status": artifact.acceptance_status,
                     })
                     artifact_paths.append(artifact.path)

@@ -15,6 +15,7 @@ from config import settings  # noqa: E402
 from storage import db  # noqa: E402
 from storage.migrations import (  # noqa: E402
     Migration,
+    migrate_artifact_presentation,
     migrate_message_run_link,
     migrate_model_and_run_audit,
     migrate_project_org_scope,
@@ -35,7 +36,7 @@ class AppSchemaMigrationTest(unittest.TestCase):
                 rows = db.get_conn().execute(
                     "SELECT version,name FROM schema_migrations WHERE scope='app' ORDER BY version"
                 ).fetchall()
-                self.assertEqual([1, 2, 3, 4, 5, 6], [row["version"] for row in rows])
+                self.assertEqual([1, 2, 3, 4, 5, 6, 7], [row["version"] for row in rows])
                 db._assert_app_schema(db.get_conn())
             finally:
                 db.close_thread_connection()
@@ -55,6 +56,7 @@ class AppSchemaMigrationTest(unittest.TestCase):
             Migration(4, "legacy-schema-completion", lambda _conn: None),
             Migration(5, "durable-run-plan-version", migrate_run_plan_version),
             Migration(6, "project-org-model-policy-scope", migrate_project_org_scope),
+            Migration(7, "artifact-presentation-authority", migrate_artifact_presentation),
         )
         run_migrations(conn, migrations)
         run_migrations(conn, migrations)
@@ -62,7 +64,29 @@ class AppSchemaMigrationTest(unittest.TestCase):
         self.assertIn("model_snapshot", {row[1] for row in conn.execute("PRAGMA table_info(runs)")})
         self.assertIn("plan_version", {row[1] for row in conn.execute("PRAGMA table_info(runs)")})
         self.assertIn("run_id", {row[1] for row in conn.execute("PRAGMA table_info(messages)")})
-        self.assertEqual(6, conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0])
+        self.assertEqual(7, conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0])
+
+    def test_legacy_artifacts_gain_one_primary_and_stable_order(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.execute(
+            """CREATE TABLE artifacts (
+                   id TEXT PRIMARY KEY,run_id TEXT NOT NULL,created_at REAL NOT NULL
+               )"""
+        )
+        conn.executemany(
+            "INSERT INTO artifacts(id,run_id,created_at) VALUES (?,?,?)",
+            [("b", "run-1", 2), ("a", "run-1", 1), ("c", "run-2", 1)],
+        )
+        migrate_artifact_presentation(conn)
+        migrate_artifact_presentation(conn)
+        rows = conn.execute(
+            "SELECT id,run_id,is_primary,display_order FROM artifacts "
+            "ORDER BY run_id,display_order"
+        ).fetchall()
+        self.assertEqual(
+            [("a", "run-1", 1, 0), ("b", "run-1", 0, 1), ("c", "run-2", 1, 0)],
+            rows,
+        )
 
     def test_legacy_text_plan_is_upgraded_to_stable_items(self) -> None:
         conn = sqlite3.connect(":memory:")

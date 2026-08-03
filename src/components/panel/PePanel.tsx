@@ -16,7 +16,7 @@ import { IcPanel } from '../../lib/icons'
 type Tab = 'prod' | 'files' | 'diff'
 
 interface Diff { op: string; file: string; add: number; del: number }
-interface Artifact { path: string; name: string; meta: string }
+interface Artifact { path: string; openPath: string; name: string; meta: string; primary: boolean }
 interface ProgressItem {
   key: string
   title: string
@@ -72,7 +72,13 @@ function tracedArtifacts(messages: ChatMessage[], runId?: string): Artifact[] {
       if (trace.kind === 'artifact') {
         if (runId && trace.artifact.run_id && trace.artifact.run_id !== runId) continue
         const status = trace.artifact.acceptance_status === 'accepted' ? '已验收' : trace.artifact.acceptance_status === 'rejected' ? '已驳回' : '待验收'
-        byPath.set(trace.artifact.path, { path: trace.artifact.path, name: trace.artifact.name, meta: `历史交付记录 · ${status}` })
+        byPath.set(trace.artifact.path, {
+          path: trace.artifact.path,
+          openPath: trace.artifact.path,
+          name: trace.artifact.name,
+          meta: `历史交付记录 · ${status}`,
+          primary: byPath.size === 0,
+        })
       }
     }
   }
@@ -80,15 +86,17 @@ function tracedArtifacts(messages: ChatMessage[], runId?: string): Artifact[] {
 }
 
 function manifestArtifacts(items: ArtifactManifest[]): Artifact[] {
-  return items.map((item, index) => {
+  return items.map((item) => {
     const accepted = item.acceptance_status === 'accepted' ? '已验收' : item.acceptance_status === 'rejected' ? '已驳回' : '待验收'
     const verified = item.verification?.exists && item.verification.hash_matches
       ? '文件与哈希已核验'
       : item.validation_status === 'passed' ? '生成校验通过' : '校验待确认'
     return {
       path: item.path,
+      openPath: item.preview_path || item.path,
       name: item.name,
-      meta: `${index === 0 ? '主产物 · ' : ''}${verified} · ${accepted}`,
+      meta: `${item.is_primary ? '主产物 · ' : ''}${verified} · ${accepted}`,
+      primary: item.is_primary,
     }
   })
 }
@@ -178,7 +186,7 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
     ) return
     autoFocusedRun.current = run.id
     setTab('prod')
-    openFile(products[0].path)
+    openFile((products.find((item) => item.primary) ?? products[0]).openPath)
   }, [manifest?.runId, openFile, panelOpen, products, run, viewerPath])
 
   const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
@@ -245,7 +253,7 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
             {productOpen && (
               <div className="pe-product-list">
                 {products.length ? products.map((product) => (
-                  <div className={`pe-product-item ${viewerPath === product.path ? 'active' : ''}`.trim()} key={product.path} {...clickable} onClick={() => { openFile(product.path); setTab('prod'); setOverviewOpen(false) }}>
+                  <div className={`pe-product-item ${viewerPath === product.openPath ? 'active' : ''}`.trim()} key={product.path} {...clickable} onClick={() => { openFile(product.openPath); setTab('prod'); setOverviewOpen(false) }}>
                     <span className="pe-product-badge">{badge(product.name)}</span>
                     <span title={product.name}>{product.name}</span>
                   </div>
@@ -269,7 +277,7 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
           products.length ? (
             <div className="pe-artifacts">
               {products.map((product) => (
-                <div className="ov-art" key={product.path} {...clickable} onClick={() => openFile(product.path)}>
+                <div className="ov-art" key={product.path} {...clickable} onClick={() => openFile(product.openPath)}>
                   <span className="oa-ic">{badge(product.name)}</span>
                   <div className="pe-artifact-copy"><div className="oa-n">{product.name}</div><div className="oa-m">{product.meta}</div></div>
                 </div>

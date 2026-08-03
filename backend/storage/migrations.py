@@ -141,3 +141,39 @@ def migrate_project_org_scope(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
     if "org_id" not in columns:
         conn.execute("ALTER TABLE projects ADD COLUMN org_id TEXT")
+
+
+def migrate_artifact_presentation(conn: sqlite3.Connection) -> None:
+    """Backfill one authoritative primary artifact and stable order per Run (WB-407)."""
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifacts'"
+    ).fetchone():
+        return
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(artifacts)")}
+    if "is_primary" not in columns:
+        conn.execute("ALTER TABLE artifacts ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0")
+    if "display_order" not in columns:
+        conn.execute("ALTER TABLE artifacts ADD COLUMN display_order INTEGER NOT NULL DEFAULT 0")
+
+    current_run = ""
+    order = 0
+    rows = conn.execute(
+        "SELECT id,run_id FROM artifacts ORDER BY run_id,created_at,id"
+    ).fetchall()
+    for artifact_id, run_id in rows:
+        if run_id != current_run:
+            current_run = run_id
+            order = 0
+        conn.execute(
+            "UPDATE artifacts SET is_primary=?,display_order=? WHERE id=?",
+            (1 if order == 0 else 0, order, artifact_id),
+        )
+        order += 1
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_artifacts_one_primary "
+        "ON artifacts(run_id) WHERE is_primary=1"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_artifacts_presentation "
+        "ON artifacts(run_id,is_primary DESC,display_order,created_at,id)"
+    )

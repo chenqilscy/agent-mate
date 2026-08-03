@@ -109,6 +109,8 @@ export interface ArtifactEvent {
   path: string
   sha256?: string
   mime_type?: string
+  is_primary?: boolean
+  display_order?: number
   acceptance_status?: 'pending' | 'accepted' | 'rejected'
 }
 export interface RunEvent { run: AgentRun }
@@ -194,6 +196,8 @@ export interface ArtifactManifest {
   validation_status: string
   validation: Record<string, unknown>
   preview_path?: string | null
+  is_primary: boolean
+  display_order: number
   acceptance_status: 'pending' | 'accepted' | 'rejected'
   accepted_by?: string | null
   accepted_at?: number | null

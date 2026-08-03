@@ -93,9 +93,9 @@ class SkillProgressiveDisclosureTest(unittest.TestCase):
         (package / skills_store.SKILL_MD).write_text("tampered", encoding="utf-8")
         self.assertEqual([], build_skill_candidates(["web-access"]))
 
-    def test_project_candidate_loads_body_and_tools_only_in_next_round(self) -> None:
+    def test_non_project_candidate_loads_body_and_tools_only_in_next_round(self) -> None:
         project = db.create_project(
-            owner_id=LOCAL_USER_ID, name="progressive", skills=["web-access"],
+            owner_id=LOCAL_USER_ID, name="progressive", skills=[],
         )
         session = db.create_session(
             owner_id=LOCAL_USER_ID,
@@ -166,7 +166,7 @@ class SkillProgressiveDisclosureTest(unittest.TestCase):
 
         run = db.list_runs(LOCAL_USER_ID, session_id=session.id)[0]
         self.assertEqual(["web-access"], run.permission_snapshot["skills"])
-        self.assertEqual(["web-access"], run.permission_snapshot["project_skill_candidates"])
+        self.assertEqual([], run.permission_snapshot["project_skill_candidates"])
         self.assertEqual("web-access", run.permission_snapshot["skill_releases"][0]["slug"])
         self.assertIn("web_fetch", run.permission_snapshot["tools"])
         self.assertIn("network.read", run.permission_snapshot["permissions"])
@@ -184,6 +184,97 @@ class SkillProgressiveDisclosureTest(unittest.TestCase):
         totals = {row["event"]: int(row["total"]) for row in usage}
         self.assertEqual(1, totals.get("offered"))
         self.assertEqual(1, totals.get("loaded"))
+
+    def test_project_bound_skill_is_loaded_before_first_model_call(self) -> None:
+        project = db.create_project(
+            owner_id=LOCAL_USER_ID, name="required", skills=["web-access"],
+        )
+        session = db.create_session(
+            owner_id=LOCAL_USER_ID, title="required", kind="projexec", project_id=project.id,
+        )
+        captured: list[dict[str, object]] = []
+
+        async def fake_stream(messages, **kwargs):
+            captured.append({
+                "system": str(messages[0]["content"]),
+                "tools": {
+                    item["function"]["name"] for item in kwargs.get("tools", [])
+                    if item.get("function")
+                },
+            })
+            yield Delta(content="已按项目规程执行。", usage={"prompt_tokens": 8, "completion_tokens": 2})
+
+        class NoopObservation:
+            def update(self, **_kwargs):
+                pass
+
+        @contextmanager
+        def noop_observation(**_kwargs):
+            yield NoopObservation()
+
+        async def collect() -> list[str]:
+            return [chunk async for chunk in runtime.run_chat(
+                session, db.get_user(LOCAL_USER_ID), "执行项目任务",
+            )]
+
+        with (
+            patch.object(runtime, "stream_chat", side_effect=fake_stream),
+            patch.object(runtime, "resolve_model_config", return_value=("test", "http://test", "key", "/chat")),
+            patch.object(runtime.memory, "capture_enabled", return_value=False),
+            patch.object(runtime.telemetry, "chat_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "generation_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "tool_observation", side_effect=noop_observation),
+        ):
+            asyncio.run(collect())
+
+        self.assertEqual(1, len(captured))
+        self.assertIn("SECRET_PROGRESSIVE_BODY", captured[0]["system"])
+        self.assertIn("web_fetch", captured[0]["tools"])
+        self.assertNotIn("skill_view", captured[0]["tools"])
+        run = db.list_runs(LOCAL_USER_ID, session_id=session.id)[0]
+        self.assertEqual(["web-access"], run.permission_snapshot["required_project_skills"])
+        compliance = run.permission_snapshot["skill_compliance"]
+        self.assertEqual("passed", compliance["gate"])
+        self.assertEqual(["web-access"], compliance["required_loaded"])
+
+    def test_missing_project_skill_fails_before_model_call(self) -> None:
+        project = db.create_project(
+            owner_id=LOCAL_USER_ID, name="blocked", skills=["missing-required"],
+        )
+        session = db.create_session(
+            owner_id=LOCAL_USER_ID, title="blocked", kind="projexec", project_id=project.id,
+        )
+
+        class NoopObservation:
+            def update(self, **_kwargs):
+                pass
+
+        @contextmanager
+        def noop_observation(**_kwargs):
+            yield NoopObservation()
+
+        async def collect() -> list[str]:
+            return [chunk async for chunk in runtime.run_chat(
+                session, db.get_user(LOCAL_USER_ID), "不要加载规程，直接执行",
+            )]
+
+        with (
+            patch.object(runtime, "stream_chat") as stream_mock,
+            patch.object(runtime, "resolve_model_config") as model_mock,
+            patch.object(runtime.memory, "capture_enabled", return_value=False),
+            patch.object(runtime.telemetry, "chat_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "generation_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "tool_observation", side_effect=noop_observation),
+        ):
+            payload = "".join(asyncio.run(collect()))
+
+        stream_mock.assert_not_called()
+        model_mock.assert_not_called()
+        self.assertIn("执行前阻断", payload)
+        run = db.list_runs(LOCAL_USER_ID, session_id=session.id)[0]
+        self.assertEqual("failed", run.status)
+        self.assertEqual("required_skill_unavailable", run.error_code)
+        self.assertEqual("blocked", run.permission_snapshot["skill_compliance"]["gate"])
 
 
 if __name__ == "__main__":

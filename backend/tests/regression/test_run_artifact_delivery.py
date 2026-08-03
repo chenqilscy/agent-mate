@@ -95,6 +95,46 @@ class RunArtifactDeliveryTest(unittest.TestCase):
         self.assertEqual("accepted", reviewed.acceptance_status)
         self.assertEqual("accepted", db.get_run(run.id).status)
 
+    def test_artifact_primary_and_display_order_are_authoritative(self) -> None:
+        run, _ = self._run()
+        root = settings.WORKSPACE_ROOT / "default"
+        root.mkdir(parents=True, exist_ok=True)
+        first_path = root / "main.md"
+        second_path = root / "appendix.md"
+        first_path.write_text("main", encoding="utf-8")
+        second_path.write_text("appendix", encoding="utf-8")
+        first = db.upsert_artifact(
+            run_id=run.id, path="main.md", full_path=first_path, source_tool="write_file",
+        )
+        second = db.upsert_artifact(
+            run_id=run.id, path="appendix.md", full_path=second_path, source_tool="write_file",
+        )
+        self.assertTrue(first.is_primary)
+        self.assertFalse(second.is_primary)
+        self.assertEqual([0, 1], [item.display_order for item in db.list_artifacts(run.id)])
+
+        first_path.write_text("main revised", encoding="utf-8")
+        updated = db.upsert_artifact(
+            run_id=run.id, path="main.md", full_path=first_path, source_tool="write_file",
+        )
+        self.assertEqual(0, updated.display_order)
+        self.assertTrue(updated.is_primary)
+
+        promoted = db.upsert_artifact(
+            run_id=run.id, path="appendix.md", full_path=second_path,
+            source_tool="write_file", is_primary=True,
+        )
+        ordered = db.list_artifacts(run.id)
+        self.assertEqual(["appendix.md", "main.md"], [item.path for item in ordered])
+        self.assertTrue(promoted.is_primary)
+        self.assertEqual(1, sum(1 for item in ordered if item.is_primary))
+
+        set_current_user_id(LOCAL_USER_ID)
+        api_items = runs_router.list_run_artifacts(run.id)["artifacts"]
+        self.assertEqual(["appendix.md", "main.md"], [item["path"] for item in api_items])
+        self.assertEqual([True, False], [item["is_primary"] for item in api_items])
+        self.assertEqual([1, 0], [item["display_order"] for item in api_items])
+
     def test_failed_run_retries_as_new_related_paused_run(self) -> None:
         run, _ = self._run()
         db.set_run_status(run.id, "failed", error_code="tool_error", error_message="boom")

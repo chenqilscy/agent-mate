@@ -122,6 +122,8 @@ class Artifact:
     validation_status: str
     validation: dict[str, Any]
     preview_path: Optional[str]
+    is_primary: bool
+    display_order: int
     acceptance_status: str
     accepted_by: Optional[str]
     accepted_at: Optional[float]
