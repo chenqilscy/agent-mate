@@ -1546,6 +1546,24 @@ def cached_server_user(token: str, *, max_validation_age: float) -> Optional[str
     return str(row["user_id"])
 
 
+def cached_server_token_status(token: str) -> Optional[dict[str, float | str]]:
+    """Return non-secret cache timing metadata for connection-state UX."""
+    row = get_conn().execute(
+        "SELECT at.user_id,at.expires_at,at.validated_at FROM auth_tokens at "
+        "JOIN server_identities si ON si.user_id=at.user_id AND si.server_token=at.token "
+        "LEFT JOIN pending_token_revocations pr ON pr.token=at.token "
+        "WHERE at.token=? AND pr.token IS NULL",
+        (token,),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "user_id": str(row["user_id"]),
+        "expires_at": float(row["expires_at"] or 0),
+        "validated_at": float(row["validated_at"] or 0),
+    }
+
+
 def revoke_cached_server_token(token: str) -> None:
     conn = get_conn()
     conn.execute("DELETE FROM server_identities WHERE server_token=?", (token,))

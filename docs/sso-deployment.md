@@ -61,6 +61,7 @@ Content-Type: application/json
 返回的 `ami_...` 只显示一次。App/Console 首次联合登录时填写；已绑定用户留空。可显式改为 `open`、`existing_only` 或
 `disabled`，生产环境建议保留 `invite_only`。账号绑定由已登录用户调用 `POST /api/auth/sso/start` 且传 `mode=link`；
 `GET /api/auth/identities` 查询，`DELETE /api/auth/identities/{provider}` 解绑。没有本地口令的账号不能删除最后一种登录方式。
+无论从用户自助入口还是管理员入口解绑，Server 都在同一事务中撤销该账号的全部现有会话；调用方需要重新登录。
 
 ## 5. 安全与运维
 
@@ -68,6 +69,10 @@ Content-Type: application/json
 - 微信使用一次性 state，code 与 AppSecret 只由 Server 后端交换，主体优先使用 `unionid`；
 - state、登录 attempt、邀请码与会话 token 均为一次性或有界生命周期；数据库只保存 Bearer token 的 SHA-256 key；
 - 新口令使用 scrypt；存量 PBKDF2 账号在下一次成功登录时自动升级；登录与 SSO start 使用持久分钟窗限速；
+- Console 直连 Server，暂停账号、删除账号、重置登录方式后现有会话立即失效。App 是 local-first 客户端：Server 在线时，
+  已缓存身份默认最多 `30` 秒重新校验一次（`AGENTMATE_SERVER_TOKEN_VALIDATION_TTL_SECONDS`）；Server 不可达时，允许从最后一次
+  成功校验起默认 `3600` 秒的离线宽限（`AGENTMATE_SERVER_TOKEN_OFFLINE_GRACE_SECONDS`）。项目页与连接窗口会明确显示
+  `online` / `offline_grace` 状态和宽限剩余时间。高安全部署可缩短宽限，但完全取消会使中心故障直接阻断本地工作；
 - provider 外部真实验收必须使用部署方自己的已审核应用、域名和凭据。仓库测试只验证协议、安全状态机和失败关闭，不包含真实 secret。
 
 ## 6. 真实 Provider 验收
@@ -78,6 +83,7 @@ Content-Type: application/json
 2. 使用从未绑定的真实账号和一次性邀请码完成首次登录，确认创建一个普通账户而非平台管理员；
 3. 登出后再次登录，确认复用同一 `account_id`，邀请码不可重放；
 4. 使用已有密码账户执行显式绑定，确认同邮箱不会自动合并、冲突 subject 失败关闭；
-5. 管理员暂停账户，确认现有 App/Console 会话立即 401，重新 SSO 也不能取得 token；
+5. 管理员暂停账户，确认 Console 会话立即 401、在线 App 在配置的校验窗口（默认不超过 30 秒）内 401，重新 SSO 也不能取得 token；
+   再模拟 Server 不可达，确认 App 明示离线宽限和剩余时间，并在宽限到期后 401；
 6. 轮换 Provider secret，确认旧值不回显、数据库无明文、审计只出现 `client_secret_rotated`；
 7. 保存 Provider 控制台回调配置截图、Server 脱敏审计、测试账号 ID 和时间作为部署证据，随后清理测试绑定。

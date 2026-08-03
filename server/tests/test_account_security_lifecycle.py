@@ -185,6 +185,19 @@ class AccountSecurityLifecycleTest(unittest.TestCase):
         self.assertIn("password_reset", actions)
         self.assertIn("account_suspended", actions)
 
+    def test_admin_identity_unlink_revokes_sessions_in_the_same_store_transaction(self) -> None:
+        _admin, headers = self._bootstrap()
+        user = db.create_account(name="linked-user", password="LinkedPassword-123")
+        self._add_identity(user.id, "google")
+        user_token = db.create_token(user.id)[0]
+        response = self.client.delete(
+            f"/api/accounts/{user.id}/identities/google", headers=headers,
+        )
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertIsNone(db.account_id_for_token(user_token))
+        actions = [item["action"] for item in db.list_auth_audit(account_id=user.id)]
+        self.assertEqual(1, actions.count("identity_unlinked"))
+
     def test_platform_admin_role_change_is_audited_atomically(self) -> None:
         admin, headers = self._bootstrap()
         user = db.create_account(name="operator", password="OperatorPass-123")

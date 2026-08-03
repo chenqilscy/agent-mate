@@ -229,8 +229,14 @@ class SsoAuthTest(unittest.TestCase):
             headers={"Authorization": f"Bearer {result['token']}"},
         )
         self.assertEqual(200, unlinked.status_code, unlinked.text)
+        self.assertIsNone(db.account_id_for_token(result["token"]))
+        self.assertIsNone(db.account_id_for_token(local_token))
         self.assertIn(
             "sso_identity_unlinked",
+            {item["action"] for item in db.list_auth_audit(account_id=local.id)},
+        )
+        self.assertIn(
+            "identity_unlinked",
             {item["action"] for item in db.list_auth_audit(account_id=local.id)},
         )
 

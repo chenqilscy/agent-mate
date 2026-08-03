@@ -13,7 +13,7 @@ import { clickable } from '../../lib/a11y'
 type Notif = { id: string; title: string; body: string; created_at: number; read: number }
 
 export function ServerConnectModal({ onClose }: { onClose: () => void }) {
-  const { linked, connect, disconnect } = useServerStore()
+  const { linked, authState, onlineValidationTtl, offlineGraceRemaining, connect, disconnect } = useServerStore()
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
@@ -69,6 +69,13 @@ export function ServerConnectModal({ onClose }: { onClose: () => void }) {
             <div className="np-body">
               <div className="np-lbl">已连接为 {linked.name}</div>
               <div className="auth-switch">项目 / 成员 / 评论 / 在线状态经中心 Server 协作。</div>
+              <div className="auth-switch">
+                {authState === 'online'
+                  ? `身份在线，安全状态最多 ${onlineValidationTtl} 秒内重新校验。`
+                  : authState === 'offline_grace'
+                    ? `Server 不可达，正在使用离线宽限（剩余约 ${Math.ceil(offlineGraceRemaining / 60)} 分钟）。暂停或撤销可能要到恢复联网后才生效。`
+                    : 'Server 身份当前未在线验证，请重新连接。'}
+              </div>
               <div className="np-lbl">团队通知</div>
               {notifs.length === 0 ? (
                 <div className="msg-empty"><span className="msg-empty-ic">🔔</span>暂无通知</div>

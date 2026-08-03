@@ -44,6 +44,9 @@ export function ProjectsView() {
   const { PROJ_TPL } = useCatalog()
   const serverEnabled = useServerStore((s) => s.enabled)
   const serverLinked = useServerStore((s) => s.linked)
+  const serverAuthState = useServerStore((s) => s.authState)
+  const onlineValidationTtl = useServerStore((s) => s.onlineValidationTtl)
+  const offlineGraceRemaining = useServerStore((s) => s.offlineGraceRemaining)
   const serverChecked = useServerStore((s) => s.checked)
   const refreshServer = useServerStore((s) => s.refreshStatus)
 
@@ -95,8 +98,10 @@ export function ProjectsView() {
   const serverContext = !serverChecked
     ? { title: '正在确认账号与项目同步状态', detail: 'AgentMate 账号统一由 Server 提供。', tone: 'checking' }
     : serverLinked
-      ? serverEnabled
-        ? { title: `已登录 Server 账号 · ${serverLinked.name}`, detail: '团队项目由 Console/Server 管理；同步会拉取最新项目、成员与计划。', tone: 'linked' }
+      ? serverEnabled && serverAuthState === 'online'
+        ? { title: `已登录 Server 账号 · ${serverLinked.name}`, detail: `在线身份每 ${onlineValidationTtl} 秒内重新校验；团队项目由 Console/Server 管理。`, tone: 'linked' }
+        : serverAuthState === 'offline_grace'
+          ? { title: `Server 离线宽限 · ${serverLinked.name}`, detail: `中心当前不可达，本机身份缓存还可使用约 ${Math.ceil(offlineGraceRemaining / 60)} 分钟；恢复连接后会立即重验。`, tone: 'attention' }
         : { title: `已登录 Server 账号 · ${serverLinked.name}`, detail: '当前缺少 Server 地址，账号身份来自本地验证缓存；配置后可恢复团队项目同步。', tone: 'attention' }
       : !serverEnabled
         ? { title: 'AgentMate Server 尚未配置', detail: '当前是匿名访客，不是本地账号；配置 Server 后才能登录并同步团队项目。', tone: 'attention' }

@@ -10,6 +10,9 @@ import { TOKEN_KEY } from '../lib/api'
 interface ServerState {
   enabled: boolean // 本地 backend 是否已配 AGENTMATE_SERVER_URL
   linked: { account_id: string; name: string } | null // 是否已绑定某 Server 账号
+  authState: 'unconfigured' | 'disconnected' | 'online' | 'offline_grace' | 'offline_expired' | 'revoked'
+  onlineValidationTtl: number
+  offlineGraceRemaining: number
   checked: boolean
   refreshStatus: () => Promise<void>
   connect: (name: string, password: string, register: boolean) => Promise<void> // 失败抛错
@@ -19,11 +22,21 @@ interface ServerState {
 export const useServerStore = create<ServerState>((set) => ({
   enabled: false,
   linked: null,
+  authState: 'unconfigured',
+  onlineValidationTtl: 30,
+  offlineGraceRemaining: 0,
   checked: false,
   refreshStatus: async () => {
     try {
       const s = await api.serverStatus()
-      set({ enabled: s.enabled, linked: s.linked, checked: true })
+      set({
+        enabled: s.enabled,
+        linked: s.linked,
+        authState: s.auth_state,
+        onlineValidationTtl: s.online_validation_ttl_seconds,
+        offlineGraceRemaining: s.offline_grace_remaining_seconds,
+        checked: true,
+      })
     } catch {
       set({ checked: true }) // 后端未连：保留访客态，不推断出本地账号
     }
@@ -38,7 +51,7 @@ export const useServerStore = create<ServerState>((set) => ({
   },
   disconnect: () => {
     localStorage.removeItem(TOKEN_KEY)
-    set({ linked: null })
+    set({ linked: null, authState: 'disconnected', offlineGraceRemaining: 0 })
     window.location.reload()
   },
 }))

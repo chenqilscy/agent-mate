@@ -170,7 +170,6 @@ def unlink_account_identity(
         raise HTTPException(409, str(exc)) from exc
     if not removed:
         raise HTTPException(404, "identity not found")
-    db.revoke_account_sessions(account_id, actor_id=account.id, action="identity_unlinked")
     return {"ok": True}
 
 

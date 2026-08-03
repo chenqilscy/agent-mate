@@ -203,7 +203,7 @@ class Settings:
     # short online window. If Server is unreachable, the explicitly bounded
     # offline grace applies; an authoritative 401/403 always revokes immediately.
     SERVER_TOKEN_VALIDATION_TTL_SECONDS: int = max(
-        1, int(os.getenv("AGENTMATE_SERVER_TOKEN_VALIDATION_TTL_SECONDS", "300"))
+        1, int(os.getenv("AGENTMATE_SERVER_TOKEN_VALIDATION_TTL_SECONDS", "30"))
     )
     SERVER_TOKEN_OFFLINE_GRACE_SECONDS: int = max(
         1, int(os.getenv("AGENTMATE_SERVER_TOKEN_OFFLINE_GRACE_SECONDS", "3600"))

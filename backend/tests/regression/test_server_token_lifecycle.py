@@ -26,9 +26,11 @@ class LocalTokenLifecycleTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old_db = settings.DB_PATH
         self.old_url = settings.AGENTMATE_SERVER_URL
+        self.old_validation_ttl = settings.SERVER_TOKEN_VALIDATION_TTL_SECONDS
         self._close_connection()
         settings.DB_PATH = Path(self.tmp.name) / "app.db"
         settings.AGENTMATE_SERVER_URL = "http://server.invalid"
+        settings.SERVER_TOKEN_VALIDATION_TTL_SECONDS = 30
         db.init_db()
         db.upsert_external_user("account-1", "Alice")
 
@@ -36,6 +38,7 @@ class LocalTokenLifecycleTest(unittest.TestCase):
         self._close_connection()
         settings.DB_PATH = self.old_db
         settings.AGENTMATE_SERVER_URL = self.old_url
+        settings.SERVER_TOKEN_VALIDATION_TTL_SECONDS = self.old_validation_ttl
         self.tmp.cleanup()
 
     @staticmethod
@@ -59,6 +62,20 @@ class LocalTokenLifecycleTest(unittest.TestCase):
         db.get_conn().commit()
         self.assertIsNone(deps.resolve_token_to_user_id("server-token"))
         self.assertIsNone(db.get_server_identity("account-1"))
+
+    def test_online_revocation_is_observed_after_the_declared_validation_window(self) -> None:
+        self._cache()
+        db.get_conn().execute(
+            "UPDATE auth_tokens SET validated_at=? WHERE token=?",
+            (time.time() - settings.SERVER_TOKEN_VALIDATION_TTL_SECONDS - 1, "server-token"),
+        )
+        db.get_conn().commit()
+        self.assertIsNone(deps.resolve_token_to_user_id("server-token"))
+        with patch.object(
+            deps.server_client, "verify_token_state", return_value=("invalid", None),
+        ):
+            self.assertIsNone(deps.resolve_via_server("server-token"))
+        self.assertIsNone(db.user_id_for_token("server-token"))
 
     def test_offline_logout_is_local_first_and_retries_remote_revocation(self) -> None:
         self._cache()

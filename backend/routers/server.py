@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -57,6 +59,8 @@ def server_status(authorization: str = Header(default="")) -> dict:
     enabled = server_client.server_enabled()
     linked = None
     token = _bearer(authorization)
+    auth_state = "unconfigured" if not enabled else "disconnected"
+    cache = db.cached_server_token_status(token) if token else None
     cached_user_id = db.cached_server_user(
         token, max_validation_age=settings.SERVER_TOKEN_OFFLINE_GRACE_SECONDS,
     ) if token else None
@@ -64,14 +68,39 @@ def server_status(authorization: str = Header(default="")) -> dict:
         cached_user = db.get_user(cached_user_id)
         if cached_user:
             linked = {"account_id": cached_user.id, "name": cached_user.name}
+            auth_state = "offline_grace"
     if enabled and token:
         state, acct = server_client.verify_token_state(token)
         if state == "invalid":
             db.revoke_cached_server_token(token)
             linked = None
+            auth_state = "revoked"
         elif acct:
             linked = {"account_id": acct.get("id", ""), "name": acct.get("name", "")}
-    return {"enabled": enabled, "linked": linked}
+            account_id = str(acct.get("id") or "")
+            if account_id:
+                db.upsert_external_user(
+                    account_id, str(acct.get("name") or ""), str(acct.get("plan") or "体验版"),
+                )
+                db.cache_token(token, account_id, acct.get("_token_expires_at"))
+                db.set_server_identity(account_id, token)
+            auth_state = "online"
+        elif state == "unavailable" and linked is None:
+            auth_state = "offline_expired"
+    now = time.time()
+    remaining = 0
+    if auth_state == "offline_grace" and cache:
+        remaining = max(
+            0, int(float(cache["validated_at"]) + settings.SERVER_TOKEN_OFFLINE_GRACE_SECONDS - now),
+        )
+    return {
+        "enabled": enabled,
+        "linked": linked,
+        "auth_state": auth_state,
+        "online_validation_ttl_seconds": settings.SERVER_TOKEN_VALIDATION_TTL_SECONDS,
+        "offline_grace_seconds": settings.SERVER_TOKEN_OFFLINE_GRACE_SECONDS,
+        "offline_grace_remaining_seconds": remaining,
+    }
 
 
 # ---- 前端接 Server 的代理路由（WB-067）：前端只连本地 :8101，这里转发到 Server。全部 guarded。----

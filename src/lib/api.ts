@@ -214,7 +214,14 @@ export const api = {
   }>('POST', '/server/pull'),
 
   // 前端接 Server 协作（WB-067 Slice 2）：都经本地 backend 代理转发到 Server；未接 Server → {server:false}/空。
-  serverStatus: () => get<{ enabled: boolean; linked: { account_id: string; name: string } | null }>('/server/status'),
+  serverStatus: () => get<{
+    enabled: boolean
+    linked: { account_id: string; name: string } | null
+    auth_state: 'unconfigured' | 'disconnected' | 'online' | 'offline_grace' | 'offline_expired' | 'revoked'
+    online_validation_ttl_seconds: number
+    offline_grace_seconds: number
+    offline_grace_remaining_seconds: number
+  }>('/server/status'),
   serverLogin: (name: string, password: string, register = false) =>
     send<{ token: string; account: { id: string; name: string; is_platform_admin?: boolean } }>('POST', '/server/login', { name, password, register }),
   serverImport: () => send<{ server: boolean; imported: number; skipped: number }>('POST', '/server/import'),

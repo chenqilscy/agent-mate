@@ -97,6 +97,10 @@ class ServerAccountAuthorityTest(unittest.TestCase):
         cached_account = SimpleNamespace(id="server-account", name="Alice")
         with (
             patch.object(server_router.server_client, "server_enabled", return_value=False),
+            patch.object(server_router.db, "cached_server_token_status", return_value={
+                "user_id": "server-account", "expires_at": 9999999999.0,
+                "validated_at": 9999999999.0,
+            }),
             patch.object(server_router.db, "cached_server_user", return_value="server-account"),
             patch.object(server_router.db, "get_user", return_value=cached_account),
             patch.object(server_router.server_client, "verify_token_state") as verify_remote,
@@ -105,6 +109,8 @@ class ServerAccountAuthorityTest(unittest.TestCase):
 
         self.assertFalse(result["enabled"])
         self.assertEqual({"account_id": "server-account", "name": "Alice"}, result["linked"])
+        self.assertEqual("offline_grace", result["auth_state"])
+        self.assertGreaterEqual(result["offline_grace_remaining_seconds"], 0)
         verify_remote.assert_not_called()
 
     def test_server_status_never_treats_guest_import_link_as_login(self) -> None:
@@ -115,6 +121,7 @@ class ServerAccountAuthorityTest(unittest.TestCase):
             result = server_router.server_status("")
 
         self.assertIsNone(result["linked"])
+        self.assertEqual("disconnected", result["auth_state"])
         legacy_import_link.assert_not_called()
 
     def test_me_exposes_real_server_authentication_state(self) -> None:

@@ -557,6 +557,10 @@ def unlink_identity(account_id: str, provider: str, *, actor_id: str = "") -> bo
                 action="sso_identity_unlinked", account_id=account_id,
                 actor_id=actor_id or account_id, provider=provider, conn=conn,
             )
+            db.revoke_account_sessions(
+                account_id, actor_id=actor_id or account_id,
+                action="identity_unlinked", conn=conn,
+            )
         conn.commit()
     except Exception:
         conn.rollback()
