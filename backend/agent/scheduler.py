@@ -345,6 +345,12 @@ async def _process_relay_event(
         while fire.id in _running:
             await asyncio.sleep(0.1)
         final = db.get_automation_fire(fire.id, owner_id)
+        if final and final.status not in {"succeeded", "dead_letter", "ignored"}:
+            # Capacity admission, retry backoff and another worker can all leave a
+            # durable fire non-terminal. Do not turn that local queue state into a
+            # terminal Server failure; the lease will expire and idempotently
+            # redeliver while the scheduler continues the same fire.
+            return
         succeeded = bool(final and final.status == "succeeded")
         await asyncio.to_thread(
             server_client.acknowledge_relay_event,

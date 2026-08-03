@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 SERVER = Path(__file__).resolve().parents[1]
@@ -34,6 +35,11 @@ class RelayRetentionTest(unittest.TestCase):
         self.service, _token = relay_store.create_service_account(
             self.owner.id, "relay", ["relay:read", "relay:write"],
         )
+        relay_store._cleanup_state.update({
+            "last_run_at": None, "last_success_at": None, "last_failure_at": None,
+            "consecutive_failures": 0, "last_error": "",
+            "payloads_tombstoned": 0, "rows_deleted": 0,
+        })
 
     def tearDown(self) -> None:
         conn = getattr(db._local, "conn", None)
@@ -91,6 +97,26 @@ class RelayRetentionTest(unittest.TestCase):
             "SELECT id FROM relay_events ORDER BY id"
         ).fetchall()}
         self.assertEqual({"middle", "newest"}, remaining)
+
+    def test_failure_is_observable_and_next_success_recovers_health(self) -> None:
+        import importlib
+        main = importlib.import_module("main")
+
+        async def scenario() -> None:
+            with patch.object(relay_store, "cleanup_terminal_events", side_effect=RuntimeError("locked")):
+                self.assertFalse(await main._run_relay_retention_once())
+            failed = relay_store.retention_snapshot()
+            self.assertFalse(failed["healthy"])
+            self.assertEqual(1, failed["consecutive_failures"])
+            self.assertEqual("RuntimeError", failed["last_error"])
+            self.assertTrue(await main._run_relay_retention_once())
+
+        import asyncio
+        asyncio.run(scenario())
+        recovered = relay_store.retention_snapshot()
+        self.assertTrue(recovered["healthy"])
+        self.assertEqual(0, recovered["consecutive_failures"])
+        self.assertTrue(recovered["last_success_at"])
 
 
 if __name__ == "__main__":

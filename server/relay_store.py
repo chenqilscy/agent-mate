@@ -18,7 +18,9 @@ _DEVICE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,119}$")
 _EVENT_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$")
 _TERMINAL = ("succeeded", "failed", "dead_letter")
 _cleanup_state: dict[str, Any] = {
-    "last_run_at": None, "payloads_tombstoned": 0, "rows_deleted": 0,
+    "last_run_at": None, "last_success_at": None, "last_failure_at": None,
+    "consecutive_failures": 0, "last_error": "",
+    "payloads_tombstoned": 0, "rows_deleted": 0,
 }
 
 
@@ -330,11 +332,26 @@ def cleanup_terminal_events(now: float | None = None) -> dict[str, Any]:
         raise
     result = {
         "last_run_at": current,
+        "last_success_at": current,
+        "last_failure_at": _cleanup_state.get("last_failure_at"),
+        "consecutive_failures": 0,
+        "last_error": "",
         "payloads_tombstoned": int(tombstoned),
         "rows_deleted": int(deleted),
     }
     _cleanup_state.update(result)
     return dict(result)
+
+
+def record_cleanup_failure(exc: BaseException, now: float | None = None) -> dict[str, Any]:
+    current = time.time() if now is None else float(now)
+    _cleanup_state.update({
+        "last_run_at": current,
+        "last_failure_at": current,
+        "consecutive_failures": int(_cleanup_state.get("consecutive_failures") or 0) + 1,
+        "last_error": type(exc).__name__,
+    })
+    return dict(_cleanup_state)
 
 
 def retention_snapshot() -> dict[str, Any]:
@@ -344,8 +361,16 @@ def retention_snapshot() -> dict[str, Any]:
             "SELECT status,COUNT(*) AS count FROM relay_events GROUP BY status"
         ).fetchall()
     }
+    now = time.time()
+    last_success = float(_cleanup_state.get("last_success_at") or 0)
+    stale_after = max(120, settings.RELAY_CLEANUP_INTERVAL_SECONDS * 2)
+    stale = bool(last_success and now - last_success > stale_after)
+    healthy = int(_cleanup_state.get("consecutive_failures") or 0) == 0 and not stale
     return {
         **_cleanup_state,
+        "healthy": healthy,
+        "stale": stale,
+        "stale_after_seconds": stale_after,
         "counts": counts,
         "payload_retention_seconds": settings.RELAY_PAYLOAD_RETENTION_SECONDS,
         "terminal_retention_seconds": settings.RELAY_TERMINAL_RETENTION_SECONDS,

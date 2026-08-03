@@ -76,6 +76,25 @@ class ServerRelayPollerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("failed", ack.call_args.kwargs["status"])
         self.assertEqual("automation_unavailable", ack.call_args.kwargs["error_code"])
 
+    async def test_capacity_queued_fire_is_not_acknowledged_as_failed(self) -> None:
+        event = {
+            "id": "relay-queued", "event_key": "build-queued", "automation_id": "auto-1",
+            "lease_token": "lease-secret", "payload": {},
+        }
+        auto = SimpleNamespace(id="auto-1", trigger_kind="webhook", enabled=True)
+        fire = SimpleNamespace(id="fire-queued")
+        queued = SimpleNamespace(status="queued", error_code=None, error_message=None)
+        with (
+            patch.object(scheduler.db, "get_automation", return_value=auto),
+            patch.object(scheduler, "run_webhook", AsyncMock(return_value=(fire, True))),
+            patch.object(scheduler.db, "get_automation_fire", return_value=queued),
+            patch.object(scheduler.server_client, "acknowledge_relay_event", return_value=True) as ack,
+        ):
+            await scheduler._process_relay_event(
+                "owner-1", "account-token", "device-owner-1", event,
+            )
+        ack.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

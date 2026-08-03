@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -37,7 +38,17 @@ sso_store.migrate_plaintext_provider_secrets()
 async def _relay_retention_loop() -> None:
     while True:
         await asyncio.sleep(settings.RELAY_CLEANUP_INTERVAL_SECONDS)
+        await _run_relay_retention_once()
+
+
+async def _run_relay_retention_once() -> bool:
+    try:
         await asyncio.to_thread(relay_store.cleanup_terminal_events)
+        return True
+    except Exception as exc:  # noqa: BLE001 - recurring task must survive one bad cycle
+        relay_store.record_cleanup_failure(exc)
+        logging.getLogger("agentmate.relay_retention").exception("relay retention cleanup failed")
+        return False
 
 
 @asynccontextmanager
@@ -77,7 +88,8 @@ def console() -> str:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True, "service": "server", "relay_retention": relay_store.retention_snapshot()}
+    retention = relay_store.retention_snapshot()
+    return {"ok": bool(retention["healthy"]), "service": "server", "relay_retention": retention}
 
 
 app.include_router(auth.router)

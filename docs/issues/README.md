@@ -18,8 +18,6 @@
 |----|------|--------|------|------|
 | [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) | ⏸ | P1 | fullstack | 正式桌面更新服务缺少生产域名、CI 签名材料与上线验收 |
 | [WB-344](WB-344-v1-controlled-user-pilot.md) | ⏸ | P1 | misc | V1.0 受控真实用户试用缺少参与者、安装版本与连续证据 |
-| [WB-376](WB-376-relay-queued-ack.md) | ⬜ | P1 | backend | Relay 本地执行仅排队时被错误 ACK 为失败 |
-| [WB-377](WB-377-relay-retention-supervision.md) | ⬜ | P1 | backend | Relay 周期清理一次异常后永久停止且健康检查无感知 |
 | [WB-378](WB-378-stale-run-recovery.md) | ⬜ | P1 | backend | 进程崩溃后普通会话 Run 永久停留在活动状态 |
 | [WB-381](WB-381-ask-user-recovery.md) | ⬜ | P2 | backend | ask_user 断流泄漏等待对象且无法恢复待回答检查点 |
 | [WB-384](WB-384-compaction-degraded-state.md) | ⬜ | P2 | backend | 长会话摘要失败静默丢弃旧上下文且无降级状态 |
@@ -28,5 +26,5 @@
 
 ## 已关闭归档
 
-共 376 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 378 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。
