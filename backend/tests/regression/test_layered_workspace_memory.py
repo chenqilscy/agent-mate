@@ -183,6 +183,45 @@ class LayeredWorkspaceMemoryTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             workspace_memory.write_curated("../escape", "越界")
 
+    def test_daily_logs_roll_into_recoverable_archive_without_overwrite(self) -> None:
+        folder = (
+            sandbox.WORKSPACE_BASE / "projects" / self.project_a.id
+            / workspace_memory.MEMORY_DIR
+        )
+        folder.mkdir(parents=True, exist_ok=True)
+        old = folder / "2026-06-01.md"
+        recent = folder / "2026-07-20.md"
+        old.write_text("old", encoding="utf-8")
+        recent.write_text("recent", encoding="utf-8")
+
+        archived = workspace_memory.archive_expired_logs(
+            self.project_a.id,
+            now=datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc),
+        )
+        self.assertEqual(["2026-06-01.md"], archived)
+        self.assertFalse(old.exists())
+        self.assertEqual(
+            "old",
+            (folder / workspace_memory.ARCHIVE_DIR / old.name).read_text(encoding="utf-8"),
+        )
+        self.assertTrue(recent.exists())
+        self.assertEqual([], workspace_memory.archive_expired_logs(
+            self.project_a.id,
+            now=datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc),
+        ))
+
+        conflict = folder / "2026-06-01.md"
+        conflict.write_text("restored-conflict", encoding="utf-8")
+        self.assertEqual([], workspace_memory.archive_expired_logs(
+            self.project_a.id,
+            now=datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc),
+        ))
+        self.assertEqual("restored-conflict", conflict.read_text(encoding="utf-8"))
+        self.assertEqual(
+            "old",
+            (folder / workspace_memory.ARCHIVE_DIR / old.name).read_text(encoding="utf-8"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

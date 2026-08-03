@@ -1,5 +1,6 @@
-import { useRef, useState, type ReactNode } from 'react'
-import type { ChatMessage, RunPlanStatus } from '../../lib/types'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { ArtifactManifest, ChatMessage, RunPlanStatus, RunStatus } from '../../lib/types'
+import { api } from '../../lib/api'
 import { useUIStore } from '../../stores/uiStore'
 import { useChatStore } from '../../stores/chatStore'
 import { FileTree } from './FileTree'
@@ -63,23 +64,43 @@ function taskProgress(messages: ChatMessage[]): ProgressItem[] {
     }))
 }
 
-function artifacts(messages: ChatMessage[]): Artifact[] {
+function tracedArtifacts(messages: ChatMessage[], runId?: string): Artifact[] {
   const byPath = new Map<string, Artifact>()
   for (const message of messages) {
     if (message.role !== 'assistant') continue
     for (const trace of message.trace) {
       if (trace.kind === 'artifact') {
+        if (runId && trace.artifact.run_id && trace.artifact.run_id !== runId) continue
         const status = trace.artifact.acceptance_status === 'accepted' ? '已验收' : trace.artifact.acceptance_status === 'rejected' ? '已驳回' : '待验收'
-        byPath.set(trace.artifact.path, { path: trace.artifact.path, name: trace.artifact.name, meta: `交付产物 · ${status}` })
+        byPath.set(trace.artifact.path, { path: trace.artifact.path, name: trace.artifact.name, meta: `历史交付记录 · ${status}` })
       }
     }
   }
-  for (const diff of allDiffs(messages)) {
-    if (!byPath.has(diff.file)) {
-      byPath.set(diff.file, { path: diff.file, name: diff.file.split('/').pop() ?? diff.file, meta: `${diff.op} · 工作空间产物` })
+  return [...byPath.values()]
+}
+
+function manifestArtifacts(items: ArtifactManifest[]): Artifact[] {
+  return items.map((item, index) => {
+    const accepted = item.acceptance_status === 'accepted' ? '已验收' : item.acceptance_status === 'rejected' ? '已驳回' : '待验收'
+    const verified = item.verification?.exists && item.verification.hash_matches
+      ? '文件与哈希已核验'
+      : item.validation_status === 'passed' ? '生成校验通过' : '校验待确认'
+    return {
+      path: item.path,
+      name: item.name,
+      meta: `${index === 0 ? '主产物 · ' : ''}${verified} · ${accepted}`,
+    }
+  })
+}
+
+function latestRun(messages: ChatMessage[]): { id: string; status?: RunStatus } | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message.role === 'assistant' && message.runId) {
+      return { id: message.runId, status: message.runStatus }
     }
   }
-  return [...byPath.values()]
+  return null
 }
 
 function badge(name: string): string {
@@ -100,7 +121,10 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
   const [overviewOpen, setOverviewOpen] = useState(false)
   const [progressOpen, setProgressOpen] = useState(true)
   const [productOpen, setProductOpen] = useState(true)
+  const [manifest, setManifest] = useState<{ runId: string; items: ArtifactManifest[] } | null>(null)
+  const [manifestFailedRunId, setManifestFailedRunId] = useState<string | null>(null)
   const overviewAnchor = useRef<HTMLButtonElement>(null)
+  const autoFocusedRun = useRef<string | null>(null)
   const viewerPath = useUIStore((state) => state.viewerPath)
   const openFile = useUIStore((state) => state.openFile)
   const closeFile = useUIStore((state) => state.closeFile)
@@ -112,8 +136,50 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
   const scope = activeId ? { session: activeId } : undefined
 
   const diffs = allDiffs(messages)
-  const products = artifacts(messages)
+  const run = latestRun(messages)
+  const artifactSignal = messages
+    .flatMap((message) => message.trace)
+    .filter((trace) => trace.kind === 'artifact')
+    .map((trace) => trace.kind === 'artifact'
+      ? `${trace.artifact.id ?? trace.artifact.path}:${trace.artifact.acceptance_status}`
+      : '')
+    .join('|')
+  const products = run && manifest?.runId === run.id
+    ? manifestArtifacts(manifest.items)
+    : run && manifestFailedRunId === run.id
+      ? tracedArtifacts(messages, run.id)
+      : run ? [] : tracedArtifacts(messages)
   const progress = taskProgress(messages)
+
+  useEffect(() => {
+    let active = true
+    if (!run) {
+      setManifest(null)
+      setManifestFailedRunId(null)
+      return () => { active = false }
+    }
+    setManifest((current) => current?.runId === run.id ? current : null)
+    setManifestFailedRunId(null)
+    void api.listRunArtifacts(run.id).then(({ artifacts: items }) => {
+      if (!active) return
+      setManifest({ runId: run.id, items })
+    }).catch(() => {
+      if (!active) return
+      setManifestFailedRunId(run.id)
+    })
+    return () => { active = false }
+  }, [run?.id, run?.status, artifactSignal])
+
+  useEffect(() => {
+    if (
+      !run || !panelOpen || viewerPath || manifest?.runId !== run.id || !products.length
+      || !['completed', 'accepted'].includes(run.status ?? '')
+      || autoFocusedRun.current === run.id
+    ) return
+    autoFocusedRun.current = run.id
+    setTab('prod')
+    openFile(products[0].path)
+  }, [manifest?.runId, openFile, panelOpen, products, run, viewerPath])
 
   const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
     { id: 'prod', label: '产物', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 3v5h5M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" /></svg> },

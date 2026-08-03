@@ -170,6 +170,20 @@ class SkillProgressiveDisclosureTest(unittest.TestCase):
         self.assertEqual("web-access", run.permission_snapshot["skill_releases"][0]["slug"])
         self.assertIn("web_fetch", run.permission_snapshot["tools"])
         self.assertIn("network.read", run.permission_snapshot["permissions"])
+        context_keys = [item["key"] for item in run.permission_snapshot["context_layers"]]
+        self.assertEqual(["system_core", "precedence"], context_keys[:2])
+        self.assertIn("skill_candidates", context_keys)
+        compliance = run.permission_snapshot["skill_compliance"]
+        self.assertEqual(["web-access"], compliance["offered"])
+        self.assertEqual(["web-access"], compliance["viewed_loaded"])
+        self.assertEqual([], compliance["not_loaded"])
+        usage = db.get_conn().execute(
+            "SELECT event,COUNT(*) AS total FROM skill_usage_events WHERE run_id=? GROUP BY event",
+            (run.id,),
+        ).fetchall()
+        totals = {row["event"]: int(row["total"]) for row in usage}
+        self.assertEqual(1, totals.get("offered"))
+        self.assertEqual(1, totals.get("loaded"))
 
 
 if __name__ == "__main__":

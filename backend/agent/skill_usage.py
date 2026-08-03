@@ -10,7 +10,7 @@ from typing import Any
 
 from storage import db
 
-EVENTS = {"discovered", "loaded", "run_succeeded", "run_failed", "disabled", "enabled"}
+EVENTS = {"offered", "discovered", "loaded", "run_succeeded", "run_failed", "disabled", "enabled"}
 RATINGS = {"helpful", "neutral", "not_helpful"}
 _owner_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("skill_usage_owner", default="")
 _run_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("skill_usage_run", default="")
@@ -141,6 +141,7 @@ def summaries(owner_id: str) -> list[dict[str, Any]]:
     _init()
     rows = db.get_conn().execute(
         """SELECT release_id,slug,
+                  SUM(CASE WHEN event='offered' THEN 1 ELSE 0 END) AS offers,
                   SUM(CASE WHEN event='discovered' THEN 1 ELSE 0 END) AS discoveries,
                   SUM(CASE WHEN event='loaded' THEN 1 ELSE 0 END) AS loads,
                   SUM(CASE WHEN event='run_succeeded' THEN 1 ELSE 0 END) AS successes,
@@ -172,6 +173,7 @@ def summaries(owner_id: str) -> list[dict[str, Any]]:
             "content_hash": str(item.get("content_hash") or ""),
             "disabled": bool(item.get("disabled")),
             "installed_at": float(item.get("installed_at") or 0),
+            "offers": int(metric.get("offers") or 0),
             "discoveries": int(metric.get("discoveries") or 0),
             "loads": int(metric.get("loads") or 0),
             "successes": successes,

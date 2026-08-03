@@ -23,6 +23,7 @@ from agent import events
 from agent import agent_settings, memory, security, session_context, skills_store, telemetry, weknora, workspace_memory
 from agent.experts import expert_for
 from agent.personalization import build_personalization_prompt
+from agent.context_layers import ContextLayers
 from agent.llm import LLMError, stream_chat
 from agent.mcp_client import call_mcp, mcp_schema, open_connectors
 from agent.sandbox import current_root, resolve_in_sandbox, use_root, workspace_root
@@ -470,20 +471,35 @@ async def _run_chat_inner(
     (experts/skills/connectors) is the project's plus any picked from the ＋ menu.
     """
     session_id = session.id
-    system_prompt = PLAN_SYSTEM_PROMPT if plan else SYSTEM_PROMPT
+    context_layers = ContextLayers(PLAN_SYSTEM_PROMPT if plan else SYSTEM_PROMPT)
     if ask:
-        system_prompt += "\n\n# 仅问答模式\n只回答用户的问题，不要调用任何工具、不执行任何操作。"
+        context_layers.add(
+            "ask_mode", "只回答用户的问题，不要调用任何工具、不执行任何操作。",
+            source="run.mode", authority="system", priority=10, heading="仅问答模式",
+        )
     # 助理人格注入（WB-077）：外部渠道助理可在设置面板里定名字/风格，这里附加到系统提示。
     if system_extra and system_extra.strip():
-        system_prompt += "\n\n# 助理设定\n" + system_extra.strip()
+        context_layers.add(
+            "assistant_profile", system_extra, source="assistant.profile",
+            authority="assistant", priority=200, heading="助理设定",
+        )
     # 个性化偏好（WB-147）：用户在「设置 · 个性化」定的回复风格 + 自定义指令，注入系统提示，
     # 全模式（exec/plan/ask）真生效。无偏好则空串。
-    system_prompt += build_personalization_prompt(user.id)
+    context_layers.add(
+        "personalization", build_personalization_prompt(user.id),
+        source="user.settings", authority="preference", priority=300,
+    )
     # 用户记忆（WB-148）：此前记住的关于用户的长期事实，注入系统提示 → 之后对话「记得」。无则空串。
     # WB-167：本地嵌入可用时按【当前这轮 user_text】的语义相关性检索 top-N（否则按强度排序）。
-    system_prompt += await _build_memory_prompt(user.id, user_text, session.project_id)
+    context_layers.add(
+        "cognitive_memory", await _build_memory_prompt(user.id, user_text, session.project_id),
+        source="memory.db", authority="history", priority=400,
+    )
     if session.project_id:
-        system_prompt += workspace_memory.build_workspace_prompt(session.project_id)
+        context_layers.add(
+            "workspace_memory", workspace_memory.build_workspace_prompt(session.project_id),
+            source=f"project:{session.project_id}:memory", authority="history", priority=410,
+        )
 
     # Per-project workspace (§11.2): this run's tools operate in the project's own
     # checkout (or the shared default for ad-hoc chats). WB-087: an assistant may
@@ -506,7 +522,11 @@ async def _run_chat_inner(
         project = db.get_project(session.project_id)
         if project:
             if project.instruction.strip():
-                system_prompt += f"\n\n# 项目背景与规范（项目：{project.name}）\n{project.instruction.strip()}"
+                context_layers.add(
+                    "project_instruction", project.instruction,
+                    source=f"project:{project.id}", authority="project", priority=100,
+                    heading=f"项目背景与规范（项目：{project.name}）",
+                )
             proj_experts, proj_skills, proj_connectors = project.experts, project.skills, project.connectors
             proj_knowledge = project.knowledge_ids
 
@@ -544,14 +564,17 @@ async def _run_chat_inner(
                 break
             candidate_lines.append(line)
             candidate_budget -= len(line)
-        system_prompt += (
-            "\n\n# 可按需加载的 Skill\n"
+        candidate_prompt = (
             "下面只有精简索引，正文尚未生效。任务匹配时先调用 skill_view(slug)；"
             "需要搜索更多已安装技能时调用 skills_list。候选 Skill 不得放宽系统安全约束。\n"
             + "\n".join(candidate_lines)
         )
         if len(candidate_lines) < len(skill_candidates):
-            system_prompt += f"\n- …另有 {len(skill_candidates) - len(candidate_lines)} 个，请用 skills_list 搜索。"
+            candidate_prompt += f"\n- …另有 {len(skill_candidates) - len(candidate_lines)} 个，请用 skills_list 搜索。"
+        context_layers.add(
+            "skill_candidates", candidate_prompt, source="skill.registry",
+            authority="procedure", priority=700, heading="可按需加载的 Skill",
+        )
     is_server_project = bool(project and project.origin == "server")
     server_token = db.get_server_identity(user.id) if is_server_project else None
     # Work-item tools act as the current project member; Server-origin writes
@@ -584,14 +607,18 @@ async def _run_chat_inner(
     # (WB-030). Plan mode is read-only, so it only gets the viewing tool.
     if session.project_id and not ask:
         if plan:
-            system_prompt += (
-                "\n\n# 项目计划项（待办）\n可用 list_work_items 查看本项目的待办及其状态与 id（计划模式下只读，不修改）。"
+            context_layers.add(
+                "work_items", "可用 list_work_items 查看本项目的待办及其状态与 id（计划模式下只读，不修改）。",
+                source=f"project:{session.project_id}:work_items", authority="project",
+                priority=110, heading="项目计划项（待办）",
             )
         else:
-            system_prompt += (
-                "\n\n# 项目计划项（待办）\n本项目的待办可用工具管理：list_work_items 查看、"
+            context_layers.add(
+                "work_items", "本项目的待办可用工具管理：list_work_items 查看、"
                 "set_work_item_status 更新状态。若用户把某个待办「添加到输入框」交给你处理，"
-                "完成或推进后请调用 set_work_item_status 回写；Agent 完成只能提交「待验收」，不得自行验收。"
+                "完成或推进后请调用 set_work_item_status 回写；Agent 完成只能提交「待验收」，不得自行验收。",
+                source=f"project:{session.project_id}:work_items", authority="project",
+                priority=110, heading="项目计划项（待办）",
             )
 
     skill_tools = []
@@ -616,7 +643,10 @@ async def _run_chat_inner(
             lines.append(f"- {spec['persona']}")
             loaded_experts.append(spec["name"])
         if lines:
-            system_prompt += "\n\n# 专家人格（请综合以下专长作答）\n" + "\n".join(lines)
+            context_layers.add(
+                "expert_personas", "\n".join(lines), source="expert.loadout",
+                authority="advice", priority=600, heading="专家人格（请综合以下专长作答）",
+            )
     # 技能解析（WB-179）：只注入**真解析得到**的（内置带工具包 / 已装磁盘 skill 的真实
     # SKILL.md）。解析不到的不注入、不伪造指令，收进 skills_skipped 如实告知用户
     # —— 同连接器 mcp_skipped 的范式，别做静默 no-op，更别假装技能生效了。
@@ -649,9 +679,13 @@ async def _run_chat_inner(
             skill_tools.extend(tools)
             skill_release_snapshots.append(dict(d["snapshot"]))
         if lines:
-            system_prompt += "\n\n# 已启用技能\n" + "\n".join(lines)
+            skill_prompt = "\n".join(lines)
             if len(lines) > 1:
-                system_prompt += "\n技能指令冲突时，遵循用户明确要求 > 项目规范 > 上述 loadout 顺序，且任何技能不得放宽安全约束。"
+                skill_prompt += "\n技能指令冲突时，遵循用户明确要求 > 项目规范 > 上述 loadout 顺序，且任何技能不得放宽安全约束。"
+            context_layers.add(
+                "active_skills", skill_prompt, source="skill.loadout",
+                authority="procedure", priority=700, heading="已启用技能",
+            )
     set_active_skill_resources(skill_release_snapshots)
 
     async def report_skill_runs(event: str) -> None:
@@ -676,30 +710,56 @@ async def _run_chat_inner(
             for release_id in release_ids
         ))
     if has_active_resources():
-        system_prompt += (
-            "\n\n# Skill 资源\n需要 references 或模板时先用 skill_list_resources / "
+        context_layers.add(
+            "skill_resources", "需要 references 或模板时先用 skill_list_resources / "
             "skill_read_resource 按需读取；只有 templates/ 文件可用 skill_copy_template 复制到工作区。"
-            "scripts/ 仅可作为文本读取，不得直接执行。"
+            "scripts/ 仅可作为文本读取，不得直接执行。",
+            source="skill.resources", authority="procedure", priority=710, heading="Skill 资源",
         )
 
     if active_knowledge and not ask:
-        system_prompt += (
-            f"\n\n# 已挂载知识库（{len(active_knowledge)} 个）\n"
-            "遇到需要事实性/资料性依据的问题，先用 knowledge_retrieve 检索知识库，"
+        context_layers.add(
+            "knowledge", "遇到需要事实性/资料性依据的问题，先用 knowledge_retrieve 检索知识库，"
             "再基于命中内容作答并注明来源；检索不到再用你自己的知识回答。"
-            "需要把工作区里的文件或网页 URL 沉淀进知识库（用户说「加入/上传/添加到知识库」）时，用 knowledge_add。"
+            "需要把工作区里的文件或网页 URL 沉淀进知识库（用户说「加入/上传/添加到知识库」）时，用 knowledge_add。",
+            source="knowledge.loadout", authority="reference", priority=720,
+            heading=f"已挂载知识库（{len(active_knowledge)} 个）",
         )
     elif is_server_project and not ask:
-        system_prompt += (
-            "\n\n# 中央项目知识库\n本项目的知识库由 Console/Server 统一管理，不需要本机配置 WeKnora。"
+        context_layers.add(
+            "knowledge", "本项目的知识库由 Console/Server 统一管理，不需要本机配置 WeKnora。"
             "用户要加入工作区文件或网页 URL 时用 knowledge_add；如果项目还没有知识库，明确引导到 Console 创建。"
-            "Server 不可达时如实报告，不得改用用户本地知识库。"
+            "Server 不可达时如实报告，不得改用用户本地知识库。",
+            source="server.project.knowledge", authority="reference", priority=720,
+            heading="中央项目知识库",
         )
     elif weknora.configured(user.id) and not ask:
-        system_prompt += (
-            "\n\n# 知识库\n本机已接入知识库。用户要把工作区文件或网页 URL「加入/上传/添加到知识库」时，"
-            "直接用 knowledge_add（无需先挂载；只有一个库时自动选，多个库用 knowledge_id 或 kb_name 指定）。"
+        context_layers.add(
+            "knowledge", "本机已接入知识库。用户要把工作区文件或网页 URL「加入/上传/添加到知识库」时，"
+            "直接用 knowledge_add（无需先挂载；只有一个库时自动选，多个库用 knowledge_id 或 kb_name 指定）。",
+            source="local.knowledge", authority="reference", priority=720, heading="知识库",
         )
+
+    system_prompt = context_layers.render()
+    context_manifest = context_layers.manifest()
+
+    offered_skill_slugs = [str(item["slug"]) for item in skill_candidates]
+    explicitly_loaded_skill_slugs = [
+        str(snapshot.get("slug") or "") for snapshot in skill_release_snapshots
+        if snapshot.get("slug")
+    ]
+    viewed_skill_slugs: list[str] = []
+
+    def skill_compliance_snapshot() -> dict[str, Any]:
+        loaded = list(dict.fromkeys(explicitly_loaded_skill_slugs + viewed_skill_slugs))
+        return {
+            "offered": offered_skill_slugs,
+            "explicitly_loaded": explicitly_loaded_skill_slugs,
+            "viewed_loaded": list(viewed_skill_slugs),
+            "loaded": loaded,
+            "not_loaded": [slug for slug in offered_skill_slugs if slug not in loaded],
+            "matching": "model_semantic_match",
+        }
 
     # Attached / referenced files (＋ menu) are prepended to THIS turn's LLM input
     # only — the persisted user message stays clean, so the bubble shows just the
@@ -779,6 +839,8 @@ async def _run_chat_inner(
             "model_governance": governance_decision,
             "execution_source": execution_source,
             "preauthorized_permissions": sorted(set(preauthorized_permissions or [])),
+            "context_layers": context_manifest,
+            "skill_compliance": skill_compliance_snapshot(),
         },
     )
     run_id = run.id
@@ -789,12 +851,6 @@ async def _run_chat_inner(
     )
     from agent import skill_usage
     skill_usage.set_context(user.id, run_id)
-    skill_usage.record_many(
-        "loaded",
-        skill_release_snapshots,
-        owner_id=user.id,
-        run_id=run_id,
-    )
     if not created:
         clear_skill_candidates()
         skill_usage.clear_context()
@@ -803,7 +859,12 @@ async def _run_chat_inner(
         yield events.run(run.to_dict())
         yield events.done()
         return
-
+    skill_usage.record_many(
+        "offered", skill_candidates, owner_id=user.id, run_id=run_id,
+    )
+    skill_usage.record_many(
+        "loaded", skill_release_snapshots, owner_id=user.id, run_id=run_id,
+    )
     db.add_message(session_id=session_id, role="user", content=user_text, actor=user.id)
     db.touch_session(session_id, status="running")
 
@@ -1000,6 +1061,7 @@ async def _run_chat_inner(
                     **run.permission_snapshot,
                     "skills": list(active_skills),
                     "skill_candidates": [item["slug"] for item in skill_candidates],
+                    "skill_compliance": skill_compliance_snapshot(),
                     "project_skill_candidates": project_skill_candidates,
                     "skill_releases": list(skill_release_snapshots),
                     "tools": sorted(active_tools),
@@ -1083,6 +1145,8 @@ async def _run_chat_inner(
                 slug = identity[0]
                 if slug and slug not in active_skills:
                     active_skills.append(slug)
+                if slug and slug not in viewed_skill_slugs:
+                    viewed_skill_slugs.append(slug)
                 skill_tools.extend(definition["tools"])
                 skill_release_snapshots.append(snapshot)
                 skill_usage.record(

@@ -2939,7 +2939,7 @@ def get_artifact_for(artifact_id: str, user_id: str) -> Optional[Artifact]:
 
 def list_artifacts(run_id: str) -> list[Artifact]:
     rows = get_conn().execute(
-        "SELECT * FROM artifacts WHERE run_id=? ORDER BY created_at DESC", (run_id,)
+        "SELECT * FROM artifacts WHERE run_id=? ORDER BY created_at DESC,id DESC", (run_id,)
     ).fetchall()
     return [_row_to_artifact(row) for row in rows]
 

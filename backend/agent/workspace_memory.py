@@ -11,7 +11,7 @@ project sandbox root, never from a caller supplied absolute path.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import threading
 
@@ -22,6 +22,8 @@ CURATED_NAME = "MEMORY.md"
 CURATED_MAX_CHARS = 12_000
 CURATED_INJECT_BUDGET = 2_000
 DAILY_INJECT_BUDGET = 1_200
+DAILY_RETENTION_DAYS = 30
+ARCHIVE_DIR = "archive"
 _write_lock = threading.Lock()
 
 
@@ -68,6 +70,43 @@ def _one_line(text: str, limit: int) -> str:
     return value[:limit] + ("…" if len(value) > limit else "")
 
 
+def archive_expired_logs(
+    project_id: str,
+    *,
+    now: datetime | None = None,
+) -> list[str]:
+    """Move expired daily logs into a recoverable archive without overwriting history."""
+    folder = _memory_dir(project_id)
+    if not folder.is_dir():
+        return []
+    stamp = now or datetime.now().astimezone()
+    cutoff = stamp.date() - timedelta(days=DAILY_RETENTION_DAYS)
+    candidates: list[Path] = []
+    for path in folder.glob("????-??-??.md"):
+        try:
+            log_day = datetime.strptime(path.stem, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if path.is_file() and log_day < cutoff:
+            candidates.append(path)
+    if not candidates:
+        return []
+
+    archived: list[str] = []
+    archive = folder / ARCHIVE_DIR
+    with _write_lock:
+        archive.mkdir(parents=True, exist_ok=True)
+        for source in sorted(candidates, key=lambda item: item.name):
+            target = archive / source.name
+            if target.exists():
+                # A same-name archive may come from a restored workspace.  Never
+                # replace either copy automatically; a human can reconcile it.
+                continue
+            source.replace(target)
+            archived.append(source.name)
+    return archived
+
+
 def append_daily_log(
     project_id: str,
     *,
@@ -84,6 +123,7 @@ def append_daily_log(
     stamp = (now or datetime.now().astimezone())
     target = _memory_dir(project_id) / f"{stamp:%Y-%m-%d}.md"
     target.parent.mkdir(parents=True, exist_ok=True)
+    archive_expired_logs(project_id, now=stamp)
     heading = f"# {stamp:%Y-%m-%d} 工作日志\n\n"
     rows = [
         f"## {stamp:%H:%M} · {_one_line(title, 100) or '项目执行'}",
