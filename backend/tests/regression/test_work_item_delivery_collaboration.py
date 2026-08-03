@@ -357,6 +357,121 @@ class WorkItemDeliveryCollaborationTest(unittest.IsolatedAsyncioTestCase):
         ).fetchone()
         self.assertEqual(0, row["server_dirty"])
 
+    async def test_server_runner_status_failure_never_mutates_local_mirror(self) -> None:
+        db.update_work_item(self.item.id, status="doing")
+        db.get_conn().execute("UPDATE projects SET origin='server' WHERE id=?", (self.project.id,))
+        db.get_conn().commit()
+
+        self.assertFalse(await work_item_runner._set_item_status(
+            self.item, db.get_user(LOCAL_USER_ID), "review",
+        ))
+        with patch.object(work_item_runner.server_client, "update_work_item", return_value=None):
+            self.assertFalse(await work_item_runner._set_item_status(
+                self.item, db.get_user(LOCAL_USER_ID), "review", server_token="server-token",
+            ))
+        with patch.object(
+            work_item_runner.server_client, "update_work_item",
+            side_effect=HTTPException(409, "archived project is read-only"),
+        ):
+            self.assertFalse(await work_item_runner._set_item_status(
+                self.item, db.get_user(LOCAL_USER_ID), "review", server_token="server-token",
+            ))
+
+        saved = db.get_work_item(self.item.id)
+        dirty = db.get_conn().execute(
+            "SELECT server_dirty FROM work_items WHERE id=?", (self.item.id,),
+        ).fetchone()["server_dirty"]
+        self.assertEqual("doing", saved.status)
+        self.assertEqual(0, dirty)
+
+    async def test_server_completion_waits_for_authoritative_status_handoff(self) -> None:
+        db.update_work_item(self.item.id, status="doing")
+        db.get_conn().execute("UPDATE projects SET origin='server' WHERE id=?", (self.project.id,))
+        db.get_conn().commit()
+        session = db.create_session(
+            owner_id=LOCAL_USER_ID, title="server delivery", kind="projexec",
+            project_id=self.project.id,
+        )
+        launch, _ = db.create_work_item_launch(
+            work_item_id=self.item.id, owner_id=LOCAL_USER_ID, idempotency_key="server-handoff",
+        )
+        launch = db.attach_work_item_launch_session(launch["id"], session.id)
+        work_item_runner._server_tokens[launch["id"]] = "server-token"
+
+        async def completed_run(active_session, user, _prompt, **kwargs):
+            run, _ = db.create_run(
+                session_id=active_session.id, owner_id=user.id, project_id=active_session.project_id,
+                work_item_id=self.item.id, mode="exec", workspace=f"projects/{self.project.id}",
+                idempotency_key=kwargs["idempotency_key"],
+            )
+            path = settings.WORKSPACE_ROOT / run.workspace / "server-report.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# server handoff", encoding="utf-8")
+            db.upsert_artifact(
+                run_id=run.id, path="server-report.md", full_path=path, source_tool="write_file",
+            )
+            db.set_run_status(run.id, "completed")
+            yield "event: done\ndata: {}\n\n"
+
+        job = {
+            "entity_id": launch["id"], "attempt": 1, "max_attempts": 3,
+            "payload": {}, "error_code": "", "error_message": "",
+        }
+        with (
+            patch.object(work_item_runner.runtime, "run_chat", side_effect=completed_run),
+            patch.object(work_item_runner.server_client, "update_work_item", return_value=None),
+            self.assertRaisesRegex(RuntimeError, "待验收状态尚未同步"),
+        ):
+            await work_item_runner._execute_job(job)
+
+        self.assertNotEqual("completed", db.get_work_item_launch(launch["id"])["status"])
+        self.assertEqual("doing", db.get_work_item(self.item.id).status)
+        self.assertEqual("server-token", work_item_runner._server_tokens[launch["id"]])
+
+        retry_job = {**job, "attempt": 2}
+        with patch.object(
+            work_item_runner.server_client, "update_work_item",
+            return_value={"id": self.item.id, "status": "review", "updated_at": 12345.0},
+        ) as remote_update:
+            await work_item_runner._execute_job(retry_job)
+
+        remote_update.assert_called_once_with(
+            "server-token", self.project.id, self.item.id, {"status": "review"},
+        )
+        self.assertEqual("completed", db.get_work_item_launch(launch["id"])["status"])
+        self.assertEqual("review", db.get_work_item(self.item.id).status)
+        self.assertNotIn(launch["id"], work_item_runner._server_tokens)
+
+    async def test_accepted_retry_releases_ephemeral_server_token(self) -> None:
+        db.get_conn().execute("UPDATE projects SET origin='server' WHERE id=?", (self.project.id,))
+        db.get_conn().commit()
+        session = db.create_session(
+            owner_id=LOCAL_USER_ID, title="accepted retry", kind="projexec",
+            project_id=self.project.id,
+        )
+        launch, _ = db.create_work_item_launch(
+            work_item_id=self.item.id, owner_id=LOCAL_USER_ID, idempotency_key="accepted-retry",
+        )
+        launch = db.attach_work_item_launch_session(launch["id"], session.id)
+        run, _ = db.create_run(
+            session_id=session.id, owner_id=LOCAL_USER_ID, project_id=self.project.id,
+            work_item_id=self.item.id, mode="exec", workspace=f"projects/{self.project.id}",
+            idempotency_key=launch["idempotency_key"],
+        )
+        db.set_run_status(run.id, "completed")
+        db.set_run_status(run.id, "accepted")
+        work_item_runner._server_tokens[launch["id"]] = "server-token"
+
+        await work_item_runner._execute_job({
+            "entity_id": launch["id"], "attempt": 2, "max_attempts": 3,
+            "payload": {}, "error_code": "", "error_message": "",
+        })
+
+        saved = db.get_work_item_launch(launch["id"])
+        self.assertEqual("completed", saved["status"])
+        self.assertEqual(run.id, saved["run_id"])
+        self.assertNotIn(launch["id"], work_item_runner._server_tokens)
+
 
 if __name__ == "__main__":
     unittest.main()

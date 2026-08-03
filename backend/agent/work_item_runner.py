@@ -44,25 +44,33 @@ async def _emit_final(launch: dict, item: WorkItem, user: User) -> None:
 
 async def _set_item_status(
     item: WorkItem, user: User, status: str, *, server_token: str = "",
-) -> None:
-    """Persist a lifecycle transition through the owning authority."""
+) -> bool:
+    """Persist a lifecycle transition through the owning authority.
+
+    A Server-origin item is never mutated locally unless the Server confirmed
+    the transition.  False lets the durable caller retry or report a partial
+    hand-off without manufacturing a local-only collaboration state.
+    """
     project = db.get_project(item.project_id)
     if project and project.origin == "server":
         token = server_token or db.get_server_identity(user.id) or ""
-        if token:
-            try:
-                updated = await asyncio.to_thread(
-                    server_client.update_work_item, token, item.project_id, item.id, {"status": status},
-                )
-            except Exception:  # local evidence must survive an unavailable Server
-                updated = None
-            if updated:
-                db.apply_server_work_item_status(
-                    item.id, status,
-                    server_updated_at=float(updated.get("updated_at") or 0) or None,
-                )
-                return
+        if not token:
+            return False
+        try:
+            updated = await asyncio.to_thread(
+                server_client.update_work_item, token, item.project_id, item.id, {"status": status},
+            )
+        except Exception:  # Server rejection/outage must not create a local authority fork
+            return False
+        if not updated:
+            return False
+        db.apply_server_work_item_status(
+            item.id, status,
+            server_updated_at=float(updated.get("updated_at") or 0) or None,
+        )
+        return True
     db.update_work_item(item.id, status=status)
+    return True
 
 
 async def _fail_launch(job: dict) -> None:
@@ -85,10 +93,11 @@ async def _fail_launch(job: dict) -> None:
         error_code=code, error_message=message,
     )
     token = _server_tokens.pop(launch["id"], "") or db.get_server_identity(user.id) or ""
-    await _set_item_status(item, user, "paused", server_token=token)
+    status_synced = await _set_item_status(item, user, "paused", server_token=token)
+    sync_note = "" if status_synced else "；Server 任务状态未同步，请恢复连接或权限后重试"
     db.create_notification(
         user_id=user.id, kind="work_item_run", title=f"工作项执行失败：{item.title}",
-        body=f"{code or 'run_failed'}，可在工作项中查看并重跑。",
+        body=f"{code or 'run_failed'}，可在工作项中查看并重跑{sync_note}。",
         project_id=item.project_id, actor_name="AgentMate",
     )
     await _emit_final(launch, item, user)
@@ -110,6 +119,7 @@ async def _execute_job(job: dict) -> None:
     if attempt > 1:
         previous = _attempt_run(job, launch, attempt - 1)
         if previous and previous.status == "accepted":
+            _server_tokens.pop(launch_id, None)
             launch = db.finish_work_item_launch(launch_id, status="completed", run_id=previous.id)
             await _emit_final(launch, item, user)
             return
@@ -118,9 +128,11 @@ async def _execute_job(job: dict) -> None:
                 raise background_worker.TerminalJobError(
                     "执行完成但未产生可验收交付物", code="artifact_missing",
                 )
+            token = _server_tokens.get(launch_id, "")
+            if not await _set_item_status(item, user, "review", server_token=token):
+                raise RuntimeError("Server 暂不可达或拒绝状态更新，待验收状态尚未同步")
+            _server_tokens.pop(launch_id, None)
             launch = db.finish_work_item_launch(launch_id, status="completed", run_id=previous.id)
-            token = _server_tokens.pop(launch_id, "")
-            await _set_item_status(item, user, "review", server_token=token)
             await _emit_final(launch, item, user)
             return
         if previous and previous.status in {"running", "planning", "waiting_approval"}:
@@ -164,9 +176,11 @@ async def _execute_job(job: dict) -> None:
             raise background_worker.TerminalJobError(
                 "执行完成但未产生可验收交付物", code="artifact_missing",
             )
+        token = _server_tokens.get(launch_id, "")
+        if not await _set_item_status(item, user, "review", server_token=token):
+            raise RuntimeError("Server 暂不可达或拒绝状态更新，待验收状态尚未同步")
+        _server_tokens.pop(launch_id, None)
         launch = db.finish_work_item_launch(launch_id, status="completed", run_id=run.id)
-        token = _server_tokens.pop(launch_id, "")
-        await _set_item_status(item, user, "review", server_token=token)
         await _emit_final(launch, item, user)
         return
     code = run.error_code if run else "run_missing"
