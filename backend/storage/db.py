@@ -2216,8 +2216,8 @@ RUN_STATUSES = {
 }
 _RUN_TRANSITIONS = {
     "draft": {"planning", "running", "cancelled"},
-    "planning": {"waiting_approval", "running", "failed", "completed", "cancelled"},
-    "waiting_approval": {"running", "failed", "cancelled"},
+    "planning": {"waiting_approval", "running", "paused", "failed", "completed", "cancelled"},
+    "waiting_approval": {"running", "paused", "failed", "cancelled"},
     "running": {"waiting_approval", "paused", "failed", "completed", "cancelled"},
     "paused": {"running", "failed", "cancelled"},
     "failed": set(),
@@ -2326,6 +2326,54 @@ def create_run(
 def get_run(run_id: str) -> Optional[Run]:
     row = get_conn().execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
     return _row_to_run(row) if row else None
+
+
+def recover_stale_runs(*, recovered_at: Optional[float] = None) -> list[Run]:
+    """Pause non-Automation Runs abandoned by a previous backend process.
+
+    This runs before schedulers/workers start, so every matching non-automation
+    Run belongs to a dead process. Automation fires have their own retry/DLQ
+    recovery and are deliberately excluded to keep one lifecycle authority.
+    """
+    now = float(recovered_at if recovered_at is not None else time.time())
+    conn = get_conn()
+    recovered_ids: list[str] = []
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        rows = conn.execute(
+            """SELECT r.id,r.session_id,r.status,r.checkpoint
+               FROM runs r JOIN sessions s ON s.id=r.session_id
+               WHERE r.status IN ('planning','waiting_approval','running')
+                 AND s.kind<>'automation'
+               ORDER BY r.created_at,r.id"""
+        ).fetchall()
+        for row in rows:
+            checkpoint = _load_json(row["checkpoint"], {})
+            if not isinstance(checkpoint, dict):
+                checkpoint = {}
+            checkpoint.update({
+                "reason": "process_restarted",
+                "previous_status": str(row["status"]),
+                "recovered_at": now,
+            })
+            changed = conn.execute(
+                """UPDATE runs SET status='paused',error_code='process_restarted',
+                   error_message='Backend restarted before the Run finished',checkpoint=?,updated_at=?
+                   WHERE id=? AND status=?""",
+                (json.dumps(checkpoint, ensure_ascii=False), now, row["id"], row["status"]),
+            )
+            if changed.rowcount != 1:
+                continue
+            conn.execute(
+                "UPDATE sessions SET status='idle',updated_at=? WHERE id=?",
+                (now, row["session_id"]),
+            )
+            recovered_ids.append(str(row["id"]))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return [run for run_id in recovered_ids if (run := get_run(run_id)) is not None]
 
 
 def get_run_by_idempotency(owner_id: str, idempotency_key: str) -> Optional[Run]:

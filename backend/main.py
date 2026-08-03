@@ -112,6 +112,11 @@ app.add_middleware(
 @app.on_event("startup")
 def _startup() -> None:
     db.init_db()
+    recovered = db.recover_stale_runs()
+    if recovered:
+        logging.getLogger("agentmate.runs").warning(
+            "paused %d Run(s) abandoned by the previous backend process", len(recovered),
+        )
     import device_settings as runtime_device_settings
     runtime_device_settings.apply_all()
     orchestration_store.ensure_tables()
