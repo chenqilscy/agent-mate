@@ -15,7 +15,7 @@ import anyio
 from starlette.responses import JSONResponse
 
 import server_client
-from auth.deps import resolve_token_to_user_id, resolve_via_server, set_current_user_id
+from auth.deps import resolve_cached_offline, resolve_token_to_user_id, resolve_via_server, set_current_user_id
 
 
 class AuthMiddleware:
@@ -48,6 +48,8 @@ class AuthMiddleware:
             if uid is None and token and server_client.server_enabled():
                 # 未命中且已接 Server：阻塞的 Server 校验丢到工作线程，不占事件循环。
                 uid = await anyio.to_thread.run_sync(resolve_via_server, token)
+            elif uid is None and token:
+                uid = resolve_cached_offline(token)
             if (
                 method != "OPTIONS"
                 and not public

@@ -12,6 +12,7 @@ from contextvars import ContextVar
 from fastapi import Depends
 
 import server_client
+from config import settings
 from storage import db
 from storage.models import LOCAL_USER_ID, User
 
@@ -26,12 +27,17 @@ def resolve_token_to_user_id(token: str | None) -> str | None:
         return None
     if db.is_token_revocation_pending(token):
         return None
-    user_id = db.user_id_for_token(token)
-    if not user_id:
+    return db.cached_server_user(
+        token, max_validation_age=settings.SERVER_TOKEN_VALIDATION_TTL_SECONDS,
+    )
+
+
+def resolve_cached_offline(token: str | None) -> str | None:
+    if not token or db.is_token_revocation_pending(token):
         return None
-    # 历史版本会签发本地账号 token。只有 Server 验证后同时写入
-    # server_identities 的 token 才能恢复账号身份；旧本地 token 降级为访客。
-    return user_id if db.get_server_identity(user_id) == token else None
+    return db.cached_server_user(
+        token, max_validation_age=settings.SERVER_TOKEN_OFFLINE_GRACE_SECONDS,
+    )
 
 
 def resolve_via_server(token: str) -> str | None:
@@ -40,7 +46,12 @@ def resolve_via_server(token: str) -> str | None:
     **阻塞调用**——中间件在工作线程里跑它，不占事件循环（WB-002）。"""
     if db.is_token_revocation_pending(token):
         return None
-    acct = server_client.verify_token(token)
+    status, acct = server_client.verify_token_state(token)
+    if status == "invalid":
+        db.revoke_cached_server_token(token)
+        return None
+    if status == "unavailable":
+        return resolve_cached_offline(token)
     if not acct or not acct.get("id"):
         return None
     aid = str(acct["id"])

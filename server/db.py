@@ -1012,8 +1012,11 @@ def _token_key(token: str) -> str:
     return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def create_token(account_id: str) -> tuple[str, float]:
-    account = get_conn().execute(
+def create_token(
+    account_id: str, *, conn: Optional[sqlite3.Connection] = None,
+) -> tuple[str, float]:
+    target = conn or get_conn()
+    account = target.execute(
         "SELECT suspended_at FROM accounts WHERE id=?", (account_id,)
     ).fetchone()
     if not account or float(account["suspended_at"] or 0) > 0:
@@ -1021,11 +1024,12 @@ def create_token(account_id: str) -> tuple[str, float]:
     token = secrets.token_hex(32)
     now = time.time()
     expires_at = now + settings.TOKEN_TTL_SECONDS
-    get_conn().execute(
+    target.execute(
         "INSERT INTO server_tokens (token, account_id, created_at, expires_at) VALUES (?,?,?,?)",
         (_token_key(token), account_id, now, expires_at),
     )
-    get_conn().commit()
+    if conn is None:
+        target.commit()
     return token, expires_at
 
 
@@ -1187,7 +1191,8 @@ def get_account_admin_view(account_id: str) -> Optional[dict]:
 
 
 def update_account(account_id: str, *, name: Optional[str] = None, email: Optional[str] = None,
-                   plan: Optional[str] = None, is_platform_admin: Optional[bool] = None) -> Optional[Account]:
+                   plan: Optional[str] = None, is_platform_admin: Optional[bool] = None,
+                   actor_id: str = "") -> Optional[Account]:
     """局部更新账号可改字段。name 唯一约束由调用方先查重（撞了这里 sqlite 会抛）。"""
     sets: list[str] = []
     vals: list[Any] = []
@@ -1200,9 +1205,22 @@ def update_account(account_id: str, *, name: Optional[str] = None, email: Option
     if is_platform_admin is not None:
         sets.append("is_platform_admin=?"); vals.append(int(is_platform_admin))
     if sets:
-        vals.append(account_id)
-        get_conn().execute(f"UPDATE accounts SET {','.join(sets)} WHERE id=?", vals)
-        get_conn().commit()
+        conn = get_conn()
+        before = get_account(account_id)
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            vals.append(account_id)
+            conn.execute(f"UPDATE accounts SET {','.join(sets)} WHERE id=?", vals)
+            if is_platform_admin is not None and before and before.is_platform_admin != is_platform_admin:
+                record_auth_audit(
+                    action="platform_admin_granted" if is_platform_admin else "platform_admin_revoked",
+                    account_id=account_id, actor_id=actor_id,
+                    details={"before": before.is_platform_admin, "after": is_platform_admin}, conn=conn,
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
     return get_account(account_id)
 
 

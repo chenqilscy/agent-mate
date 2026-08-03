@@ -149,7 +149,8 @@ def init_db() -> None:
             token TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
             created_at REAL NOT NULL,
-            expires_at REAL
+            expires_at REAL,
+            validated_at REAL NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id);
 
@@ -1058,9 +1059,14 @@ def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
     have_at = {r["name"] for r in conn.execute("PRAGMA table_info(auth_tokens)").fetchall()}
     if "expires_at" not in have_at:
         conn.execute("ALTER TABLE auth_tokens ADD COLUMN expires_at REAL")
+    if "validated_at" not in have_at:
+        conn.execute("ALTER TABLE auth_tokens ADD COLUMN validated_at REAL NOT NULL DEFAULT 0")
     conn.execute(
         "UPDATE auth_tokens SET expires_at=? WHERE expires_at IS NULL OR expires_at<=0",
         (time.time() + settings.SERVER_TOKEN_LEGACY_GRACE_SECONDS,),
+    )
+    conn.execute(
+        "UPDATE auth_tokens SET validated_at=created_at WHERE validated_at<=0"
     )
 
     # WB-035: sessions 增 automation_id —— 把自动化产出的会话反向关联回其自动化，供「运行历史」。
@@ -1228,7 +1234,7 @@ def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
 def _assert_app_schema(conn: sqlite3.Connection) -> None:
     required = {
         "users": {"password_hash"},
-        "auth_tokens": {"expires_at"},
+        "auth_tokens": {"expires_at", "validated_at"},
         "sessions": {"automation_id", "summary", "summary_cursor", "summary_updated_at"},
         "projects": {"origin", "knowledge_ids", "server_updated_at", "server_dirty"},
         "automations": {
@@ -1467,8 +1473,8 @@ def create_token(user_id: str) -> str:
     token = secrets.token_hex(32)
     expires_at = time.time() + settings.SERVER_TOKEN_LEGACY_GRACE_SECONDS
     get_conn().execute(
-        "INSERT INTO auth_tokens (token,user_id,created_at,expires_at) VALUES (?,?,?,?)",
-        (token, user_id, time.time(), expires_at),
+        "INSERT INTO auth_tokens (token,user_id,created_at,expires_at,validated_at) VALUES (?,?,?,?,?)",
+        (token, user_id, time.time(), expires_at, time.time()),
     )
     get_conn().commit()
     return token
@@ -1513,13 +1519,38 @@ def cache_token(token: str, user_id: str, expires_at: float | None = None) -> fl
     effective_expiry = float(expires_at or 0)
     if effective_expiry <= time.time():
         effective_expiry = time.time() + settings.SERVER_TOKEN_LEGACY_GRACE_SECONDS
+    now = time.time()
     get_conn().execute(
-        "INSERT INTO auth_tokens (token,user_id,created_at,expires_at) VALUES (?,?,?,?) "
-        "ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, expires_at=excluded.expires_at",
-        (token, user_id, time.time(), effective_expiry),
+        "INSERT INTO auth_tokens (token,user_id,created_at,expires_at,validated_at) VALUES (?,?,?,?,?) "
+        "ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, expires_at=excluded.expires_at, "
+        "validated_at=excluded.validated_at",
+        (token, user_id, now, effective_expiry, now),
     )
     get_conn().commit()
     return effective_expiry
+
+
+def cached_server_user(token: str, *, max_validation_age: float) -> Optional[str]:
+    row = get_conn().execute(
+        "SELECT at.user_id,at.expires_at,at.validated_at FROM auth_tokens at "
+        "JOIN server_identities si ON si.user_id=at.user_id AND si.server_token=at.token "
+        "LEFT JOIN pending_token_revocations pr ON pr.token=at.token "
+        "WHERE at.token=? AND pr.token IS NULL",
+        (token,),
+    ).fetchone()
+    now = time.time()
+    if not row or float(row["expires_at"] or 0) <= now:
+        return None
+    if now - float(row["validated_at"] or 0) > max(0, max_validation_age):
+        return None
+    return str(row["user_id"])
+
+
+def revoke_cached_server_token(token: str) -> None:
+    conn = get_conn()
+    conn.execute("DELETE FROM server_identities WHERE server_token=?", (token,))
+    conn.execute("DELETE FROM auth_tokens WHERE token=?", (token,))
+    conn.commit()
 
 
 def _json_list(value: Any) -> list:

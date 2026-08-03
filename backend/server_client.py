@@ -39,17 +39,37 @@ def _get(path: str, token: str) -> Optional[Any]:
         return None
 
 
+def verify_token_state(token: str) -> tuple[str, Optional[dict[str, Any]]]:
+    """Return (valid|invalid|unavailable, account) without conflating revocation and outage."""
+    if not token or not settings.AGENTMATE_SERVER_URL:
+        return "unavailable", None
+    try:
+        response = httpx.get(
+            f"{settings.AGENTMATE_SERVER_URL}/api/auth/verify",
+            headers={"Authorization": f"Bearer {token}"}, timeout=_TIMEOUT,
+        )
+        if response.status_code in {401, 403}:
+            return "invalid", None
+        if response.status_code != 200:
+            return "unavailable", None
+        payload = response.json()
+        account = payload.get("account") if isinstance(payload, dict) else None
+        if not isinstance(account, dict):
+            return "unavailable", None
+        account = dict(account)
+        account["_token_expires_at"] = float(payload.get("expires_at") or 0)
+        return "valid", account
+    except Exception:  # noqa: BLE001
+        return "unavailable", None
+
+
 def verify_token(token: str) -> Optional[dict[str, Any]]:
     """Server token → account dict（附 `_token_expires_at`）或 None。
 
     隐藏字段保持既有 account 调用方兼容，同时让本地缓存继承 Server 的真实过期时间。
     """
-    d = _get("/api/auth/verify", token)
-    acct = d.get("account") if isinstance(d, dict) else None
-    if isinstance(acct, dict):
-        acct = dict(acct)
-        acct["_token_expires_at"] = float(d.get("expires_at") or 0)
-    return acct if isinstance(acct, dict) else None
+    status, account = verify_token_state(token)
+    return account if status == "valid" else None
 
 
 def _post(path: str, token: str, body: Optional[dict] = None) -> Optional[Any]:

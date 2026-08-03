@@ -51,6 +51,16 @@ def readiness(account: Account = CurrentAccount) -> dict:
     return sso_store.provider_readiness()
 
 
+@router.post("/admin/sso/rotate-encryption")
+def rotate_encryption(account: Account = CurrentAccount) -> dict:
+    _admin(account)
+    try:
+        changed = sso_store.migrate_plaintext_provider_secrets()
+    except (ValueError, secret_crypto.SecretKeyUnavailable) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"rotated": changed, "key_id": secret_crypto.current_key_id()}
+
+
 class ProviderBody(BaseModel):
     enabled: bool = False
     client_id: str = Field(default="", max_length=300)
@@ -99,7 +109,10 @@ def start_sso(
     ip = request.client.host if request.client else "unknown"
     if not sso_store.check_rate_limit(f"sso-start:{ip}"):
         raise HTTPException(429, "too_many_attempts")
-    config = sso_store.provider_config(body.provider)
+    try:
+        config = sso_store.provider_config(body.provider)
+    except (ValueError, secret_crypto.SecretKeyUnavailable) as exc:
+        raise HTTPException(503, "provider_secret_unavailable") from exc
     if not config or not config.get("enabled") or not config.get("client_id") or not config.get("client_secret"):
         raise HTTPException(404, "provider_unavailable")
     attempt, state, attempt_token = sso_store.create_attempt(
@@ -167,7 +180,7 @@ def identities(account: Account = CurrentAccount) -> dict:
 @router.delete("/auth/identities/{provider}")
 def unlink(provider: str, account: Account = CurrentAccount) -> dict:
     try:
-        removed = sso_store.unlink_identity(account.id, provider)
+        removed = sso_store.unlink_identity(account.id, provider, actor_id=account.id)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     if not removed:

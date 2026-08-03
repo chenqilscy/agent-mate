@@ -35,6 +35,8 @@ class SsoAuthTest(unittest.TestCase):
         self.old_limit = settings.AUTH_RATE_LIMIT_PER_MINUTE
         self.old_environment = settings.ENVIRONMENT
         self.old_encryption_key = settings.SSO_SECRET_ENCRYPTION_KEY
+        self.old_encryption_key_id = settings.SSO_SECRET_ENCRYPTION_KEY_ID
+        self.old_previous_keys = settings.SSO_SECRET_ENCRYPTION_PREVIOUS_KEYS
         self.old_local_key_path = settings.SSO_LOCAL_KEY_PATH
         self.old_public_base = settings.SSO_PUBLIC_BASE_URL
         self._close()
@@ -43,6 +45,8 @@ class SsoAuthTest(unittest.TestCase):
         settings.AUTH_RATE_LIMIT_PER_MINUTE = 100
         settings.ENVIRONMENT = "development"
         settings.SSO_SECRET_ENCRYPTION_KEY = ""
+        settings.SSO_SECRET_ENCRYPTION_KEY_ID = "primary"
+        settings.SSO_SECRET_ENCRYPTION_PREVIOUS_KEYS = "{}"
         settings.SSO_LOCAL_KEY_PATH = ""
         settings.SSO_PUBLIC_BASE_URL = "http://127.0.0.1:8100"
         db.init_db()
@@ -65,6 +69,8 @@ class SsoAuthTest(unittest.TestCase):
         settings.AUTH_RATE_LIMIT_PER_MINUTE = self.old_limit
         settings.ENVIRONMENT = self.old_environment
         settings.SSO_SECRET_ENCRYPTION_KEY = self.old_encryption_key
+        settings.SSO_SECRET_ENCRYPTION_KEY_ID = self.old_encryption_key_id
+        settings.SSO_SECRET_ENCRYPTION_PREVIOUS_KEYS = self.old_previous_keys
         settings.SSO_LOCAL_KEY_PATH = self.old_local_key_path
         settings.SSO_PUBLIC_BASE_URL = self.old_public_base
         self.tmp.cleanup()
@@ -157,6 +163,8 @@ class SsoAuthTest(unittest.TestCase):
         self.assertTrue(stored.startswith("sha256:"))
         self.assertNotEqual(body["token"], stored)
         self.assertEqual(body["account"]["id"], db.account_id_for_token(body["token"]))
+        actions = {item["action"] for item in db.list_auth_audit(account_id=body["account"]["id"])}
+        self.assertTrue({"account_registered_sso", "sso_identity_linked", "sso_login"} <= actions)
         consumed = self.client.post(
             "/api/auth/sso/poll",
             json={"attempt_id": started["attempt_id"], "attempt_token": started["attempt_token"]},
@@ -198,7 +206,8 @@ class SsoAuthTest(unittest.TestCase):
             json={"attempt_id": linked["attempt_id"], "attempt_token": linked["attempt_token"]},
         ).json()
         self.assertEqual(local.id, result["account"]["id"])
-
+        actions = {item["action"] for item in db.list_auth_audit(account_id=local.id)}
+        self.assertTrue({"sso_identity_linked", "sso_login"} <= actions)
         other = db.create_account(name="other", password="1111")
         other_token = db.create_token(other.id)[0]
         conflict = self.client.post(
@@ -215,6 +224,15 @@ class SsoAuthTest(unittest.TestCase):
             json={"attempt_id": conflict["attempt_id"], "attempt_token": conflict["attempt_token"]},
         ).json()
         self.assertEqual("identity_already_linked", conflict_result["error_code"])
+        unlinked = self.client.delete(
+            "/api/auth/identities/google",
+            headers={"Authorization": f"Bearer {result['token']}"},
+        )
+        self.assertEqual(200, unlinked.status_code, unlinked.text)
+        self.assertIn(
+            "sso_identity_unlinked",
+            {item["action"] for item in db.list_auth_audit(account_id=local.id)},
+        )
 
     def test_oidc_signature_nonce_wechat_subject_password_upgrade_and_rate_limit(self) -> None:
         private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -334,6 +352,36 @@ class SsoAuthTest(unittest.TestCase):
             "https://agentmate.example.com/api/auth/sso/google/callback",
             google["callback_url"],
         )
+
+    def test_keyring_rotation_and_readiness_decryption_probe(self) -> None:
+        settings.SSO_SECRET_ENCRYPTION_KEY = "old-secret"
+        settings.SSO_SECRET_ENCRYPTION_KEY_ID = "old"
+        self._configure("google")
+        old_cipher = db.get_conn().execute(
+            "SELECT client_secret FROM sso_provider_configs WHERE provider='google'"
+        ).fetchone()["client_secret"]
+        self.assertEqual("old", secret_crypto.key_id(old_cipher))
+
+        settings.SSO_SECRET_ENCRYPTION_KEY = "new-secret"
+        settings.SSO_SECRET_ENCRYPTION_KEY_ID = "new"
+        settings.SSO_SECRET_ENCRYPTION_PREVIOUS_KEYS = '{"old":"old-secret"}'
+        rotated = self.client.post(
+            "/api/admin/sso/rotate-encryption", headers=self.admin_auth,
+        )
+        self.assertEqual(200, rotated.status_code, rotated.text)
+        self.assertEqual(1, rotated.json()["rotated"])
+        new_cipher = db.get_conn().execute(
+            "SELECT client_secret FROM sso_provider_configs WHERE provider='google'"
+        ).fetchone()["client_secret"]
+        self.assertEqual("new", secret_crypto.key_id(new_cipher))
+        self.assertEqual("top-secret", sso_store.provider_config("google")["client_secret"])
+
+        settings.SSO_SECRET_ENCRYPTION_KEY = "wrong-secret"
+        settings.SSO_SECRET_ENCRYPTION_PREVIOUS_KEYS = "{}"
+        readiness = sso_store.provider_readiness()
+        google = next(item for item in readiness["providers"] if item["id"] == "google")
+        self.assertIn("secret_decryption_failed", google["blockers"])
+        self.assertFalse(readiness["ready"])
 
 
 if __name__ == "__main__":

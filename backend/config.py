@@ -199,6 +199,15 @@ class Settings:
     SERVER_TOKEN_LEGACY_GRACE_SECONDS: int = max(
         1, int(os.getenv("AGENTMATE_SERVER_TOKEN_LEGACY_GRACE_SECONDS", "604800"))
     )
+    # A cached Server identity is accepted without introspection only for this
+    # short online window. If Server is unreachable, the explicitly bounded
+    # offline grace applies; an authoritative 401/403 always revokes immediately.
+    SERVER_TOKEN_VALIDATION_TTL_SECONDS: int = max(
+        1, int(os.getenv("AGENTMATE_SERVER_TOKEN_VALIDATION_TTL_SECONDS", "300"))
+    )
+    SERVER_TOKEN_OFFLINE_GRACE_SECONDS: int = max(
+        1, int(os.getenv("AGENTMATE_SERVER_TOKEN_OFFLINE_GRACE_SECONDS", "3600"))
+    )
     # 团队时间线上报开关（WB-062 Phase 3）。默认关——执行产出默认不上云（隐私，铁律 4）。
     AGENTMATE_SERVER_TIMELINE_UPLOAD: bool = os.getenv("AGENTMATE_SERVER_TIMELINE_UPLOAD", "0").strip().lower() in ("1", "true", "yes")
 

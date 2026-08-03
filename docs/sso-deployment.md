@@ -14,6 +14,10 @@ Server 是唯一账号权威和 SSO broker。App、Console 不接触 provider cl
   创建成功后移除该环境变量。公开 `/api/auth/register` 不再隐式创建首管理员；
 - 正式环境设置 `AGENTMATE_ENVIRONMENT=production` 和独立的
   `AGENTMATE_SSO_SECRET_ENCRYPTION_KEY`。未配置主密钥时生产环境拒绝写入 Provider secret；
+  `AGENTMATE_SSO_SECRET_ENCRYPTION_KEY_ID` 标识当前密钥（默认 `primary`）。轮换时先把旧
+  `key_id -> secret` 以 JSON 放入 `AGENTMATE_SSO_SECRET_ENCRYPTION_PREVIOUS_KEYS`，配置新密钥和
+  新 key ID 后启动 Server；启动迁移或 `POST /api/admin/sso/rotate-encryption` 会原子重加密，确认
+  readiness 全绿后再移除 previous key。密钥值不得写入仓库或日志；
 - 将 `AGENTMATE_SSO_PUBLIC_BASE_URL` 设为 Server 的公开 HTTPS origin，例如 `https://agentmate.example.com`；
 - 反向代理保留原始 query，限制 `/api/auth/*` 请求速率并记录脱敏访问日志；
 - Google / 微信开放平台 / Telegram BotFather 中登记精确回调：
@@ -39,7 +43,8 @@ Content-Type: application/json
 `GET /api/admin/sso/providers` 不回显任何 secret；`GET /api/auth/sso/providers` 只列出已启用且凭据完整的入口。
 Server 使用 AES-GCM 将 Provider secret 加密后写入 SQLite；开发环境会在数据库旁生成独立的、已忽略提交的
 `.sso.key`，生产环境必须使用部署环境注入的主密钥。`GET /api/admin/sso/audit` 返回脱敏配置审计，
-`GET /api/admin/sso/readiness` 返回公网回调、注册策略、密钥保护及每个 Provider 的上线自检结果。
+`GET /api/admin/sso/readiness` 返回公网回调、注册策略、密钥保护及每个 Provider 的上线自检结果，
+其中会真实解密已配置 secret；`secret_decryption_failed` 是发布阻断项，而不是延迟到首次登录才发现。
 
 ## 4. 首次注册与账号绑定
 

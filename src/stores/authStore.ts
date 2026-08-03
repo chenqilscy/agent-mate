@@ -45,23 +45,31 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   ssoLogin: async (provider, inviteCode = '') => {
-    const attempt = await api.ssoStart(provider, inviteCode)
-    const popup = window.open(attempt.auth_url, '_blank', 'noopener,noreferrer')
+    // Create the window synchronously inside the click gesture. Once noopener is
+    // requested, browsers may legitimately return null even when navigation
+    // succeeded, so the protocol never relies on a remote WindowProxy.
+    const popup = window.open('', '_blank')
     if (!popup) throw new Error('popup_blocked')
-    const deadline = Math.min(attempt.expires_at * 1000, Date.now() + 10 * 60_000)
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => window.setTimeout(resolve, 1000))
-      const result = await api.ssoPoll(attempt.attempt_id, attempt.attempt_token)
-      if (result.status === 'error') throw new Error(result.error_code || 'sso_failed')
-      if (result.status === 'completed') {
-        localStorage.setItem(TOKEN_KEY, result.token)
-        popup.close()
-        window.location.reload()
-        return
+    popup.opener = null
+    try {
+      const attempt = await api.ssoStart(provider, inviteCode)
+      popup.location.replace(attempt.auth_url)
+      const deadline = Math.min(attempt.expires_at * 1000, Date.now() + 10 * 60_000)
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000))
+        const result = await api.ssoPoll(attempt.attempt_id, attempt.attempt_token)
+        if (result.status === 'error') throw new Error(result.error_code || 'sso_failed')
+        if (result.status === 'completed') {
+          localStorage.setItem(TOKEN_KEY, result.token)
+          popup.close()
+          window.location.reload()
+          return
+        }
       }
+      throw new Error('sso_timeout')
+    } finally {
+      popup.close()
     }
-    popup.close()
-    throw new Error('sso_timeout')
   },
 
   logout: async () => {

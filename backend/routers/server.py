@@ -12,6 +12,7 @@ import server_client
 import server_sync
 from auth.deps import current_user
 from storage import db
+from config import settings
 
 router = APIRouter(prefix="/api", tags=["server"])
 
@@ -56,14 +57,19 @@ def server_status(authorization: str = Header(default="")) -> dict:
     enabled = server_client.server_enabled()
     linked = None
     token = _bearer(authorization)
-    cached_user_id = db.user_id_for_token(token) if token else None
-    if cached_user_id and db.get_server_identity(cached_user_id) == token:
+    cached_user_id = db.cached_server_user(
+        token, max_validation_age=settings.SERVER_TOKEN_OFFLINE_GRACE_SECONDS,
+    ) if token else None
+    if cached_user_id:
         cached_user = db.get_user(cached_user_id)
         if cached_user:
             linked = {"account_id": cached_user.id, "name": cached_user.name}
     if enabled and token:
-        acct = server_client.verify_token(token)
-        if acct:
+        state, acct = server_client.verify_token_state(token)
+        if state == "invalid":
+            db.revoke_cached_server_token(token)
+            linked = None
+        elif acct:
             linked = {"account_id": acct.get("id", ""), "name": acct.get("name", "")}
     return {"enabled": enabled, "linked": linked}
 

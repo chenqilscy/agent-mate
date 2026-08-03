@@ -45,22 +45,40 @@ def public_providers() -> list[dict[str, str]]:
         "SELECT provider FROM sso_provider_configs "
         "WHERE enabled=1 AND client_id<>'' AND client_secret<>'' ORDER BY provider"
     ).fetchall()
-    return [
-        {"id": row["provider"], "label": PROVIDERS[row["provider"]]}
-        for row in rows if row["provider"] in PROVIDERS
-    ]
+    result = []
+    for row in rows:
+        provider = str(row["provider"])
+        try:
+            config = provider_config(provider)
+        except (ValueError, secret_crypto.SecretKeyUnavailable):
+            continue
+        if config and config.get("client_secret") and provider in PROVIDERS:
+            result.append({"id": provider, "label": PROVIDERS[provider]})
+    return result
 
 
 def admin_providers() -> list[dict[str, Any]]:
     result = []
     for provider, label in PROVIDERS.items():
-        config = provider_config(provider) or {}
+        row = db.get_conn().execute(
+            "SELECT * FROM sso_provider_configs WHERE provider=?", (provider,),
+        ).fetchone()
+        config = dict(row) if row else {}
+        stored = str(config.get("client_secret") or "")
+        decryptable = False
+        if stored:
+            try:
+                decryptable = bool(secret_crypto.decrypt(stored, context=provider))
+            except (ValueError, secret_crypto.SecretKeyUnavailable):
+                decryptable = False
         result.append({
             "id": provider,
             "label": label,
             "enabled": bool(config.get("enabled")),
             "client_id": str(config.get("client_id") or ""),
-            "secret_configured": bool(config.get("client_secret")),
+            "secret_configured": bool(stored),
+            "secret_decryptable": decryptable,
+            "secret_key_id": secret_crypto.key_id(stored),
             "updated_at": float(config.get("updated_at") or 0),
         })
     return result
@@ -72,8 +90,15 @@ def set_provider(
 ) -> dict[str, Any]:
     if provider not in PROVIDERS:
         raise ValueError("unsupported_provider")
-    old = provider_config(provider) or {}
-    secret = str(old.get("client_secret") or "") if client_secret is None else client_secret.strip()
+    old_row = db.get_conn().execute(
+        "SELECT * FROM sso_provider_configs WHERE provider=?", (provider,),
+    ).fetchone()
+    old_stored = str(old_row["client_secret"] or "") if old_row else ""
+    old = dict(old_row) if old_row else {}
+    if client_secret is None:
+        secret = secret_crypto.decrypt(old_stored, context=provider) if old_stored else ""
+    else:
+        secret = client_secret.strip()
     if enabled and (not client_id.strip() or not secret):
         raise ValueError("provider_credentials_required")
     encrypted = secret_crypto.encrypt(secret, context=provider)
@@ -96,9 +121,9 @@ def set_provider(
                 "before_configured": bool(old.get("client_id")),
                 "after_configured": bool(client_id.strip()),
             }))
-        if client_secret is not None and str(old.get("client_secret") or "") != secret:
+        if client_secret is not None:
             actions.append(("client_secret_rotated", {
-                "before_configured": bool(old.get("client_secret")),
+                "before_configured": bool(old_stored),
                 "after_configured": bool(secret),
             }))
         for action, details in actions or [("configuration_saved", {})]:
@@ -125,18 +150,24 @@ def migrate_plaintext_provider_secrets() -> int:
     try:
         for row in rows:
             stored = str(row["client_secret"] or "")
-            if secret_crypto.is_encrypted(stored):
+            if secret_crypto.is_encrypted(stored) and not secret_crypto.needs_rotation(stored):
                 continue
             provider = str(row["provider"])
+            plain = secret_crypto.decrypt(stored, context=provider) if secret_crypto.is_encrypted(stored) else stored
+            action = (
+                "client_secret_key_rotated" if secret_crypto.is_encrypted(stored)
+                else "client_secret_encrypted_migration"
+            )
             conn.execute(
                 "UPDATE sso_provider_configs SET client_secret=?,updated_at=? WHERE provider=?",
-                (secret_crypto.encrypt(stored, context=provider), time.time(), provider),
+                (secret_crypto.encrypt(plain, context=provider), time.time(), provider),
             )
             conn.execute(
                 "INSERT INTO sso_provider_audit "
                 "(id,provider,actor_id,action,details,created_at) VALUES (?,?,?,?,?,?)",
-                (db.new_uuid(), provider, "system", "client_secret_encrypted_migration",
-                 "{}", time.time()),
+                (db.new_uuid(), provider, "system", action,
+                 json.dumps({"from_key_id": secret_crypto.key_id(stored),
+                             "to_key_id": secret_crypto.current_key_id()}, ensure_ascii=False), time.time()),
             )
             changed += 1
         conn.commit()
@@ -187,6 +218,14 @@ def provider_readiness() -> dict[str, Any]:
         config = dict(row) if row else {}
         configured = bool(config.get("client_id")) and bool(config.get("client_secret"))
         provider_blockers: list[str] = []
+        decryptable = False
+        if config.get("client_secret"):
+            try:
+                decryptable = bool(secret_crypto.decrypt(
+                    str(config["client_secret"]), context=provider,
+                ))
+            except (ValueError, secret_crypto.SecretKeyUnavailable):
+                provider_blockers.append("secret_decryption_failed")
         if bool(config.get("enabled")) and not configured:
             provider_blockers.append("credentials_required")
         if bool(config.get("enabled")) and not public_https:
@@ -199,7 +238,8 @@ def provider_readiness() -> dict[str, Any]:
             "callback_url": (
                 f"{settings.SSO_PUBLIC_BASE_URL}/api/auth/sso/{provider}/callback"
             ),
-            "ready_for_external_test": bool(config.get("enabled")) and configured and public_https,
+            "ready_for_external_test": bool(config.get("enabled")) and configured and decryptable and public_https,
+            "secret_key_id": secret_crypto.key_id(str(config.get("client_secret") or "")),
             "blockers": provider_blockers,
         })
     return {
@@ -336,6 +376,7 @@ def resolve_identity(attempt: dict[str, Any], identity: dict[str, Any]) -> str:
         if existing and existing["account_id"] != account_id:
             raise ValueError("identity_already_linked")
         try:
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 "INSERT INTO external_identities "
                 "(id,account_id,provider,subject,email,display_name,created_at,last_login_at) "
@@ -343,20 +384,36 @@ def resolve_identity(attempt: dict[str, Any], identity: dict[str, Any]) -> str:
                 (db.new_uuid(), account_id, provider, subject, email, display_name,
                  time.time(), time.time()),
             )
+            db.record_auth_audit(
+                action="sso_identity_linked", account_id=account_id, actor_id=account_id,
+                provider=provider, details={"subject_hash": _hash(subject)}, conn=conn,
+            )
             conn.commit()
         except sqlite3.IntegrityError as exc:
             conn.rollback()
             raise ValueError("provider_already_linked") from exc
+        except Exception:
+            conn.rollback()
+            raise
         return account_id
     if existing:
         account = db.get_account(str(existing["account_id"]))
         if not account or account.suspended_at > 0:
             raise ValueError("account_suspended")
-        conn.execute(
-            "UPDATE external_identities SET last_login_at=?,email=?,display_name=? WHERE id=?",
-            (time.time(), email, display_name, existing["id"]),
-        )
-        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute(
+                "UPDATE external_identities SET last_login_at=?,email=?,display_name=? WHERE id=?",
+                (time.time(), email, display_name, existing["id"]),
+            )
+            db.record_auth_audit(
+                action="sso_identity_verified", account_id=str(existing["account_id"]),
+                actor_id=str(existing["account_id"]), provider=provider, conn=conn,
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         return str(existing["account_id"])
     if email:
         same_email = conn.execute(
@@ -397,6 +454,14 @@ def resolve_identity(attempt: dict[str, Any], identity: dict[str, Any]) -> str:
             (account_id, _unique_name(display_name, email, provider), email, "体验版",
              db.hash_password(secrets.token_urlsafe(48)), now, 0),
         )
+        db.record_auth_audit(
+            action="account_registered_sso", account_id=account_id, actor_id=account_id,
+            provider=provider, details={"email_present": bool(email)}, conn=conn,
+        )
+        db.record_auth_audit(
+            action="sso_identity_linked", account_id=account_id, actor_id=account_id,
+            provider=provider, details={"subject_hash": _hash(subject)}, conn=conn,
+        )
         conn.execute(
             "INSERT INTO external_identities "
             "(id,account_id,provider,subject,email,display_name,created_at,last_login_at) "
@@ -429,14 +494,24 @@ def poll_attempt(attempt_id: str, attempt_token: str) -> dict[str, Any] | None:
         return {"status": "error", "error_code": row["error_code"]}
     if row["status"] != "completed":
         return {"status": "pending"}
-    claimed = conn.execute(
-        "UPDATE sso_attempts SET consumed_at=? WHERE id=? AND consumed_at IS NULL",
-        (time.time(), attempt_id),
-    )
-    conn.commit()
-    if claimed.rowcount != 1:
-        return {"status": "consumed"}
-    token, expires_at = db.create_token(str(row["result_account_id"]))
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        claimed = conn.execute(
+            "UPDATE sso_attempts SET consumed_at=? WHERE id=? AND consumed_at IS NULL",
+            (time.time(), attempt_id),
+        )
+        if claimed.rowcount != 1:
+            conn.rollback()
+            return {"status": "consumed"}
+        token, expires_at = db.create_token(str(row["result_account_id"]), conn=conn)
+        db.record_auth_audit(
+            action="sso_login", account_id=str(row["result_account_id"]),
+            actor_id=str(row["result_account_id"]), provider=str(row["provider"]), conn=conn,
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     account = db.get_account(str(row["result_account_id"]))
     return {
         "status": "completed", "token": token, "expires_at": expires_at,
@@ -452,7 +527,7 @@ def list_identities(account_id: str) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
-def unlink_identity(account_id: str, provider: str) -> bool:
+def unlink_identity(account_id: str, provider: str, *, actor_id: str = "") -> bool:
     conn = db.get_conn()
     account = conn.execute(
         "SELECT password_login_enabled FROM accounts WHERE id=?", (account_id,)
@@ -462,9 +537,19 @@ def unlink_identity(account_id: str, provider: str) -> bool:
     ).fetchone()[0]
     if not account or (not bool(account["password_login_enabled"]) and count <= 1):
         raise ValueError("last_login_method")
-    changed = conn.execute(
-        "DELETE FROM external_identities WHERE account_id=? AND provider=?",
-        (account_id, provider),
-    )
-    conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        changed = conn.execute(
+            "DELETE FROM external_identities WHERE account_id=? AND provider=?",
+            (account_id, provider),
+        )
+        if changed.rowcount == 1:
+            db.record_auth_audit(
+                action="sso_identity_unlinked", account_id=account_id,
+                actor_id=actor_id or account_id, provider=provider, conn=conn,
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     return changed.rowcount == 1

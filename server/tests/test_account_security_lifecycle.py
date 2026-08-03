@@ -150,6 +150,19 @@ class AccountSecurityLifecycleTest(unittest.TestCase):
         self.assertIn("password_reset", actions)
         self.assertIn("account_suspended", actions)
 
+    def test_platform_admin_role_change_is_audited_atomically(self) -> None:
+        admin, headers = self._bootstrap()
+        user = db.create_account(name="operator", password="OperatorPass-123")
+        granted = self.client.patch(
+            f"/api/accounts/{user.id}", headers=headers,
+            json={"is_platform_admin": True},
+        )
+        self.assertEqual(200, granted.status_code, granted.text)
+        audit = db.list_auth_audit(account_id=user.id)
+        item = next(entry for entry in audit if entry["action"] == "platform_admin_granted")
+        self.assertEqual(admin["id"], item["actor_id"])
+        self.assertEqual({"before": False, "after": True}, item["details"])
+
 
 if __name__ == "__main__":
     unittest.main()

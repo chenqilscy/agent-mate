@@ -24,6 +24,14 @@ class Settings:
     SSO_SECRET_ENCRYPTION_KEY: str = os.getenv(
         "AGENTMATE_SSO_SECRET_ENCRYPTION_KEY", ""
     ).strip()
+    SSO_SECRET_ENCRYPTION_KEY_ID: str = os.getenv(
+        "AGENTMATE_SSO_SECRET_ENCRYPTION_KEY_ID", "primary"
+    ).strip()
+    # JSON object of key_id -> previous secret. It is read only for decrypting and
+    # rotating old ciphertext; new writes always use the current key ID above.
+    SSO_SECRET_ENCRYPTION_PREVIOUS_KEYS: str = os.getenv(
+        "AGENTMATE_SSO_SECRET_ENCRYPTION_PREVIOUS_KEYS", "{}"
+    ).strip()
     SSO_LOCAL_KEY_PATH: str = os.getenv(
         "AGENTMATE_SSO_LOCAL_KEY_PATH", ""
     ).strip()

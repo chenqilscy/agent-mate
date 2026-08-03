@@ -56,31 +56,50 @@ class ServerAccountAuthorityTest(unittest.TestCase):
     def test_cached_server_token_still_resolves_offline(self) -> None:
         with (
             patch.object(deps.db, "is_token_revocation_pending", return_value=False),
-            patch.object(deps.db, "user_id_for_token", return_value="server-account") as cached,
-            patch.object(deps.db, "get_server_identity", return_value="server-token"),
-            patch.object(deps.server_client, "verify_token") as verify_remote,
+            patch.object(deps.db, "cached_server_user", return_value="server-account") as cached,
+            patch.object(deps.server_client, "verify_token_state") as verify_remote,
         ):
             self.assertEqual("server-account", deps.resolve_token_to_user_id("server-token"))
 
-        cached.assert_called_once_with("server-token")
+        cached.assert_called_once_with(
+            "server-token", max_validation_age=deps.settings.SERVER_TOKEN_VALIDATION_TTL_SECONDS,
+        )
         verify_remote.assert_not_called()
 
     def test_legacy_local_token_is_not_an_account_identity(self) -> None:
         with (
             patch.object(deps.db, "is_token_revocation_pending", return_value=False),
-            patch.object(deps.db, "user_id_for_token", return_value="legacy-local-user"),
-            patch.object(deps.db, "get_server_identity", return_value=None),
+            patch.object(deps.db, "cached_server_user", return_value=None),
         ):
             self.assertIsNone(deps.resolve_token_to_user_id("legacy-local-token"))
+
+    def test_stale_cache_introspects_and_authoritative_rejection_revokes(self) -> None:
+        with (
+            patch.object(deps.db, "is_token_revocation_pending", return_value=False),
+            patch.object(deps.server_client, "verify_token_state", return_value=("invalid", None)),
+            patch.object(deps.db, "revoke_cached_server_token") as revoke,
+        ):
+            self.assertIsNone(deps.resolve_via_server("revoked-token"))
+        revoke.assert_called_once_with("revoked-token")
+
+    def test_server_outage_uses_only_bounded_offline_cache(self) -> None:
+        with (
+            patch.object(deps.db, "is_token_revocation_pending", return_value=False),
+            patch.object(deps.server_client, "verify_token_state", return_value=("unavailable", None)),
+            patch.object(deps.db, "cached_server_user", return_value="server-account") as cached,
+        ):
+            self.assertEqual("server-account", deps.resolve_via_server("offline-token"))
+        cached.assert_called_once_with(
+            "offline-token", max_validation_age=deps.settings.SERVER_TOKEN_OFFLINE_GRACE_SECONDS,
+        )
 
     def test_server_status_restores_only_cached_server_identity(self) -> None:
         cached_account = SimpleNamespace(id="server-account", name="Alice")
         with (
             patch.object(server_router.server_client, "server_enabled", return_value=False),
-            patch.object(server_router.db, "user_id_for_token", return_value="server-account"),
-            patch.object(server_router.db, "get_server_identity", return_value="server-token"),
+            patch.object(server_router.db, "cached_server_user", return_value="server-account"),
             patch.object(server_router.db, "get_user", return_value=cached_account),
-            patch.object(server_router.server_client, "verify_token") as verify_remote,
+            patch.object(server_router.server_client, "verify_token_state") as verify_remote,
         ):
             result = server_router.server_status("Bearer server-token")
 

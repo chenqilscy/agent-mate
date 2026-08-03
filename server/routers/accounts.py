@@ -78,7 +78,10 @@ def update_account(account_id: str, body: UpdateBody, account: Account = Current
     # 不能撤销最后一个平台管理员（含撤销自己）——否则无人能再管账号。
     if body.is_platform_admin is False and target.is_platform_admin and db.count_platform_admins() <= 1:
         raise HTTPException(400, "不能撤销最后一个平台管理员")
-    db.update_account(account_id, name=name, email=body.email, plan=body.plan, is_platform_admin=body.is_platform_admin)
+    db.update_account(
+        account_id, name=name, email=body.email, plan=body.plan,
+        is_platform_admin=body.is_platform_admin, actor_id=account.id,
+    )
     return {"account": db.get_account_admin_view(account_id)}
 
 
@@ -155,7 +158,7 @@ def unlink_account_identity(
 ) -> dict:
     _require_admin(account)
     try:
-        removed = sso_store.unlink_identity(account_id, provider)
+        removed = sso_store.unlink_identity(account_id, provider, actor_id=account.id)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     if not removed:

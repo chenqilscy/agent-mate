@@ -33,11 +33,16 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
   async function startSso(provider: string) {
     setError("");
     setSsoBusy(provider);
-    let popup: Window | null = null;
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      setError("浏览器阻止了登录弹窗");
+      setSsoBusy("");
+      return;
+    }
+    popup.opener = null;
     try {
       const attempt = await consoleApi.ssoStart(provider, inviteCode.trim());
-      popup = window.open(attempt.auth_url, "_blank", "noopener,noreferrer");
-      if (!popup) throw new Error("浏览器阻止了登录弹窗");
+      popup.location.replace(attempt.auth_url);
       const deadline = Math.min(attempt.expires_at * 1000, Date.now() + 10 * 60_000);
       while (Date.now() < deadline) {
         await new Promise((resolve) => window.setTimeout(resolve, 1000));
@@ -54,7 +59,7 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "联合登录失败");
     } finally {
-      popup?.close();
+      popup.close();
       setSsoBusy("");
     }
   }
