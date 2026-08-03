@@ -34,7 +34,7 @@ function BotMessage({ msg, streaming, onRetry }: { msg: ChatMessage; streaming: 
             <>已完成{msg.secs ? ` ${msg.secs}s` : ''} {hasTrace && SC_SM}</>
           )}
         </div>
-        {hasTrace && !collapsed && <TraceStream trace={msg.trace} streaming={running && streaming} />}
+        {hasTrace && !collapsed && <TraceStream trace={msg.trace} streaming={running && streaming} runId={msg.runId} />}
         {!msg.content && running && !hasTrace && (
           <div className="typing"><i /><i /><i /></div>
         )}

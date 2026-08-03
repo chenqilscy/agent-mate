@@ -51,6 +51,22 @@ def todo(text: str) -> str:
     return sse("todo", {"text": text})
 
 
+def plan_snapshot(
+    version: int, items: list[dict[str, Any]], project_id: str | None = None,
+) -> str:
+    return sse("plan_snapshot", {
+        "version": max(0, int(version)), "items": items, "project_id": project_id,
+    })
+
+
+def plan_patch(
+    version: int, items: list[dict[str, Any]], project_id: str | None = None,
+) -> str:
+    return sse("plan_patch", {
+        "version": max(0, int(version)), "items": items, "project_id": project_id,
+    })
+
+
 def text(md: str) -> str:
     """A chunk of assistant prose (token-level increment)."""
     return sse("text", {"md": md})

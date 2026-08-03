@@ -111,6 +111,9 @@ def get_messages(session_id: str) -> dict:
         item = message.to_dict()
         run = db.get_run(message.run_id) if message.run_id else None
         item["run_status"] = run.status if run else None
+        item["run_plan"] = run.plan if run else []
+        item["run_plan_version"] = run.plan_version if run else 0
+        item["run_project_id"] = run.project_id if run else None
         item["pending_question"] = _pending_question_view(run)
         messages.append(item)
     return {

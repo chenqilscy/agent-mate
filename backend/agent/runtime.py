@@ -283,6 +283,14 @@ def _trace_to_sse(item: dict[str, Any]) -> str:
         return events.diff(item["op"], item["file"], item["add"], item["del"])
     if k == "todo":
         return events.todo(item["text"])
+    if k == "plan_snapshot":
+        return events.plan_snapshot(
+            item["version"], item["items"], item.get("project_id"),
+        )
+    if k == "plan_patch":
+        return events.plan_patch(
+            item["version"], item["items"], item.get("project_id"),
+        )
     if k == "qa":
         return events.qa_summary(item["qa"])
     if k == "context_degraded":
@@ -797,6 +805,14 @@ async def _run_chat_inner(
     t0 = time.time()
 
     def record(item: dict[str, Any]) -> str:
+        if item.get("kind") in {"plan_snapshot", "plan_patch"}:
+            # A RunPlan is state, not an append-only log. Persist only the latest
+            # materialized snapshot in the assistant message while still emitting
+            # snapshot/patch semantics live over SSE.
+            trace_items[:] = [
+                existing for existing in trace_items
+                if existing.get("kind") not in {"plan_snapshot", "plan_patch", "todo"}
+            ]
         trace_items.append(item)
         return _trace_to_sse(item)
 
@@ -1572,7 +1588,6 @@ async def _run_chat_inner(
 
     db.update_run_runtime(
         run_id,
-        plan=[{"text": item["text"]} for item in trace_items if item.get("kind") == "todo"],
         prompt_tokens=total_prompt, cached_prompt_tokens=total_cached_prompt,
         completion_tokens=total_completion, tool_calls=tool_call_count,
     )

@@ -19,6 +19,17 @@ function uuid(): string {
   return crypto.randomUUID ? crypto.randomUUID() : String(Math.random())
 }
 
+function withRunPlan(
+  trace: TraceItem[], version: number, items: import('../lib/types').RunPlanItem[],
+  projectId?: string | null, kind: 'plan_snapshot' | 'plan_patch' = 'plan_snapshot',
+): TraceItem[] {
+  if (!items.length && !version) return trace
+  return [
+    ...trace.filter((item) => !['todo', 'plan_snapshot', 'plan_patch'].includes(item.kind)),
+    { kind, version, items, project_id: projectId },
+  ]
+}
+
 interface ChatState {
   sessions: SessionInfo[]
   activeId: string | null
@@ -81,7 +92,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
           id: m.id,
           role: m.role,
           content: m.content,
-          trace: (m.trace as TraceItem[]) ?? [],
+          trace: withRunPlan(
+            (m.trace as TraceItem[]) ?? [],
+            m.run_plan_version ?? 0,
+            m.run_plan ?? [],
+            m.run_project_id,
+          ),
           status: 'done',
           usage: m.usage,
           runId: m.run_id ?? undefined,
@@ -164,7 +180,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
           break
         case 'run':
-          patchBot((m) => ({ ...m, runId: ev.data.run.id, runStatus: 'running' }))
+          patchBot((m) => ({
+            ...m,
+            runId: ev.data.run.id,
+            runStatus: 'running',
+            trace: withRunPlan(
+              m.trace, ev.data.run.plan_version, ev.data.run.plan,
+              ev.data.run.project_id,
+            ),
+          }))
           break
         case 'text':
           patchBot((m) => ({ ...m, content: m.content + ev.data.md }))
@@ -195,6 +219,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
           break
         case 'todo':
           patchBot((m) => ({ ...m, trace: [...m.trace, { kind: 'todo', text: ev.data.text }] }))
+          break
+        case 'plan_snapshot':
+        case 'plan_patch':
+          patchBot((m) => ({
+            ...m,
+            trace: withRunPlan(
+              m.trace, ev.data.version, ev.data.items, ev.data.project_id, ev.type,
+            ),
+          }))
           break
         case 'artifact':
           patchBot((m) => ({

@@ -282,6 +282,10 @@ export const api = {
     send<ArtifactManifest>('POST', `/artifacts/${id}/review`, { status }),
   retryRun: (id: string, idempotencyKey?: string) =>
     send<{ run: AgentRun; created: boolean }>('POST', `/runs/${id}/retry`, { idempotency_key: idempotencyKey }),
+  promoteRunPlanItem: (runId: string, itemId: string) =>
+    send<{ run: AgentRun; work_item: WorkItem; created: boolean }>(
+      'POST', `/runs/${runId}/plan/${itemId}/promote`,
+    ),
 
   createOrchestration: (body: {
     team_name: string; goal: string; project_id?: string | null; idempotency_key: string
@@ -672,6 +676,9 @@ export interface RawMessage {
   usage: { prompt: number; completion: number } | null
   run_id?: string | null
   run_status?: RunStatus | null
+  run_plan?: import('./types').RunPlanItem[]
+  run_plan_version?: number
+  run_project_id?: string | null
   pending_question?: { questions: import('./types').AskQuestion[]; recovery: 'retry_required'; source: string } | null
   error?: string | null
   created_at: number

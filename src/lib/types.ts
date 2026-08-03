@@ -82,6 +82,20 @@ export interface StepEvent { tool: string; label: string }
 export interface FileReadEvent { path: string; range: string }
 export interface DiffEvent { op: string; file: string; add: number; del: number }
 export interface TodoEvent { text: string }
+export type RunPlanStatus = 'pending' | 'in_progress' | 'completed' | 'blocked'
+export interface RunPlanItem {
+  id: string
+  title: string
+  status: RunPlanStatus
+  order: number
+  depends_on: string[]
+  work_item_id?: string
+}
+export interface RunPlanEvent {
+  version: number
+  items: RunPlanItem[]
+  project_id?: string | null
+}
 export interface TextEvent { md: string }
 export interface AskUserEvent { questions: AskQuestion[] }
 export interface QaSummaryEvent { qa: QaPair[] }
@@ -116,6 +130,8 @@ export type SSEEvent =
   | { type: 'file_read'; data: FileReadEvent }
   | { type: 'diff'; data: DiffEvent }
   | { type: 'todo'; data: TodoEvent }
+  | { type: 'plan_snapshot'; data: RunPlanEvent }
+  | { type: 'plan_patch'; data: RunPlanEvent }
   | { type: 'text'; data: TextEvent }
   | { type: 'ask_user'; data: AskUserEvent }
   | { type: 'qa_summary'; data: QaSummaryEvent }
@@ -134,6 +150,8 @@ export type TraceItem =
   | { kind: 'file_read'; path: string; range: string }
   | { kind: 'diff'; op: string; file: string; add: number; del: number }
   | { kind: 'todo'; text: string }
+  | { kind: 'plan_snapshot'; version: number; items: RunPlanItem[]; project_id?: string | null }
+  | { kind: 'plan_patch'; version: number; items: RunPlanItem[]; project_id?: string | null }
   | { kind: 'qa'; qa: QaPair[] }
   | { kind: 'context_degraded'; reason: string; excerpt_messages: number; retry_on_next_turn: true }
   | { kind: 'artifact'; artifact: ArtifactEvent }
@@ -194,7 +212,8 @@ export interface AgentRun {
   model_snapshot?: Record<string, unknown>
   estimated_cost?: number | null
   cost_currency?: string | null
-  plan: { text: string; [key: string]: unknown }[]
+  plan: RunPlanItem[]
+  plan_version: number
   permission_snapshot: Record<string, unknown>
   checkpoint: Record<string, unknown>
   error_code?: string | null

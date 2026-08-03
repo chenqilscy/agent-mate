@@ -1,6 +1,8 @@
 """Small, ordered SQLite migration runner for the local App database."""
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -87,3 +89,44 @@ def migrate_message_run_link(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE messages ADD COLUMN run_id TEXT")
     if "error" not in have_messages:
         conn.execute("ALTER TABLE messages ADD COLUMN error TEXT")
+
+
+def migrate_run_plan_version(conn: sqlite3.Connection) -> None:
+    """Add the monotonic revision used by durable RunPlan snapshots (WB-385)."""
+    have_runs = {row[1] for row in conn.execute("PRAGMA table_info(runs)")}
+    if "plan" not in have_runs:
+        conn.execute("ALTER TABLE runs ADD COLUMN plan TEXT NOT NULL DEFAULT '[]'")
+    if "plan_version" not in have_runs:
+        conn.execute("ALTER TABLE runs ADD COLUMN plan_version INTEGER NOT NULL DEFAULT 0")
+    rows = conn.execute("SELECT id,plan,plan_version FROM runs").fetchall()
+    for run_id, raw_plan, version in rows:
+        try:
+            plan = json.loads(raw_plan) if raw_plan else []
+        except (json.JSONDecodeError, TypeError):
+            plan = []
+        if not isinstance(plan, list) or not any(
+            isinstance(item, dict) and "text" in item and "id" not in item for item in plan
+        ):
+            continue
+        occurrences: dict[str, int] = {}
+        upgraded = []
+        for order, item in enumerate(plan[:50]):
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or item.get("text") or "").strip()[:300]
+            if not title:
+                continue
+            key = title.casefold()
+            occurrence = occurrences.get(key, 0)
+            occurrences[key] = occurrence + 1
+            digest = hashlib.sha256(
+                f"{run_id}\0{key}\0{occurrence}".encode("utf-8")
+            ).hexdigest()[:20]
+            upgraded.append({
+                "id": f"plan_{digest}", "title": title, "status": "pending",
+                "order": order, "depends_on": [],
+            })
+        conn.execute(
+            "UPDATE runs SET plan=?,plan_version=? WHERE id=?",
+            (json.dumps(upgraded, ensure_ascii=False), max(1, int(version or 0)), run_id),
+        )

@@ -87,6 +87,7 @@ class Run:
     estimated_cost: Optional[float]
     cost_currency: Optional[str]
     plan: list[dict[str, Any]]
+    plan_version: int
     permission_snapshot: dict[str, Any]
     checkpoint: dict[str, Any]
     error_code: Optional[str]

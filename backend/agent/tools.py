@@ -447,21 +447,96 @@ run_command = Tool(
 
 # ---- update_plan (todos) ------------------------------------------------
 
+def _legacy_todo(value: Any) -> dict[str, Any]:
+    text = str(value).strip()
+    status = "pending"
+    prefixes = {
+        "[x]": "completed", "[X]": "completed", "[✓]": "completed",
+        "[~]": "in_progress", "[-]": "in_progress",
+        "[!]": "blocked", "[ ]": "pending",
+    }
+    for prefix, mapped in prefixes.items():
+        if text.startswith(prefix):
+            status = mapped
+            text = text[len(prefix):].strip()
+            break
+    return {"title": text, "status": status}
+
+
 def _update_plan_run(args: dict[str, Any]) -> ToolOutcome:
-    todos = args.get("todos", []) or []
-    trace = [{"kind": "todo", "text": str(t)} for t in todos]
-    return ToolOutcome(text=f"已更新执行计划（{len(todos)} 项）", trace=trace)
+    from agent import skill_usage
+
+    run_id = str(skill_usage.context_snapshot().get("run_id") or "")
+    if not run_id:
+        return ToolOutcome(text="当前没有可持久化执行计划的 Run。")
+    try:
+        if "patches" in args:
+            patches = args.get("patches") or []
+            run, changed = db.patch_run_plan(run_id, patches)
+            kind = "plan_patch"
+        else:
+            raw = args.get("items")
+            if raw is None:
+                raw = [_legacy_todo(value) for value in (args.get("todos") or [])]
+            run, changed = db.replace_run_plan(run_id, raw)
+            kind = "plan_snapshot"
+    except (KeyError, TypeError, ValueError) as exc:
+        return ToolOutcome(text=f"执行计划未更新：{exc}")
+    return ToolOutcome(
+        text=f"执行计划{'已更新' if changed else '未变化'}（v{run.plan_version}，{len(run.plan)} 项）",
+        trace=[{
+            "kind": kind,
+            "version": run.plan_version,
+            "items": run.plan,
+            "project_id": run.project_id,
+        }],
+    )
 
 
 update_plan = Tool(
     name="update_plan",
-    description="更新当前任务的待办清单（todo）。用于把多步任务拆解并展示进度。",
+    description=(
+        "持久化更新当前 Run 的执行计划。首次或整体调整用 items；仅变更状态/标题/顺序/依赖时用 patches；"
+        "兼容旧 todos 字符串数组。状态只能是 pending/in_progress/completed/blocked。"
+    ),
     parameters={
         "type": "object",
         "properties": {
-            "todos": {"type": "array", "items": {"type": "string"}, "description": "待办事项文本列表"}
+            "todos": {
+                "type": "array", "maxItems": 50, "items": {"type": "string"},
+                "description": "兼容格式：待办文本；可用 [x]/[~]/[!] 表示完成/进行中/阻塞",
+            },
+            "items": {
+                "type": "array", "maxItems": 50,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "title": {"type": "string"},
+                        "status": {"type": "string", "enum": ["pending", "in_progress", "completed", "blocked"]},
+                        "order": {"type": "integer"},
+                        "depends_on": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["title"],
+                },
+                "description": "完整计划快照；省略 id 时按标题稳定复用或生成",
+            },
+            "patches": {
+                "type": "array", "maxItems": 50,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "title": {"type": "string"},
+                        "status": {"type": "string", "enum": ["pending", "in_progress", "completed", "blocked"]},
+                        "order": {"type": "integer"},
+                        "depends_on": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["id"],
+                },
+                "description": "按稳定 id 增量修改现有计划",
+            },
         },
-        "required": ["todos"],
     },
     pre=lambda a: None,
     run=_update_plan_run,

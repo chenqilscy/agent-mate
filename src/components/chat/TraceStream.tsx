@@ -1,5 +1,9 @@
-import type { TraceItem } from '../../lib/types'
+import { useState } from 'react'
+import { api } from '../../lib/api'
+import type { RunPlanItem, TraceItem } from '../../lib/types'
 import { useUIStore } from '../../stores/uiStore'
+import { toast } from '../../stores/toastStore'
+import { WbButton } from '../ui/Primitives'
 
 // Renders accumulated trace items — one shape per event type (spec 5.2). The
 // `cur` pulse on the last item while streaming reproduces the prototype's live
@@ -9,7 +13,62 @@ const IC_EYE = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 const IC_PEN = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" /></svg>
 const IC_TODO = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="8" strokeDasharray="3 3" /></svg>
 
-export function TraceStream({ trace, streaming }: { trace: TraceItem[]; streaming: boolean }) {
+const PLAN_STATUS: Record<RunPlanItem['status'], string> = {
+  pending: '○', in_progress: '◉', completed: '✓', blocked: '!',
+}
+
+function RunPlanTrace({
+  version, items, projectId, runId, cur,
+}: {
+  version: number
+  items: RunPlanItem[]
+  projectId?: string | null
+  runId?: string
+  cur: boolean
+}) {
+  const [promoted, setPromoted] = useState<Record<string, string>>(() => Object.fromEntries(
+    items.filter((item) => item.work_item_id).map((item) => [item.id, item.work_item_id as string]),
+  ))
+  const [busy, setBusy] = useState('')
+
+  const promote = async (item: RunPlanItem) => {
+    if (!runId || busy) return
+    setBusy(item.id)
+    try {
+      const result = await api.promoteRunPlanItem(runId, item.id)
+      setPromoted((current) => ({ ...current, [item.id]: result.work_item.id }))
+      toast(result.created ? '已提升为项目任务' : '该项目任务已存在')
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '提升项目任务失败')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <div>
+      <div className={`step ${cur ? 'cur' : ''}`.trim()}>
+        {IC_TODO}<span>执行计划 v{version} · {items.length} 项</span>
+      </div>
+      {items.map((item) => (
+        <div className="step" key={item.id}>
+          <span aria-label={item.status}>{PLAN_STATUS[item.status]}</span>
+          <span>{item.title}</span>
+          {item.depends_on.length > 0 && <span className="rng">依赖 {item.depends_on.length}</span>}
+          {projectId && runId && (
+            promoted[item.id]
+              ? <span className="rng">已进入项目任务</span>
+              : <WbButton className="wb-td-editlink" disabled={busy === item.id} onClick={() => void promote(item)}>
+                  {busy === item.id ? '提升中…' : '提升为任务'}
+                </WbButton>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function TraceStream({ trace, streaming, runId }: { trace: TraceItem[]; streaming: boolean; runId?: string }) {
   const openFile = useUIStore((s) => s.openFile)
   if (!trace.length) return null
   const lastIdx = trace.length - 1
@@ -46,6 +105,18 @@ export function TraceStream({ trace, streaming }: { trace: TraceItem[]; streamin
               <div key={i} className={`step ${cur ? 'cur' : ''}`.trim()}>
                 {IC_TODO}<span>{t.text}</span>
               </div>
+            )
+          case 'plan_snapshot':
+          case 'plan_patch':
+            return (
+              <RunPlanTrace
+                key={`${t.kind}-${t.version}`}
+                version={t.version}
+                items={t.items}
+                projectId={t.project_id}
+                runId={runId}
+                cur={cur}
+              />
             )
           case 'qa':
             return (

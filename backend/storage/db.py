@@ -31,6 +31,7 @@ from storage.migrations import (
     Migration,
     migrate_message_run_link,
     migrate_model_and_run_audit,
+    migrate_run_plan_version,
     run_migrations,
 )
 
@@ -210,6 +211,7 @@ def init_db() -> None:
             estimated_cost REAL,
             cost_currency TEXT,
             plan TEXT NOT NULL DEFAULT '[]',
+            plan_version INTEGER NOT NULL DEFAULT 0,
             permission_snapshot TEXT NOT NULL DEFAULT '{}',
             checkpoint TEXT NOT NULL DEFAULT '{}',
             error_code TEXT,
@@ -1244,7 +1246,7 @@ def _assert_app_schema(conn: sqlite3.Connection) -> None:
         "automation_fires": {"input_payload"},
         "user_memories": {"importance", "status", "scope", "project_id"},
         "messages": {"run_id", "error"},
-        "runs": {"model_snapshot", "estimated_cost", "cached_prompt_tokens"},
+        "runs": {"model_snapshot", "estimated_cost", "cached_prompt_tokens", "plan_version"},
     }
     missing: list[str] = []
     for table, columns in required.items():
@@ -1261,6 +1263,7 @@ def _migrate_columns() -> None:
         Migration(2, "model-and-run-audit", migrate_model_and_run_audit),
         Migration(3, "message-run-link", migrate_message_run_link),
         Migration(4, "legacy-schema-completion", _migrate_legacy_schema),
+        Migration(5, "durable-run-plan-version", migrate_run_plan_version),
     ))
     _assert_app_schema(conn)
 
@@ -2263,6 +2266,7 @@ def _row_to_run(row: sqlite3.Row) -> Run:
         estimated_cost=float(row["estimated_cost"]) if row["estimated_cost"] is not None else None,
         cost_currency=row["cost_currency"],
         plan=_load_json(row["plan"], []),
+        plan_version=int(row["plan_version"] or 0),
         permission_snapshot=_load_json(row["permission_snapshot"], {}),
         checkpoint=_load_json(row["checkpoint"], {}), error_code=row["error_code"],
         error_message=row["error_message"], prompt_tokens=int(row["prompt_tokens"] or 0),
@@ -2338,6 +2342,14 @@ def create_run(
             if row:
                 return _row_to_run(row), False
         raise
+    if retry_of:
+        source = get_run(retry_of)
+        if source and source.plan:
+            get_conn().execute(
+                "UPDATE runs SET plan=?,plan_version=?,updated_at=? WHERE id=?",
+                (json.dumps(source.plan, ensure_ascii=False), source.plan_version, time.time(), rid),
+            )
+            get_conn().commit()
     return get_run(rid), True  # type: ignore[return-value]
 
 
@@ -2430,6 +2442,206 @@ def list_runs(
         f"SELECT * FROM runs WHERE {' AND '.join(clauses)} ORDER BY created_at DESC LIMIT ?", values
     ).fetchall()
     return [_row_to_run(row) for row in rows]
+
+
+RUN_PLAN_STATUSES = {"pending", "in_progress", "completed", "blocked"}
+
+
+def _stable_plan_item_id(run_id: str, title: str, occurrence: int) -> str:
+    digest = hashlib.sha256(
+        f"{run_id}\0{title.casefold()}\0{occurrence}".encode("utf-8")
+    ).hexdigest()[:20]
+    return f"plan_{digest}"
+
+
+def _validate_run_plan(items: list[dict[str, Any]]) -> None:
+    ids = {str(item["id"]) for item in items}
+    if len(ids) != len(items):
+        raise ValueError("duplicate RunPlan item id")
+    graph: dict[str, list[str]] = {}
+    for item in items:
+        item_id = str(item["id"])
+        dependencies = [str(value) for value in item.get("depends_on", [])]
+        if item_id in dependencies:
+            raise ValueError("RunPlan item cannot depend on itself")
+        if any(value not in ids for value in dependencies):
+            raise ValueError("RunPlan dependency does not exist")
+        graph[item_id] = dependencies
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(item_id: str) -> None:
+        if item_id in visiting:
+            raise ValueError("RunPlan dependency cycle")
+        if item_id in visited:
+            return
+        visiting.add(item_id)
+        for dependency in graph.get(item_id, []):
+            visit(dependency)
+        visiting.remove(item_id)
+        visited.add(item_id)
+
+    for item_id in graph:
+        visit(item_id)
+
+
+def _canonical_run_plan(
+    run_id: str, raw_items: list[dict[str, Any]], current: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if len(raw_items) > 50:
+        raise ValueError("RunPlan supports at most 50 items")
+    current_by_id = {str(item.get("id") or ""): item for item in current if item.get("id")}
+    current_by_title: dict[str, list[dict[str, Any]]] = {}
+    for item in current:
+        current_by_title.setdefault(str(item.get("title") or "").strip().casefold(), []).append(item)
+    title_occurrences: dict[str, int] = {}
+    used_ids: set[str] = set()
+    normalized: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_items):
+        if not isinstance(raw, dict):
+            raise ValueError("RunPlan items must be objects")
+        title = str(raw.get("title") or raw.get("text") or "").strip()[:300]
+        if not title:
+            raise ValueError("RunPlan item title is required")
+        title_key = title.casefold()
+        occurrence = title_occurrences.get(title_key, 0)
+        title_occurrences[title_key] = occurrence + 1
+        explicit_id = str(raw.get("id") or "").strip()[:100]
+        matched = current_by_id.get(explicit_id) if explicit_id else None
+        if not matched:
+            matches = current_by_title.get(title_key, [])
+            matched = matches[occurrence] if occurrence < len(matches) else None
+        item_id = explicit_id or str((matched or {}).get("id") or "")
+        if not item_id:
+            item_id = _stable_plan_item_id(run_id, title, occurrence)
+        if item_id in used_ids:
+            raise ValueError("duplicate RunPlan item id")
+        used_ids.add(item_id)
+        status = str(raw.get("status") or (matched or {}).get("status") or "pending")
+        if status not in RUN_PLAN_STATUSES:
+            raise ValueError(f"invalid RunPlan status: {status}")
+        depends = raw.get("depends_on", (matched or {}).get("depends_on", []))
+        if not isinstance(depends, list):
+            raise ValueError("RunPlan depends_on must be an array")
+        work_item_id = str(
+            raw.get("work_item_id") or (matched or {}).get("work_item_id") or ""
+        ).strip()[:100]
+        normalized.append({
+            "id": item_id,
+            "title": title,
+            "status": status,
+            "order": int(raw.get("order", index)),
+            "depends_on": list(dict.fromkeys(str(value).strip()[:100] for value in depends if str(value).strip()))[:20],
+            **({"work_item_id": work_item_id} if work_item_id else {}),
+        })
+    normalized.sort(key=lambda item: (item["order"], item["id"]))
+    for order, item in enumerate(normalized):
+        item["order"] = order
+    _validate_run_plan(normalized)
+    return normalized
+
+
+def replace_run_plan(run_id: str, raw_items: list[dict[str, Any]]) -> tuple[Run, bool]:
+    """Atomically replace a RunPlan; identical snapshots do not advance its revision."""
+    conn = get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+        if not row:
+            raise KeyError(run_id)
+        current = _load_json(row["plan"], [])
+        if not isinstance(current, list):
+            current = []
+        plan = _canonical_run_plan(run_id, raw_items, current)
+        changed = plan != current
+        if changed:
+            conn.execute(
+                "UPDATE runs SET plan=?,plan_version=plan_version+1,updated_at=? WHERE id=?",
+                (json.dumps(plan, ensure_ascii=False), time.time(), run_id),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return get_run(run_id), changed  # type: ignore[return-value]
+
+
+def patch_run_plan(run_id: str, patches: list[dict[str, Any]]) -> tuple[Run, bool]:
+    """Apply ID-addressed patches atomically and return the resulting snapshot."""
+    if len(patches) > 50:
+        raise ValueError("RunPlan supports at most 50 patches")
+    conn = get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+        if not row:
+            raise KeyError(run_id)
+        current = _load_json(row["plan"], [])
+        if not isinstance(current, list):
+            current = []
+        by_id = {str(item.get("id") or ""): dict(item) for item in current}
+        for patch in patches:
+            if not isinstance(patch, dict):
+                raise ValueError("RunPlan patches must be objects")
+            item_id = str(patch.get("id") or "").strip()
+            if item_id not in by_id:
+                raise ValueError(f"RunPlan item not found: {item_id}")
+            item = by_id[item_id]
+            if "title" in patch:
+                title = str(patch.get("title") or "").strip()[:300]
+                if not title:
+                    raise ValueError("RunPlan item title is required")
+                item["title"] = title
+            if "status" in patch:
+                status = str(patch.get("status") or "")
+                if status not in RUN_PLAN_STATUSES:
+                    raise ValueError(f"invalid RunPlan status: {status}")
+                item["status"] = status
+            if "order" in patch:
+                item["order"] = int(patch["order"])
+            if "depends_on" in patch:
+                if not isinstance(patch["depends_on"], list):
+                    raise ValueError("RunPlan depends_on must be an array")
+                item["depends_on"] = list(dict.fromkeys(
+                    str(value).strip()[:100] for value in patch["depends_on"] if str(value).strip()
+                ))[:20]
+        candidate = list(by_id.values())
+        candidate.sort(key=lambda item: (int(item.get("order", 0)), str(item.get("id") or "")))
+        for order, item in enumerate(candidate):
+            item["order"] = order
+        _validate_run_plan(candidate)
+        changed = candidate != current
+        if changed:
+            conn.execute(
+                "UPDATE runs SET plan=?,plan_version=plan_version+1,updated_at=? WHERE id=?",
+                (json.dumps(candidate, ensure_ascii=False), time.time(), run_id),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return get_run(run_id), changed  # type: ignore[return-value]
+
+
+def link_run_plan_work_item(run_id: str, plan_item_id: str, work_item_id: str) -> Run:
+    run = get_run(run_id)
+    if not run:
+        raise KeyError(run_id)
+    patches = []
+    found = False
+    for item in run.plan:
+        if str(item.get("id") or "") != plan_item_id:
+            continue
+        found = True
+        linked = dict(item)
+        linked["work_item_id"] = work_item_id
+        patches.append(linked)
+    if not found:
+        raise KeyError(plan_item_id)
+    raw = [patches[0] if str(item.get("id") or "") == plan_item_id else item for item in run.plan]
+    updated, _ = replace_run_plan(run_id, raw)
+    return updated
 
 
 def get_ops_summary(user_id: str, *, days: int = 7) -> dict[str, Any]:

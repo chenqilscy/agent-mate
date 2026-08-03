@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from auth.deps import current_user
@@ -92,6 +92,52 @@ def list_runs(
 @router.get("/runs/{run_id}")
 def get_run(run_id: str) -> dict:
     return _run_view(_get_visible_run(run_id))
+
+
+@router.post("/runs/{run_id}/plan/{plan_item_id}/promote")
+def promote_plan_item(
+    run_id: str, plan_item_id: str, authorization: str = Header(default=""),
+) -> dict:
+    """Idempotently promote one durable RunPlan item into the project board."""
+    run = _get_visible_run(run_id)
+    _require_review_permission(run)
+    if not run.project_id:
+        raise HTTPException(409, "个人会话计划不能提升为项目任务")
+    item = next(
+        (value for value in run.plan if str(value.get("id") or "") == plan_item_id),
+        None,
+    )
+    if not item:
+        raise HTTPException(404, "plan item not found")
+    linked_id = str(item.get("work_item_id") or "")
+    if linked_id:
+        linked = db.get_work_item(linked_id)
+        if linked and linked.project_id == run.project_id:
+            return {"run": _run_view(run), "work_item": linked.to_dict(), "created": False}
+
+    # Reuse the authoritative WorkItem route so Server-origin projects keep their
+    # remote write/no-local-fallback semantics instead of creating a fake mirror.
+    from routers import work_items as work_items_router
+
+    status_map = {
+        "pending": "todo", "in_progress": "doing",
+        "completed": "review", "blocked": "paused",
+    }
+    work_item = work_items_router.create_item(
+        work_items_router.CreateWorkItemBody(
+            project_id=run.project_id,
+            title=str(item.get("title") or "")[:200],
+            status=status_map.get(str(item.get("status") or ""), "todo"),
+            source="RunPlan",
+            description=f"由 AgentMate Run {run.id} 的执行计划提升。",
+        ),
+        authorization=authorization,
+    )
+    work_item_id = str(work_item.get("id") or "")
+    if not work_item_id:
+        raise HTTPException(502, "项目任务已创建但未返回 id")
+    updated = db.link_run_plan_work_item(run.id, plan_item_id, work_item_id)
+    return {"run": _run_view(updated), "work_item": work_item, "created": True}
 
 
 @router.get("/runs/{run_id}/artifacts")
