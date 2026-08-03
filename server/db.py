@@ -21,6 +21,7 @@ from catalog_seed import (
     DEFAULT_SKILL_CATEGORIES, DEFAULT_TOOL_CATALOG,
 )
 from models import Account, Invite, Org, Project, Role
+from migrations import Migration, migrate_federated_identity_security, run_migrations
 
 _local = threading.local()
 
@@ -980,23 +981,10 @@ def init_db() -> None:
             (now,),
         )
     conn.commit()
-    account_columns = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
-    if "password_login_enabled" not in account_columns:
-        conn.execute(
-            "ALTER TABLE accounts ADD COLUMN password_login_enabled INTEGER NOT NULL DEFAULT 1"
-        )
-    # Raw bearer values were historically stored in the primary-key column. Hash
-    # them once; the prefix makes migration unambiguous because both values are
-    # otherwise 64 hexadecimal characters.
-    for row in conn.execute(
-        "SELECT token FROM server_tokens WHERE token NOT LIKE 'sha256:%'"
-    ).fetchall():
-        raw = str(row["token"])
-        conn.execute(
-            "UPDATE server_tokens SET token=? WHERE token=?",
-            ("sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest(), raw),
-        )
-    conn.commit()
+    run_migrations(conn, (
+        Migration(1, "existing-schema-baseline", lambda _conn: None),
+        Migration(2, "federated-identity-security", migrate_federated_identity_security),
+    ))
     have_pm = {r["name"] for r in conn.execute("PRAGMA table_info(project_members)").fetchall()}
     if "updated_at" not in have_pm:
         conn.execute("ALTER TABLE project_members ADD COLUMN updated_at REAL NOT NULL DEFAULT 0")

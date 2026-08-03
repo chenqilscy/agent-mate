@@ -1,19 +1,19 @@
 # AgentMate 数据分层与同步规范
 
-> 状态：v2（2026-07-21 修订）。本规范是 **AgentMate App ⇄ AgentMate Server** 之间“哪些数据上云、哪些留本地、怎么同步”的**唯一准绳**；Console 是 Server 的 Web 管理界面。
+> 状态：v3（2026-08-03 修订）。本规范是 **AgentMate App ⇄ AgentMate Server** 之间“哪些数据上云、哪些留本地、怎么同步”的**唯一准绳**；Console 是 Server 的 Web 管理界面。
 > 新增任何实体前，先按 §5 的决策流程给它归层，再写代码。相关落地见 epic [WB-112](issues/archive/2026/WB-100-199.md#wb-112)。
 
 ## 0. 定位
 
 - **AgentMate App**（本地 backend `:8101` + React `:8102`）：**local-first 执行端**。用户实际干活的地方，离线可用。是前端的**唯一入口**（前端只连本地 backend）。
-- **AgentMate Server**（`:8100`，目录 `server/`）：**中心 API / 控制平面**。账号·组织·项目·成员·协作的**权威源**，多端统一管理。它**不执行**任务、**不持有**凭据。
+- **AgentMate Server**（`:8100`，目录 `server/`）：**中心 API / 控制平面**。账号·组织·项目·成员·协作的**权威源**，多端统一管理。它**不执行**任务；只持有 SSO/中央服务等控制平面凭据，不持有本机任务执行凭据。
 - **AgentMate Console**：由 Server 同源托管的 **Web 管理控制台**，通过 Server API 管理上述数据；它不是独立数据源或独立服务。
 
 一句话：**App 干活、Server 管协作数据、Console 提供 Web 管理界面**。本地 backend 内嵌一个 guarded Server 客户端，对“协作实体”做读镜像+写代理，对“私有实体”一律不上云。
 
 ## 1. 三条不可妥协的红线（哪些**永不**上云）
 
-1. **LLM 凭据 / 连接器 secret**：`LLM_API_KEY`、bot token、OAuth 令牌等。只存 App 本地（`backend/.env` 或本地 DB），绝不进 Server、绝不进前端、绝不透传子进程。
+1. **本机任务执行凭据**：`LLM_API_KEY`、bot token、本机 MCP/连接器 OAuth 令牌等。只存 App 本地（`backend/.env` 或本地 DB），绝不进 Server、绝不进前端、绝不透传子进程。SSO provider client secret 与中央 WeKnora secret 是 Server 控制平面凭据，必须只写不回显、禁止下发 App。
 2. **沙箱工作区文件（资产/云盘）**：`workspace/projects/<id>/` 下的一切文件本体。属用户私有产物，只在本机。
 3. **会话正文（消息/工具轨迹）**：对话内容、工具调用参数与返回。只以**元数据**（一条 timeline 事件：谁、在哪个项目、干了什么、何时）上行 Server，正文不上云。
 
@@ -26,6 +26,7 @@
 | 实体 | 权威源 | 上云 | 同步方向 | 离线行为 | 现状 |
 |---|---|---|---|---|---|
 | 账号 accounts | **Server** | ✅ | Server→App 镜像 | 已登录身份读本地镜像；未登录使用匿名访客作用域 | ✅ 已打通 |
+| SSO provider / external identities / signup invites | **Server** | ✅ | Console 配置；App 代理授权与绑定 | 已缓存登录仍可本地使用；新授权需 Server | ✅ Google/微信/Telegram |
 | 组织 orgs / 成员 | **Server** | ✅ | Server→App 镜像 | 只读缓存 | ✅ |
 | 项目 projects（元信息/角色） | **Server**（server-origin） | ✅ | 双向：增量镜像+写代理 | 本地原生项目纯本地 | ✅ 成员/配置写已代理 |
 | 项目邀请 invites | **Server** | ✅ | Server 权威 | 无 | ✅ |
@@ -34,6 +35,7 @@
 | 项目自定义字段 project_custom_fields / Sprint | **Server** | ✅ | Console 管理；任务引用随 work_items 同步 | 读缓存 | ✅ |
 | 任务活动流 work_item_activity | **Server** | ✅ | Server 逐条留痕、Console 回读 | 无 | ✅ |
 | 团队动态 timeline_events | **Server** | ✅（仅元数据） | App↔Server；增量缓存 | last-known-good + 本机 sessions | ✅ |
+| service identities / relay events | **Server** | ✅（事件 JSON，不含会话正文） | 外部系统→Server→指定 App 设备 | Server 持久排队；租约到期重投 | ✅ |
 | 讨论 comments / @提及 | **Server** | ✅ | Server 代理 | 无离线态 | ✅（设计取舍） |
 | 在线状态 presence | **Server** | ✅ | Server | 无 | ✅ |
 | 目录 catalog（人格/连接器/技能/推荐位） | **Server** | ✅ | Server→App 带 revision 条件下发 | 首次用 builtin；离线保留最后可用快照 | ✅ Skill tombstone、能力报告与兼容门禁已完成；实时失效推送待补 |
@@ -41,7 +43,8 @@
 | 自动化 automations | **App 本地** | ❌ | 不同步（暂） | 全功能 | 未上云；是否需团队级待定 |
 | 助理/频道 channels | **App 本地** | ❌ | 不同步 | 全功能 | 私有 |
 | 会话 sessions/messages | **App 本地** | ❌（仅元数据上行） | 见红线 3 | 全功能 | ✅ |
-| LLM 凭据 / secret | **App 本地** | ❌ | 永不 | 全功能 | ✅ 红线 1 |
+| 本机 LLM / MCP /连接器 secret | **App 本地** | ❌ | 永不 | 全功能 | ✅ 红线 1 |
+| SSO / 中央服务 provider secret | **Server deployment** | ✅ | Console 只写；不下发 | 新授权/中央服务不可用 | ✅ 脱敏审计 |
 
 ## 3. 同步契约（协作实体怎么同步）
 
@@ -76,6 +79,7 @@
 ## 4. 统一用户与身份规范
 
 - **单一账号权威**：Server 是**唯一**账号系统。App 登录即用 Server 账号身份，**app token == Server token**；本地 `users` 表用 **Server account id 作本地 id** 镜像（`upsert_external_user`）。全端一个用户体系。
+- **联合身份不自动合并**：Google、微信、Telegram 外部 subject 显式绑定到唯一 account_id；同邮箱冲突时拒绝自动链接。默认 `invite_only` 注册，最后一种可用登录方式不能解除。
 - **禁止本地账号分叉**：App 不创建或认证本地口令账号；Server 未配置或不可达时不能注册/重新登录。已缓存的 Server token 可继续解析为原 Server account id，保证已登录会话离线可用。
 - **本地匿名映射**：未登录 Server 时用 `LOCAL_USER`（`0000…0001`）承载匿名访客数据作用域；它不是账号。首次登录/导入时 `set_server_link` 记录访客存量数据与 Server account 的归属，存量本地数据归到该云账号。
 - **人归属必须强映射**：任务负责人、动态 actor 等“谁”字段，**权威值一律是 Server `account_id`**，显示名由成员表解析。

@@ -1,6 +1,6 @@
 # AgentMate Server 架构设计
 
-> 状态：控制平面与 Skill 发布治理已实现；桌面二进制发布仍待生产化，更新于 2026-07-23。
+> 状态：控制平面、联合 SSO、外部事件中继与 Skill 发布治理已实现；桌面二进制发布仍待生产化，更新于 2026-08-03。
 > 对应基础 epic [WB-058](issues/archive/2026/WB-001-099.md#wb-058)；数据权威与隐私边界以
 > [`agentmate-数据分层与同步规范.md`](agentmate-数据分层与同步规范.md) 为准。
 
@@ -10,28 +10,30 @@ AgentMate 采用“本地执行平面 + 可选中心控制平面”：
 
 - **AgentMate App** 在用户本机运行 agent、LLM、工具、MCP 与沙箱工作区。
 - **AgentMate Server** 是独立同仓的 FastAPI 服务，管理账号、组织、server-origin 项目、成员/角色、
-  邀请、协作数据和 AgentMate 自有能力目录。
+  邀请、联合身份、外部接入、协作数据和 AgentMate 自有能力目录。
 - **AgentMate Console** 是 Server 同源托管的 Web 管理界面，不是第三套后端或 App Web 版。
 
-Server 不能执行用户本地任务，不能读取工作区或会话正文，也不能保存 LLM key、连接器 token、
-第三方 SkillHub Key 或技能包。
+Server 不能执行用户本地任务，不能读取工作区或会话正文，也不能保存 LLM key、本机连接器 token、
+第三方 SkillHub Key 或技能包。Google/微信/Telegram SSO client secret、中央 WeKnora secret 等控制平面
+服务凭据属于 Server deployment secret，只写不回显，不能下发 App 或进入任务执行环境。
 
 ## 2. 当前拓扑
 
 ```text
 ┌──────────────────────── AgentMate Server :8100 ────────────────────────┐
 │ FastAPI + SQLite                                                       │
-│ auth · accounts · orgs · projects · members/roles · invites            │
+│ auth/SSO · accounts · orgs · projects · members/roles · invites        │
 │ work items · milestones · comments/@ · presence · notifications        │
-│ timeline metadata · AgentMate catalog definitions/recommendations       │
+│ service identities · durable event relay · timeline metadata · catalog │
 │                                │                                       │
 │                                └── Console（同源 /api）                 │
 └───────────────────────────────▲────────────────────────────────────────┘
                                 │ guarded REST
-                                │ login / pull / proxy / outbox push
+                                │ login / pull / proxy / outbox push / relay lease+ack
 ┌───────────────────────────────┴────────────────────────────────────────┐
 │ AgentMate App backend :8101                                            │
 │ 本地 SQLite · agent runtime · MCP · credentials · workspace             │
+│ durable job worker · automation/outbox/relay poll · health snapshot     │
 │                                ▲                                       │
 │                                │ REST + SSE                             │
 │ React/Vite :8102 或 Tauri 2 桌面壳                                     │
@@ -47,6 +49,9 @@ Server 不能执行用户本地任务，不能读取工作区或会话正文，�
 ### 3.1 身份与项目
 
 - Server 是唯一账号权威并签发 Bearer token；App 不创建或认证本地口令账号。
+- Server 联合身份 broker 支持 Google OIDC、微信开放平台网站 OAuth 和 Telegram OIDC。默认仅邀请注册；
+  已登录用户须显式绑定，邮箱相同不自动合并，最后一种登录方式不能被解除。
+- SSO provider 配置与一次性 signup invite 由 Console 平台设置管理；provider secret 只写不回显。
 - App backend 代理登录/注册并缓存已验证的 Server 身份；前端仍只与 App backend 通信。
 - Server 管理组织、项目、成员、Owner/Admin/Member/Viewer 角色与邀请。
 - App 镜像 server-origin 项目与成员，并在本地路由执行同样的角色门禁；Viewer 只读。
@@ -102,11 +107,23 @@ App 通过 `POST /api/server/pull` 携带 revision 与 capability report 条件�
 Server snapshot 并原子替换本机 `catalog_downlink` 的 Server scope，未变化时不重写。App 自造专家、
 本地 Skill 安装和连接器凭据属于本机 override，不上传、不被镜像覆盖。
 
+### 3.4 外部系统接入与后台执行
+
+- 同机事件通过每条 Automation 独立 HMAC webhook 进入 App；公网事件通过 Server scoped service identity
+  写入 durable relay，由目标 App 设备租约拉取、触发本地 Automation 后 ack。离线或崩溃会在租约到期后重投。
+- Server token、webhook secret 和 service token 均只在创建/轮换时显示一次；读取接口不回显，服务身份支持限速、
+  撤销和 scope 门禁。完整契约见 [`external-system-integration.md`](external-system-integration.md)。
+- App 常驻任务不是“助理专用 worker”。`backend/main.py` 生命周期同时启动 durable job worker 与 scheduler；
+  前者承载工作项执行/多 Agent 编排，后者承载 Automation、Server outbox、relay poll 等周期任务。
+  `/api/ops/background-health` 独立报告各循环连续失败、最近成功与恢复状态。
+
 ## 4. 数据归属摘要
 
 | 数据 | 权威源 | 当前流向 |
 |---|---|---|
 | 账号、组织、server-origin 项目、成员/角色、邀请 | Server | Server → App 镜像 |
+| SSO provider 配置、外部身份、注册邀请 | Server | Console 管理；App 只代理登录/绑定流程 |
+| service identity、relay event、设备租约与确认 | Server | 外部系统 → Server → 指定 App 设备 |
 | 工作项、里程碑、评论、presence、通知 | Server | App backend 代理，必要时本地镜像 |
 | AgentMate 专家/团队/Skill 定义及连接器公开元数据/推荐位 | Server | Server → App 条件全量快照 pull |
 | MCP 连接器本机启动定义 | App 随版本交付的可信注册表 | Server 只能声明兼容目标；完全匹配后由 App 本地定义执行 |
@@ -247,8 +264,13 @@ Console 管账号、组织、项目协作和 AgentMate 自有目录。Skill 定�
 - Server 位于 `server/`，可单独启动在 `127.0.0.1:8100`；当前存储为 SQLite。
 - Console 静态资源由 Server 同源托管并调用 `/api/*`。
 - App backend 位于 `backend/`，默认 `127.0.0.1:8101`；开发前端为 `:8102`。
+- Server 入口是 `server/main.py`；App backend 入口是 `backend/main.py`。后台 worker/scheduler 由 App backend
+  生命周期启动，不是另一个需要单独部署的守护进程。
+- App 与 Server 各自维护 `schema_migrations(scope,version,name,applied_at)`；升级按版本顺序单事务执行，
+  只有成功才登记，失败回滚并在下次启动重试。新 schema 变更不得继续追加匿名兼容 DDL。
 - 生产部署必须补 TLS、反向代理、安全响应头、备份、审计、密钥管理和数据库容量方案。
-- SaaS 多区域、计费/套餐、正式 SSO 与企业合规部署不属于当前实现基线。
+- 联合 SSO 协议与管理面已实现；生产启用仍需各 provider 审批、HTTPS 公网域名、精确 callback allowlist 与真实账号验收。
+- SaaS 多区域、计费/套餐与企业合规部署不属于当前实现基线。
 
 ## 10. 里程碑依据
 
@@ -264,6 +286,10 @@ Console 管账号、组织、项目协作和 AgentMate 自有目录。Skill 定�
 | 内置工具目录入库、扩充与 Console 管理 | 已完成 | WB-266 |
 | 内置工具完整下发与跨平台 Shell 执行 | 已完成 | WB-319 |
 | Console 全站 React/Ant Design | 已完成 | WB-234、WB-236 |
+| 后台循环健康、故障恢复与 CI 隔离 | 已完成 | WB-359、WB-360 |
+| 外部系统 durable relay | 已完成 | WB-361、[`external-system-integration.md`](external-system-integration.md) |
+| Google/微信/Telegram 联合 SSO broker | 已完成协议与管理面；生产 provider 验收待部署条件 | WB-362、[`sso-deployment.md`](sso-deployment.md) |
+| App/Server 版本化数据库迁移 | 已完成 | WB-363 |
 | 桌面更新代码链 | 已完成；本机真实 updater 签名升级/拒绝/回滚已演练，正式生产部署验收由外部条件项追踪 | WB-257、WB-283、[`desktop-build.md`](desktop-build.md) |
 
 腾讯 WorkBuddy 的任务工作台、能力分层、自动化与企业控制面可作为产品结构参考；AgentMate 保持

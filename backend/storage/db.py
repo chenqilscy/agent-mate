@@ -27,6 +27,12 @@ from typing import Any, Callable, Optional
 
 from config import settings
 from storage.catalog_seed import BUILTIN_CONNECTORS, BUILTIN_EXPERTS, BUILTIN_SKILLS
+from storage.migrations import (
+    Migration,
+    migrate_message_run_link,
+    migrate_model_and_run_audit,
+    run_migrations,
+)
 
 # 橱窗目录种子源（WB-060）：由 catalog.ts 导出的静态商品卡，逐字迁进本文件同级 JSON，
 # 首次启动 seed 进 catalog_showcase 表。放这里而非硬编码在 .py，正是「数据不写死在代码」。
@@ -1181,34 +1187,11 @@ def _migrate_columns() -> None:
         if col not in have_cs:
             conn.execute(f"ALTER TABLE catalog_skills ADD COLUMN {ddl}")
 
-    # WB-134: model_meta 增缓存命中输入价 + 币种（定价分档 / ¥·$ 区分）。
-    have_mm = {r["name"] for r in conn.execute("PRAGMA table_info(model_meta)").fetchall()}
-    for col, ddl in (("input_cost_cached", "input_cost_cached REAL"), ("currency", "currency TEXT")):
-        if col not in have_mm:
-            conn.execute(f"ALTER TABLE model_meta ADD COLUMN {ddl}")
-    if "max_output_tokens" not in have_mm:
-        conn.execute("ALTER TABLE model_meta ADD COLUMN max_output_tokens INTEGER")
-
-    # WB-346：Run 固化实际模型与非敏感价格快照；历史行保持空，不猜测过去使用的模型/价格。
-    have_runs = {r["name"] for r in conn.execute("PRAGMA table_info(runs)").fetchall()}
-    for col, ddl in (
-        ("model_ref", "model_ref TEXT"),
-        ("model_id", "model_id TEXT"),
-        ("model_snapshot", "model_snapshot TEXT NOT NULL DEFAULT '{}'"),
-        ("estimated_cost", "estimated_cost REAL"),
-        ("cost_currency", "cost_currency TEXT"),
-        ("cached_prompt_tokens", "cached_prompt_tokens INTEGER NOT NULL DEFAULT 0"),
-    ):
-        if col not in have_runs:
-            conn.execute(f"ALTER TABLE runs ADD COLUMN {ddl}")
-
-    # WB-358：assistant 消息持久关联产生它的 Run，会话重载后仍能对
-    # failed/cancelled/paused Run 建立可审计的 retry_of 链。
-    have_messages = {r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()}
-    if "run_id" not in have_messages:
-        conn.execute("ALTER TABLE messages ADD COLUMN run_id TEXT")
-    if "error" not in have_messages:
-        conn.execute("ALTER TABLE messages ADD COLUMN error TEXT")
+    run_migrations(conn, (
+        Migration(1, "existing-schema-baseline", lambda _conn: None),
+        Migration(2, "model-and-run-audit", migrate_model_and_run_audit),
+        Migration(3, "message-run-link", migrate_message_run_link),
+    ))
 
     # WB-166 认知记忆：user_memories 增强度/衰减/软状态字段（参考 AgentOS）。
     # importance 0..1 重要度、usage_count 命中次数（强化）、status active/superseded/archived（软状态，不硬删）、
