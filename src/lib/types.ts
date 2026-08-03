@@ -416,6 +416,9 @@ export interface Provider {
   key_hint: string
   site: string
   has_key: boolean
+  credential_updated_at?: number | null
+  credential_rotation_due?: boolean
+  health?: { status: 'healthy' | 'unhealthy'; checked_at: number; latency_ms: number; error_code: string } | null
   models: ProviderModel[]
 }
 
@@ -427,8 +430,25 @@ export interface ModelsResponse {
   models: ModelOption[]
 }
 
+export interface ModelPolicy {
+  allowlist: string[]
+  fallback_chain: string[]
+  daily_soft_tokens: number
+  daily_hard_tokens: number
+  monthly_soft_tokens: number
+  monthly_hard_tokens: number
+  daily_soft_cost: number
+  daily_hard_cost: number
+  monthly_soft_cost: number
+  monthly_hard_cost: number
+  currency: string
+  provider_health_ttl_seconds: number
+  credential_max_age_days: number
+}
+
 export interface ModelGovernance {
-  policy: { default_run_token_budget: number }
+  policy: ModelPolicy & { default_run_token_budget: number }
+  organization_policy?: (ModelPolicy & { org_id: string; revision: number }) | null
   usage: {
     period_start: number
     generated_at: number
@@ -617,6 +637,7 @@ export interface ProjectInfo {
   skills: string[]
   knowledge_ids: string[]
   origin?: 'local' | 'server'
+  org_id?: string | null
   ago?: string
   role?: string // the current user's role in this project (M7 C2): Owner|Admin|Member|Viewer
   sync_conflicts?: number // Server 镜像分叉数；>0 时 UI 必须显式提示，不能静默覆盖。

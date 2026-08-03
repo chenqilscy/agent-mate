@@ -1,6 +1,6 @@
 # AgentMate Server 架构设计
 
-> 状态：控制平面、联合 SSO、外部事件中继与 Skill 发布治理已实现；桌面二进制发布仍待生产化，更新于 2026-08-03。
+> 状态：控制平面、联合 SSO、外部事件中继、Skill 发布治理与组织模型策略已实现；桌面二进制发布仍待生产化，更新于 2026-08-04。
 > 对应基础 epic [WB-058](issues/archive/2026/WB-001-099.md#wb-058)；数据权威与隐私边界以
 > [`agentmate-数据分层与同步规范.md`](agentmate-数据分层与同步规范.md) 为准。
 
@@ -135,6 +135,8 @@ Server snapshot 并原子替换本机 `catalog_downlink` 的 Server scope，未�
 | 会话、消息、trace、工具参数 | App 本地 | 不上云；只可上报最小时间线元数据 |
 | workspace 文件 | App 本地 | 不自动同步；仅用户显式 `knowledge_add` 的目标文件可进入项目中央知识库 |
 | LLM/连接器 secret | App 本地 backend | 永不上云、永不进前端 |
+| 组织模型策略 | Server | Server → App 非敏感镜像；App 在每次 Run 前最终裁决 |
+| 用户模型策略、Provider health、用量与成本 | App 本地 backend | 不上云；按 owner 统计并执行 |
 
 配置也按同一归属治理：平台级中央 WeKnora 与协作策略由 Console 写入 Server；设备级 Langfuse、ASR、
 Server 连接和时间线上报由 App 设置中心写入本地 backend。数据库值优先于环境变量，清除页面覆盖后回退
@@ -164,6 +166,21 @@ deployment-only，不能通过通用设置 API 伪装成热更新。
 门禁，以及启动/窗口恢复/低频刷新。
 
 剩余：Server 主动推送“目录已失效”信号；跨实体同步冲突可视化、稳定重放与企业级审计。
+
+### 5.4 模型治理与执行边界
+
+Server 组织管理员维护不含凭据和接入地址的模型策略：允许列表、fallback 顺序、日/月 token 与成本软硬预算、
+健康状态有效期和凭据轮换提示周期。App 随项目镜像获取组织策略，并在每次 Run 建立、模型解析和网络调用前，
+将它与用户本地策略合并；allowlist 取交集语义，硬预算取更严格的剩余额度。裁决结果和策略 revision 固化到
+Run 的非敏感快照，便于恢复与审计。
+
+Provider API Key、自定义 base URL、健康检查结果和真实用量仍只在 App 本机。共享监听模式会拒绝指向
+localhost、私网和保留地址的模型端点；纯 local-first 模式保留 Ollama 等本机模型。健康检查只有用户显式
+触发后才参与 TTL 内的受控 fallback，响应和 Run 快照都不保存或回显 key。
+
+当前组织预算是“组织策略约束下的本机 owner 用量”，不是 Server 汇总的全组织全设备账本。若要做企业级
+统一额度，需要另行设计最小用量上报、幂等聚合和离线额度租约；在该隐私与一致性契约落地前不能把本地统计
+表述为全局强一致预算。
 
 ## 6. 目录与运行时关系
 

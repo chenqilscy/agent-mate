@@ -17,6 +17,7 @@ from storage.migrations import (  # noqa: E402
     Migration,
     migrate_message_run_link,
     migrate_model_and_run_audit,
+    migrate_project_org_scope,
     migrate_run_plan_version,
     run_migrations,
 )
@@ -34,7 +35,7 @@ class AppSchemaMigrationTest(unittest.TestCase):
                 rows = db.get_conn().execute(
                     "SELECT version,name FROM schema_migrations WHERE scope='app' ORDER BY version"
                 ).fetchall()
-                self.assertEqual([1, 2, 3, 4, 5], [row["version"] for row in rows])
+                self.assertEqual([1, 2, 3, 4, 5, 6], [row["version"] for row in rows])
                 db._assert_app_schema(db.get_conn())
             finally:
                 db.close_thread_connection()
@@ -53,6 +54,7 @@ class AppSchemaMigrationTest(unittest.TestCase):
             Migration(3, "message-run-link", migrate_message_run_link),
             Migration(4, "legacy-schema-completion", lambda _conn: None),
             Migration(5, "durable-run-plan-version", migrate_run_plan_version),
+            Migration(6, "project-org-model-policy-scope", migrate_project_org_scope),
         )
         run_migrations(conn, migrations)
         run_migrations(conn, migrations)
@@ -60,7 +62,7 @@ class AppSchemaMigrationTest(unittest.TestCase):
         self.assertIn("model_snapshot", {row[1] for row in conn.execute("PRAGMA table_info(runs)")})
         self.assertIn("plan_version", {row[1] for row in conn.execute("PRAGMA table_info(runs)")})
         self.assertIn("run_id", {row[1] for row in conn.execute("PRAGMA table_info(messages)")})
-        self.assertEqual(5, conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0])
+        self.assertEqual(6, conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0])
 
     def test_legacy_text_plan_is_upgraded_to_stable_items(self) -> None:
         conn = sqlite3.connect(":memory:")

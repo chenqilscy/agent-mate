@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, ProjectMember, RunStatus, SessionInfo, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, ProjectMember, RunStatus, SessionInfo, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -167,8 +167,8 @@ export const api = {
   // 厂商预置 + 自定义兜底（WB-128）。providers 供配置弹窗分组；models 是 picker 扁平可选列表。
   models: () => get<ModelsResponse>('/models'),
   modelGovernance: () => get<ModelGovernance>('/models/governance'),
-  setModelGovernance: (default_run_token_budget: number) =>
-    send<ModelGovernance>('PUT', '/models/governance', { default_run_token_budget }),
+  setModelGovernance: (policy: ModelPolicy & { default_run_token_budget: number }) =>
+    send<ModelGovernance>('PUT', '/models/governance', policy),
   // 默认模型（WB-136）：未显式选模型时跟随它，按 owner 存后端 DB（取代 .env）。''=清除。
   setDefaultModel: (model_ref: string) =>
     send<{ ok: boolean; default_model: string }>('PUT', '/models/default', { model_ref }),
@@ -180,6 +180,8 @@ export const api = {
     send<{ ok: boolean; base_url: string; chat_path: string }>('PATCH', `/providers/${pid}/config`, { base_url, chat_path }),
   fetchProviderModels: (pid: string) =>
     send<{ ok: boolean; models?: string[]; error?: string }>('POST', `/providers/${pid}/models/fetch`),
+  checkProviderHealth: (pid: string) =>
+    send<{ provider_id: string; status: 'healthy' | 'unhealthy'; checked_at: number; latency_ms: number; error_code: string }>('POST', `/providers/${pid}/health`),
   addProviderModel: (pid: string, model_id: string) =>
     send<{ ok: boolean }>('POST', `/providers/${pid}/models`, { model_id }),
   // 模型能力/成本元数据（WB-132）。model_ref = 选择键（@provider:model 或自定义名）。

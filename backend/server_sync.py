@@ -55,6 +55,9 @@ def pull(token: str) -> dict:
     projects = server_client.list_projects(token)
     if projects is None:
         return {"synced": 0, "projects": []}
+    policies = server_client.list_org_model_policies(token)
+    if policies is not None:
+        db.replace_server_org_model_policies(policies)
     synced: list[str] = []
     for p in projects:
         pid = p.get("id")
@@ -62,6 +65,7 @@ def pull(token: str) -> dict:
             continue
         db.mirror_server_project(
             id=pid, name=p.get("name", ""), owner_id=p.get("owner_id", ""),
+            org_id=p.get("org_id"),
             instruction=p.get("instruction", ""), connectors=p.get("connectors", []),
             experts=p.get("experts", []), skills=canonical_skill_keys(p.get("skills", [])),
             knowledge_ids=p.get("knowledge_ids", []),
@@ -79,7 +83,10 @@ def pull(token: str) -> dict:
     conflicts = [
         conflict for pid in synced for conflict in db.list_server_sync_conflicts(pid)
     ]
-    return {"synced": len(synced), "projects": synced, "conflicts": conflicts}
+    return {
+        "synced": len(synced), "projects": synced, "conflicts": conflicts,
+        "model_policies": len(policies) if policies is not None else None,
+    }
 
 
 # ---- 上行 outbox（WB-062 Phase 3）--------------------------------------

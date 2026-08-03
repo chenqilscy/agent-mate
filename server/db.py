@@ -248,6 +248,13 @@ def init_db() -> None:
             created_at REAL NOT NULL,
             PRIMARY KEY (org_id, account_id)
         );
+        CREATE TABLE IF NOT EXISTS org_model_policies (
+            org_id TEXT PRIMARY KEY,
+            policy TEXT NOT NULL DEFAULT '{}',
+            revision INTEGER NOT NULL DEFAULT 1,
+            updated_by TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_org_members_account ON org_members(account_id);
 
         CREATE TABLE IF NOT EXISTS projects (
@@ -2351,6 +2358,46 @@ def list_platform_settings_audit(limit: int = 100) -> list[dict[str, Any]]:
         (max(1, min(int(limit), 200)),),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_org_model_policy(org_id: str) -> Optional[dict[str, Any]]:
+    row = get_conn().execute(
+        "SELECT policy,revision,updated_by,updated_at FROM org_model_policies WHERE org_id=?",
+        (org_id,),
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        policy = json.loads(row["policy"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        policy = {}
+    return {
+        "org_id": org_id, "policy": policy if isinstance(policy, dict) else {},
+        "revision": int(row["revision"] or 0), "updated_by": row["updated_by"],
+        "updated_at": float(row["updated_at"] or 0),
+    }
+
+
+def set_org_model_policy(org_id: str, policy: dict[str, Any], actor_id: str) -> dict[str, Any]:
+    now = time.time()
+    get_conn().execute(
+        """INSERT INTO org_model_policies(org_id,policy,revision,updated_by,updated_at)
+           VALUES (?,?,1,?,?) ON CONFLICT(org_id) DO UPDATE SET
+             policy=excluded.policy,revision=org_model_policies.revision+1,
+             updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
+        (org_id, json.dumps(policy, ensure_ascii=False, separators=(",", ":")), actor_id, now),
+    )
+    get_conn().commit()
+    return get_org_model_policy(org_id) or {}
+
+
+def list_org_model_policies_for(account_id: str) -> list[dict[str, Any]]:
+    rows = get_conn().execute(
+        """SELECT DISTINCT o.id FROM orgs o LEFT JOIN org_members m ON m.org_id=o.id
+           WHERE o.owner_id=? OR m.account_id=? ORDER BY o.created_at""",
+        (account_id, account_id),
+    ).fetchall()
+    return [value for row in rows if (value := get_org_model_policy(row["id"])) is not None]
 
 
 # ---- 团队计划/任务 work_items（WB-081；专业化字段 WB-104）-----------------

@@ -16,6 +16,7 @@ reads .env's LLM_MODEL (WB-136). No default set → chat surfaces an honest erro
 from __future__ import annotations
 
 import httpx
+import time
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -31,6 +32,16 @@ def _effective_base_path(owner_id: str, prov: dict) -> tuple[str, str]:
     base = cfg.get("base_url") or prov["base_url"]
     path = cfg.get("chat_path") or prov.get("chat_path") or provider_seed.DEFAULT_CHAT_PATH
     return base, path
+
+
+def _health_view(owner_id: str, provider_id: str) -> dict | None:
+    value = db.get_provider_health(owner_id, provider_id)
+    if not value:
+        return None
+    return {
+        "status": value["status"], "checked_at": value["checked_at"],
+        "latency_ms": value["latency_ms"], "error_code": value["error_code"],
+    }
 
 
 # 能力词表（WB-132）：模态 + 工具 + 推理。前端徽标一一对应。
@@ -96,6 +107,7 @@ def list_models() -> dict:
     user = current_user()
     keyed = db.list_provider_keys(user.id)
     stored_meta = db.list_model_meta(user.id)  # WB-132: 批量取，逐模型附有效 meta
+    user_policy = model_governance.normalize_policy(db.get_user_model_policy(user.id))
 
     providers: list[dict] = []
     picker: list[dict] = []
@@ -106,6 +118,9 @@ def list_models() -> dict:
             ref = _sel_key_provider(prov["id"], m["model_id"])
             m["meta"] = _effective_meta(user.id, ref, m["model_id"], stored_meta)
         eff_base, eff_path = _effective_base_path(user.id, prov)
+        credential_meta = db.get_provider_key_metadata(user.id, prov["id"]) or {}
+        credential_updated_at = credential_meta.get("updated_at")
+        max_age_days = int(user_policy.get("credential_max_age_days") or 0)
         providers.append({
             "id": prov["id"],
             "name": prov["name"],
@@ -119,6 +134,12 @@ def list_models() -> dict:
             "key_hint": prov["key_hint"],
             "site": prov["site"],
             "has_key": has_key,
+            "credential_updated_at": credential_updated_at,
+            "credential_rotation_due": bool(
+                credential_updated_at and max_age_days
+                and time.time() - float(credential_updated_at) >= max_age_days * 86400
+            ),
+            "health": _health_view(user.id, prov["id"]),
             "models": mgmt,
         })
         if has_key:
@@ -168,26 +189,47 @@ def list_models() -> dict:
 
 class ModelGovernanceIn(BaseModel):
     default_run_token_budget: int = Field(default=0, ge=0, le=10_000_000)
+    allowlist: list[str] = Field(default=[], max_length=50)
+    fallback_chain: list[str] = Field(default=[], max_length=50)
+    daily_soft_tokens: int = Field(default=0, ge=0, le=1_000_000_000)
+    daily_hard_tokens: int = Field(default=0, ge=0, le=1_000_000_000)
+    monthly_soft_tokens: int = Field(default=0, ge=0, le=1_000_000_000)
+    monthly_hard_tokens: int = Field(default=0, ge=0, le=1_000_000_000)
+    daily_soft_cost: float = Field(default=0, ge=0, le=1_000_000_000)
+    daily_hard_cost: float = Field(default=0, ge=0, le=1_000_000_000)
+    monthly_soft_cost: float = Field(default=0, ge=0, le=1_000_000_000)
+    monthly_hard_cost: float = Field(default=0, ge=0, le=1_000_000_000)
+    currency: str = Field(default="USD", max_length=8)
+    provider_health_ttl_seconds: int = Field(default=900, ge=60, le=86400)
+    credential_max_age_days: int = Field(default=90, ge=0, le=3650)
 
 
-def _model_governance_payload(owner_id: str) -> dict:
+def _model_governance_payload(owner_id: str, project_id: str | None = None) -> dict:
+    layers = model_governance.governance_payload(owner_id, project_id=project_id)
     return {
         "policy": {
             "default_run_token_budget": db.get_model_default_run_token_budget(owner_id),
+            **layers["user"],
         },
+        "organization_policy": layers["organization"],
         "usage": db.get_model_governance_summary(owner_id),
     }
 
 
 @router.get("/models/governance")
-def get_model_governance() -> dict:
-    return _model_governance_payload(current_user().id)
+def get_model_governance(project_id: str | None = None) -> dict:
+    user = current_user()
+    if project_id and not db.get_project_for(project_id, user.id):
+        raise HTTPException(404, "project not found")
+    return _model_governance_payload(user.id, project_id)
 
 
 @router.put("/models/governance")
 def set_model_governance(body: ModelGovernanceIn) -> dict:
     user = current_user()
     db.set_model_default_run_token_budget(user.id, body.default_run_token_budget)
+    policy = model_governance.normalize_policy(body.model_dump(exclude={"default_run_token_budget"}))
+    db.set_user_model_policy(user.id, policy)
     return _model_governance_payload(user.id)
 
 
@@ -245,9 +287,52 @@ class ProviderConfigIn(BaseModel):
 def set_provider_config(pid: str, body: ProviderConfigIn) -> dict:
     user = current_user()
     prov = _require_provider(pid)
-    db.set_provider_config(user.id, pid, body.base_url, body.chat_path)
+    try:
+        base_url = model_governance.validate_endpoint_url(body.base_url) if body.base_url.strip() else ""
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    db.set_provider_config(user.id, pid, base_url, body.chat_path)
     base, path = _effective_base_path(user.id, prov)
     return {"ok": True, "base_url": base, "chat_path": path}
+
+
+@router.post("/providers/{pid}/health")
+async def check_provider_health(pid: str) -> dict:
+    user = current_user()
+    prov = _require_provider(pid)
+    key = db.get_provider_key(user.id, pid)
+    if not key:
+        raise HTTPException(400, "请先为该厂商填写 API Key")
+    base, _ = _effective_base_path(user.id, prov)
+    try:
+        base = model_governance.validate_endpoint_url(base)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    started = time.perf_counter()
+    status = "healthy"
+    error_code = ""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0), follow_redirects=False) as client:
+            response = await client.get(
+                f"{base.rstrip('/')}/models", headers={"Authorization": f"Bearer {key}"},
+            )
+        if response.status_code >= 400:
+            status = "unhealthy"
+            error_code = f"http_{response.status_code}"
+    except (httpx.HTTPError, OSError):
+        status = "unhealthy"
+        error_code = "connection_failed"
+    checked_at = time.time()
+    value = db.set_provider_health(
+        user.id, pid, status=status, checked_at=checked_at,
+        latency_ms=round((time.perf_counter() - started) * 1000),
+        error_code=error_code, endpoint_hash=model_governance.endpoint_hash(base),
+    )
+    return {
+        "provider_id": pid, "status": value["status"],
+        "checked_at": value["checked_at"], "latency_ms": value["latency_ms"],
+        "error_code": value["error_code"],
+    }
 
 
 @router.post("/providers/{pid}/models/fetch")
@@ -260,6 +345,10 @@ async def fetch_provider_models(pid: str) -> dict:
     if not key:
         raise HTTPException(400, "请先为该厂商填写 API Key")
     base, _ = _effective_base_path(user.id, prov)
+    try:
+        base = model_governance.validate_endpoint_url(base)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     url = f"{base.rstrip('/')}/models"
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
@@ -372,11 +461,15 @@ def create_custom(body: CustomModelIn) -> dict:
     user = current_user()
     if db.get_custom_model_by_name(user.id, body.name.strip()):
         raise HTTPException(409, "已有同名自定义模型")
+    try:
+        api_base = model_governance.validate_endpoint_url(body.api_base) if (body.api_base or "").strip() else None
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     row = db.create_custom_model(
         user.id,
         name=body.name.strip(),
         model_id=body.model_id.strip(),
-        api_base=(body.api_base or "").strip() or None,
+        api_base=api_base,
         api_key=(body.api_key or "").strip() or None,
         icon=body.icon,
         color=body.color,
@@ -398,7 +491,13 @@ def update_custom(model_id: str, body: CustomModelPatch) -> dict:
         if v is not None:
             fields[k] = v.strip() if k in ("name", "model_id", "api_base") else v
     if "api_base" in fields:
-        fields["api_base"] = fields["api_base"] or None
+        try:
+            fields["api_base"] = (
+                model_governance.validate_endpoint_url(fields["api_base"])
+                if fields["api_base"] else None
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
     if body.api_key is not None:
         fields["api_key"] = body.api_key.strip()
     row = db.update_custom_model(model_id, user.id, **fields)

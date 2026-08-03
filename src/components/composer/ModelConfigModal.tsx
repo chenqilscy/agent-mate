@@ -1,7 +1,7 @@
 import { WbButton, WbInput } from '../ui/Primitives'
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
-import type { ModelGovernance, ModelMeta, ModelOption, Provider } from '../../lib/types'
+import type { ModelGovernance, ModelMeta, ModelOption, ModelPolicy, Provider } from '../../lib/types'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { toast } from '../../stores/toastStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
@@ -14,6 +14,11 @@ import { IconPicker } from '../ui/IconPicker'
 // 套 .np-* / mc- 类，token 化天然暗色。
 
 const BLANK = { name: '', model_id: '', api_base: '', api_key: '', icon: '🧩', mult: '' }
+const EMPTY_POLICY = {
+  allowlist: '', fallback: '', dailySoftTokens: '', dailyHardTokens: '',
+  monthlySoftTokens: '', monthlyHardTokens: '', dailySoftCost: '', dailyHardCost: '',
+  monthlySoftCost: '', monthlyHardCost: '', currency: 'USD', healthTtl: '900', credentialMaxAge: '90',
+}
 
 // 能力词表（WB-132），与后端 CAPABILITIES 对齐。
 const CAPS: { k: string; label: string; icon: string }[] = [
@@ -37,6 +42,7 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
   const [defaultRef, setDefaultRef] = useState('')
   const [governance, setGovernance] = useState<ModelGovernance | null>(null)
   const [budgetDraft, setBudgetDraft] = useState('')
+  const [policyDraft, setPolicyDraft] = useState({ ...EMPTY_POLICY })
   const [expanded, setExpanded] = useState<string | null>(null)
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({})
   const [modelDraft, setModelDraft] = useState<Record<string, string>>({})
@@ -59,6 +65,15 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
       setDefaultRef(r.default_model)
       setGovernance(g)
       setBudgetDraft(String(g.policy.default_run_token_budget || ''))
+      setPolicyDraft({
+        allowlist: g.policy.allowlist.join(', '), fallback: g.policy.fallback_chain.join(', '),
+        dailySoftTokens: String(g.policy.daily_soft_tokens || ''), dailyHardTokens: String(g.policy.daily_hard_tokens || ''),
+        monthlySoftTokens: String(g.policy.monthly_soft_tokens || ''), monthlyHardTokens: String(g.policy.monthly_hard_tokens || ''),
+        dailySoftCost: String(g.policy.daily_soft_cost || ''), dailyHardCost: String(g.policy.daily_hard_cost || ''),
+        monthlySoftCost: String(g.policy.monthly_soft_cost || ''), monthlyHardCost: String(g.policy.monthly_hard_cost || ''),
+        currency: g.policy.currency || 'USD', healthTtl: String(g.policy.provider_health_ttl_seconds || 900),
+        credentialMaxAge: String(g.policy.credential_max_age_days ?? 90),
+      })
     } catch {
       toast('加载模型列表失败')
     }
@@ -74,12 +89,30 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
       toast('请输入 0–10000000 的整数 token 预算')
       return
     }
+    const integer = (value: string) => Number.parseInt(value.trim() || '0', 10)
+    const decimal = (value: string) => Number.parseFloat(value.trim() || '0')
+    const splitRefs = (value: string) => [...new Set(value.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean))]
+    const policy: ModelPolicy & { default_run_token_budget: number } = {
+      default_run_token_budget: parsed,
+      allowlist: splitRefs(policyDraft.allowlist), fallback_chain: splitRefs(policyDraft.fallback),
+      daily_soft_tokens: integer(policyDraft.dailySoftTokens), daily_hard_tokens: integer(policyDraft.dailyHardTokens),
+      monthly_soft_tokens: integer(policyDraft.monthlySoftTokens), monthly_hard_tokens: integer(policyDraft.monthlyHardTokens),
+      daily_soft_cost: decimal(policyDraft.dailySoftCost), daily_hard_cost: decimal(policyDraft.dailyHardCost),
+      monthly_soft_cost: decimal(policyDraft.monthlySoftCost), monthly_hard_cost: decimal(policyDraft.monthlyHardCost),
+      currency: policyDraft.currency.trim().toUpperCase() || 'USD',
+      provider_health_ttl_seconds: integer(policyDraft.healthTtl) || 900,
+      credential_max_age_days: integer(policyDraft.credentialMaxAge),
+    }
+    if (Object.entries(policy).some(([key, value]) => key !== 'currency' && key !== 'allowlist' && key !== 'fallback_chain' && (!Number.isFinite(value as number) || (value as number) < 0))) {
+      toast('预算与健康 TTL 必须是非负数字')
+      return
+    }
     setBusy(true)
     try {
-      const g = await api.setModelGovernance(parsed)
+      const g = await api.setModelGovernance(policy)
       setGovernance(g)
       setBudgetDraft(String(g.policy.default_run_token_budget || ''))
-      toast(parsed ? '已保存默认单次预算' : '已关闭默认单次预算')
+      toast('已保存模型治理策略')
     } catch { toast('保存失败') } finally { setBusy(false) }
   }
 
@@ -208,6 +241,15 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
       else toast(r.error || '拉取失败')
     } catch { toast('拉取失败') } finally { setBusy(false) }
   }
+  const checkHealth = async (p: Provider) => {
+    if (busy || !p.has_key) return
+    setBusy(true)
+    try {
+      const result = await api.checkProviderHealth(p.id)
+      toast(result.status === 'healthy' ? `连接健康 · ${result.latency_ms}ms` : `连接异常 · ${result.error_code}`)
+      await refresh()
+    } catch { toast('健康检查失败') } finally { setBusy(false) }
+  }
   const addFetched = async (p: Provider, mid: string) => {
     if (busy) return
     setBusy(true)
@@ -311,8 +353,42 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
                 <span className="mc-sub">仅在调用方未指定预算时生效；自动化、编排等显式预算优先。填 0 或留空表示不限制。</span>
               </div>
               <WbInput className="np-input" inputMode="numeric" aria-label="默认单次 token 预算" placeholder="0 = 不限制" value={budgetDraft} onChange={(e) => setBudgetDraft(e.target.value)} />
-              <WbButton className="btn-dark" disabled={busy} onClick={saveGovernance}>保存预算</WbButton>
+              <WbButton className="btn-dark" disabled={busy} onClick={saveGovernance}>保存策略</WbButton>
             </div>
+            <div className="mc-budgetrow">
+              <div className="mc-info">
+                <span className="mc-name">允许模型与故障转移</span>
+                <span className="mc-sub">模型 ref 用逗号分隔（如 @deepseek:deepseek-chat）；允许列表留空表示不限制，fallback 按顺序尝试最近健康的已配置模型。</span>
+              </div>
+              <WbInput className="np-input" aria-label="模型允许列表" placeholder="允许列表（留空=全部）" value={policyDraft.allowlist} onChange={(e) => setPolicyDraft((d) => ({ ...d, allowlist: e.target.value }))} />
+              <WbInput className="np-input" aria-label="模型故障转移链" placeholder="fallback 顺序" value={policyDraft.fallback} onChange={(e) => setPolicyDraft((d) => ({ ...d, fallback: e.target.value }))} />
+            </div>
+            <div className="mc-budgetrow">
+              <div className="mc-info">
+                <span className="mc-name">日 / 月 token 软硬预算</span>
+                <span className="mc-sub">软预算只提示；硬预算在调用前拒绝，并把剩余额度收紧为本次 Run 上限。0 表示不限制。</span>
+              </div>
+              <WbInput className="np-input" inputMode="numeric" aria-label="每日 token 软预算" placeholder="日软" value={policyDraft.dailySoftTokens} onChange={(e) => setPolicyDraft((d) => ({ ...d, dailySoftTokens: e.target.value }))} />
+              <WbInput className="np-input" inputMode="numeric" aria-label="每日 token 硬预算" placeholder="日硬" value={policyDraft.dailyHardTokens} onChange={(e) => setPolicyDraft((d) => ({ ...d, dailyHardTokens: e.target.value }))} />
+              <WbInput className="np-input" inputMode="numeric" aria-label="每月 token 软预算" placeholder="月软" value={policyDraft.monthlySoftTokens} onChange={(e) => setPolicyDraft((d) => ({ ...d, monthlySoftTokens: e.target.value }))} />
+              <WbInput className="np-input" inputMode="numeric" aria-label="每月 token 硬预算" placeholder="月硬" value={policyDraft.monthlyHardTokens} onChange={(e) => setPolicyDraft((d) => ({ ...d, monthlyHardTokens: e.target.value }))} />
+            </div>
+            <div className="mc-budgetrow">
+              <div className="mc-info">
+                <span className="mc-name">日 / 月成本软硬预算</span>
+                <span className="mc-sub">按 Run 价格快照估算，不做汇率换算；仅统计所填币种。</span>
+              </div>
+              <WbInput className="np-input" inputMode="decimal" aria-label="每日成本软预算" placeholder="日软" value={policyDraft.dailySoftCost} onChange={(e) => setPolicyDraft((d) => ({ ...d, dailySoftCost: e.target.value }))} />
+              <WbInput className="np-input" inputMode="decimal" aria-label="每日成本硬预算" placeholder="日硬" value={policyDraft.dailyHardCost} onChange={(e) => setPolicyDraft((d) => ({ ...d, dailyHardCost: e.target.value }))} />
+              <WbInput className="np-input" inputMode="decimal" aria-label="每月成本软预算" placeholder="月软" value={policyDraft.monthlySoftCost} onChange={(e) => setPolicyDraft((d) => ({ ...d, monthlySoftCost: e.target.value }))} />
+              <WbInput className="np-input" inputMode="decimal" aria-label="每月成本硬预算" placeholder="月硬" value={policyDraft.monthlyHardCost} onChange={(e) => setPolicyDraft((d) => ({ ...d, monthlyHardCost: e.target.value }))} />
+              <WbInput className="np-input" aria-label="预算币种" placeholder="USD" value={policyDraft.currency} onChange={(e) => setPolicyDraft((d) => ({ ...d, currency: e.target.value }))} />
+              <WbInput className="np-input" inputMode="numeric" aria-label="健康状态有效秒数" placeholder="健康 TTL" value={policyDraft.healthTtl} onChange={(e) => setPolicyDraft((d) => ({ ...d, healthTtl: e.target.value }))} />
+              <WbInput className="np-input" inputMode="numeric" aria-label="凭据轮换提醒天数" placeholder="Key 轮换天数" value={policyDraft.credentialMaxAge} onChange={(e) => setPolicyDraft((d) => ({ ...d, credentialMaxAge: e.target.value }))} />
+            </div>
+            {governance?.organization_policy && (
+              <div className="mc-hint">当前项目继承组织策略 rev.{governance.organization_policy.revision}；运行时会取用户与组织策略中更严格的限制。</div>
+            )}
           </section>
           <div className="np-lbl">内置厂商<small className="mc-lblhint">填一次 API Key 即启用该厂商模型 · Key 只存本机后端</small></div>
           {providers.map((p) => {
@@ -323,7 +399,7 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
                   <span className="mc-ic" style={p.color ? { background: p.color, color: '#fff' } : undefined}>{p.icon}</span>
                   <span className="mc-info">
                     <span className="mc-name">{p.name}</span>
-                    <span className="mc-sub">{p.has_key ? `已启用 · ${p.models.filter((m) => !m.hidden).length} 个模型` : '未配置 Key'}</span>
+                    <span className="mc-sub">{p.has_key ? `已启用 · ${p.models.filter((m) => !m.hidden).length} 个模型${p.credential_updated_at ? ` · Key 更新于 ${new Date(p.credential_updated_at * 1000).toLocaleDateString()}` : ''}${p.credential_rotation_due ? ' · 建议轮换' : ''}` : '未配置 Key'}</span>
                   </span>
                   {p.has_key && <span className="mc-badge on">已启用</span>}
                   <span className="mc-caret">{open ? '▾' : '▸'}</span>
@@ -349,6 +425,8 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
                     </div>
                     <div className="mc-modhd">
                       <span>模型</span>
+                      {p.has_key && <span className={`mc-badge ${p.health?.status === 'healthy' ? 'on' : ''}`.trim()}>{p.health ? (p.health.status === 'healthy' ? `健康 ${p.health.latency_ms}ms` : `异常 ${p.health.error_code}`) : '未检查'}</span>}
+                      <WbButton className="mc-act" disabled={!p.has_key || busy} onClick={() => checkHealth(p)}>健康检查</WbButton>
                       <WbButton className="mc-act" disabled={!p.has_key || busy} onClick={() => fetchModels(p)} title={!p.has_key ? '先填 API Key' : '从厂商在线列举真实模型'}>↻ 拉取最新</WbButton>
                     </div>
                     <div className="mc-modlist">

@@ -130,3 +130,14 @@ def migrate_run_plan_version(conn: sqlite3.Connection) -> None:
             "UPDATE runs SET plan=?,plan_version=? WHERE id=?",
             (json.dumps(upgraded, ensure_ascii=False), max(1, int(version or 0)), run_id),
         )
+
+
+def migrate_project_org_scope(conn: sqlite3.Connection) -> None:
+    """Mirror Server organization scope for inherited model policy (WB-386)."""
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='projects'"
+    ).fetchone():
+        return
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
+    if "org_id" not in columns:
+        conn.execute("ALTER TABLE projects ADD COLUMN org_id TEXT")

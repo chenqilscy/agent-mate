@@ -148,6 +148,9 @@ class Project:
     updated_at: float
     # 'local' = 本机创建；'server' = 从 Server 下行拉取的只读镜像（WB-062 Phase 2）。
     origin: str = "local"
+    # Server organization scope for inherited non-secret model policy. Local
+    # projects and personal projects keep this empty.
+    org_id: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

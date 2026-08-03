@@ -239,12 +239,22 @@ def resolve_model_config(
             cfg = db.get_provider_config(owner_id, pid) or {}
             base = cfg.get("base_url") or prov["base_url"]
             path = cfg.get("chat_path") or prov.get("chat_path") or default_path
+            try:
+                base = model_governance.validate_endpoint_url(base)
+            except ValueError as exc:
+                raise LLMError(str(exc)) from exc
             return mid, base, key, path
         # provider unknown / model empty / no key → 落到下方诚实报错
     else:
         row = db.get_custom_model_by_name(owner_id, client_model, include_secrets=True)
         if row and row.get("model_id"):
-            return row["model_id"], row.get("api_base"), row.get("api_key"), default_path
+            base = row.get("api_base")
+            if base:
+                try:
+                    base = model_governance.validate_endpoint_url(base)
+                except ValueError as exc:
+                    raise LLMError(str(exc)) from exc
+            return row["model_id"], base, row.get("api_key"), default_path
         real = parse_legacy_model_id(client_model)
         if real:
             return real, None, None, default_path
@@ -734,12 +744,22 @@ async def _run_chat_inner(
         workspace_key = str(current_root().resolve().relative_to(settings.WORKSPACE_ROOT.resolve())).replace("\\", "/")
     except ValueError:
         workspace_key = "default"
+    governance_decision = model_governance.policy_decision(
+        user.id, model, project_id=session.project_id,
+    )
+    selected_model_ref = str(governance_decision.get("selected_model_ref") or model or "")
     effective_token_budget = max(0, int(max_total_tokens or 0))
     budget_source = "explicit" if effective_token_budget else "account_default"
     if not effective_token_budget:
         effective_token_budget = db.get_model_default_run_token_budget(user.id)
         if not effective_token_budget:
             budget_source = "disabled"
+    hard_remaining_tokens = max(0, int(governance_decision.get("hard_remaining_tokens") or 0))
+    if hard_remaining_tokens and (
+        not effective_token_budget or hard_remaining_tokens < effective_token_budget
+    ):
+        effective_token_budget = hard_remaining_tokens
+        budget_source = "model_policy_hard_remaining"
     run, created = db.create_run(
         session_id=session_id, owner_id=user.id, project_id=session.project_id,
         work_item_id=work_item_id, mode="ask" if ask else ("plan" if plan else "exec"),
@@ -756,6 +776,7 @@ async def _run_chat_inner(
             "connectors": active_connectors, "knowledge_ids": active_knowledge,
             "token_budget": effective_token_budget,
             "token_budget_source": budget_source,
+            "model_governance": governance_decision,
             "execution_source": execution_source,
             "preauthorized_permissions": sorted(set(preauthorized_permissions or [])),
         },
@@ -844,15 +865,33 @@ async def _run_chat_inner(
         yield events.run(run.to_dict())
         yield events.status("running")
 
+        policy_notes = list(governance_decision.get("warnings") or [])
+        if governance_decision.get("fallback_from"):
+            policy_notes.insert(
+                0,
+                f"Provider 健康门禁：{governance_decision['fallback_from']} → {selected_model_ref}",
+            )
+        if policy_notes:
+            yield record({
+                "kind": "step", "tool": "model_governance",
+                "label": "；".join(str(note) for note in policy_notes)[:500],
+            })
+
         # Resolve once and compact before connectors/tools are opened. A summary call
         # uses the same real configured LLM; failure falls back to a bounded recent
         # window and never blocks the actual run for more than the configured timeout.
-        model_id, model_base, model_key, model_path = resolve_model_config(user.id, model)
+        if not governance_decision.get("allowed", True):
+            raise LLMError(str(governance_decision.get("error") or "模型策略拒绝本次运行"))
+        model_id, model_base, model_key, model_path = resolve_model_config(
+            user.id, selected_model_ref,
+        )
         run = db.set_run_model_snapshot(
             run_id,
-            model_ref=model_governance.effective_model_ref(user.id, model),
+            model_ref=selected_model_ref,
             model_id=model_id,
-            snapshot=model_governance.build_run_snapshot(user.id, model, model_id),
+            snapshot=model_governance.build_run_snapshot(
+                user.id, selected_model_ref, model_id, governance=governance_decision,
+            ),
         )
         context_window = max(
             1024,

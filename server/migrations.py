@@ -228,6 +228,7 @@ def assert_server_schema(conn: sqlite3.Connection) -> None:
         "projects": {"archived_at"},
         "project_members": {"updated_at"},
         "relay_events": {"payload_tombstoned_at"},
+        "org_model_policies": {"policy", "revision", "updated_by", "updated_at"},
         "tool_catalog": {
             "implementation_type", "parameters", "scripts", "timeout_seconds", "output_limit",
         },

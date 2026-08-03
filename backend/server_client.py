@@ -288,6 +288,13 @@ def list_projects(token: str) -> Optional[list[dict[str, Any]]]:
     return projs if isinstance(projs, list) else None
 
 
+def list_org_model_policies(token: str) -> Optional[list[dict[str, Any]]]:
+    """Pull only non-secret organization model policy metadata."""
+    data = _get("/api/orgs/model-policies", token)
+    policies = data.get("policies") if isinstance(data, dict) else None
+    return policies if isinstance(policies, list) else None
+
+
 def list_project_members(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
     d = _get(f"/api/projects/{project_id}/members", token)
     mem = d.get("members") if isinstance(d, dict) else None

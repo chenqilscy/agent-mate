@@ -31,6 +31,7 @@ from storage.migrations import (
     Migration,
     migrate_message_run_link,
     migrate_model_and_run_audit,
+    migrate_project_org_scope,
     migrate_run_plan_version,
     run_migrations,
 )
@@ -271,7 +272,8 @@ def init_db() -> None:
             updated_at REAL NOT NULL,
             origin TEXT NOT NULL DEFAULT 'local',
             server_updated_at REAL NOT NULL DEFAULT 0,
-            server_dirty INTEGER NOT NULL DEFAULT 0
+            server_dirty INTEGER NOT NULL DEFAULT 0,
+            org_id TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_projects_owner
             ON projects(owner_id, updated_at DESC);
@@ -867,6 +869,25 @@ def init_db() -> None:
             PRIMARY KEY (owner_id, key)
         );
 
+        -- Non-secret model governance state. Provider credentials remain in
+        -- provider_keys and are never copied to either of these tables.
+        CREATE TABLE IF NOT EXISTS model_provider_health (
+            owner_id TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            checked_at REAL NOT NULL,
+            latency_ms INTEGER NOT NULL DEFAULT 0,
+            error_code TEXT NOT NULL DEFAULT '',
+            endpoint_hash TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (owner_id, provider_id)
+        );
+        CREATE TABLE IF NOT EXISTS server_org_model_policies (
+            org_id TEXT PRIMARY KEY,
+            policy TEXT NOT NULL DEFAULT '{}',
+            revision INTEGER NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL DEFAULT 0
+        );
+
         -- WB-291：整台本机 App 生效的运行配置，与按 owner 的偏好分开。
         CREATE TABLE IF NOT EXISTS device_settings (
             key TEXT PRIMARY KEY,
@@ -1238,7 +1259,7 @@ def _assert_app_schema(conn: sqlite3.Connection) -> None:
         "users": {"password_hash"},
         "auth_tokens": {"expires_at", "validated_at"},
         "sessions": {"automation_id", "summary", "summary_cursor", "summary_updated_at"},
-        "projects": {"origin", "knowledge_ids", "server_updated_at", "server_dirty"},
+        "projects": {"origin", "knowledge_ids", "server_updated_at", "server_dirty", "org_id"},
         "automations": {
             "timeout_sec", "max_attempts", "retry_backoff_sec", "max_total_tokens",
             "notify_policy", "concurrency_policy", "preauthorized_permissions",
@@ -1264,6 +1285,7 @@ def _migrate_columns() -> None:
         Migration(3, "message-run-link", migrate_message_run_link),
         Migration(4, "legacy-schema-completion", _migrate_legacy_schema),
         Migration(5, "durable-run-plan-version", migrate_run_plan_version),
+        Migration(6, "project-org-model-policy-scope", migrate_project_org_scope),
     ))
     _assert_app_schema(conn)
 
@@ -1674,6 +1696,7 @@ def list_server_timeline(project_id: str, limit: int = 100) -> list[dict]:
 
 def mirror_server_project(
     *, id: str, name: str, owner_id: str, instruction: str = "",
+    org_id: Optional[str] = None,
     connectors: Optional[list] = None, experts: Optional[list] = None, skills: Optional[list] = None,
     knowledge_ids: Optional[list] = None,
     created_at: Optional[float] = None, updated_at: Optional[float] = None,
@@ -1688,6 +1711,7 @@ def mirror_server_project(
     remote_ts = float(updated_at or time.time())
     remote = {
         "name": name[:120], "owner_id": owner_id, "instruction": instruction,
+        "org_id": (org_id or "").strip() or None,
         "connectors": list(connectors or []), "experts": list(experts or []),
         "skills": list(skills or []), "knowledge_ids": list(dict.fromkeys(knowledge_ids or []))[:20],
     }
@@ -1695,14 +1719,14 @@ def mirror_server_project(
     if row is None:
         conn.execute(
             """INSERT INTO projects
-               (id,name,owner_id,instruction,connectors,experts,skills,knowledge_ids,created_at,updated_at,origin,server_updated_at,server_dirty)
-               VALUES (?,?,?,?,?,?,?,?,?,?,'server',?,0)""",
+               (id,name,owner_id,instruction,connectors,experts,skills,knowledge_ids,created_at,updated_at,origin,server_updated_at,server_dirty,org_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,'server',?,0,?)""",
             (id, remote["name"], owner_id, instruction,
              json.dumps(remote["connectors"], ensure_ascii=False),
              json.dumps(remote["experts"], ensure_ascii=False),
              json.dumps(remote["skills"], ensure_ascii=False),
              json.dumps(remote["knowledge_ids"], ensure_ascii=False),
-             float(created_at or remote_ts), remote_ts, remote_ts),
+             float(created_at or remote_ts), remote_ts, remote_ts, remote["org_id"]),
         )
         _clear_server_conflict("project", id, commit=False)
         conn.commit()
@@ -1712,7 +1736,7 @@ def mirror_server_project(
         "connectors": _json_list(row["connectors"]), "experts": _json_list(row["experts"]),
         "skills": _json_list(row["skills"]),
     }
-    remote_compare = {k: v for k, v in remote.items() if k != "knowledge_ids"}
+    remote_compare = {k: v for k, v in remote.items() if k not in {"knowledge_ids", "org_id"}}
     if row["origin"] != "server":
         _record_server_conflict("project", id, id, "id_collision", row["updated_at"], remote_ts, local, remote, commit=False)
         conn.commit()
@@ -1725,15 +1749,15 @@ def mirror_server_project(
         reason = "concurrent_update" if remote_ts > baseline else "local_ahead"
         # owner_id 是权限边界，始终服从 Server；其余协作字段保留本地待人工处理。
         conn.execute(
-            "UPDATE projects SET owner_id=?,knowledge_ids=?,server_updated_at=?,server_dirty=1 WHERE id=?",
-            (owner_id, json.dumps(remote["knowledge_ids"], ensure_ascii=False), remote_ts, id),
+            "UPDATE projects SET owner_id=?,org_id=?,knowledge_ids=?,server_updated_at=?,server_dirty=1 WHERE id=?",
+            (owner_id, remote["org_id"], json.dumps(remote["knowledge_ids"], ensure_ascii=False), remote_ts, id),
         )
         _record_server_conflict("project", id, id, reason, row["updated_at"], remote_ts, local, remote_compare, commit=False)
     else:
         conn.execute(
-            """UPDATE projects SET name=?,owner_id=?,instruction=?,connectors=?,experts=?,skills=?,knowledge_ids=?,
+            """UPDATE projects SET name=?,owner_id=?,org_id=?,instruction=?,connectors=?,experts=?,skills=?,knowledge_ids=?,
                updated_at=?,origin='server',server_updated_at=?,server_dirty=0 WHERE id=?""",
-            (remote["name"], owner_id, instruction,
+            (remote["name"], owner_id, remote["org_id"], instruction,
              json.dumps(remote["connectors"], ensure_ascii=False),
              json.dumps(remote["experts"], ensure_ascii=False),
              json.dumps(remote["skills"], ensure_ascii=False),
@@ -3044,6 +3068,7 @@ def _row_to_project(row: sqlite3.Row) -> Project:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         origin=row["origin"] if "origin" in row.keys() else "local",
+        org_id=row["org_id"] if "org_id" in row.keys() else None,
     )
 
 
@@ -5363,6 +5388,7 @@ def list_active_work_item_launches() -> list[dict]:
 
 _DEFAULT_MODEL_KEY = "default_model"
 _MODEL_RUN_BUDGET_KEY = "model_default_run_token_budget"
+_MODEL_POLICY_KEY = "model_governance_policy_v2"
 
 
 # ---- 安全审计日志（WB-152）----------------------------------------------
@@ -5736,6 +5762,120 @@ def set_model_default_run_token_budget(owner_id: str, value: int) -> int:
     budget = max(0, min(int(value), 10_000_000))
     set_user_setting(owner_id, _MODEL_RUN_BUDGET_KEY, str(budget) if budget else None)
     return budget
+
+
+def get_user_model_policy(owner_id: str) -> dict[str, Any]:
+    raw = get_user_setting(owner_id, _MODEL_POLICY_KEY)
+    try:
+        value = json.loads(raw) if raw else {}
+    except (json.JSONDecodeError, TypeError):
+        value = {}
+    return value if isinstance(value, dict) else {}
+
+
+def set_user_model_policy(owner_id: str, policy: dict[str, Any]) -> None:
+    set_user_setting(
+        owner_id, _MODEL_POLICY_KEY,
+        json.dumps(policy, ensure_ascii=False, separators=(",", ":")) if policy else None,
+    )
+
+
+def get_provider_key_metadata(owner_id: str, provider_id: str) -> Optional[dict[str, Any]]:
+    row = get_conn().execute(
+        "SELECT updated_at FROM provider_keys WHERE owner_id=? AND provider_id=?",
+        (owner_id, provider_id),
+    ).fetchone()
+    return {"updated_at": float(row["updated_at"])} if row else None
+
+
+def set_provider_health(
+    owner_id: str, provider_id: str, *, status: str, checked_at: float,
+    latency_ms: int = 0, error_code: str = "", endpoint_hash: str = "",
+) -> dict[str, Any]:
+    get_conn().execute(
+        """INSERT INTO model_provider_health
+           (owner_id,provider_id,status,checked_at,latency_ms,error_code,endpoint_hash)
+           VALUES (?,?,?,?,?,?,?)
+           ON CONFLICT(owner_id,provider_id) DO UPDATE SET
+             status=excluded.status,checked_at=excluded.checked_at,
+             latency_ms=excluded.latency_ms,error_code=excluded.error_code,
+             endpoint_hash=excluded.endpoint_hash""",
+        (owner_id, provider_id, status, checked_at, max(0, int(latency_ms)),
+         (error_code or "")[:120], endpoint_hash[:64]),
+    )
+    get_conn().commit()
+    return get_provider_health(owner_id, provider_id) or {}
+
+
+def get_provider_health(owner_id: str, provider_id: str) -> Optional[dict[str, Any]]:
+    row = get_conn().execute(
+        """SELECT status,checked_at,latency_ms,error_code,endpoint_hash
+           FROM model_provider_health WHERE owner_id=? AND provider_id=?""",
+        (owner_id, provider_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_provider_health(owner_id: str) -> dict[str, dict[str, Any]]:
+    rows = get_conn().execute(
+        """SELECT provider_id,status,checked_at,latency_ms,error_code,endpoint_hash
+           FROM model_provider_health WHERE owner_id=?""",
+        (owner_id,),
+    ).fetchall()
+    return {str(row["provider_id"]): dict(row) for row in rows}
+
+
+def replace_server_org_model_policies(items: list[dict[str, Any]]) -> None:
+    conn = get_conn()
+    org_ids: list[str] = []
+    for item in items:
+        org_id = str(item.get("org_id") or "").strip()
+        policy = item.get("policy")
+        if not org_id or not isinstance(policy, dict):
+            continue
+        org_ids.append(org_id)
+        conn.execute(
+            """INSERT INTO server_org_model_policies(org_id,policy,revision,updated_at)
+               VALUES (?,?,?,?) ON CONFLICT(org_id) DO UPDATE SET
+                 policy=excluded.policy,revision=excluded.revision,updated_at=excluded.updated_at""",
+            (org_id, json.dumps(policy, ensure_ascii=False), int(item.get("revision") or 0),
+             float(item.get("updated_at") or 0)),
+        )
+    if org_ids:
+        placeholders = ",".join("?" for _ in org_ids)
+        conn.execute(
+            f"DELETE FROM server_org_model_policies WHERE org_id NOT IN ({placeholders})",
+            org_ids,
+        )
+    else:
+        conn.execute("DELETE FROM server_org_model_policies")
+    conn.commit()
+
+
+def get_server_org_model_policy(org_id: str | None) -> Optional[dict[str, Any]]:
+    if not org_id:
+        return None
+    row = get_conn().execute(
+        "SELECT policy,revision,updated_at FROM server_org_model_policies WHERE org_id=?",
+        (org_id,),
+    ).fetchone()
+    if not row:
+        return None
+    policy = _load_json(row["policy"], {})
+    return {
+        "org_id": org_id, "policy": policy if isinstance(policy, dict) else {},
+        "revision": int(row["revision"] or 0), "updated_at": float(row["updated_at"] or 0),
+    }
+
+
+def get_model_usage_since(owner_id: str, since: float, *, currency: str = "") -> dict[str, Any]:
+    totals = get_conn().execute(
+        """SELECT COALESCE(SUM(prompt_tokens+completion_tokens),0) AS tokens,
+                  COALESCE(SUM(CASE WHEN cost_currency=? THEN estimated_cost ELSE 0 END),0) AS cost
+           FROM runs WHERE owner_id=? AND created_at>=?""",
+        (currency, owner_id, float(since)),
+    ).fetchone()
+    return {"tokens": int(totals["tokens"] or 0), "cost": float(totals["cost"] or 0)}
 
 
 def get_model_governance_summary(owner_id: str, *, now: Optional[float] = None) -> dict[str, Any]:
