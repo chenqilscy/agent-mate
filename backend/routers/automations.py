@@ -13,7 +13,9 @@ import json
 import re
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from agent.execution_policy import PREAUTHORIZABLE_PERMISSIONS
 
 from agent import scheduler
 from project_health_service import ProjectHealthNotFound
@@ -44,6 +46,7 @@ class CreateAutomationBody(BaseModel):
     max_total_tokens: int = 0
     notify_policy: str = "failure,recovery"
     concurrency_policy: str = "skip"
+    preauthorized_permissions: list[str] = Field(default_factory=list)
 
 
 class UpdateAutomationBody(BaseModel):
@@ -61,6 +64,7 @@ class UpdateAutomationBody(BaseModel):
     max_total_tokens: int | None = None
     notify_policy: str | None = None
     concurrency_policy: str | None = None
+    preauthorized_permissions: list[str] | None = None
 
 
 class RunAutomationBody(BaseModel):
@@ -136,6 +140,10 @@ def _validate_governance(data: dict) -> None:
         values = {x.strip() for x in str(data["notify_policy"]).split(",") if x.strip()}
         if not values <= {"failure", "recovery", "success"}:
             raise HTTPException(400, "notify_policy contains an unsupported event")
+    if data.get("preauthorized_permissions") is not None:
+        requested = {str(item) for item in data["preauthorized_permissions"]}
+        if len(requested) > len(PREAUTHORIZABLE_PERMISSIONS) or not requested <= PREAUTHORIZABLE_PERMISSIONS:
+            raise HTTPException(400, "preauthorized_permissions contains an unsupported permission")
 
 
 @router.get("/automations")
@@ -164,6 +172,7 @@ def create_automation(body: CreateAutomationBody) -> dict:
         timeout_sec=body.timeout_sec, max_attempts=body.max_attempts,
         retry_backoff_sec=body.retry_backoff_sec, max_total_tokens=body.max_total_tokens,
         notify_policy=body.notify_policy, concurrency_policy=body.concurrency_policy,
+        preauthorized_permissions=sorted(set(body.preauthorized_permissions)),
     )
     return _view(a)
 

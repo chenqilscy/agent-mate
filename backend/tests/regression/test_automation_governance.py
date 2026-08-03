@@ -185,6 +185,34 @@ class AutomationGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("failed", db.get_run(run.id).status)
         self.assertEqual("scheduler_restarted", db.get_run(run.id).error_code)
 
+    async def test_automation_preauthorization_is_persisted_and_passed_to_runtime(self) -> None:
+        auto = self._automation(
+            trigger_kind="webhook",
+            preauthorized_permissions=["network.read", "workspace.write"],
+        )
+        loaded = db.get_automation(auto.id, auto.owner_id)
+        self.assertEqual(["network.read", "workspace.write"], loaded.preauthorized_permissions)
+        fire, _ = db.create_automation_fire(
+            automation_id=auto.id, owner_id=auto.owner_id, fire_key="webhook:authz",
+            trigger_kind="webhook", planned_at=0, max_attempts=1,
+        )
+        captured = {}
+
+        async def completed_stream(session, user, prompt, **kwargs):
+            captured.update(kwargs)
+            run, _ = db.create_run(
+                session_id=session.id, owner_id=user.id, project_id=None,
+                mode="exec", idempotency_key=kwargs["idempotency_key"],
+            )
+            db.set_run_status(run.id, "completed")
+            yield "event: done\ndata: {}\n\n"
+
+        with patch.object(scheduler.runtime, "run_chat", side_effect=completed_stream):
+            await scheduler._execute_fire(fire.id)
+
+        self.assertEqual("external", captured["execution_source"])
+        self.assertEqual(auto.preauthorized_permissions, captured["preauthorized_permissions"])
+
 
 if __name__ == "__main__":
     unittest.main()

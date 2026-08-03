@@ -38,6 +38,7 @@ from agent.skills import canonical_skill_keys, skill_display_name, skill_runtime
 from agent.tool_execution import (
     ToolExecutionCancelled, ToolExecutionTimeout, execute_async_call, execute_tool,
 )
+from agent.execution_policy import ExecutionAuthorization, ToolAuthorizationDenied
 from agent.tools import (
     ASK_USER_SCHEMA,
     base_tools,
@@ -339,6 +340,8 @@ async def run_chat(
     retry_of: str | None = None,
     max_total_tokens: int = 0,
     max_output_tokens: int = 0,
+    execution_source: str = "interactive",
+    preauthorized_permissions: list[str] | None = None,
 ) -> AsyncIterator[str]:
     """Trace one user turn, delegating the unchanged SSE loop to the inner runner."""
     # Server-authoritative mode contract (WB-272): old/direct clients may still
@@ -365,6 +368,8 @@ async def run_chat(
             idempotency_key=idempotency_key, retry_of=retry_of,
             max_total_tokens=max_total_tokens,
             max_output_tokens=max_output_tokens,
+            execution_source=execution_source,
+            preauthorized_permissions=preauthorized_permissions,
             chat_trace=chat_trace,
         ):
             yield chunk
@@ -402,6 +407,8 @@ async def _run_chat_inner(
     retry_of: str | None = None,
     max_total_tokens: int = 0,
     max_output_tokens: int = 0,
+    execution_source: str = "interactive",
+    preauthorized_permissions: list[str] | None = None,
     chat_trace: telemetry.Observation,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
@@ -708,9 +715,16 @@ async def _run_chat_inner(
             "connectors": active_connectors, "knowledge_ids": active_knowledge,
             "token_budget": effective_token_budget,
             "token_budget_source": budget_source,
+            "execution_source": execution_source,
+            "preauthorized_permissions": sorted(set(preauthorized_permissions or [])),
         },
     )
     run_id = run.id
+    authorization = ExecutionAuthorization(
+        owner_id=user.id,
+        source=execution_source if execution_source in {"interactive", "background", "external"} else "interactive",
+        preauthorized_permissions=frozenset(preauthorized_permissions or []),
+    )
     from agent import skill_usage
     skill_usage.set_context(user.id, run_id)
     skill_usage.record_many(
@@ -839,9 +853,16 @@ async def _run_chat_inner(
         # 现在统一按 Tool.plan_safe 过滤（默认 False = 保守，新工具不标注就进不了 plan）。
         mcp_tools = []
         mcp_skipped = connector_mode_skips(active_connectors, plan=plan, ask=ask)
-        if active_connectors and not plan and not ask:
+        mcp_permissions = ("connector.call", "external.dynamic")
+        connector_authorized = authorization.tool_available(mcp_permissions)
+        if active_connectors and not plan and not ask and connector_authorized:
             mcp_tools, mcp_stack, mcp_skipped = await open_connectors(
                 active_connectors, env={"AGENTMATE_NOTES_DIR": str(current_root())}
+            )
+        elif active_connectors and not plan and not ask and not connector_authorized:
+            mcp_skipped.extend(
+                {"name": name, "reason": "后台运行未预授权外部连接器"}
+                for name in active_connectors
             )
         mcp_by_name = {t.qualified: t for t in mcp_tools}
         active_tools: dict[str, Tool] = {}
@@ -858,7 +879,10 @@ async def _run_chat_inner(
                 + plan_filter(kb_tools, plan)
             )
             active_tools.clear()
-            active_tools.update({tool.name: tool for tool in tools_list})
+            active_tools.update({
+                tool.name: tool for tool in tools_list
+                if authorization.tool_available(tool.permissions)
+            })
             schemas = (
                 # 从 active_tools（已按名去重）生成，而非 tools_list，避免同名 schema。
                 [tool.schema() for tool in active_tools.values()]
@@ -1230,8 +1254,22 @@ async def _run_chat_inner(
                         metadata={"connector": mt.connector, "qualified_name": name},
                     ) as tool_trace:
                         try:
-                            result = await execute_async_call(call_mcp(mt, args), stop, 60)
+                            decision = authorization.decision(name, args, mcp_permissions)
+                            if decision == "confirm":
+                                # Connector calls are not currently in the interactive
+                                # confirmation set, but keep the boundary complete for
+                                # future permission classifications.
+                                raise ToolAuthorizationDenied(f"confirmation required: {name}")
+                            result = await execute_async_call(
+                                call_mcp(mt, args), stop, 60,
+                                authorization=authorization, tool_name=name, args=args,
+                                permissions=mcp_permissions,
+                            )
                             tool_trace.update(output=result)
+                        except ToolAuthorizationDenied:
+                            result = "连接器调用被运行权限策略拒绝。"
+                            yield record({"kind": "step", "tool": name, "label": result, "status": "blocked"})
+                            tool_trace.update(output={"status": "blocked"})
                         except ToolExecutionCancelled:
                             stopped = True
                             result = "连接器调用已取消。"
@@ -1256,6 +1294,37 @@ async def _run_chat_inner(
                         yield record(pre)
                 tool_call_count += 1
                 tool_completed = False
+                decision = authorization.decision(name, args, tool.permissions)
+                if decision == "confirm":
+                    questions = [{
+                        "q": f"工具「{name}」请求高风险权限：{', '.join(tool.permissions)}。是否仅允许本次调用？",
+                        "options": ["允许一次", "拒绝"],
+                    }]
+                    ev = asyncio.Event()
+                    _answers[run_id] = {"ev": ev, "answers": None}
+                    yield events.ask_user(questions)
+                    db.touch_session(session_id, status="waiting")
+                    db.set_run_status(run_id, "waiting_approval")
+                    await ev.wait()
+                    pending = _answers.pop(run_id, None)
+                    answers = (pending or {}).get("answers") or []
+                    db.touch_session(session_id, status="running")
+                    if not stop.is_set() and answers and answers[0] == "允许一次":
+                        authorization.approve_once(name, args)
+                        db.set_run_status(run_id, "running")
+                    else:
+                        outcome = ToolOutcome(text=f"工具 {name} 未获本次授权。")
+                        yield record({"kind": "step", "tool": name, "label": outcome.text, "status": "blocked"})
+                        llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": outcome.text})
+                        if stop.is_set():
+                            stopped = True
+                            break
+                        continue
+                elif decision == "deny":
+                    outcome = ToolOutcome(text=f"工具 {name} 未获后台预授权。")
+                    yield record({"kind": "step", "tool": name, "label": outcome.text, "status": "blocked"})
+                    llm_messages.append({"role": "tool", "tool_call_id": call["id"], "content": outcome.text})
+                    continue
                 # Run the (synchronous) tool off the event loop so a long
                 # subprocess / web_fetch / file IO can't freeze every other SSE
                 # stream or block /stop for its whole timeout (WB-002). to_thread
@@ -1271,7 +1340,7 @@ async def _run_chat_inner(
                         outcome = (
                             run_tool(tool, args)
                             if name in {"skills_list", "skill_view"}
-                            else await execute_tool(tool, args, stop)
+                            else await execute_tool(tool, args, stop, authorization=authorization)
                         )
                         tool_completed = True
                         tool_trace.update(output=outcome.text)
@@ -1284,6 +1353,10 @@ async def _run_chat_inner(
                         outcome = ToolOutcome(text=f"工具 {name} 执行超时（{tool.timeout_seconds:g}s）。")
                         yield record({"kind": "step", "tool": name, "label": outcome.text, "status": "timeout"})
                         tool_trace.update(output={"status": "timeout"})
+                    except ToolAuthorizationDenied:
+                        outcome = ToolOutcome(text=f"工具 {name} 被运行权限策略拒绝。")
+                        yield record({"kind": "step", "tool": name, "label": outcome.text, "status": "blocked"})
+                        tool_trace.update(output={"status": "blocked"})
                 if name == "skill_view" and tool_completed and not stopped:
                     outcome, definition = validate_viewed_skill(outcome)
                     if definition:

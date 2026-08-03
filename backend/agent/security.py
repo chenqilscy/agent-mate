@@ -63,10 +63,11 @@ def check_command(command: str, owner_id: str | None = None) -> tuple[bool, str]
 
 # ---- 审计 ---------------------------------------------------------------
 
-def audit(owner_id: str | None, tool: str, detail: str, action: str = "executed") -> None:
+def audit(owner_id: str | None, tool: str, detail: str, action: str = "executed") -> bool:
     if not owner_id:
-        return
+        return False
     try:
         db.add_audit(owner_id, tool, detail, action)
-    except Exception:  # noqa: BLE001 — 审计失败绝不影响工具执行
-        pass
+        return True
+    except Exception:  # noqa: BLE001 — caller decides whether this is fail-closed
+        return False

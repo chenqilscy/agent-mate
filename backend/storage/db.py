@@ -445,6 +445,7 @@ def init_db() -> None:
             max_total_tokens INTEGER NOT NULL DEFAULT 0,
             notify_policy TEXT NOT NULL DEFAULT 'failure,recovery',
             concurrency_policy TEXT NOT NULL DEFAULT 'skip',
+            preauthorized_permissions TEXT NOT NULL DEFAULT '[]',
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL,
             next_run_at REAL NOT NULL,
@@ -1218,6 +1219,7 @@ def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
         ("max_total_tokens", "max_total_tokens INTEGER NOT NULL DEFAULT 0"),
         ("notify_policy", "notify_policy TEXT NOT NULL DEFAULT 'failure,recovery'"),
         ("concurrency_policy", "concurrency_policy TEXT NOT NULL DEFAULT 'skip'"),
+        ("preauthorized_permissions", "preauthorized_permissions TEXT NOT NULL DEFAULT '[]'"),
     ):
         if col not in have_a:
             conn.execute(f"ALTER TABLE automations ADD COLUMN {ddl}")
@@ -1231,7 +1233,7 @@ def _assert_app_schema(conn: sqlite3.Connection) -> None:
         "projects": {"origin", "knowledge_ids", "server_updated_at", "server_dirty"},
         "automations": {
             "timeout_sec", "max_attempts", "retry_backoff_sec", "max_total_tokens",
-            "notify_policy", "concurrency_policy",
+            "notify_policy", "concurrency_policy", "preauthorized_permissions",
         },
         "automation_fires": {"input_payload"},
         "user_memories": {"importance", "status", "scope", "project_id"},
@@ -6109,6 +6111,7 @@ def _row_to_automation(r) -> Automation:
         retry_backoff_sec=int(r["retry_backoff_sec"]),
         max_total_tokens=int(r["max_total_tokens"]), notify_policy=r["notify_policy"],
         concurrency_policy=r["concurrency_policy"],
+        preauthorized_permissions=[str(item) for item in _load_json(r["preauthorized_permissions"], [])],
     )
 
 
@@ -6118,7 +6121,7 @@ def create_automation(
     project_id: Optional[str] = None, model: Optional[str] = None, enabled: bool = True,
     timeout_sec: int = 300, max_attempts: int = 3, retry_backoff_sec: int = 30,
     max_total_tokens: int = 0, notify_policy: str = "failure,recovery",
-    concurrency_policy: str = "skip",
+    concurrency_policy: str = "skip", preauthorized_permissions: Optional[list[str]] = None,
 ) -> Automation:
     now = time.time()
     a = Automation(
@@ -6130,16 +6133,18 @@ def create_automation(
         timeout_sec=timeout_sec, max_attempts=max_attempts,
         retry_backoff_sec=retry_backoff_sec, max_total_tokens=max_total_tokens,
         notify_policy=notify_policy, concurrency_policy=concurrency_policy,
+        preauthorized_permissions=list(preauthorized_permissions or []),
     )
     get_conn().execute(
         """INSERT INTO automations
            (id,owner_id,name,prompt,trigger_kind,interval_min,at_time,project_id,model,
             enabled,timeout_sec,max_attempts,retry_backoff_sec,max_total_tokens,notify_policy,
-            concurrency_policy,created_at,updated_at,next_run_at,last_run_at,last_session_id,last_status)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             concurrency_policy,preauthorized_permissions,created_at,updated_at,next_run_at,last_run_at,last_session_id,last_status)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (a.id, a.owner_id, a.name, a.prompt, a.trigger_kind, a.interval_min, a.at_time,
          a.project_id, a.model, int(a.enabled), a.timeout_sec, a.max_attempts,
          a.retry_backoff_sec, a.max_total_tokens, a.notify_policy, a.concurrency_policy,
+         json.dumps(a.preauthorized_permissions, ensure_ascii=False),
          a.created_at, a.updated_at, a.next_run_at,
          a.last_run_at, a.last_session_id, a.last_status),
     )
@@ -6176,7 +6181,7 @@ def list_due_automations(now: float) -> list[Automation]:
 _AUTOMATION_FIELDS = {
     "name", "prompt", "trigger_kind", "interval_min", "at_time", "project_id", "model",
     "enabled", "timeout_sec", "max_attempts", "retry_backoff_sec", "max_total_tokens",
-    "notify_policy", "concurrency_policy",
+    "notify_policy", "concurrency_policy", "preauthorized_permissions",
 }
 # Columns whose NULL is a real value ("clear it"), not "field not provided" — callers
 # pass only fields the client set (exclude_unset), so None here means explicit clear
@@ -6195,7 +6200,11 @@ def update_automation(auto_id: str, **fields: Any) -> Optional[Automation]:
         if v is None and k not in _AUTOMATION_NULLABLE:
             continue
         sets.append(f"{k}=?")
-        vals.append(int(v) if k == "enabled" else v)
+        vals.append(
+            int(v) if k == "enabled"
+            else json.dumps(v, ensure_ascii=False) if k == "preauthorized_permissions"
+            else v
+        )
     if not sets:
         return cur
     # Recompute next_run_at when the schedule changed or the task was re-enabled.

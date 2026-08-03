@@ -716,6 +716,7 @@ export interface Automation {
   max_total_tokens: number
   notify_policy: string
   concurrency_policy: 'skip'
+  preauthorized_permissions: string[]
   next_run_label: string
   last_run_label: string
 }
@@ -735,6 +736,7 @@ export interface CreateAutomationInput {
   max_total_tokens?: number
   notify_policy?: string
   concurrency_policy?: 'skip'
+  preauthorized_permissions?: string[]
 }
 
 export interface AutomationFire {

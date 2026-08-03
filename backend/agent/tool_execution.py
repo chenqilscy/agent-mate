@@ -9,6 +9,7 @@ import time
 from typing import Any, Awaitable
 
 from agent import security
+from agent.execution_policy import ExecutionAuthorization
 from agent.sandbox import current_root
 from agent.tools import Tool, ToolOutcome, run_tool
 from config import scrubbed_env
@@ -60,6 +61,46 @@ async def _wait_or_stop(
     raise ToolExecutionTimeout(f"tool exceeded {timeout:g}s")
 
 
+async def _wait_thread_or_stop(
+    awaitable: Awaitable[Any], stop: asyncio.Event, timeout: float,
+) -> Any:
+    """Do not report cancellation while an in-process worker can still mutate state.
+
+    Python cannot kill a running executor thread. Once cancellation/deadline wins we
+    therefore wait for the bounded tool call to reach its side-effect boundary,
+    then classify the result as cancelled/timeout. Hazardous unbounded work belongs
+    in subprocess isolation instead.
+    """
+    task = asyncio.ensure_future(awaitable)
+    stop_task = asyncio.create_task(stop.wait())
+    try:
+        done, _ = await asyncio.wait(
+            {task, stop_task}, timeout=max(0.1, timeout), return_when=asyncio.FIRST_COMPLETED,
+        )
+        if task in done:
+            return await task
+        cancelled = stop_task in done and stop.is_set()
+        try:
+            await asyncio.shield(task)
+        except Exception:
+            # The deadline/cancel decision is authoritative; the worker exception
+            # is still consumed so it cannot become an unobserved task warning.
+            pass
+        if cancelled:
+            raise ToolExecutionCancelled()
+        raise ToolExecutionTimeout(f"tool exceeded {timeout:g}s")
+    except asyncio.CancelledError:
+        # Generator disconnect is also not allowed to leave a late in-process write.
+        if not task.done():
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
+        raise
+    finally:
+        stop_task.cancel()
+
+
 async def _run_command_isolated(
     tool: Tool, args: dict[str, Any], stop: asyncio.Event,
 ) -> ToolOutcome:
@@ -108,17 +149,21 @@ async def _run_command_isolated(
     raise ToolExecutionTimeout(f"tool exceeded {tool.timeout_seconds:g}s")
 
 
-async def execute_tool(tool: Tool, args: dict[str, Any], stop: asyncio.Event) -> ToolOutcome:
+async def execute_tool(
+    tool: Tool, args: dict[str, Any], stop: asyncio.Event,
+    *, authorization: ExecutionAuthorization,
+) -> ToolOutcome:
     """Execute under the declared policy; subprocess tools are kill-tree cancellable."""
     if stop.is_set():
         raise ToolExecutionCancelled()
+    authorization.enforce(tool.name, args, tool.permissions)
     started = time.monotonic()
     if tool.isolation == "subprocess":
         if tool.name != "run_command":
             raise RuntimeError(f"unsupported isolated tool: {tool.name}")
         return await _run_command_isolated(tool, args, stop)
     try:
-        return await _wait_or_stop(
+        return await _wait_thread_or_stop(
             asyncio.to_thread(run_tool, tool, args), stop, tool.timeout_seconds,
         )
     except ToolExecutionTimeout as exc:
@@ -129,6 +174,9 @@ async def execute_tool(tool: Tool, args: dict[str, Any], stop: asyncio.Event) ->
 
 async def execute_async_call(
     awaitable: Awaitable[Any], stop: asyncio.Event, timeout_seconds: float,
+    *, authorization: ExecutionAuthorization, tool_name: str,
+    args: dict[str, Any], permissions: tuple[str, ...],
 ) -> Any:
     """Apply the same deadline/cancel classification to cancellable async adapters (MCP)."""
+    authorization.enforce(tool_name, args, permissions)
     return await _wait_or_stop(awaitable, stop, timeout_seconds)

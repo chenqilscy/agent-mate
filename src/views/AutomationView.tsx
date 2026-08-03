@@ -21,6 +21,20 @@ const IC_ADD = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
 )
 
+const AUTOMATION_PERMISSION_GROUPS = [
+  { label: '写入工作区', values: ['workspace.write'] },
+  { label: '更新项目任务', values: ['project.write'] },
+  { label: '写入知识库', values: ['knowledge.write', 'network.write'] },
+  { label: '读取网络', values: ['network.read'] },
+  { label: '控制浏览器', values: ['browser.state', 'network.read', 'workspace.write'] },
+  { label: '调用外部连接器', values: ['connector.call', 'external.dynamic'] },
+  { label: '管理 Skill', values: ['skill.manage'] },
+  {
+    label: '运行本机命令（高风险）',
+    values: ['workspace.write', 'process.execute', 'host.unrestricted', 'network.unrestricted'],
+  },
+] as const
+
 function iconOf(name: string): string {
   return useCatalogStore.getState().AUTO.find((a) => a[1] === name)?.[0] ?? '⏰'
 }
@@ -434,6 +448,9 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
   const [maxAttempts, setMaxAttempts] = useState(auto?.max_attempts ?? prefill?.max_attempts ?? 3)
   const [retryBackoffSec, setRetryBackoffSec] = useState(auto?.retry_backoff_sec ?? prefill?.retry_backoff_sec ?? 30)
   const [maxTotalTokens, setMaxTotalTokens] = useState(auto?.max_total_tokens ?? prefill?.max_total_tokens ?? 0)
+  const [preauthorizedPermissions, setPreauthorizedPermissions] = useState<string[]>(
+    auto?.preauthorized_permissions ?? prefill?.preauthorized_permissions ?? [],
+  )
   const [busy, setBusy] = useState(false)
   const [webhook, setWebhook] = useState<AutomationWebhookConfig | null>(null)
   const [webhookSecret, setWebhookSecret] = useState('')
@@ -487,6 +504,7 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
       max_total_tokens: Math.max(0, maxTotalTokens),
       notify_policy: auto?.notify_policy ?? 'failure,recovery',
       concurrency_policy: 'skip',
+      preauthorized_permissions: [...new Set(preauthorizedPermissions)].sort(),
     }
     try {
       if (auto) {
@@ -685,6 +703,31 @@ function AutomationEditor({ auto, prefill, onClose, onOpenSession }: {
               <WbInput type="number" min={0} aria-label="Token 成本上限" value={maxTotalTokens} onChange={(e) => setMaxTotalTokens(Math.max(0, Number(e.target.value) || 0))} />
               {maxTotalTokens === 0 ? '（不限）' : '（超限即停止）'}
             </div>
+          </div>
+
+          <div className="np-lbl">后台执行预授权</div>
+          <div className="auto-trig">
+            <div className="auto-trig-note">
+              默认只允许低风险读取。这里的授权仅用于无人值守运行；交互会话的高风险命令仍逐次确认。
+            </div>
+            {AUTOMATION_PERMISSION_GROUPS.map((group) => {
+              const enabled = group.values.every((value) => preauthorizedPermissions.includes(value))
+              return (
+                <label className="auto-trig-in" key={group.label}>
+                  <Switch
+                    size="small"
+                    checked={enabled}
+                    aria-label={group.label}
+                    onChange={(checked) => setPreauthorizedPermissions((current) => {
+                      const next = new Set(current)
+                      for (const value of group.values) checked ? next.add(value) : next.delete(value)
+                      return [...next]
+                    })}
+                  />
+                  {group.label}
+                </label>
+              )
+            })}
           </div>
         </div>
 

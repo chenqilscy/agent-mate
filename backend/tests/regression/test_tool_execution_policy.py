@@ -8,11 +8,13 @@ import time
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 BACKEND = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BACKEND))
 
 from agent import security
+from agent.execution_policy import ExecutionAuthorization, ToolAuthorizationDenied
 from agent.sandbox import use_root
 from agent.tool_execution import ToolExecutionCancelled, ToolExecutionTimeout, execute_tool
 from agent.tools import base_tools, run_command
@@ -35,6 +37,11 @@ class ToolExecutionPolicyTest(unittest.TestCase):
             f'"Start-Sleep -Milliseconds {delay_ms}; Set-Content -LiteralPath \'{path}\' -Value late"'
         )
 
+    def _authorized(self, tool, args):
+        auth = ExecutionAuthorization(owner_id="test-user")
+        auth.approve_once(tool.name, args)
+        return auth
+
     def test_every_builtin_tool_declares_permissions_and_deadline(self) -> None:
         for tool in base_tools(False):
             self.assertTrue(tool.permissions, tool.name)
@@ -48,15 +55,17 @@ class ToolExecutionPolicyTest(unittest.TestCase):
 
         async def scenario() -> None:
             stop = asyncio.Event()
+            args = {"command": self._late_write_command(target.name)}
             task = asyncio.create_task(execute_tool(
-                run_command, {"command": self._late_write_command(target.name)}, stop,
+                run_command, args, stop, authorization=self._authorized(run_command, args),
             ))
             await asyncio.sleep(0.2)
             stop.set()
             await task
 
-        with self.assertRaises(ToolExecutionCancelled):
-            asyncio.run(scenario())
+        with patch.object(security, "audit", return_value=True):
+            with self.assertRaises(ToolExecutionCancelled):
+                asyncio.run(scenario())
         time.sleep(1.5)
         self.assertFalse(target.exists())
 
@@ -65,14 +74,54 @@ class ToolExecutionPolicyTest(unittest.TestCase):
         policy = replace(run_command, timeout_seconds=0.2)
 
         async def scenario() -> None:
+            args = {"command": self._late_write_command(target.name)}
             await execute_tool(
-                policy, {"command": self._late_write_command(target.name)}, asyncio.Event(),
+                policy, args, asyncio.Event(), authorization=self._authorized(policy, args),
             )
 
-        with self.assertRaises(ToolExecutionTimeout):
-            asyncio.run(scenario())
+        with patch.object(security, "audit", return_value=True):
+            with self.assertRaises(ToolExecutionTimeout):
+                asyncio.run(scenario())
         time.sleep(1.5)
         self.assertFalse(target.exists())
+
+    def test_background_high_risk_tool_requires_exact_preauthorization(self) -> None:
+        args = {"command": "echo safe"}
+        denied = ExecutionAuthorization(owner_id="owner", source="external")
+        with self.assertRaises(ToolAuthorizationDenied):
+            denied.enforce(run_command.name, args, run_command.permissions)
+        allowed = ExecutionAuthorization(
+            owner_id="owner", source="external",
+            preauthorized_permissions=frozenset({
+                "workspace.write", "process.execute", "host.unrestricted", "network.unrestricted",
+            }),
+        )
+        with patch.object(security, "audit", return_value=True):
+            allowed.enforce(run_command.name, args, run_command.permissions)
+
+    def test_thread_timeout_waits_for_side_effect_boundary_before_reporting(self) -> None:
+        target = self.workspace / "thread-finished.txt"
+
+        def finish_later(_args):
+            time.sleep(0.15)
+            target.write_text("done", encoding="utf-8")
+            from agent.tools import ToolOutcome
+            return ToolOutcome(text="done")
+
+        from agent.tools import Tool
+        tool = Tool(
+            name="bounded_write", description="test", parameters={"type": "object"},
+            pre=lambda _a: None, run=finish_later, permissions=("workspace.write",),
+            timeout_seconds=0.05,
+        )
+        started = time.monotonic()
+        with self.assertRaises(ToolExecutionTimeout):
+            asyncio.run(execute_tool(
+                tool, {}, asyncio.Event(),
+                authorization=ExecutionAuthorization(owner_id="owner"),
+            ))
+        self.assertGreaterEqual(time.monotonic() - started, 0.14)
+        self.assertTrue(target.exists())
 
 
 if __name__ == "__main__":

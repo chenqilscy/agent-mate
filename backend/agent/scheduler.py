@@ -147,6 +147,8 @@ async def _execute_fire(fire_id: str) -> None:
                 session, user, _prompt_for_fire(auto, fire), model=auto.model,
                 idempotency_key=key, retry_of=fire.retry_of_run_id,
                 max_total_tokens=auto.max_total_tokens,
+                execution_source="external" if fire.trigger_kind == "webhook" else "background",
+                preauthorized_permissions=auto.preauthorized_permissions,
             ):
                 pass
 

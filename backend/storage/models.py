@@ -276,6 +276,7 @@ class Automation:
     max_total_tokens: int = 0  # 0 = unlimited
     notify_policy: str = "failure,recovery"
     concurrency_policy: str = "skip"
+    preauthorized_permissions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
