@@ -1197,6 +1197,9 @@ body.dark .ph-illus { filter: brightness(.72) saturate(.78); }
 .ak-other:hover { background: transparent; }
 .ak-other input { border: none; outline: none; flex: 1; font-family: inherit; font-size: 13.5px; background: transparent; color: var(--text); }
 .ak-f { display: flex; justify-content: flex-end; padding-top: 10px; }
+.ak-recovery-copy { padding: 10px 4px; border-bottom: 1px solid var(--border-2); font-size: 13px; line-height: 1.55; }
+.ak-recovery-copy small { display: block; margin-top: 3px; color: var(--text-3); font-size: 11.5px; }
+.ask-recovery .ak-f { justify-content: flex-start; color: var(--text-2); font-size: 12px; line-height: 1.5; }
 .cstop { width: 34px; height: 34px; border-radius: 50%; border: none; background: var(--ink); cursor: pointer; display: grid; place-items: center; flex-shrink: 0; }
 .cstop:hover { background: #3A414B; }
 .cstop .sq { width: 11px; height: 11px; background: #fff; border-radius: 2.5px; display: block; }

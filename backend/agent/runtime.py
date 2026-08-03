@@ -173,6 +173,29 @@ def submit_answers(session_id: str, answers: list[str]) -> bool:
     return False
 
 
+def _question_checkpoint(
+    questions: list[dict[str, Any]], *, source: str, tool_call_id: str,
+    tool_name: str = "",
+) -> dict[str, Any]:
+    checkpoint: dict[str, Any] = {
+        "kind": "ask_user",
+        "questions": questions,
+        "source": source,
+        "tool_call_id": tool_call_id,
+        "asked_at": time.time(),
+    }
+    if tool_name:
+        checkpoint["tool_name"] = tool_name
+    return checkpoint
+
+
+def _merge_checkpoint(run_id: str, **updates: Any) -> dict[str, Any]:
+    run = db.get_run(run_id)
+    checkpoint = dict(run.checkpoint) if run and isinstance(run.checkpoint, dict) else {}
+    checkpoint.update(updates)
+    return checkpoint
+
+
 def resolve_model_config(
     owner_id: str, client_model: str | None
 ) -> tuple[str, str | None, str | None, str]:
@@ -1221,15 +1244,20 @@ async def _run_chat_inner(
                         ]
                         ev = asyncio.Event()
                         _answers[run_id] = {"ev": ev, "answers": None}
-                        yield events.ask_user(questions)
                         db.touch_session(session_id, status="waiting")
-                        db.set_run_status(run_id, "waiting_approval")
+                        db.set_run_status(
+                            run_id, "waiting_approval",
+                            checkpoint=_question_checkpoint(
+                                questions, source="agent", tool_call_id=call["id"],
+                            ),
+                        )
+                        yield events.ask_user(questions)
                         await ev.wait()
                         pending = _answers.pop(run_id, None)
                         answers = (pending or {}).get("answers")
                         db.touch_session(session_id, status="running")
                         if not stop.is_set() and answers is not None:
-                            db.set_run_status(run_id, "running")
+                            db.set_run_status(run_id, "running", checkpoint={})
                         if stop.is_set() or answers is None:
                             stopped = True
                             tool_trace.update(output={"status": "cancelled"})
@@ -1302,16 +1330,22 @@ async def _run_chat_inner(
                     }]
                     ev = asyncio.Event()
                     _answers[run_id] = {"ev": ev, "answers": None}
-                    yield events.ask_user(questions)
                     db.touch_session(session_id, status="waiting")
-                    db.set_run_status(run_id, "waiting_approval")
+                    db.set_run_status(
+                        run_id, "waiting_approval",
+                        checkpoint=_question_checkpoint(
+                            questions, source="tool_authorization",
+                            tool_call_id=call["id"], tool_name=name,
+                        ),
+                    )
+                    yield events.ask_user(questions)
                     await ev.wait()
                     pending = _answers.pop(run_id, None)
                     answers = (pending or {}).get("answers") or []
                     db.touch_session(session_id, status="running")
                     if not stop.is_set() and answers and answers[0] == "允许一次":
                         authorization.approve_once(name, args)
-                        db.set_run_status(run_id, "running")
+                        db.set_run_status(run_id, "running", checkpoint={})
                     else:
                         outcome = ToolOutcome(text=f"工具 {name} 未获本次授权。")
                         yield record({"kind": "step", "tool": name, "label": outcome.text, "status": "blocked"})
@@ -1464,7 +1498,10 @@ async def _run_chat_inner(
             current_run = db.get_run(run_id)
             if current_run and current_run.status in {"planning", "running", "waiting_approval"}:
                 try:
-                    db.set_run_status(run_id, "paused", checkpoint={"reason": "stream_disconnected"})
+                    db.set_run_status(
+                        run_id, "paused",
+                        checkpoint=_merge_checkpoint(run_id, reason="stream_disconnected"),
+                    )
                     _persist_partial("运行已暂停，可重试")
                 except ValueError:
                     db.set_run_status(run_id, "cancelled", error_code="stream_disconnected")
@@ -1500,7 +1537,7 @@ async def _run_chat_inner(
         prompt_tokens=total_prompt, cached_prompt_tokens=total_cached_prompt,
         completion_tokens=total_completion, tool_calls=tool_call_count,
     )
-    db.set_run_status(run_id, "cancelled" if stopped else "completed")
+    db.set_run_status(run_id, "cancelled" if stopped else "completed", checkpoint={})
 
     chat_trace.update(
         output={"content": assistant_text, "stopped": stopped},

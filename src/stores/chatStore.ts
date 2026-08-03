@@ -86,6 +86,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           usage: m.usage,
           runId: m.run_id ?? undefined,
           runStatus: m.run_status ?? undefined,
+          pendingQuestion: m.pending_question ?? undefined,
           error: m.error ?? undefined,
         })),
       })

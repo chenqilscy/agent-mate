@@ -672,6 +672,7 @@ export interface RawMessage {
   usage: { prompt: number; completion: number } | null
   run_id?: string | null
   run_status?: RunStatus | null
+  pending_question?: { questions: import('./types').AskQuestion[]; recovery: 'retry_required'; source: string } | null
   error?: string | null
   created_at: number
 }

@@ -40,6 +40,18 @@ function BotMessage({ msg, streaming, onRetry }: { msg: ChatMessage; streaming: 
         )}
         {html && <div dangerouslySetInnerHTML={{ __html: html }} />}
         {msg.error && <p style={{ color: '#E5484D' }}>⚠ {msg.error}</p>}
+        {msg.pendingQuestion && (
+          <div className="ask-card ask-recovery" role="status">
+            <div className="ak-h"><span className="ak-q">上次运行在等待回答时中断</span></div>
+            {msg.pendingQuestion.questions.map((question, index) => (
+              <div className="ak-recovery-copy" key={`${index}-${question.q}`}>
+                {index + 1}. {question.q}
+                {question.options.length > 0 && <small>{question.options.join(' / ')}</small>}
+              </div>
+            ))}
+            <div className="ak-f">原等待流已结束，不能直接提交答案；请重试本次运行。</div>
+          </div>
+        )}
         {onRetry && msg.runStatus && ['failed', 'cancelled', 'paused'].includes(msg.runStatus) && (
           <WbButton className="btn-ghost msg-retry" onClick={() => onRetry(msg.id)}>重试本次运行</WbButton>
         )}

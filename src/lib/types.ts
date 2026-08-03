@@ -148,6 +148,7 @@ export interface ChatMessage {
   error?: string
   runId?: string
   runStatus?: RunStatus
+  pendingQuestion?: { questions: AskQuestion[]; recovery: 'retry_required'; source: string }
   artifacts?: ArtifactEvent[]
 }
 

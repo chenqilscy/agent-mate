@@ -41,6 +41,33 @@ def _session_view(s) -> dict:
     return d
 
 
+def _pending_question_view(run) -> dict | None:
+    if not run or run.status not in {"waiting_approval", "paused"}:
+        return None
+    checkpoint = run.checkpoint if isinstance(run.checkpoint, dict) else {}
+    if checkpoint.get("kind") != "ask_user" or not isinstance(checkpoint.get("questions"), list):
+        return None
+    questions = []
+    for raw in checkpoint["questions"][:3]:
+        if not isinstance(raw, dict):
+            continue
+        question = str(raw.get("q") or "").strip()[:500]
+        if not question:
+            continue
+        options = raw.get("options") if isinstance(raw.get("options"), list) else []
+        questions.append({
+            "q": question,
+            "options": [str(option)[:160] for option in options[:8]],
+        })
+    if not questions:
+        return None
+    return {
+        "questions": questions,
+        "recovery": "retry_required",
+        "source": str(checkpoint.get("source") or "agent"),
+    }
+
+
 @router.get("/sessions")
 def list_sessions(space: str | None = None) -> dict:
     user = current_user()
@@ -84,6 +111,7 @@ def get_messages(session_id: str) -> dict:
         item = message.to_dict()
         run = db.get_run(message.run_id) if message.run_id else None
         item["run_status"] = run.status if run else None
+        item["pending_question"] = _pending_question_view(run)
         messages.append(item)
     return {
         "session": view,
