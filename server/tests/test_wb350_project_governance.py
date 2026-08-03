@@ -6,6 +6,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi import HTTPException
 
@@ -79,6 +80,18 @@ class ProjectGovernanceTest(unittest.TestCase):
         db.delete_work_item(self.work["id"]); db.delete_milestone(self.milestone["id"])
         cleaned = db.get_project_governance(record["id"])
         self.assertEqual("", cleaned["work_item_id"]); self.assertEqual("", cleaned["milestone_id"])
+
+    def test_activity_order_uses_sequence_when_timestamps_match(self) -> None:
+        with patch.object(db.time, "time", return_value=123456.0):
+            record = create_record(self.project.id, CreateBody(
+                record_type="decision", title="same timestamp",
+            ), self.owner)
+            update_record(self.project.id, record["id"], UpdateBody(status="accepted"), self.owner)
+            delete_record(self.project.id, record["id"], self.owner)
+        activity = list_activity(self.project.id, self.owner)["activity"]
+        self.assertEqual(["deleted", "updated", "created"], [item["kind"] for item in activity])
+        sequences = [item["sequence"] for item in activity]
+        self.assertEqual(sorted(sequences, reverse=True), sequences)
 
 
 if __name__ == "__main__":

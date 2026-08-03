@@ -73,3 +73,17 @@ def migrate_federated_identity_security(conn: sqlite3.Connection) -> None:
             "UPDATE server_tokens SET token=? WHERE token=?",
             ("sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest(), raw),
         )
+
+
+def migrate_governance_activity_sequence(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(project_governance_activity)")}
+    if "sequence" not in columns:
+        conn.execute(
+            "ALTER TABLE project_governance_activity ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0"
+        )
+    # This is an ordinary SQLite table, so rowid preserves historical insertion order.
+    conn.execute("UPDATE project_governance_activity SET sequence=rowid WHERE sequence=0")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_governance_activity_sequence "
+        "ON project_governance_activity(project_id, record_id, sequence DESC)"
+    )

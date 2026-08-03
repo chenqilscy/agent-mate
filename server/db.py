@@ -21,7 +21,12 @@ from catalog_seed import (
     DEFAULT_SKILL_CATEGORIES, DEFAULT_TOOL_CATALOG,
 )
 from models import Account, Invite, Org, Project, Role
-from migrations import Migration, migrate_federated_identity_security, run_migrations
+from migrations import (
+    Migration,
+    migrate_federated_identity_security,
+    migrate_governance_activity_sequence,
+    run_migrations,
+)
 
 _local = threading.local()
 
@@ -555,6 +560,7 @@ def init_db() -> None:
             actor_id TEXT NOT NULL DEFAULT '',
             kind TEXT NOT NULL,
             detail TEXT NOT NULL DEFAULT '',
+            sequence INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_project_governance_activity
@@ -984,6 +990,7 @@ def init_db() -> None:
     run_migrations(conn, (
         Migration(1, "existing-schema-baseline", lambda _conn: None),
         Migration(2, "federated-identity-security", migrate_federated_identity_security),
+        Migration(3, "governance-activity-sequence", migrate_governance_activity_sequence),
     ))
     have_pm = {r["name"] for r in conn.execute("PRAGMA table_info(project_members)").fetchall()}
     if "updated_at" not in have_pm:
@@ -2272,8 +2279,11 @@ def log_project_governance_activity(
 ) -> None:
     get_conn().execute(
         """INSERT INTO project_governance_activity
-           (id,project_id,record_id,actor_id,kind,detail,created_at) VALUES (?,?,?,?,?,?,?)""",
-        (new_uuid(), project_id, record_id, actor_id, kind, detail[:2000], time.time()),
+           (id,project_id,record_id,actor_id,kind,detail,sequence,created_at)
+           VALUES (?,?,?,?,?,?,COALESCE((SELECT MAX(sequence)+1
+                                         FROM project_governance_activity
+                                         WHERE project_id=?),1),?)""",
+        (new_uuid(), project_id, record_id, actor_id, kind, detail[:2000], project_id, time.time()),
     )
     get_conn().commit()
 
@@ -2281,12 +2291,14 @@ def log_project_governance_activity(
 def list_project_governance_activity(project_id: str, record_id: str = "") -> list[dict]:
     if record_id:
         rows = get_conn().execute(
-            "SELECT * FROM project_governance_activity WHERE project_id=? AND record_id=? ORDER BY created_at DESC",
+            "SELECT * FROM project_governance_activity WHERE project_id=? AND record_id=? "
+            "ORDER BY sequence DESC,id DESC",
             (project_id, record_id),
         ).fetchall()
     else:
         rows = get_conn().execute(
-            "SELECT * FROM project_governance_activity WHERE project_id=? ORDER BY created_at DESC LIMIT 500",
+            "SELECT * FROM project_governance_activity WHERE project_id=? "
+            "ORDER BY sequence DESC,id DESC LIMIT 500",
             (project_id,),
         ).fetchall()
     return [dict(row) for row in rows]
