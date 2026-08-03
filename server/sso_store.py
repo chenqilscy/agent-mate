@@ -529,16 +529,25 @@ def list_identities(account_id: str) -> list[dict[str, Any]]:
 
 def unlink_identity(account_id: str, provider: str, *, actor_id: str = "") -> bool:
     conn = db.get_conn()
-    account = conn.execute(
-        "SELECT password_login_enabled FROM accounts WHERE id=?", (account_id,)
-    ).fetchone()
-    count = conn.execute(
-        "SELECT COUNT(*) FROM external_identities WHERE account_id=?", (account_id,)
-    ).fetchone()[0]
-    if not account or (not bool(account["password_login_enabled"]) and count <= 1):
-        raise ValueError("last_login_method")
     conn.execute("BEGIN IMMEDIATE")
     try:
+        account = conn.execute(
+            "SELECT password_login_enabled FROM accounts WHERE id=?", (account_id,)
+        ).fetchone()
+        if account is None:
+            raise ValueError("account_not_found")
+        identity = conn.execute(
+            "SELECT 1 FROM external_identities WHERE account_id=? AND provider=?",
+            (account_id, provider),
+        ).fetchone()
+        if identity is None:
+            conn.rollback()
+            return False
+        count = int(conn.execute(
+            "SELECT COUNT(*) FROM external_identities WHERE account_id=?", (account_id,)
+        ).fetchone()[0])
+        if not bool(account["password_login_enabled"]) and count <= 1:
+            raise ValueError("last_login_method")
         changed = conn.execute(
             "DELETE FROM external_identities WHERE account_id=? AND provider=?",
             (account_id, provider),

@@ -16,6 +16,7 @@ sys.path.insert(0, str(SERVER))
 
 import db  # noqa: E402
 import relay_store  # noqa: E402
+import sso_store  # noqa: E402
 from config import settings  # noqa: E402
 from routers import accounts, auth  # noqa: E402
 
@@ -59,6 +60,40 @@ class AccountSecurityLifecycleTest(unittest.TestCase):
         self.assertEqual(200, response.status_code, response.text)
         payload = response.json()
         return payload["account"], {"Authorization": f"Bearer {payload['token']}"}
+
+    def _race(self, *operations) -> list[str]:
+        barrier = threading.Barrier(len(operations))
+        results: list[str] = []
+
+        def run(operation) -> None:
+            barrier.wait()
+            try:
+                operation()
+                results.append("ok")
+            except ValueError as exc:
+                results.append(str(exc))
+            finally:
+                conn = getattr(db._local, "conn", None)
+                if conn is not None:
+                    conn.close()
+
+        threads = [threading.Thread(target=run, args=(operation,)) for operation in operations]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive(), "concurrent invariant test deadlocked")
+        return results
+
+    def _add_identity(self, account_id: str, provider: str) -> None:
+        db.get_conn().execute(
+            "INSERT INTO external_identities "
+            "(id,account_id,provider,subject,email,display_name,created_at,last_login_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (db.new_uuid(), account_id, provider, f"{provider}-subject", "", provider,
+             time.time(), time.time()),
+        )
+        db.get_conn().commit()
 
     def test_registration_policy_and_bootstrap_are_fail_closed(self) -> None:
         blocked = self.client.post("/api/auth/register", json={
@@ -162,6 +197,67 @@ class AccountSecurityLifecycleTest(unittest.TestCase):
         item = next(entry for entry in audit if entry["action"] == "platform_admin_granted")
         self.assertEqual(admin["id"], item["actor_id"])
         self.assertEqual({"before": False, "after": True}, item["details"])
+
+    def test_concurrent_admin_demotion_preserves_one_active_admin(self) -> None:
+        admin, _headers = self._bootstrap()
+        second = db.create_account(
+            name="second-admin", password="SecondAdminPass-123", is_platform_admin=True,
+        )
+        results = self._race(
+            lambda: db.update_account(admin["id"], is_platform_admin=False, actor_id="system"),
+            lambda: db.update_account(second.id, is_platform_admin=False, actor_id="system"),
+        )
+        self.assertCountEqual(["ok", "last_platform_admin"], results)
+        self.assertEqual(1, db.count_platform_admins())
+        revoked = [item for item in db.list_auth_audit() if item["action"] == "platform_admin_revoked"]
+        self.assertEqual(1, len(revoked))
+
+    def test_concurrent_admin_suspension_and_delete_preserve_one_admin(self) -> None:
+        admin, _headers = self._bootstrap()
+        second = db.create_account(
+            name="second-admin", password="SecondAdminPass-123", is_platform_admin=True,
+        )
+        suspension = self._race(
+            lambda: db.set_account_suspended(admin["id"], True, actor_id="system"),
+            lambda: db.set_account_suspended(second.id, True, actor_id="system"),
+        )
+        self.assertCountEqual(["ok", "last_platform_admin"], suspension)
+        self.assertEqual(1, db.count_platform_admins())
+
+        # Reactivate the suspended account, then race destructive deletion.
+        suspended_id = admin["id"] if db.get_account(admin["id"]).suspended_at > 0 else second.id
+        db.set_account_suspended(suspended_id, False, actor_id="system")
+        deletion = self._race(
+            lambda: db.delete_account(admin["id"], actor_id="system"),
+            lambda: db.delete_account(second.id, actor_id="system"),
+        )
+        self.assertCountEqual(["ok", "last_platform_admin"], deletion)
+        self.assertEqual(1, db.count_platform_admins())
+
+    def test_concurrent_login_method_changes_cannot_lock_out_account(self) -> None:
+        user = db.create_account(name="hybrid", password="HybridPassword-123")
+        self._add_identity(user.id, "google")
+        results = self._race(
+            lambda: db.set_password_login_enabled(user.id, False, actor_id="system"),
+            lambda: sso_store.unlink_identity(user.id, "google", actor_id="system"),
+        )
+        self.assertCountEqual(["ok", "last_login_method"], results)
+        account = db.get_account(user.id)
+        identity_count = len(db.list_account_identities(user.id))
+        self.assertTrue(account.password_login_enabled or identity_count > 0)
+
+    def test_concurrent_identity_unlink_preserves_one_identity(self) -> None:
+        user = db.create_account(
+            name="sso-only", password="UnusedPassword-123", password_login_enabled=False,
+        )
+        self._add_identity(user.id, "google")
+        self._add_identity(user.id, "telegram")
+        results = self._race(
+            lambda: sso_store.unlink_identity(user.id, "google", actor_id="system"),
+            lambda: sso_store.unlink_identity(user.id, "telegram", actor_id="system"),
+        )
+        self.assertCountEqual(["ok", "last_login_method"], results)
+        self.assertEqual(1, len(db.list_account_identities(user.id)))
 
 
 if __name__ == "__main__":

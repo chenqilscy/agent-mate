@@ -75,13 +75,15 @@ def update_account(account_id: str, body: UpdateBody, account: Account = Current
         clash = db.find_account_by_name(name)
         if clash and clash.id != account_id:
             raise HTTPException(409, "name already taken")
-    # 不能撤销最后一个平台管理员（含撤销自己）——否则无人能再管账号。
-    if body.is_platform_admin is False and target.is_platform_admin and db.count_platform_admins() <= 1:
-        raise HTTPException(400, "不能撤销最后一个平台管理员")
-    db.update_account(
-        account_id, name=name, email=body.email, plan=body.plan,
-        is_platform_admin=body.is_platform_admin, actor_id=account.id,
-    )
+    try:
+        db.update_account(
+            account_id, name=name, email=body.email, plan=body.plan,
+            is_platform_admin=body.is_platform_admin, actor_id=account.id,
+        )
+    except ValueError as exc:
+        if str(exc) == "last_platform_admin":
+            raise HTTPException(409, "不能撤销最后一个平台管理员") from exc
+        raise
     return {"account": db.get_account_admin_view(account_id)}
 
 
@@ -128,11 +130,16 @@ def suspension(
     target = db.get_account(account_id)
     if target is None:
         raise HTTPException(404, "account not found")
-    if account_id == account.id and body.suspended:
-        raise HTTPException(400, "不能暂停自己")
-    if body.suspended and target.is_platform_admin and db.count_platform_admins() <= 1:
-        raise HTTPException(400, "不能暂停最后一个平台管理员")
-    db.set_account_suspended(account_id, body.suspended, actor_id=account.id)
+    try:
+        db.set_account_suspended(account_id, body.suspended, actor_id=account.id)
+    except ValueError as exc:
+        detail = {
+            "cannot_suspend_self": "不能暂停自己",
+            "last_platform_admin": "不能暂停最后一个平台管理员",
+        }.get(str(exc))
+        if detail:
+            raise HTTPException(409, detail) from exc
+        raise
     return {"account": db.get_account_admin_view(account_id)}
 
 
@@ -181,15 +188,19 @@ def delete_account(account_id: str, account: Account = CurrentAccount) -> dict:
     target = db.get_account(account_id)
     if target is None:
         raise HTTPException(404, "account not found")
-    if account_id == account.id:
-        raise HTTPException(400, "不能删除自己")
-    if target.is_platform_admin and db.count_platform_admins() <= 1:
-        raise HTTPException(400, "不能删除最后一个平台管理员")
-    owned = db.owned_projects_count(account_id)
-    if owned:
-        raise HTTPException(400, f"该账号仍拥有 {owned} 个项目，请先移交或删除后再删账号")
-    owned_orgs = db.owned_orgs_count(account_id)
-    if owned_orgs:
-        raise HTTPException(400, f"该账号仍拥有 {owned_orgs} 个组织，请先移交或删除后再删账号")
-    db.delete_account(account_id, actor_id=account.id)
+    try:
+        db.delete_account(account_id, actor_id=account.id)
+    except ValueError as exc:
+        code = str(exc)
+        detail = {
+            "cannot_delete_self": "不能删除自己",
+            "last_platform_admin": "不能删除最后一个平台管理员",
+        }.get(code)
+        if code.startswith("account_owns_projects:"):
+            detail = f"该账号仍拥有 {code.partition(':')[2]} 个项目，请先移交或删除后再删账号"
+        elif code.startswith("account_owns_orgs:"):
+            detail = f"该账号仍拥有 {code.partition(':')[2]} 个组织，请先移交或删除后再删账号"
+        if detail:
+            raise HTTPException(409, detail) from exc
+        raise
     return {"ok": True}

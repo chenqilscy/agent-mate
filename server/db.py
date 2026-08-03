@@ -1190,6 +1190,26 @@ def get_account_admin_view(account_id: str) -> Optional[dict]:
     return _account_admin_view(_row_to_account(r), (r["last_seen"] if "last_seen" in r.keys() else 0) or 0) if r else None
 
 
+def _guard_active_platform_admin_removal(
+    conn: sqlite3.Connection, account_id: str,
+) -> Optional[sqlite3.Row]:
+    """Lock-protected guard for changes that remove an active platform admin."""
+    row = conn.execute(
+        "SELECT * FROM accounts WHERE id=?", (account_id,),
+    ).fetchone()
+    if (
+        row is not None
+        and bool(row["is_platform_admin"])
+        and float(row["suspended_at"] or 0) <= 0
+        and int(conn.execute(
+            "SELECT COUNT(*) FROM accounts "
+            "WHERE is_platform_admin=1 AND suspended_at<=0",
+        ).fetchone()[0]) <= 1
+    ):
+        raise ValueError("last_platform_admin")
+    return row
+
+
 def update_account(account_id: str, *, name: Optional[str] = None, email: Optional[str] = None,
                    plan: Optional[str] = None, is_platform_admin: Optional[bool] = None,
                    actor_id: str = "") -> Optional[Account]:
@@ -1206,16 +1226,21 @@ def update_account(account_id: str, *, name: Optional[str] = None, email: Option
         sets.append("is_platform_admin=?"); vals.append(int(is_platform_admin))
     if sets:
         conn = get_conn()
-        before = get_account(account_id)
         conn.execute("BEGIN IMMEDIATE")
         try:
+            before_row = conn.execute(
+                "SELECT * FROM accounts WHERE id=?", (account_id,),
+            ).fetchone()
+            if is_platform_admin is False:
+                _guard_active_platform_admin_removal(conn, account_id)
             vals.append(account_id)
             conn.execute(f"UPDATE accounts SET {','.join(sets)} WHERE id=?", vals)
-            if is_platform_admin is not None and before and before.is_platform_admin != is_platform_admin:
+            before_admin = bool(before_row["is_platform_admin"]) if before_row else None
+            if is_platform_admin is not None and before_admin is not None and before_admin != is_platform_admin:
                 record_auth_audit(
                     action="platform_admin_granted" if is_platform_admin else "platform_admin_revoked",
                     account_id=account_id, actor_id=actor_id,
-                    details={"before": before.is_platform_admin, "after": is_platform_admin}, conn=conn,
+                    details={"before": before_admin, "after": is_platform_admin}, conn=conn,
                 )
             conn.commit()
         except Exception:
@@ -1311,14 +1336,19 @@ def set_account_password(account_id: str, password: str, *, actor_id: str = "") 
 
 def set_password_login_enabled(account_id: str, enabled: bool, *, actor_id: str) -> None:
     conn = get_conn()
-    if not enabled:
-        identities = conn.execute(
-            "SELECT COUNT(*) FROM external_identities WHERE account_id=?", (account_id,)
-        ).fetchone()[0]
-        if identities < 1:
-            raise ValueError("last_login_method")
     conn.execute("BEGIN IMMEDIATE")
     try:
+        account = conn.execute(
+            "SELECT id FROM accounts WHERE id=?", (account_id,),
+        ).fetchone()
+        if account is None:
+            raise ValueError("account_not_found")
+        if not enabled:
+            identities = int(conn.execute(
+                "SELECT COUNT(*) FROM external_identities WHERE account_id=?", (account_id,)
+            ).fetchone()[0])
+            if identities < 1:
+                raise ValueError("last_login_method")
         conn.execute(
             "UPDATE accounts SET password_login_enabled=? WHERE id=?",
             (int(enabled), account_id),
@@ -1339,6 +1369,10 @@ def set_account_suspended(account_id: str, suspended: bool, *, actor_id: str) ->
     now = time.time() if suspended else 0
     conn.execute("BEGIN IMMEDIATE")
     try:
+        if actor_id and account_id == actor_id and suspended:
+            raise ValueError("cannot_suspend_self")
+        if suspended:
+            _guard_active_platform_admin_removal(conn, account_id)
         conn.execute("UPDATE accounts SET suspended_at=? WHERE id=?", (now, account_id))
         if suspended:
             revoke_account_sessions(
@@ -1364,6 +1398,21 @@ def delete_account(account_id: str, *, actor_id: str = "") -> None:
     c = get_conn()
     c.execute("BEGIN IMMEDIATE")
     try:
+        if actor_id and account_id == actor_id:
+            raise ValueError("cannot_delete_self")
+        target = _guard_active_platform_admin_removal(c, account_id)
+        if target is None:
+            raise ValueError("account_not_found")
+        owned_projects = int(c.execute(
+            "SELECT COUNT(*) FROM projects WHERE owner_id=?", (account_id,),
+        ).fetchone()[0])
+        if owned_projects:
+            raise ValueError(f"account_owns_projects:{owned_projects}")
+        owned_orgs = int(c.execute(
+            "SELECT COUNT(*) FROM orgs WHERE owner_id=?", (account_id,),
+        ).fetchone()[0])
+        if owned_orgs:
+            raise ValueError(f"account_owns_orgs:{owned_orgs}")
         record_auth_audit(
             action="account_deleted", account_id=account_id, actor_id=actor_id,
             conn=c,
