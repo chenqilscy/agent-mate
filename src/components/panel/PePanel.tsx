@@ -1,45 +1,119 @@
-import { useState, type ReactNode } from 'react'
-import type { ChatMessage } from '../../lib/types'
+import { useRef, useState, type ReactNode } from 'react'
+import type { ChatMessage, RunPlanStatus } from '../../lib/types'
 import { useUIStore } from '../../stores/uiStore'
 import { useChatStore } from '../../stores/chatStore'
 import { FileTree } from './FileTree'
 import { FileViewer } from './FileViewer'
+import { Popover } from '../ui/Popover'
+import { WbButton } from '../ui/Primitives'
 import { clickable } from '../../lib/a11y'
+import { IcPanel } from '../../lib/icons'
 
-// Project-execution side panel (spec 4.2): 产物 / 工作空间文件 / 变更. The 变更 tab
-// lists every diff the agent made (the real "变更(N)" list); 产物 lists the unique
-// output files. Both derive from the diff trace — real, and replay from history.
+// Project task workbench. The overview mirrors WorkBuddy's task-progress/product
+// navigator while every row still comes from persisted Run Plan / Artifact / diff
+// events. AgentMate's workspace and change views remain available as richer tabs.
 type Tab = 'prod' | 'files' | 'diff'
 
 interface Diff { op: string; file: string; add: number; del: number }
+interface Artifact { path: string; name: string; meta: string }
+interface ProgressItem {
+  key: string
+  title: string
+  status: RunPlanStatus | 'message'
+  messageId: string
+}
 
 function allDiffs(messages: ChatMessage[]): Diff[] {
   const out: Diff[] = []
-  for (const m of messages) {
-    if (m.role !== 'assistant') continue
-    for (const t of m.trace) if (t.kind === 'diff') out.push({ op: t.op, file: t.file, add: t.add, del: t.del })
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    for (const trace of message.trace) {
+      if (trace.kind === 'diff') out.push({ op: trace.op, file: trace.file, add: trace.add, del: trace.del })
+    }
   }
   return out
 }
 
-function artifacts(messages: ChatMessage[]): { path: string; name: string; op: string }[] {
-  const byPath = new Map<string, { path: string; name: string; op: string }>()
-  for (const d of allDiffs(messages)) byPath.set(d.file, { path: d.file, name: d.file.split('/').pop() ?? d.file, op: d.op })
+function taskProgress(messages: ChatMessage[]): ProgressItem[] {
+  const planned: ProgressItem[] = []
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    const plan = [...message.trace].reverse().find((trace) => trace.kind === 'plan_snapshot' || trace.kind === 'plan_patch')
+    if (!plan || (plan.kind !== 'plan_snapshot' && plan.kind !== 'plan_patch')) continue
+    for (const item of plan.items) {
+      planned.push({
+        key: `${message.runId ?? message.id}-${item.id}`,
+        title: item.title,
+        status: item.status,
+        messageId: message.id,
+      })
+    }
+  }
+  if (planned.length) return planned
+
+  // Older conversations predate durable Run Plans. Their real user turns are a
+  // useful, honest fallback instead of manufacturing a synthetic task list.
+  return messages
+    .filter((message) => message.role === 'user' && message.content.trim())
+    .map((message) => ({
+      key: message.id,
+      title: message.content.trim().replace(/\s+/g, ' '),
+      status: 'message' as const,
+      messageId: message.id,
+    }))
+}
+
+function artifacts(messages: ChatMessage[]): Artifact[] {
+  const byPath = new Map<string, Artifact>()
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    for (const trace of message.trace) {
+      if (trace.kind === 'artifact') {
+        const status = trace.artifact.acceptance_status === 'accepted' ? '已验收' : trace.artifact.acceptance_status === 'rejected' ? '已驳回' : '待验收'
+        byPath.set(trace.artifact.path, { path: trace.artifact.path, name: trace.artifact.name, meta: `交付产物 · ${status}` })
+      }
+    }
+  }
+  for (const diff of allDiffs(messages)) {
+    if (!byPath.has(diff.file)) {
+      byPath.set(diff.file, { path: diff.file, name: diff.file.split('/').pop() ?? diff.file, meta: `${diff.op} · 工作空间产物` })
+    }
+  }
   return [...byPath.values()]
+}
+
+function badge(name: string): string {
+  return (name.split('.').pop()?.toUpperCase() ?? '').slice(0, 3) || 'F'
+}
+
+function ProgressMark({ status }: { status: ProgressItem['status'] }) {
+  if (status === 'completed' || status === 'message') return <span className="pe-progress-mark done">✓</span>
+  if (status === 'in_progress') return <span className="pe-progress-mark active"><i /></span>
+  if (status === 'blocked') return <span className="pe-progress-mark blocked">!</span>
+  return <span className="pe-progress-mark" />
 }
 
 const IC_PEN = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" /></svg>
 
 export function PePanel({ messages }: { messages: ChatMessage[] }) {
   const [tab, setTab] = useState<Tab>('prod')
-  const viewerPath = useUIStore((s) => s.viewerPath)
-  const openFile = useUIStore((s) => s.openFile)
-  const closeFile = useUIStore((s) => s.closeFile)
-  const activeId = useChatStore((s) => s.activeId)
+  const [overviewOpen, setOverviewOpen] = useState(false)
+  const [progressOpen, setProgressOpen] = useState(true)
+  const [productOpen, setProductOpen] = useState(true)
+  const overviewAnchor = useRef<HTMLButtonElement>(null)
+  const viewerPath = useUIStore((state) => state.viewerPath)
+  const openFile = useUIStore((state) => state.openFile)
+  const closeFile = useUIStore((state) => state.closeFile)
+  const panelOpen = useUIStore((state) => state.ovOpen)
+  const panelExpanded = useUIStore((state) => state.ovExpanded)
+  const setPanel = useUIStore((state) => state.setOv)
+  const toggleExpand = useUIStore((state) => state.toggleExpand)
+  const activeId = useChatStore((state) => state.activeId)
   const scope = activeId ? { session: activeId } : undefined
 
   const diffs = allDiffs(messages)
-  const arts = artifacts(messages)
+  const products = artifacts(messages)
+  const progress = taskProgress(messages)
 
   const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
     { id: 'prod', label: '产物', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 3v5h5M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" /></svg> },
@@ -47,26 +121,91 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
     { id: 'diff', label: `变更${diffs.length ? ` (${diffs.length})` : ''}`, icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" /></svg> },
   ]
 
+  const jump = (messageId: string) => {
+    setOverviewOpen(false)
+    document.getElementById(`msg-${messageId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  const selectTab = (next: Tab) => {
+    setTab(next)
+    closeFile()
+  }
+
   return (
-    <aside className="ovpanel pe open">
-      <div className="ov-inner">
-        <div className="pe-tabs">
-          {TABS.map((t) => (
-            <span key={t.id} className={`pe-tab ${tab === t.id ? 'active' : ''}`.trim()} {...clickable} onClick={() => { setTab(t.id); if (t.id !== 'prod') closeFile() }}>
-              {t.icon}{t.label}
-            </span>
+    <aside
+      className={`ovpanel pe ${panelOpen ? 'open' : ''} ${panelOpen && panelExpanded ? 'expanded' : ''}`.trim()}
+      aria-label="任务工作台"
+      aria-hidden={!panelOpen}
+    >
+      {panelOpen && <div className="ov-inner">
+        <div className="pe-top">
+          <WbButton ref={overviewAnchor} className={`pe-top-btn ${overviewOpen ? 'on' : ''}`.trim()} aria-label="任务概览" data-tip="任务概览" onClick={() => setOverviewOpen((value) => !value)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
+          </WbButton>
+          <span className="pe-top-title">{viewerPath ? viewerPath.split('/').pop() : '任务工作台'}</span>
+          <WbButton className="pe-top-btn" aria-label={panelExpanded ? '收起为侧栏' : '展开任务工作台'} data-tip={panelExpanded ? '收起为侧栏' : '展开任务工作台'} onClick={toggleExpand}>
+            {panelExpanded ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 20H4v-6M4 20l9-9" /></svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 4h6v6M20 4l-9 9" /></svg>
+            )}
+          </WbButton>
+          <WbButton className="pe-top-btn on" aria-label="收起任务工作台" data-tip="收起任务工作台" onClick={() => setPanel(false)}><IcPanel /></WbButton>
+        </div>
+
+        <Popover open={overviewOpen} anchor={overviewAnchor.current} dir="down" onClose={() => setOverviewOpen(false)} className="pe-overview-pop" minWidth={304}>
+          <div className="pe-overview-title">概览</div>
+          <div className="pe-overview-section">
+            <div className="pe-overview-head" {...clickable} onClick={() => setProgressOpen((value) => !value)}>
+              任务进程
+              <svg className={progressOpen ? '' : 'collapsed'} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg>
+            </div>
+            {progressOpen && (
+              <div className="pe-progress-list">
+                {progress.length ? progress.map((item) => (
+                  <div className="pe-progress-item" key={item.key} title={item.title} {...clickable} onClick={() => jump(item.messageId)}>
+                    <ProgressMark status={item.status} />
+                    <span>{item.title}</span>
+                  </div>
+                )) : <div className="pe-overview-empty">执行计划尚未生成</div>}
+              </div>
+            )}
+          </div>
+          <div className="pe-overview-section">
+            <div className="pe-overview-head" {...clickable} onClick={() => setProductOpen((value) => !value)}>
+              产物
+              <svg className={productOpen ? '' : 'collapsed'} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg>
+            </div>
+            {productOpen && (
+              <div className="pe-product-list">
+                {products.length ? products.map((product) => (
+                  <div className={`pe-product-item ${viewerPath === product.path ? 'active' : ''}`.trim()} key={product.path} {...clickable} onClick={() => { openFile(product.path); setTab('prod'); setOverviewOpen(false) }}>
+                    <span className="pe-product-badge">{badge(product.name)}</span>
+                    <span title={product.name}>{product.name}</span>
+                  </div>
+                )) : <div className="pe-overview-empty">暂无产物</div>}
+              </div>
+            )}
+          </div>
+        </Popover>
+
+        <div className="pe-tabs" role="tablist" aria-label="任务工作台视图">
+          {TABS.map((item) => (
+            <WbButton key={item.id} className={`pe-tab ${tab === item.id ? 'active' : ''}`.trim()} role="tab" aria-selected={tab === item.id} onClick={() => selectTab(item.id)}>
+              {item.icon}{item.label}
+            </WbButton>
           ))}
         </div>
 
         {viewerPath ? (
           <FileViewer path={viewerPath} onClose={closeFile} scope={scope} />
         ) : tab === 'prod' ? (
-          arts.length ? (
-            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {arts.map((a) => (
-                <div className="ov-art" key={a.path} {...clickable} onClick={() => openFile(a.path)}>
-                  <span className="oa-ic">{(a.name.split('.').pop()?.toUpperCase() ?? '').slice(0, 3) || 'F'}</span>
-                  <div style={{ minWidth: 0 }}><div className="oa-n">{a.name}</div><div className="oa-m">{a.op} · 工作空间产物</div></div>
+          products.length ? (
+            <div className="pe-artifacts">
+              {products.map((product) => (
+                <div className="ov-art" key={product.path} {...clickable} onClick={() => openFile(product.path)}>
+                  <span className="oa-ic">{badge(product.name)}</span>
+                  <div className="pe-artifact-copy"><div className="oa-n">{product.name}</div><div className="oa-m">{product.meta}</div></div>
                 </div>
               ))}
             </div>
@@ -76,19 +215,19 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
         ) : tab === 'files' ? (
           <FileTree scope={scope} />
         ) : diffs.length ? (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px' }}>
-            {diffs.map((d, i) => (
-              <div className="step" key={i} {...clickable} onClick={() => openFile(d.file)} style={{ cursor: 'pointer' }}>
-                {IC_PEN}<span className="op">{d.op}</span>
-                <a>{d.file}</a>
-                <span className="add">+{d.add}</span><span className="del">-{d.del}</span>
+          <div className="pe-diffs">
+            {diffs.map((diff, index) => (
+              <div className="step" key={`${diff.file}-${index}`} {...clickable} onClick={() => openFile(diff.file)}>
+                {IC_PEN}<span className="op">{diff.op}</span>
+                <a>{diff.file}</a>
+                <span className="add">+{diff.add}</span><span className="del">-{diff.del}</span>
               </div>
             ))}
           </div>
         ) : (
           <div className="pe-empty">暂无变更</div>
         )}
-      </div>
+      </div>}
     </aside>
   )
 }

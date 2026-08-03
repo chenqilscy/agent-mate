@@ -86,7 +86,7 @@ body.dark .btn-dark:disabled { background: #3A414B; color: var(--text-3); }
 body.dark .add-btn { background: #22272D; }
 body.dark .mrow .off { background: #3A2326; color: #F98A8E; }
 body.dark .cat.active { background: #3A414B; color: #fff; }
-body.dark .pe-badge { background: #343A42; }
+body.dark .pe-badge { background: transparent; }
 body.dark .cstop { background: #343A42; }
 body.dark .cstop:hover { background: #434B56; }
 body.dark .ctool.model .mk { background: #17382C; }

@@ -78,7 +78,7 @@ export const useUIStore = create<UIState>((set) => ({
   setView: (v, route = {}) => {
     if (route.history !== false) {
       const path = pathForView(v, route)
-      if (path !== window.location.pathname) {
+      if (path !== `${window.location.pathname}${window.location.search}`) {
         window.history[route.replace ? 'replaceState' : 'pushState']({}, '', path)
       }
     }

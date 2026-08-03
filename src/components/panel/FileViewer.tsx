@@ -46,7 +46,7 @@ export function FileViewer({ path, onClose, scope }: { path: string; onClose: ()
     : null
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <div className="pv-viewer">
       <div className="pv-tabbar">
         <span className="pv-tab">
           <span>{iconFor(name)}</span>

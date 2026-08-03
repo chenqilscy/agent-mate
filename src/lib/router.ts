@@ -10,6 +10,7 @@ export interface AppRoute {
 export interface RouteOptions {
   projectId?: string
   sessionId?: string
+  projectTab?: string
   replace?: boolean
   history?: boolean
 }
@@ -65,7 +66,9 @@ export function readRoute(pathname = window.location.pathname): AppRoute {
 export function pathForView(view: ViewId, opts: RouteOptions = {}): string {
   if (view === 'chat') return `/chat/${encodeURIComponent(opts.sessionId || 'new')}`
   if (view === 'project') {
-    return opts.projectId ? `/projects/${encodeURIComponent(opts.projectId)}` : '/projects'
+    if (!opts.projectId) return '/projects'
+    const path = `/projects/${encodeURIComponent(opts.projectId)}`
+    return opts.projectTab ? `${path}?tab=${encodeURIComponent(opts.projectTab)}` : path
   }
   if (view === 'projexec') {
     if (!opts.projectId) return '/projects'

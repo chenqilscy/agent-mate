@@ -53,6 +53,9 @@ export const IcShare = (p: P) => (
 export const IcHistory = (p: P) => (
   <svg {...stroke(p)}><path d="M3 12a9 9 0 109-9 9 9 0 00-7 3M3 3v4h4" /><path d="M12 8v4l3 2" /></svg>
 )
+export const IcFlow = (p: P) => (
+  <svg {...stroke(p)}><path d="M3 8h13a4 4 0 014 4v1" /><path d="M16 4l4 4-4 4" /><path d="M21 16H8a4 4 0 01-4-4v-1" /><path d="M8 20l-4-4 4-4" /></svg>
+)
 export const IcSpark = (p: P) => (
   <svg {...stroke(p)}><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg>
 )

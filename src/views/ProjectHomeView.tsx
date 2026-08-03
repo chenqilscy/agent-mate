@@ -25,6 +25,12 @@ import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
 
 type Tab = '动态' | '计划' | '任务' | '治理' | '资产' | '讨论'
+const PROJECT_TABS: Tab[] = ['动态', '计划', '任务', '治理', '资产', '讨论']
+
+function initialProjectTab(): Tab {
+  const requested = new URLSearchParams(window.location.search).get('tab')
+  return PROJECT_TABS.includes(requested as Tab) ? requested as Tab : '动态'
+}
 type Kind = 'conn' | 'exp' | 'skill' | 'kb'
 const FIELD: Record<Kind, 'connectors' | 'experts' | 'skills' | 'knowledge_ids'> = {
   conn: 'connectors', exp: 'experts', skill: 'skills', kb: 'knowledge_ids',
@@ -105,7 +111,7 @@ export function ProjectHomeView() {
   useSkillStore((s) => s.installed)
 
   const [project, setProject] = useState<ProjectInfo | null>(active)
-  const [tab, setTab] = useState<Tab>('动态')
+  const [tab, setTab] = useState<Tab>(initialProjectTab)
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [timeline, setTimeline] = useState<ServerTimelineEvent[]>([])
   const [timelineStale, setTimelineStale] = useState(false)
@@ -308,7 +314,7 @@ export function ProjectHomeView() {
             className="pjh-tabs"
             activeKey={tab}
             onChange={(key) => setTab(key as Tab)}
-            items={(['动态', '计划', '任务', '治理', '资产', '讨论'] as Tab[]).map((key) => ({ key, label: key }))}
+            items={PROJECT_TABS.map((key) => ({ key, label: key }))}
           />
 
           <div className="pjh-body">
