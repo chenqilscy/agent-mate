@@ -5,6 +5,7 @@ import hashlib
 import os
 import tempfile
 from contextvars import ContextVar
+from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -41,6 +42,34 @@ def set_active_skill_resources(snapshots: list[dict[str, Any]]) -> None:
 
 def has_active_resources() -> bool:
     return any(item["files"] for item in _active_resources.get().values())
+
+
+def active_resource_mounts() -> dict[str, dict[str, Any]]:
+    """Return a JSON-safe copy for the trusted isolated tool worker."""
+    return {
+        slug: {
+            **dict(item),
+            "root": str(item["root"]),
+            "files": {path: dict(meta) for path, meta in item["files"].items()},
+        }
+        for slug, item in _active_resources.get().items()
+    }
+
+
+def set_active_resource_mounts(value: dict[str, dict[str, Any]] | None) -> None:
+    mounted: dict[str, dict[str, Any]] = {}
+    for slug, item in (value or {}).items():
+        if not isinstance(item, dict) or not item.get("root"):
+            continue
+        mounted[str(slug)] = {
+            **dict(item),
+            "root": Path(str(item["root"])),
+            "files": {
+                str(path): dict(meta) for path, meta in (item.get("files") or {}).items()
+                if isinstance(meta, dict)
+            },
+        }
+    _active_resources.set(mounted)
 
 
 def _resource(skill: str, path: str) -> tuple[Any, PurePosixPath, dict[str, Any]]:

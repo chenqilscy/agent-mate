@@ -23,11 +23,10 @@
 | [WB-384](WB-384-compaction-degraded-state.md) | 🟡 | P2 | backend | 长会话摘要失败静默丢弃旧上下文且无降级状态 |
 | [WB-385](WB-385-durable-run-plan.md) | 🟡 | P2 | fullstack | 会话任务列表仅为文本 trace 无稳定状态和恢复能力 |
 | [WB-386](WB-386-model-governance.md) | ⬜ | P2 | fullstack | 模型配置缺少组织策略预算健康检查和受控故障转移 |
-| [WB-387](WB-387-thread-tool-timeout-bound.md) | 🟡 | P1 | backend | 线程工具超时后无界等待导致 Run 与关闭永久阻塞 |
 | [WB-388](WB-388-auth-invariants-transaction-race.md) | ⬜ | P1 | backend | 登录方式与最后管理员不变量在事务外校验存在并发竞态 |
 | [WB-389](WB-389-auth-revocation-semantics.md) | ⬜ | P2 | backend | 暂停与身份解绑后的 App 会话撤销语义不一致 |
 
 ## 已关闭归档
 
-共 378 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 379 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。

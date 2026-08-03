@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+from pathlib import Path
 import subprocess
 import sys
 import time
@@ -12,7 +14,7 @@ from agent import security
 from agent.execution_policy import ExecutionAuthorization
 from agent.sandbox import current_root
 from agent.tools import Tool, ToolOutcome, run_tool
-from config import scrubbed_env
+from config import BACKEND_DIR, FROZEN, scrubbed_env, settings
 
 
 class ToolExecutionTimeout(TimeoutError):
@@ -20,6 +22,10 @@ class ToolExecutionTimeout(TimeoutError):
 
 
 class ToolExecutionCancelled(asyncio.CancelledError):
+    pass
+
+
+class ToolExecutionIsolationError(RuntimeError):
     pass
 
 
@@ -61,41 +67,86 @@ async def _wait_or_stop(
     raise ToolExecutionTimeout(f"tool exceeded {timeout:g}s")
 
 
-async def _wait_thread_or_stop(
-    awaitable: Awaitable[Any], stop: asyncio.Event, timeout: float,
-) -> Any:
-    """Do not report cancellation while an in-process worker can still mutate state.
+def _worker_payload(tool: Tool, args: dict[str, Any], owner_id: str) -> bytes:
+    from agent import skill_discovery, skill_resources, skill_usage, skills_store
+    from agent.tools import knowledge_context_snapshot, work_context_snapshot
 
-    Python cannot kill a running executor thread. Once cancellation/deadline wins we
-    therefore wait for the bounded tool call to reach its side-effect boundary,
-    then classify the result as cancelled/timeout. Hazardous unbounded work belongs
-    in subprocess isolation instead.
-    """
-    task = asyncio.ensure_future(awaitable)
+    payload = {
+        "tool": tool.name,
+        "args": args,
+        "config": {
+            "db_path": str(settings.DB_PATH),
+            "workspace_root": str(settings.WORKSPACE_ROOT),
+            "skills_dir": str(settings.SKILLS_DIR),
+        },
+        "context": {
+            "owner_id": owner_id,
+            "workspace_root": str(current_root()),
+            "environment": sorted(skills_store.current_environment()),
+            "work": work_context_snapshot(),
+            "knowledge": knowledge_context_snapshot(),
+            "skill_candidates": list(skill_discovery.candidate_map().values()),
+            "skill_resources": skill_resources.active_resource_mounts(),
+            "skill_usage": skill_usage.context_snapshot(),
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+async def _run_tool_worker(
+    tool: Tool, args: dict[str, Any], stop: asyncio.Event, *, owner_id: str,
+) -> ToolOutcome:
+    command = (
+        [sys.executable, "--tool-worker"]
+        if FROZEN else [sys.executable, "-m", "agent.tool_worker"]
+    )
+    kwargs: dict[str, Any] = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+    proc = await asyncio.create_subprocess_exec(
+        *command, cwd=str(BACKEND_DIR), env=scrubbed_env(),
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE, **kwargs,
+    )
+    communicate = asyncio.create_task(proc.communicate(input=_worker_payload(tool, args, owner_id)))
     stop_task = asyncio.create_task(stop.wait())
     try:
         done, _ = await asyncio.wait(
-            {task, stop_task}, timeout=max(0.1, timeout), return_when=asyncio.FIRST_COMPLETED,
+            {communicate, stop_task}, timeout=max(0.1, tool.timeout_seconds),
+            return_when=asyncio.FIRST_COMPLETED,
         )
-        if task in done:
-            return await task
-        cancelled = stop_task in done and stop.is_set()
-        try:
-            await asyncio.shield(task)
-        except Exception:
-            # The deadline/cancel decision is authoritative; the worker exception
-            # is still consumed so it cannot become an unobserved task warning.
-            pass
-        if cancelled:
-            raise ToolExecutionCancelled()
-        raise ToolExecutionTimeout(f"tool exceeded {timeout:g}s")
-    except asyncio.CancelledError:
-        # Generator disconnect is also not allowed to leave a late in-process write.
-        if not task.done():
+        if communicate in done:
+            stdout, stderr = await communicate
             try:
-                await asyncio.shield(task)
-            except Exception:
-                pass
+                message = json.loads(stdout.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                detail = stderr.decode("utf-8", errors="replace")[-2000:]
+                raise ToolExecutionIsolationError(
+                    f"isolated tool returned invalid protocol: {tool.name}; {detail}"
+                ) from exc
+            if not isinstance(message, dict) or not message.get("ok"):
+                raise ToolExecutionIsolationError(
+                    str(message.get("error") if isinstance(message, dict) else "worker failed")
+                )
+            value = message.get("outcome") if isinstance(message.get("outcome"), dict) else {}
+            return ToolOutcome(
+                text=str(value.get("text") or ""),
+                trace=list(value.get("trace") or []),
+                live=list(value.get("live") or []),
+                artifacts=list(value.get("artifacts") or []),
+            )
+        await _kill_process_tree(proc)
+        communicate.cancel()
+        await asyncio.gather(communicate, return_exceptions=True)
+        if stop_task in done and stop.is_set():
+            raise ToolExecutionCancelled()
+        raise ToolExecutionTimeout(f"tool exceeded {tool.timeout_seconds:g}s")
+    except asyncio.CancelledError:
+        await _kill_process_tree(proc)
+        communicate.cancel()
+        await asyncio.gather(communicate, return_exceptions=True)
         raise
     finally:
         stop_task.cancel()
@@ -162,8 +213,25 @@ async def execute_tool(
         if tool.name != "run_command":
             raise RuntimeError(f"unsupported isolated tool: {tool.name}")
         return await _run_command_isolated(tool, args, stop)
+    # Every App-registered tool runs in a one-call child process.  Python cannot
+    # safely terminate executor threads; a process boundary is the only way to
+    # preserve both a real deadline and the no-late-side-effect contract.
+    from agent.skills import runtime_tool
+    if runtime_tool(tool.name) is not None:
+        return await _run_tool_worker(tool, args, stop, owner_id=authorization.owner_id)
+    mutating = any(
+        permission.endswith((".write", ".manage")) or permission in {"browser.state"}
+        for permission in tool.permissions
+    )
+    if mutating:
+        raise ToolExecutionIsolationError(
+            f"unregistered mutating tool cannot run in a non-killable thread: {tool.name}"
+        )
+    # Tests/extensions may supply side-effect-free Tool objects not present in the
+    # signed registry. Their Run is still deadline-bounded; cancellation can leave
+    # only a read in flight, never a state mutation.
     try:
-        return await _wait_thread_or_stop(
+        return await _wait_or_stop(
             asyncio.to_thread(run_tool, tool, args), stop, tool.timeout_seconds,
         )
     except ToolExecutionTimeout as exc:

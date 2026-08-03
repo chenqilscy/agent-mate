@@ -413,6 +413,16 @@ def _runtime_tool_registry() -> tuple[dict[str, Tool], set[str]]:
     return registry, resolvable
 
 
+def runtime_tool(name: str) -> Tool | None:
+    """Resolve the App's real implementation for an isolated worker call."""
+    key = str(name or "")
+    native = _TOOL_REGISTRY.get(key)
+    if native is not None:
+        return native
+    registry, _ = _runtime_tool_registry()
+    return registry.get(key)
+
+
 def _resolve_tools(names: list[str]) -> list[Tool]:
     """Skill 声明 → Tool；上下文/自动工具不能通过目录数据绕过 runtime 注入策略。"""
     registry, resolvable = _runtime_tool_registry()

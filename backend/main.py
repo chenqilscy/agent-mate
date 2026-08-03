@@ -10,6 +10,12 @@ import asyncio
 import logging
 import sys
 
+# Trusted isolated tool subprocess. Handle before the web app, DB and router
+# imports so a one-call worker stays small and never starts HTTP/background work.
+if "--tool-worker" in sys.argv[1:]:
+    from agent.tool_worker import main as run_tool_worker
+    raise SystemExit(run_tool_worker())
+
 # MCP-server subcommand: when the bundled exe re-execs itself as
 # `AgentMate.exe --mcp-server=<name>` (see agent/mcp_client.py), run that FastMCP
 # server on stdio and exit — never start the web app. Handled first, before the

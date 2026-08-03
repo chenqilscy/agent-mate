@@ -63,6 +63,10 @@ def clear_context() -> None:
     _run_ctx.set("")
 
 
+def context_snapshot() -> dict[str, str]:
+    return {"owner_id": _owner_ctx.get(), "run_id": _run_ctx.get()}
+
+
 def identity(item: dict[str, Any]) -> str:
     release_id = str(item.get("release_id") or "").strip()
     if release_id:

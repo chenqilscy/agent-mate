@@ -501,6 +501,16 @@ def set_work_context(
     )
 
 
+def work_context_snapshot() -> dict[str, str] | None:
+    """Serializable execution context for the isolated tool worker."""
+    current = _work_ctx.get()
+    return dict(current) if current else None
+
+
+def restore_work_context(value: dict[str, str] | None) -> None:
+    _work_ctx.set(dict(value) if value else None)
+
+
 def _list_work_items_run(args: dict[str, Any]) -> ToolOutcome:
     ctx = _work_ctx.get()
     if not ctx:
@@ -613,6 +623,16 @@ def set_knowledge_context(
         "server_project_id": server_project_id or "",
         "server_token": server_token or "",
     } if owner_id else None)
+
+
+def knowledge_context_snapshot() -> dict[str, Any] | None:
+    """Serializable execution context for the isolated tool worker."""
+    current = _kb_ctx.get()
+    return dict(current) if current else None
+
+
+def restore_knowledge_context(value: dict[str, Any] | None) -> None:
+    _kb_ctx.set(dict(value) if value else None)
 
 
 def _kb_owner() -> str | None:
