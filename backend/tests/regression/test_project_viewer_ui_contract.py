@@ -10,7 +10,7 @@ class ProjectViewerUiContractTests(unittest.TestCase):
         source = (ROOT / "src" / "views" / "ProjectHomeView.tsx").read_text(encoding="utf-8")
 
         self.assertIn("const canWrite = project.role !== 'Viewer'", source)
-        for component in ("KanbanBoard", "TaskList", "GanttView", "AssetsManager", "ServerCommentsPanel"):
+        for component in ("PlanWorkspace", "TaskList", "AssetsManager", "ServerCommentsPanel"):
             self.assertRegex(source, rf"<{component}[^>]*canWrite")
         self.assertIn("canWrite ? (", source)
         self.assertIn("<Composer", source)
@@ -26,6 +26,8 @@ class ProjectViewerUiContractTests(unittest.TestCase):
         self.assertIn("delivery?.can_write", work)
         self.assertIn("onRemove={canWrite ? rmAttach : undefined}", work)
         self.assertIn("disabled={!canWrite}", work)
+        self.assertIn("view === 'gantt' && <GanttView canWrite={canWrite}", work)
+        self.assertIn("view === 'calendar' && <CalendarView canWrite={canWrite}", work)
         self.assertIn("{canWrite && <WbButton className=\"cap-act\"", assets)
         self.assertIn("...(canWrite ? [{ key: 'rename'", assets)
         self.assertIn("{canWrite ? (", comments)

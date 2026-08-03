@@ -105,27 +105,40 @@ function StatusPill({ status, onPick }: { status: WorkStatus; dir?: 'up' | 'down
   return <Select className="wb-pill" value={status} onChange={(value) => onPick(value as WorkStatus)} options={STATUS_OPTS.map((s) => ({ value: s.key, label: <span><span className="wb-dot" style={{ background: DOT[s.key] }} />{s.label}</span> }))} />
 }
 
-function DueDatePill({ value, dir = 'up', onChange }: { value: string | null; dir?: 'up' | 'down'; onChange: (v: string | null) => void }) {
+function WorkDatePill({ value, label, dir = 'up', onChange }: {
+  value: string | null
+  label: string
+  dir?: 'up' | 'down'
+  onChange: (v: string | null) => void
+}) {
   const ref = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   return (
     <>
       <WbButton ref={ref} type="button" className="wb-pill" onClick={() => setOpen((v) => !v)}>
-        <span aria-hidden>📅</span>{value || '截止日期'}{IcCaret}
+        <span aria-hidden>📅</span>{value || label}{IcCaret}
       </WbButton>
       <Popover open={open} anchor={ref.current} dir={dir} onClose={() => setOpen(false)} minWidth={200}>
         <div style={{ padding: 6 }}>
           <WbInput
-            type="date" className="wb-date" aria-label="截止日期" value={value ?? ''}
+            type="date" className="wb-date" aria-label={label} value={value ?? ''}
             onChange={(e) => { onChange(e.target.value || null); setOpen(false) }} autoFocus
           />
           {value && (
-            <div className="pop-item danger" {...clickable} onClick={() => { onChange(null); setOpen(false) }}>清除截止日期</div>
+            <div className="pop-item danger" {...clickable} onClick={() => { onChange(null); setOpen(false) }}>清除{label}</div>
           )}
         </div>
       </Popover>
     </>
   )
+}
+
+function DueDatePill({ value, dir = 'up', onChange }: { value: string | null; dir?: 'up' | 'down'; onChange: (v: string | null) => void }) {
+  return <WorkDatePill value={value} label="截止日期" dir={dir} onChange={onChange} />
+}
+
+function StartDatePill({ value, dir = 'up', onChange }: { value: string | null; dir?: 'up' | 'down'; onChange: (v: string | null) => void }) {
+  return <WorkDatePill value={value} label="开始日期" dir={dir} onChange={onChange} />
 }
 
 function PriorityPill({ value, onPick }: { value: WorkPriority; dir?: 'up' | 'down'; onPick: (p: WorkPriority) => void }) {
@@ -533,8 +546,9 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
 
 // ---- 新建待办 modal -------------------------------------------------------
 
-function NewTodoModal({ status, onClose, onCreated }: {
+function NewTodoModal({ status: initialStatus, initialDue = null, onClose, onCreated }: {
   status: WorkStatus
+  initialDue?: string | null
   onClose: () => void
   onCreated: (wi: WorkItem) => void
 }) {
@@ -542,7 +556,9 @@ function NewTodoModal({ status, onClose, onCreated }: {
   const add = useWorkItemStore((s) => s.add)
   const [title, setTitle] = useState('')
   const [desc, setDesc] = useState('')
-  const [due, setDue] = useState<string | null>(null)
+  const [status, setStatus] = useState<WorkStatus>(initialStatus)
+  const [start, setStart] = useState<string | null>(null)
+  const [due, setDue] = useState<string | null>(initialDue)
   const [attachments, setAttachments] = useState<WorkAttachment[]>([])
   const [priority, setPriority] = useState<WorkPriority>('')
   const [labels, setLabels] = useState<string[]>([])
@@ -551,9 +567,13 @@ function NewTodoModal({ status, onClose, onCreated }: {
 
   const create = async () => {
     if (!title.trim() || busy) return
+    if (start && due && start > due) {
+      toast('开始日期不能晚于截止日期')
+      return
+    }
     setBusy(true)
     try {
-      const wi = await add({ title, status, description: desc, due_date: due, attachments, priority, labels, milestone_id: milestoneId })
+      const wi = await add({ title, status, description: desc, start_date: start, due_date: due, attachments, priority, labels, milestone_id: milestoneId })
       if (wi) { toast('待办已创建'); onCreated(wi) }
       onClose()
     } catch {
@@ -565,7 +585,7 @@ function NewTodoModal({ status, onClose, onCreated }: {
 
   return (
     <AntModalBridge onClose={onClose} closeOnMask={!busy}>
-      <div className="np-modal" role="dialog" aria-modal="true" aria-label="新建待办">
+      <div className="np-modal wb-new-todo" role="dialog" aria-modal="true" aria-label="新建待办">
         <div className="np-h">新建待办<WbButton className="np-x" onClick={onClose}>×</WbButton></div>
         <div className="np-body">
           <div className="np-lbl">标题</div>
@@ -579,8 +599,10 @@ function NewTodoModal({ status, onClose, onCreated }: {
         </div>
         <div className="np-foot">
           <AttachmentAdder projectId={projectId} onAdd={(a) => setAttachments((prev) => [...prev, a])} dir="up" />
-          <PriorityPill value={priority} dir="up" onPick={setPriority} />
+          <StatusPill status={status} onPick={setStatus} />
+          <StartDatePill value={start} dir="up" onChange={setStart} />
           <DueDatePill value={due} dir="up" onChange={setDue} />
+          <PriorityPill value={priority} dir="up" onPick={setPriority} />
           <MilestonePill value={milestoneId} dir="up" onPick={setMilestoneId} />
           <span style={{ flex: 1 }} />
           <WbButton className="btn-ghost" onClick={onClose}>取消</WbButton>
@@ -968,6 +990,7 @@ export function TaskList({ canWrite = true }: { canWrite?: boolean }) {
   const remove = useWorkItemStore((s) => s.remove)
   const update = useWorkItemStore((s) => s.update)
   const [q, setQ] = useState('')
+  const [detailId, setDetailId] = useState<string | null>(null)
   const filtered = items.filter((i) => i.title.toLowerCase().includes(q.trim().toLowerCase()))
 
   return (
@@ -990,6 +1013,7 @@ export function TaskList({ canWrite = true }: { canWrite?: boolean }) {
         rowKey="id"
         dataSource={filtered}
         pagination={false}
+        onRow={(item) => ({ ...clickable, onClick: () => setDetailId(item.id) })}
         locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无任务，去「计划」看板新建" /> }}
         columns={[
           { title: '任务', dataIndex: 'title', render: (title, item) => <span className="tt">{title}<span className="wb-card-labels"><LabelBadges labels={item.labels} /></span></span> },
@@ -997,9 +1021,212 @@ export function TaskList({ canWrite = true }: { canWrite?: boolean }) {
           { title: '负责人', dataIndex: 'assignee_name', width: 100, render: (name) => name || '—' },
           { title: '优先级', dataIndex: 'priority', width: 130, render: (value, item) => canWrite ? <PriorityPill value={value} onPick={(priority) => void update(item.id, { priority })} /> : (PRIO[value as WorkPriority]?.label || '无优先级') },
           { title: '状态', dataIndex: 'status', width: 130, render: (value, item) => canWrite ? <StatusPill status={value} onPick={(status) => void update(item.id, { status })} /> : (STATUS_OPTS.find((status) => status.key === value)?.label || value) },
-          ...(canWrite ? [{ title: '操作', key: 'action', width: 70, render: (_: unknown, item: WorkItem) => <WbButton className="del danger-b" onClick={() => void remove(item.id)}>删除</WbButton> }] : []),
+          ...(canWrite ? [{ title: '操作', key: 'action', width: 70, render: (_: unknown, item: WorkItem) => <WbButton className="del danger-b" onClick={(event) => { event.stopPropagation(); void remove(item.id) }}>删除</WbButton> }] : []),
         ]}
       />
+      {detailId && <TodoDetailModal itemId={detailId} canWrite={canWrite} onClose={() => setDetailId(null)} />}
     </>
+  )
+}
+
+// WorkBuddy v5.3.3 的「列表」不是表格换皮，而是按状态分组的快速录入视图。
+// 继续复用同一份 workItemStore，确保看板、表格、甘特和日历之间没有数据副本。
+export function GroupedListView({ canWrite = true }: { canWrite?: boolean }) {
+  const items = useWorkItemStore((s) => s.items)
+  const add = useWorkItemStore((s) => s.add)
+  const [detailId, setDetailId] = useState<string | null>(null)
+  const [quickIn, setQuickIn] = useState<WorkStatus | null>(null)
+  const [draft, setDraft] = useState('')
+
+  const create = async (status: WorkStatus) => {
+    const title = draft.trim()
+    if (!title) return
+    const created = await add({ title, status })
+    setDraft('')
+    setQuickIn(null)
+    if (created) setDetailId(created.id)
+  }
+
+  return (
+    <div className="pj-group-list">
+      {COLS.map((col) => {
+        const rows = items.filter((item) => item.status === col.key)
+        return (
+          <section className="pj-group" key={col.key} aria-label={`${col.label} ${rows.length} 项`}>
+            <div className="pj-group-head">
+              <span className="wb-dot" style={{ background: DOT[col.key] }} />
+              <b>{col.label}</b>
+              <span className="cnt">{rows.length}</span>
+              {canWrite && (
+                <WbButton
+                  className="pj-group-add"
+                  aria-label={`在${col.label}中新建待办`}
+                  onClick={() => { setQuickIn(col.key); setDraft('') }}
+                >＋</WbButton>
+              )}
+            </div>
+            {quickIn === col.key && (
+              <WbInput
+                className="pj-group-input"
+                autoFocus
+                placeholder="输入待办标题，回车创建"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void create(col.key)
+                  if (event.key === 'Escape') { setDraft(''); setQuickIn(null) }
+                }}
+                onBlur={() => { if (!draft.trim()) setQuickIn(null) }}
+              />
+            )}
+            {rows.length === 0 && quickIn !== col.key ? (
+              <div className="pj-group-empty">暂无待办</div>
+            ) : rows.map((item) => (
+              <div className="pj-group-row" key={item.id} {...clickable} onClick={() => setDetailId(item.id)}>
+                <span className="pj-group-title">{item.title}</span>
+                {item.priority && <span className="wb-dot" style={{ background: PRIO[item.priority].color }} title={`优先级：${PRIO[item.priority].label}`} />}
+                {item.labels.length > 0 && <span className="pj-group-labels"><LabelBadges labels={item.labels} /></span>}
+                {item.due_date && <span className="wb-badge due">📅 {item.due_date.slice(5)}</span>}
+                <span className="av" title={item.assignee_name}>{item.assignee_name?.[0] ?? '未'}</span>
+              </div>
+            ))}
+          </section>
+        )
+      })}
+      {detailId && <TodoDetailModal itemId={detailId} canWrite={canWrite} onClose={() => setDetailId(null)} />}
+    </div>
+  )
+}
+
+function localDateKey(date: Date): string {
+  const p = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`
+}
+
+function monthGrid(anchor: Date): Date[] {
+  const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
+  const mondayOffset = (first.getDay() + 6) % 7
+  const start = new Date(first.getFullYear(), first.getMonth(), 1 - mondayOffset)
+  return Array.from({ length: 42 }, (_, index) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + index))
+}
+
+export function CalendarView({ canWrite = true }: { canWrite?: boolean }) {
+  const items = useWorkItemStore((s) => s.items)
+  const [anchor, setAnchor] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1) })
+  const [detailId, setDetailId] = useState<string | null>(null)
+  const [createOn, setCreateOn] = useState<string | null>(null)
+  const days = useMemo(() => monthGrid(anchor), [anchor])
+  const today = localDateKey(new Date())
+  const undated = items.filter((item) => !item.start_date && !item.due_date)
+  const byDate = useMemo(() => {
+    const result = new Map<string, WorkItem[]>()
+    items.forEach((item) => {
+      const key = item.due_date || item.start_date
+      if (!key) return
+      if (!result.has(key)) result.set(key, [])
+      result.get(key)!.push(item)
+    })
+    return result
+  }, [items])
+
+  const moveMonth = (delta: number) => setAnchor((value) => new Date(value.getFullYear(), value.getMonth() + delta, 1))
+  const goToday = () => { const now = new Date(); setAnchor(new Date(now.getFullYear(), now.getMonth(), 1)) }
+
+  return (
+    <div className="pj-calendar-wrap">
+      <div className="pj-calendar-head">
+        <b>{anchor.getFullYear()}年{anchor.getMonth() + 1}月</b>
+        <span className="pj-calendar-spacer" />
+        <WbButton className="btn-ghost" aria-label="上个月" onClick={() => moveMonth(-1)}>‹</WbButton>
+        <WbButton className="btn-ghost" onClick={goToday}>今天</WbButton>
+        <WbButton className="btn-ghost" aria-label="下个月" onClick={() => moveMonth(1)}>›</WbButton>
+        <span className="pj-calendar-undated">无日期记录：{undated.length}</span>
+      </div>
+      <div className="pj-calendar-scroll">
+        <div className="pj-calendar" role="grid" aria-label={`${anchor.getFullYear()}年${anchor.getMonth() + 1}月项目日历`}>
+          {['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((label) => <div className="pj-calendar-week" role="columnheader" key={label}>{label}</div>)}
+          {days.map((day) => {
+            const key = localDateKey(day)
+            const records = byDate.get(key) ?? []
+            const inMonth = day.getMonth() === anchor.getMonth()
+            return (
+              <div className={`pj-calendar-cell ${inMonth ? '' : 'muted'} ${key === today ? 'today' : ''}`.trim()} role="gridcell" key={key}>
+                <div className="pj-calendar-date">
+                  <span>{day.getDate()}</span>
+                  {canWrite && <WbButton className="pj-calendar-add" aria-label={`在${key}新建待办`} onClick={() => setCreateOn(key)}>＋</WbButton>}
+                </div>
+                <div className="pj-calendar-records">
+                  {records.slice(0, 3).map((item) => (
+                    <WbButton className="pj-calendar-item" key={item.id} title={item.title} onClick={() => setDetailId(item.id)}>
+                      <span className="wb-dot" style={{ background: DOT[item.status] }} />
+                      <span>{item.title}</span>
+                    </WbButton>
+                  ))}
+                  {records.length > 3 && <span className="pj-calendar-more">还有 {records.length - 3} 项</span>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      {detailId && <TodoDetailModal itemId={detailId} canWrite={canWrite} onClose={() => setDetailId(null)} />}
+      {canWrite && createOn && <NewTodoModal status="todo" initialDue={createOn} onClose={() => setCreateOn(null)} onCreated={(item) => setDetailId(item.id)} />}
+    </div>
+  )
+}
+
+type PlanViewKey = 'table' | 'kanban' | 'list' | 'gantt' | 'calendar' | 'workload'
+
+const PLAN_VIEWS: { key: PlanViewKey; label: string; icon: string }[] = [
+  { key: 'table', label: '表格', icon: '▦' },
+  { key: 'kanban', label: '看板', icon: '▥' },
+  { key: 'list', label: '列表', icon: '▤' },
+  { key: 'gantt', label: '甘特', icon: '▰' },
+  { key: 'calendar', label: '日历', icon: '▣' },
+  { key: 'workload', label: '负载', icon: '◫' },
+]
+
+export function PlanWorkspace({ canWrite = true }: { canWrite?: boolean }) {
+  const projectId = useWorkItemStore((state) => state.projectId)
+  const [view, setView] = useState<PlanViewKey>('kanban')
+  const [newOpen, setNewOpen] = useState(false)
+
+  useEffect(() => {
+    if (!projectId) return
+    const saved = localStorage.getItem(`pm.plan.view.${projectId}`) as PlanViewKey | null
+    if (saved && PLAN_VIEWS.some((item) => item.key === saved)) setView(saved)
+  }, [projectId])
+
+  const selectView = (next: PlanViewKey) => {
+    setView(next)
+    if (projectId) localStorage.setItem(`pm.plan.view.${projectId}`, next)
+  }
+
+  return (
+    <div className="pj-plan-workspace">
+      <div className="pj-plan-head">
+        <div className="pj-plan-views" role="tablist" aria-label="计划视图">
+          {PLAN_VIEWS.map((item) => (
+            <WbButton
+              key={item.key}
+              className={`pj-plan-view-tab ${view === item.key ? 'active' : ''}`.trim()}
+              role="tab"
+              aria-selected={view === item.key}
+              onClick={() => selectView(item.key)}
+            ><span aria-hidden>{item.icon}</span>{item.label}</WbButton>
+          ))}
+        </div>
+        {canWrite && <WbButton className="btn-dark pj-plan-create" onClick={() => setNewOpen(true)}>＋ 新建待办</WbButton>}
+      </div>
+      <div className="pj-plan-view" role="tabpanel">
+        {view === 'table' && <TaskList canWrite={canWrite} />}
+        {view === 'kanban' && <KanbanBoard canWrite={canWrite} />}
+        {view === 'list' && <GroupedListView canWrite={canWrite} />}
+        {view === 'gantt' && <GanttView canWrite={canWrite} />}
+        {view === 'calendar' && <CalendarView canWrite={canWrite} />}
+        {view === 'workload' && <WorkloadView />}
+      </div>
+      {canWrite && newOpen && <NewTodoModal status="todo" onClose={() => setNewOpen(false)} onCreated={() => {}} />}
+    </div>
   )
 }

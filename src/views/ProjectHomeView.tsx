@@ -9,7 +9,7 @@ import { useUIStore } from '../stores/uiStore'
 import { toast } from '../stores/toastStore'
 import { Composer } from '../components/composer/Composer'
 import { PickerOverlay } from '../components/project/NewProjectModal'
-import { KanbanBoard, TaskList, WorkloadView, GanttView } from '../components/project/ProjectWork'
+import { PlanWorkspace, TaskList } from '../components/project/ProjectWork'
 import { AssetsManager } from '../components/project/AssetsManager'
 import { MembersModal } from '../components/project/MembersModal'
 import { ProjectBindingsModal, type ProjectBindingKind } from '../components/project/ProjectBindingsModal'
@@ -24,7 +24,7 @@ import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
 
-type Tab = '动态' | '计划' | '任务' | '负载' | '甘特' | '治理' | '资产' | '讨论'
+type Tab = '动态' | '计划' | '任务' | '治理' | '资产' | '讨论'
 type Kind = 'conn' | 'exp' | 'skill' | 'kb'
 const FIELD: Record<Kind, 'connectors' | 'experts' | 'skills' | 'knowledge_ids'> = {
   conn: 'connectors', exp: 'experts', skill: 'skills', kb: 'knowledge_ids',
@@ -90,7 +90,7 @@ function ProjectHealthPanel({ health, onOpenGovernance }: { health: ProjectHealt
   )
 }
 
-// Project home = a workbench (§11): breadcrumb + 4 tabs + a live 项目配置 sidebar.
+// Project home = a workbench (§11): stable goal tabs + a live 项目配置 sidebar.
 // Execution is a sub-item — the composer starts one; the 动态 tab lists them.
 export function ProjectHomeView() {
   const active = useProjectStore((s) => s.active)
@@ -308,7 +308,7 @@ export function ProjectHomeView() {
             className="pjh-tabs"
             activeKey={tab}
             onChange={(key) => setTab(key as Tab)}
-            items={(['动态', '计划', '任务', '负载', '甘特', '治理', '资产', '讨论'] as Tab[]).map((key) => ({ key, label: key }))}
+            items={(['动态', '计划', '任务', '治理', '资产', '讨论'] as Tab[]).map((key) => ({ key, label: key }))}
           />
 
           <div className="pjh-body">
@@ -342,13 +342,9 @@ export function ProjectHomeView() {
               </>
             )}
 
-            {tab === '计划' && <KanbanBoard canWrite={canWrite} />}
+            {tab === '计划' && <PlanWorkspace canWrite={canWrite} />}
 
             {tab === '任务' && <TaskList canWrite={canWrite} />}
-
-            {tab === '负载' && <WorkloadView />}
-
-            {tab === '甘特' && <GanttView canWrite={canWrite} />}
 
             {tab === '资产' && <AssetsManager scope={{ project: project.id }} canWrite={canWrite} />}
 
