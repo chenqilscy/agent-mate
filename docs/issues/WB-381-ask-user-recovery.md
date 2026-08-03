@@ -3,7 +3,7 @@ id: WB-381
 title: ask_user 断流泄漏等待对象且无法恢复待回答检查点
 severity: P2
 area: backend
-status: open
+status: in-progress
 origin: 既有实现
 files:
   - backend/agent/runtime.py:1198

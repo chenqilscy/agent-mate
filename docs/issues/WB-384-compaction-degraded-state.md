@@ -3,7 +3,7 @@ id: WB-384
 title: 长会话摘要失败静默丢弃旧上下文且无降级状态
 severity: P2
 area: backend
-status: open
+status: in-progress
 origin: 既有实现
 files:
   - backend/agent/session_context.py:272

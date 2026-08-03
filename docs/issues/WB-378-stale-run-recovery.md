@@ -3,7 +3,7 @@ id: WB-378
 title: 进程崩溃后普通会话 Run 永久停留在活动状态
 severity: P1
 area: backend
-status: open
+status: in-progress
 origin: 既有实现
 files:
   - backend/main.py:106

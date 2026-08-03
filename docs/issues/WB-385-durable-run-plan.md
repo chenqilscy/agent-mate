@@ -3,7 +3,7 @@ id: WB-385
 title: 会话任务列表仅为文本 trace 无稳定状态和恢复能力
 severity: P2
 area: fullstack
-status: open
+status: in-progress
 origin: 既有实现
 files:
   - backend/agent/tools.py:448
