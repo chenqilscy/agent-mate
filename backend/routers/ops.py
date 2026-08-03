@@ -7,15 +7,17 @@ from auth.deps import current_user
 from agent import background_limits, worker_health
 from channels import manager
 from storage import db
+from storage import background_job_store
 
 router = APIRouter(prefix="/api", tags=["operations"])
 
 
 @router.get("/ops/background-health")
 def background_health() -> dict:
-    current_user()  # keep the operational endpoint behind the normal auth boundary
+    user = current_user()  # keep the operational endpoint behind the normal auth boundary
     result = worker_health.snapshot()
     result["execution_limits"] = background_limits.snapshot()
+    result["queue"] = background_job_store.health_summary(user.id)
     return result
 
 

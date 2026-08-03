@@ -126,6 +126,24 @@ def migrate_relay_retention(conn: sqlite3.Connection) -> None:
     )
 
 
+def migrate_work_item_acceptance_idempotency(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS work_item_acceptances (
+            work_item_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            artifact_count INTEGER NOT NULL,
+            accepted_by TEXT NOT NULL,
+            accepted_at REAL NOT NULL,
+            UNIQUE(project_id, run_id)
+        )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_work_item_acceptances_project "
+        "ON work_item_acceptances(project_id, accepted_at DESC)"
+    )
+
+
 def migrate_server_legacy_schema(
     conn: sqlite3.Connection, token_legacy_expires_at: float,
 ) -> None:
@@ -228,6 +246,9 @@ def assert_server_schema(conn: sqlite3.Connection) -> None:
         "projects": {"archived_at"},
         "project_members": {"updated_at"},
         "relay_events": {"payload_tombstoned_at"},
+        "work_item_acceptances": {
+            "work_item_id", "project_id", "run_id", "artifact_count", "accepted_by", "accepted_at",
+        },
         "org_model_policies": {"policy", "revision", "updated_by", "updated_at"},
         "tool_catalog": {
             "implementation_type", "parameters", "scripts", "timeout_seconds", "output_limit",

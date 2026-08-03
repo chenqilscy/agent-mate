@@ -69,6 +69,7 @@ async def _heartbeat(job_id: str) -> None:
 
 async def _run_claimed(job: Job) -> None:
     spec = _handlers.get(str(job["kind"]))
+    component = f"background_job.{job['kind']}"
     if spec is None:
         failed = jobs.finish_failure(
             job["id"], _worker_id, error_code="handler_missing",
@@ -77,6 +78,7 @@ async def _run_claimed(job: Job) -> None:
         )
         if failed:
             await _call(None, failed)
+        worker_health.record_failure(component, RuntimeError("background handler is not registered"))
         return
     heartbeat_task = asyncio.create_task(_heartbeat(job["id"]))
     try:
@@ -94,6 +96,9 @@ async def _run_claimed(job: Job) -> None:
         )
         if failed:
             await _call(spec.failed, failed)
+        # The handler ran and deliberately classified a business-terminal result.
+        # Queue state exposes the failed job; component health remains operational.
+        worker_health.record_success(component)
     except Exception as exc:  # noqa: BLE001
         delay = settings.BACKGROUND_JOB_RETRY_BACKOFF_SECONDS * (2 ** max(0, int(job["attempt"]) - 1))
         failed = jobs.finish_failure(
@@ -102,8 +107,10 @@ async def _run_claimed(job: Job) -> None:
         )
         if failed and failed["status"] == "failed":
             await _call(spec.failed, failed)
+        worker_health.record_failure(component, exc)
     else:
         jobs.finish_success(job["id"], _worker_id)
+        worker_health.record_success(component)
     finally:
         heartbeat_task.cancel()
         await asyncio.gather(heartbeat_task, return_exceptions=True)

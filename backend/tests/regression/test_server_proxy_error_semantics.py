@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 from fastapi import HTTPException
@@ -37,26 +37,40 @@ class ServerProxyErrorSemanticsTest(unittest.TestCase):
             ("delete", server_client._delete, ("/delete", "token"), 404, "missing"),
         ]
         for verb, call, args, status, detail in cases:
-            with self.subTest(verb=verb), patch.object(
-                server_client.httpx, verb, return_value=response(status, {"detail": detail}),
-            ), self.assertRaises(HTTPException) as rejected:
+            client = MagicMock()
+            getattr(client, verb).return_value = response(status, {"detail": detail})
+            with (
+                self.subTest(verb=verb),
+                patch.object(server_client, "_client", return_value=client),
+                self.assertRaises(server_client.ServerRejected) as rejected,
+            ):
                 call(*args, strict=True)
             self.assertEqual(status, rejected.exception.status_code)
             self.assertEqual(detail, rejected.exception.detail)
 
     def test_background_mode_and_unavailable_server_remain_guarded(self) -> None:
-        with patch.object(
-            server_client.httpx, "post", return_value=response(409, {"detail": "conflict"}),
-        ):
+        client = MagicMock()
+        client.post.return_value = response(409, {"detail": "conflict"})
+        with patch.object(server_client, "_client", return_value=client):
             self.assertIsNone(server_client._post("/background", "token", {}))
 
-        with patch.object(
-            server_client.httpx, "post", return_value=response(500, {"detail": "broken"}),
-        ):
+        client.post.return_value = response(500, {"detail": "broken"})
+        with patch.object(server_client, "_client", return_value=client):
             self.assertIsNone(server_client._post("/write", "token", {}, strict=True))
 
-        with patch.object(server_client.httpx, "post", side_effect=httpx.ConnectError("offline")):
+        client.post.side_effect = httpx.ConnectError("offline")
+        with patch.object(server_client, "_client", return_value=client):
             self.assertIsNone(server_client._post("/write", "token", {}, strict=True))
+
+    def test_client_is_reused_and_closed_by_lifecycle_hook(self) -> None:
+        server_client.close()
+        client = MagicMock()
+        client.is_closed = False
+        with patch.object(server_client.httpx, "Client", return_value=client) as constructor:
+            self.assertIs(server_client._client(), server_client._client())
+            constructor.assert_called_once_with()
+            server_client.close()
+        client.close.assert_called_once_with()
 
     def test_comment_and_presence_reads_do_not_forge_empty_success(self) -> None:
         with (
@@ -87,9 +101,9 @@ class ServerProxyErrorSemanticsTest(unittest.TestCase):
             patch.object(server_router.server_client, "server_enabled", return_value=True),
             patch.object(
                 server_router.server_client, "list_comments",
-                side_effect=HTTPException(403, "Viewer is read-only"),
+                side_effect=server_client.ServerRejected(403, "Viewer is read-only"),
             ),
-            self.assertRaises(HTTPException) as forbidden,
+            self.assertRaises(server_client.ServerRejected) as forbidden,
         ):
             server_router.server_comments("project-1", authorization="Bearer token")
         self.assertEqual(403, forbidden.exception.status_code)

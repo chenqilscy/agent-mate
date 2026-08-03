@@ -103,6 +103,20 @@ class PMCompletionTest(unittest.TestCase):
             self.project.id, item["id"], AcceptBody(run_id="run-1", artifact_count=2), self.account,
         )
         self.assertEqual("done", accepted["status"])
+        replayed = accept_item(
+            self.project.id, item["id"], AcceptBody(run_id="run-1", artifact_count=2), self.account,
+        )
+        self.assertEqual("done", replayed["status"])
+        accepted_events = [
+            event for event in db.list_work_item_activity(self.project.id, item["id"])
+            if event["kind"] == "accepted"
+        ]
+        self.assertEqual(1, len(accepted_events))
+        with self.assertRaises(HTTPException) as conflicting:
+            accept_item(
+                self.project.id, item["id"], AcceptBody(run_id="run-2", artifact_count=2), self.account,
+            )
+        self.assertEqual(409, conflicting.exception.status_code)
 
 
 if __name__ == "__main__":

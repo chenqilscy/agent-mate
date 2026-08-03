@@ -118,6 +118,12 @@ export interface ErrorEvent { message: string }
 export interface SessionEvent { id: string; title: string }
 export interface DoneEvent { message_id?: string }
 
+export const SSE_EVENT_TYPES = [
+  'session', 'status', 'run', 'think', 'step', 'file_read', 'diff', 'todo',
+  'plan_snapshot', 'plan_patch', 'text', 'ask_user', 'qa_summary',
+  'context_degraded', 'artifact', 'work_item', 'usage', 'error', 'done',
+] as const
+
 export interface AskQuestion { q: string; options: string[] }
 export interface QaPair { q: string; a: string }
 
@@ -273,6 +279,11 @@ export interface BackgroundHealth {
     consecutive_failures: number
     last_error: string | null
   }[]
+  queue: {
+    counts: Record<string, number>
+    due: number
+    oldest_due_at: number | null
+  }
 }
 
 export type OrchestrationStatus = 'planning' | 'running' | 'reviewing' | 'completed' | 'failed' | 'cancelled'

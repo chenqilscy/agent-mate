@@ -5129,6 +5129,14 @@ def get_project_governance(record_id: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
+def get_work_item_launch_by_key(owner_id: str, idempotency_key: str) -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT * FROM work_item_launches WHERE owner_id=? AND idempotency_key=?",
+        (owner_id, idempotency_key.strip()[:200]),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def list_project_governance(project_id: str) -> list[dict]:
     rows = get_conn().execute(
         "SELECT * FROM project_governance WHERE project_id=? ORDER BY updated_at DESC,id",

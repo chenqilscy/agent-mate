@@ -467,13 +467,18 @@ async def execute_item(
         raise HTTPException(404, "work item not found")
     _require_project_write(item.project_id, user.id)
     tok = _server_write_token(item.project_id, authorization)
+    key = (body.idempotency_key or str(uuid.uuid4())).strip()[:120]
+    if work_item_runner.find_existing(item, user, key) is not None:
+        launch, _created = await work_item_runner.start(
+            item, user, key, model=body.model, server_token=tok,
+        )
+        return {"ok": True, "created": False, "launch": launch}
     if tok:
         updated = await asyncio.to_thread(
             server_client.update_work_item, tok, item.project_id, item.id, {"status": "doing"}
         )
         if not updated:
             raise HTTPException(503, "Server 暂不可达，工作项未开始执行")
-    key = (body.idempotency_key or str(uuid.uuid4())).strip()[:120]
     try:
         launch, created = await work_item_runner.start(
             item, user, key, model=body.model, server_token=tok,
@@ -493,7 +498,7 @@ async def accept_item_delivery(
     if not item:
         raise HTTPException(404, "work item not found")
     _require_project_write(item.project_id, user.id)
-    if item.status != "review":
+    if item.status not in {"review", "done"}:
         raise HTTPException(409, "工作项尚未进入待验收状态")
     run = db.get_run_for(body.run_id, user.id)
     if not run or run.work_item_id != item.id:
@@ -509,6 +514,9 @@ async def accept_item_delivery(
         for value in artifacts
     ):
         raise HTTPException(409, "artifact integrity verification failed")
+    already_accepted = run.status == "accepted" and all(
+        value["acceptance_status"] == "accepted" for value in artifacts
+    )
     tok = _server_write_token(item.project_id, authorization)
     if tok:
         updated = await asyncio.to_thread(
@@ -525,15 +533,16 @@ async def accept_item_delivery(
         raise HTTPException(403, str(exc)) from exc
     except (KeyError, ValueError) as exc:
         raise HTTPException(409, str(exc)) from exc
-    for member in db.list_project_members(item.project_id):
-        if member["user_id"] == user.id:
-            continue
-        db.create_notification(
-            user_id=member["user_id"], kind="work_item_delivery",
-            title=f"工作项已验收：{item.title}",
-            body=f"{user.name} 验收了 {len(accepted_artifacts)} 个交付物。",
-            project_id=item.project_id, actor_name=user.name,
-        )
+    if not already_accepted:
+        for member in db.list_project_members(item.project_id):
+            if member["user_id"] == user.id:
+                continue
+            db.create_notification(
+                user_id=member["user_id"], kind="work_item_delivery",
+                title=f"工作项已验收：{item.title}",
+                body=f"{user.name} 验收了 {len(accepted_artifacts)} 个交付物。",
+                project_id=item.project_id, actor_name=user.name,
+            )
     return {
         "ok": True, "work_item": _view(accepted_item, user),
         "run": {**accepted_run.to_dict(), "artifacts": [a.to_dict() for a in accepted_artifacts]},

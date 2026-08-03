@@ -323,18 +323,16 @@ class AcceptBody(BaseModel):
 def accept_item(project_id: str, wid: str, body: AcceptBody, account: Account = CurrentAccount) -> dict:
     """Close only after the local execution plane attests verified artifacts."""
     _require_write(project_id, account)
-    it = db.get_work_item(wid)
-    if not it or it["project_id"] != project_id:
-        raise HTTPException(404, "work item not found")
-    if it["status"] != "review":
-        raise HTTPException(409, "work item is not awaiting acceptance")
     observe_project_health(project_id, actor_name=account.name)
-    updated = db.update_work_item(wid, status="done")
-    assert updated is not None
-    db.log_work_item_activity(
-        project_id=project_id, work_item_id=wid, actor=account.name,
-        kind="accepted", detail=f"run={body.run_id}; artifacts={body.artifact_count}",
-    )
+    try:
+        updated, _replayed = db.accept_work_item_delivery(
+            project_id=project_id, work_item_id=wid, run_id=body.run_id,
+            artifact_count=body.artifact_count, actor_id=account.id, actor_name=account.name,
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "work item not found") from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     observe_project_health(project_id, actor_name=account.name)
     return _decorate(updated, _members_maps(project_id)[0])
 

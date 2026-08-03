@@ -27,6 +27,7 @@ from migrations import (
     migrate_federated_identity_security,
     migrate_governance_activity_sequence,
     migrate_relay_retention,
+    migrate_work_item_acceptance_idempotency,
     migrate_server_legacy_schema,
     assert_server_schema,
     migrate_sso_provider_audit,
@@ -602,6 +603,18 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_wi_activity_item ON work_item_activity(work_item_id, created_at);
 
+        CREATE TABLE IF NOT EXISTS work_item_acceptances (
+            work_item_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            artifact_count INTEGER NOT NULL,
+            accepted_by TEXT NOT NULL,
+            accepted_at REAL NOT NULL,
+            UNIQUE(project_id, run_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_work_item_acceptances_project
+            ON work_item_acceptances(project_id, accepted_at DESC);
+
         -- 项目级团队知识库。WB-290 起本表保存稳定项目 ID 到 WeKnora provider ID 的绑定；
         -- 旧 WB-171 行 provider_id 为空并保持 legacy_pending，等待显式迁移。
         CREATE TABLE IF NOT EXISTS knowledge_bases (
@@ -701,6 +714,7 @@ def init_db() -> None:
             ),
         ),
         Migration(7, "sso-provider-audit", migrate_sso_provider_audit),
+        Migration(8, "work-item-acceptance-idempotency", migrate_work_item_acceptance_idempotency),
     ))
     assert_server_schema(conn)
     # 新 App 版本可补充真实实现，但绝不覆盖 Console 已管理的运营字段。
@@ -2494,6 +2508,65 @@ def update_work_item(wid: str, **fields: Any) -> Optional[dict]:
     return get_work_item(wid) if cur.rowcount else None
 
 
+def accept_work_item_delivery(
+    *, project_id: str, work_item_id: str, run_id: str,
+    artifact_count: int, actor_id: str, actor_name: str,
+) -> tuple[dict, bool]:
+    """Atomically accept once; replaying the same attestation returns the same result."""
+    conn = get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute(
+            "SELECT * FROM work_items WHERE id=? AND project_id=?",
+            (work_item_id, project_id),
+        ).fetchone()
+        if row is None:
+            raise KeyError("work item not found")
+        acceptance = conn.execute(
+            "SELECT * FROM work_item_acceptances WHERE work_item_id=?",
+            (work_item_id,),
+        ).fetchone()
+        if acceptance is not None:
+            if (
+                acceptance["run_id"] != run_id
+                or int(acceptance["artifact_count"]) != int(artifact_count)
+            ):
+                raise ValueError("work item was accepted with a different delivery")
+            conn.commit()
+            current = get_work_item(work_item_id)
+            assert current is not None
+            return current, True
+        if row["status"] != "review":
+            raise ValueError("work item is not awaiting acceptance")
+        now = time.time()
+        conn.execute(
+            "UPDATE work_items SET status='done',updated_at=? WHERE id=?",
+            (now, work_item_id),
+        )
+        conn.execute(
+            """INSERT INTO work_item_acceptances
+               (work_item_id,project_id,run_id,artifact_count,accepted_by,accepted_at)
+               VALUES (?,?,?,?,?,?)""",
+            (work_item_id, project_id, run_id, int(artifact_count), actor_id, now),
+        )
+        conn.execute(
+            """INSERT INTO work_item_activity
+               (id,project_id,work_item_id,actor,kind,detail,created_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            (
+                new_uuid(), project_id, work_item_id, actor_name, "accepted",
+                f"run={run_id}; artifacts={int(artifact_count)}", now,
+            ),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    accepted = get_work_item(work_item_id)
+    assert accepted is not None
+    return accepted, False
+
+
 # ---- 项目风险与决策台账（WB-350）----------------------------------------
 
 def get_project_governance(record_id: str) -> Optional[dict]:
@@ -2750,6 +2823,7 @@ def delete_work_item(wid: str) -> bool:
                     (json.dumps(cleaned, ensure_ascii=False), now, dependent["id"]),
                 )
     conn.execute("DELETE FROM work_item_activity WHERE work_item_id=?", (wid,))
+    conn.execute("DELETE FROM work_item_acceptances WHERE work_item_id=?", (wid,))
     cur = conn.execute("DELETE FROM work_items WHERE id=?", (wid,))
     conn.commit()
     return cur.rowcount > 0

@@ -123,6 +123,27 @@ def list_due(now: float, limit: int) -> list[dict[str, Any]]:
     return [_job(row) or {} for row in rows]
 
 
+def health_summary(owner_id: str, now: float | None = None) -> dict[str, Any]:
+    """Owner-scoped queue metadata only; payloads and entity identifiers never leave storage."""
+    current = time.time() if now is None else float(now)
+    rows = db.get_conn().execute(
+        "SELECT status,COUNT(*) AS count FROM background_jobs WHERE owner_id=? GROUP BY status",
+        (owner_id,),
+    ).fetchall()
+    counts = {str(row["status"]): int(row["count"]) for row in rows}
+    due = db.get_conn().execute(
+        """SELECT COUNT(*) AS count,MIN(next_attempt_at) AS oldest
+           FROM background_jobs WHERE owner_id=? AND status IN ('queued','retry_wait')
+           AND next_attempt_at<=?""",
+        (owner_id, current),
+    ).fetchone()
+    return {
+        "counts": counts,
+        "due": int(due["count"] or 0),
+        "oldest_due_at": float(due["oldest"]) if due["oldest"] is not None else None,
+    }
+
+
 def claim(job_id: str, lease_owner: str, now: float, lease_seconds: float) -> dict[str, Any] | None:
     conn = db.get_conn()
     try:

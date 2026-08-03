@@ -7,6 +7,7 @@
 // (the /stop endpoint stops it server-side too).
 
 import { API_BASE, authHeaders } from './api'
+import { SSE_EVENT_TYPES } from './types'
 import type { Orchestration, SSEEvent } from './types'
 
 export interface ChatStreamOptions {
@@ -104,8 +105,62 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
 
 function dispatchFrame(frame: string, onEvent: (ev: SSEEvent) => void): void {
   const parsed = parseFrame(frame)
-  if (!parsed) return
-  onEvent({ type: parsed.event, data: parsed.data } as SSEEvent)
+  if (!parsed) {
+    if (frame.split('\n').some((line) => line.startsWith('data:'))) {
+      onEvent({ type: 'error', data: { message: 'SSE 协议错误：事件数据不是有效 JSON' } })
+    }
+    return
+  }
+  const event = checkedSSEEvent(parsed.event, parsed.data)
+  if (!event) {
+    onEvent({
+      type: 'error',
+      data: { message: `SSE 协议错误：未知事件或无效数据（${parsed.event || 'message'}）` },
+    })
+    return
+  }
+  onEvent(event)
+}
+
+const SSE_EVENT_TYPE_SET = new Set<string>(SSE_EVENT_TYPES)
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function checkedSSEEvent(type: string, data: unknown): SSEEvent | null {
+  if (!SSE_EVENT_TYPE_SET.has(type)) return null
+  const value = record(data)
+  if (!value) return null
+  const text = (key: string) => typeof value[key] === 'string'
+  const number = (key: string) => typeof value[key] === 'number' && Number.isFinite(value[key])
+  let valid = false
+  switch (type as SSEEvent['type']) {
+    case 'session': valid = text('id') && text('title'); break
+    case 'status': valid = value.state === 'running' || value.state === 'done'; break
+    case 'run': valid = record(value.run) !== null; break
+    case 'think':
+    case 'todo': valid = text('text'); break
+    case 'step': valid = text('tool') && text('label'); break
+    case 'file_read': valid = text('path') && text('range'); break
+    case 'diff': valid = text('op') && text('file') && number('add') && number('del'); break
+    case 'plan_snapshot':
+    case 'plan_patch': valid = number('version') && Array.isArray(value.items); break
+    case 'text': valid = text('md'); break
+    case 'ask_user': valid = Array.isArray(value.questions); break
+    case 'qa_summary': valid = Array.isArray(value.qa); break
+    case 'context_degraded':
+      valid = text('reason') && number('excerpt_messages') && value.retry_on_next_turn === true
+      break
+    case 'artifact': valid = text('name') && text('size') && text('path'); break
+    case 'work_item': valid = record(value.item) !== null; break
+    case 'usage': valid = number('pct') && number('used') && record(value.detail) !== null; break
+    case 'error': valid = text('message'); break
+    case 'done': valid = value.message_id === undefined || text('message_id'); break
+  }
+  return valid ? { type, data } as SSEEvent : null
 }
 
 function parseFrame(frame: string): { event: string; data: unknown } | null {

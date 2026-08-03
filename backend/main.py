@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 
 # Trusted isolated tool subprocess. Handle before the web app, DB and router
 # imports so a one-call worker stays small and never starts HTTP/background work.
@@ -49,8 +51,54 @@ from channels import manager as channel_manager
 from config import FROZEN, settings
 from routers import asr, auth, automations, catalog, channels, chat, data, device_settings, experts, files, governance, server, kdocs, knowledge, me, memory, milestones, models, notifications, ops, orchestrations, prefs, project_health, projects, runs, security, sessions, skills, work_items
 from storage import db, orchestration_store
+import server_client
 
-app = FastAPI(title="AgentMate API", version="1.0.0")
+
+def _startup() -> None:
+    db.init_db()
+    recovered = db.recover_stale_runs()
+    if recovered:
+        logging.getLogger("agentmate.runs").warning(
+            "paused %d Run(s) abandoned by the previous backend process", len(recovered),
+        )
+    import device_settings as runtime_device_settings
+    runtime_device_settings.apply_all()
+    orchestration_store.ensure_tables()
+    migrated = db.migrate_skill_identities(agent_skills.canonical_skill_key)
+    if migrated["changed"] or migrated["dropped"]:
+        logging.getLogger("agentmate.skills").info("skill identity migration: %s", migrated)
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    cleanup: list[tuple[str, Callable[[], Awaitable[None]]]] = []
+    try:
+        _startup()
+        scheduler.start()
+        cleanup.append(("automation scheduler", scheduler.stop))
+        cleanup.append(("background worker", background_worker.stop))
+        await background_worker.start()
+        cleanup.append(("channel manager", channel_manager.stop))
+        await channel_manager.refresh()
+        yield
+    finally:
+        for name, stop in reversed(cleanup):
+            try:
+                await stop()
+            except Exception:  # noqa: BLE001 - shutdown must continue for remaining resources
+                logging.getLogger("agentmate.lifecycle").exception("failed to stop %s", name)
+        try:
+            telemetry.shutdown()
+        finally:
+            server_client.close()
+
+
+app = FastAPI(title="AgentMate API", version="1.0.0", lifespan=_lifespan)
+
+
+@app.exception_handler(server_client.ServerRejected)
+async def _server_rejected(_request: Request, exc: server_client.ServerRejected) -> JSONResponse:
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
 # Reject oversized JSON API bodies before they are buffered (WB-010). File uploads
 # stream and enforce their own 50MB cap, so they're exempt from this smaller limit.
@@ -58,13 +106,13 @@ MAX_JSON_BODY = 8 * 1024 * 1024  # 8 MB
 
 
 class BodySizeLimitMiddleware:
-    """Reject oversized JSON bodies by Content-Length, as PURE ASGI middleware.
+    """Reject oversized JSON bodies by declared and actually received bytes.
 
     Deliberately not a BaseHTTPMiddleware (@app.middleware("http")): that wraps
     every response in its own anyio cancel scope, which crashes SSE endpoints that
-    spawn nested task groups (MCP stdio_client) with "Attempted to exit a cancel
-    scope that isn't the current task's current cancel scope". Pure ASGI only peeks
-    at the request headers and otherwise passes the app through untouched.
+    spawn nested task groups (MCP stdio_client). The bounded pre-read prevents a
+    missing/forged Content-Length from bypassing the cap while preserving the exact
+    ASGI request messages for downstream consumers.
     """
 
     def __init__(self, app, max_bytes: int) -> None:
@@ -84,6 +132,34 @@ class BodySizeLimitMiddleware:
                 if cl and cl.isdigit() and int(cl) > self.max_bytes:
                     await JSONResponse({"detail": "请求体过大"}, status_code=413)(scope, receive, send)
                     return
+                messages: list[dict] = []
+                received = 0
+                while True:
+                    message = await receive()
+                    messages.append(message)
+                    if message.get("type") != "http.request":
+                        break
+                    received += len(message.get("body") or b"")
+                    if received > self.max_bytes:
+                        await JSONResponse(
+                            {"detail": "请求体过大"}, status_code=413,
+                        )(scope, receive, send)
+                        return
+                    if not message.get("more_body", False):
+                        break
+
+                index = 0
+
+                async def replay_receive():
+                    nonlocal index
+                    if index < len(messages):
+                        message = messages[index]
+                        index += 1
+                        return message
+                    return {"type": "http.disconnect"}
+
+                await self.app(scope, replay_receive, send)
+                return
         await self.app(scope, receive, send)
 
 
@@ -108,61 +184,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    db.init_db()
-    recovered = db.recover_stale_runs()
-    if recovered:
-        logging.getLogger("agentmate.runs").warning(
-            "paused %d Run(s) abandoned by the previous backend process", len(recovered),
-        )
-    import device_settings as runtime_device_settings
-    runtime_device_settings.apply_all()
-    orchestration_store.ensure_tables()
-    migrated = db.migrate_skill_identities(agent_skills.canonical_skill_key)
-    if migrated["changed"] or migrated["dropped"]:
-        logging.getLogger("agentmate.skills").info("skill identity migration: %s", migrated)
-
-
-@app.on_event("startup")
-async def _start_scheduler() -> None:
-    # Automation scheduler runs on the app's event loop (agent/scheduler.py).
-    scheduler.start()
-
-
-@app.on_event("startup")
-async def _start_background_worker() -> None:
-    await background_worker.start()
-
-
-@app.on_event("shutdown")
-async def _stop_scheduler() -> None:
-    await scheduler.stop()
-
-
-@app.on_event("shutdown")
-async def _stop_background_worker() -> None:
-    await background_worker.stop()
-
-
-@app.on_event("startup")
-async def _start_channels() -> None:
-    # 助理外部渠道（WB-072/077/086·087）：渠道管理器按 DB 里「启用且类型可用」的渠道起 poller
-    # （多助理·多 bot）。无渠道/无 token → 零 poller，纯本地不受影响。
-    await channel_manager.refresh()
-
-
-@app.on_event("shutdown")
-async def _stop_channels() -> None:
-    await channel_manager.stop()
-
-
-@app.on_event("shutdown")
-def _stop_telemetry() -> None:
-    # Langfuse batches exports in background threads. Default-off/no client is a no-op.
-    telemetry.shutdown()
 
 
 @app.get("/api/health")

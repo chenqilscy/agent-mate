@@ -371,11 +371,13 @@ class WorkItemDeliveryCollaborationTest(unittest.IsolatedAsyncioTestCase):
             ))
         with patch.object(
             work_item_runner.server_client, "update_work_item",
-            side_effect=HTTPException(409, "archived project is read-only"),
-        ):
-            self.assertFalse(await work_item_runner._set_item_status(
+            side_effect=work_item_runner.server_client.ServerRejected(
+                409, "archived project is read-only",
+            ),
+        ), self.assertRaises(work_item_runner.server_client.ServerRejected):
+            await work_item_runner._set_item_status(
                 self.item, db.get_user(LOCAL_USER_ID), "review", server_token="server-token",
-            ))
+            )
 
         saved = db.get_work_item(self.item.id)
         dirty = db.get_conn().execute(
@@ -383,6 +385,88 @@ class WorkItemDeliveryCollaborationTest(unittest.IsolatedAsyncioTestCase):
         ).fetchone()["server_dirty"]
         self.assertEqual("doing", saved.status)
         self.assertEqual(0, dirty)
+
+    async def test_server_execute_replay_checks_local_launch_before_remote_status_write(self) -> None:
+        db.get_conn().execute("UPDATE projects SET origin='server' WHERE id=?", (self.project.id,))
+        db.get_conn().commit()
+        launch, _ = db.create_work_item_launch(
+            work_item_id=self.item.id, owner_id=LOCAL_USER_ID,
+            idempotency_key=f"work-item:{self.item.id}:same-request",
+        )
+        db.finish_work_item_launch(launch["id"], status="completed")
+
+        with (
+            patch.object(work_items_router.server_client, "server_enabled", return_value=True),
+            patch.object(work_items_router.server_client, "update_work_item") as remote_update,
+        ):
+            result = await work_items_router.execute_item(
+                self.item.id,
+                work_items_router.ExecuteWorkItemBody(idempotency_key="same-request"),
+                authorization="Bearer server-token",
+            )
+
+        self.assertFalse(result["created"])
+        self.assertEqual("completed", result["launch"]["status"])
+        remote_update.assert_not_called()
+
+    async def test_server_acceptance_replay_rolls_forward_after_local_commit_failure(self) -> None:
+        db.get_conn().execute("UPDATE projects SET origin='server' WHERE id=?", (self.project.id,))
+        db.get_conn().commit()
+        session = db.create_session(
+            owner_id=LOCAL_USER_ID, title="accept-replay", kind="projexec",
+            project_id=self.project.id,
+        )
+        run, _ = db.create_run(
+            session_id=session.id, owner_id=LOCAL_USER_ID, project_id=self.project.id,
+            work_item_id=self.item.id, mode="exec", workspace=f"projects/{self.project.id}",
+        )
+        path = settings.WORKSPACE_ROOT / run.workspace / "accepted.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("verified", encoding="utf-8")
+        artifact = db.upsert_artifact(
+            run_id=run.id, path="accepted.txt", full_path=path, source_tool="write_file",
+            validation={"passed": True},
+        )
+        db.get_conn().execute(
+            "UPDATE artifacts SET validation_status='passed' WHERE id=?", (artifact.id,),
+        )
+        db.get_conn().commit()
+        db.set_run_status(run.id, "completed")
+        db.update_work_item(self.item.id, status="review")
+        body = work_items_router.AcceptWorkItemDeliveryBody(run_id=run.id)
+        original_accept = db.accept_work_item_delivery
+
+        with (
+            patch.object(work_items_router, "_server_write_token", return_value="server-token"),
+            patch.object(
+                work_items_router.server_client, "accept_work_item",
+                return_value={"id": self.item.id, "status": "done"},
+            ) as remote_accept,
+            patch.object(work_items_router.db, "accept_work_item_delivery", side_effect=OSError("disk full")),
+            self.assertRaisesRegex(OSError, "disk full"),
+        ):
+            await work_items_router.accept_item_delivery(
+                self.item.id, body, authorization="Bearer server-token",
+            )
+        self.assertEqual("review", db.get_work_item(self.item.id).status)
+        self.assertEqual("completed", db.get_run(run.id).status)
+
+        with (
+            patch.object(work_items_router, "_server_write_token", return_value="server-token"),
+            patch.object(
+                work_items_router.server_client, "accept_work_item",
+                return_value={"id": self.item.id, "status": "done"},
+            ),
+            patch.object(work_items_router.db, "accept_work_item_delivery", wraps=original_accept),
+        ):
+            repaired = await work_items_router.accept_item_delivery(
+                self.item.id, body, authorization="Bearer server-token",
+            )
+        self.assertTrue(repaired["ok"])
+        self.assertEqual("done", db.get_work_item(self.item.id).status)
+        self.assertEqual("accepted", db.get_run(run.id).status)
+        self.assertEqual("accepted", db.get_artifact(artifact.id).acceptance_status)
+        self.assertEqual(1, remote_accept.call_count)
 
     async def test_server_completion_waits_for_authoritative_status_handoff(self) -> None:
         db.update_work_item(self.item.id, status="doing")

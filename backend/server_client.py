@@ -2,22 +2,50 @@
 
 后台与缓存读取调用保持 **guarded**：未接 Server（AGENTMATE_SERVER_URL 空）/ 不可达 / 非 200 → 返回 None，
 保证离线/未登录纯本地照跑。用户发起的权威写入与无缓存读取使用 strict 模式：Server 4xx 原样转成
-HTTP 错误，只有网络异常/5xx 才按不可达处理。这些是**同步阻塞**调用（httpx.get）——
+HTTP 错误，只有网络异常/5xx 才按不可达处理。这些是复用共享 `httpx.Client` 的**同步阻塞**调用——
 调用方必须在工作线程里跑它，别占事件循环（WB-002 教训）。同步 payload 绝不含 LLM 凭据或
 连接器 secret。WB-290 的知识库上传是唯一例外：只在用户显式调用 knowledge_add 时，把目标文件
 发送到已鉴权的项目知识库路由；绝不自动同步沙箱。
 """
 from __future__ import annotations
 
+import threading
 from typing import Any, Optional
 
 import httpx
-from fastapi import HTTPException
 
 from config import settings
 
 _TIMEOUT = 5.0
 _KNOWLEDGE_TIMEOUT = 120.0
+_client_lock = threading.Lock()
+_http_client: httpx.Client | None = None
+
+
+class ServerRejected(RuntimeError):
+    """Authoritative 4xx response. HTTP translation belongs at the API boundary."""
+
+    def __init__(self, status_code: int, detail: Any) -> None:
+        super().__init__(str(detail))
+        self.status_code = int(status_code)
+        self.detail = detail
+
+
+def _client() -> httpx.Client:
+    global _http_client
+    with _client_lock:
+        if _http_client is None or _http_client.is_closed:
+            _http_client = httpx.Client()
+        return _http_client
+
+
+def close() -> None:
+    """Close the pooled transport; safe to call repeatedly during partial shutdown."""
+    global _http_client
+    with _client_lock:
+        client, _http_client = _http_client, None
+    if client is not None:
+        client.close()
 
 
 def server_enabled() -> bool:
@@ -37,7 +65,7 @@ def _rejection_detail(response: httpx.Response) -> Any:
 
 def _raise_rejection(response: httpx.Response, strict: bool) -> None:
     if strict and 400 <= response.status_code < 500:
-        raise HTTPException(response.status_code, _rejection_detail(response))
+        raise ServerRejected(response.status_code, _rejection_detail(response))
 
 
 def _get(path: str, token: str, *, strict: bool = False) -> Optional[Any]:
@@ -45,7 +73,7 @@ def _get(path: str, token: str, *, strict: bool = False) -> Optional[Any]:
     if not token or not settings.AGENTMATE_SERVER_URL:
         return None
     try:
-        r = httpx.get(
+        r = _client().get(
             f"{settings.AGENTMATE_SERVER_URL}{path}",
             headers={"Authorization": f"Bearer {token}"},
             timeout=_TIMEOUT,
@@ -54,7 +82,7 @@ def _get(path: str, token: str, *, strict: bool = False) -> Optional[Any]:
             _raise_rejection(r, strict)
             return None
         return r.json()
-    except HTTPException:
+    except ServerRejected:
         raise
     except Exception:  # noqa: BLE001 —— 网络/解析任何错都当「未接/不可达」，回退本地
         return None
@@ -65,7 +93,7 @@ def verify_token_state(token: str) -> tuple[str, Optional[dict[str, Any]]]:
     if not token or not settings.AGENTMATE_SERVER_URL:
         return "unavailable", None
     try:
-        response = httpx.get(
+        response = _client().get(
             f"{settings.AGENTMATE_SERVER_URL}/api/auth/verify",
             headers={"Authorization": f"Bearer {token}"}, timeout=_TIMEOUT,
         )
@@ -98,7 +126,7 @@ def _post(path: str, token: str, body: Optional[dict] = None, *, strict: bool = 
     if not settings.AGENTMATE_SERVER_URL:
         return None
     try:
-        r = httpx.post(
+        r = _client().post(
             f"{settings.AGENTMATE_SERVER_URL}{path}",
             headers=({"Authorization": f"Bearer {token}"} if token else {}),
             json=body or {}, timeout=_TIMEOUT,
@@ -107,7 +135,7 @@ def _post(path: str, token: str, body: Optional[dict] = None, *, strict: bool = 
             _raise_rejection(r, strict)
             return None
         return r.json()
-    except HTTPException:
+    except ServerRejected:
         raise
     except Exception:  # noqa: BLE001
         return None
@@ -118,7 +146,7 @@ def _patch(path: str, token: str, body: Optional[dict] = None, *, strict: bool =
     if not token or not settings.AGENTMATE_SERVER_URL:
         return None
     try:
-        r = httpx.patch(
+        r = _client().patch(
             f"{settings.AGENTMATE_SERVER_URL}{path}",
             headers={"Authorization": f"Bearer {token}"},
             json=body or {}, timeout=_TIMEOUT,
@@ -127,7 +155,7 @@ def _patch(path: str, token: str, body: Optional[dict] = None, *, strict: bool =
             _raise_rejection(r, strict)
             return None
         return r.json()
-    except HTTPException:
+    except ServerRejected:
         raise
     except Exception:  # noqa: BLE001
         return None
@@ -138,13 +166,13 @@ def _delete(path: str, token: str, *, strict: bool = False) -> bool:
     if not token or not settings.AGENTMATE_SERVER_URL:
         return False
     try:
-        r = httpx.delete(f"{settings.AGENTMATE_SERVER_URL}{path}",
+        r = _client().delete(f"{settings.AGENTMATE_SERVER_URL}{path}",
                          headers={"Authorization": f"Bearer {token}"}, timeout=_TIMEOUT)
         if r.status_code != 200:
             _raise_rejection(r, strict)
             return False
         return True
-    except HTTPException:
+    except ServerRejected:
         raise
     except Exception:  # noqa: BLE001
         return False
@@ -170,7 +198,7 @@ def server_login_ex(name: str, password: str, register: bool = False) -> tuple[s
         return ("unreachable", None)
     path = "/api/auth/register" if register else "/api/auth/login"
     try:
-        r = httpx.post(f"{settings.AGENTMATE_SERVER_URL}{path}", json={"name": name, "password": password}, timeout=_TIMEOUT)
+        r = _client().post(f"{settings.AGENTMATE_SERVER_URL}{path}", json={"name": name, "password": password}, timeout=_TIMEOUT)
     except Exception:  # noqa: BLE001 —— 网络/超时任何错都当不可达 → 兜底
         return ("unreachable", None)
     if r.status_code == 200:
@@ -201,7 +229,7 @@ def sso_providers() -> list[dict[str, str]]:
     if not settings.AGENTMATE_SERVER_URL:
         return []
     try:
-        response = httpx.get(
+        response = _client().get(
             f"{settings.AGENTMATE_SERVER_URL}/api/auth/sso/providers", timeout=_TIMEOUT,
         )
         body = response.json() if response.status_code == 200 else {}
@@ -221,7 +249,7 @@ def auth_capabilities() -> dict[str, Any]:
     if not settings.AGENTMATE_SERVER_URL:
         return fallback
     try:
-        response = httpx.get(
+        response = _client().get(
             f"{settings.AGENTMATE_SERVER_URL}/api/auth/capabilities", timeout=_TIMEOUT,
         )
         body = response.json() if response.status_code == 200 else {}
@@ -236,7 +264,7 @@ def sso_start(
     if not settings.AGENTMATE_SERVER_URL:
         return "unreachable", None
     try:
-        response = httpx.post(
+        response = _client().post(
             f"{settings.AGENTMATE_SERVER_URL}/api/auth/sso/start",
             headers=({"Authorization": f"Bearer {token}"} if token else {}),
             json={"provider": provider, "mode": "login", "invite_code": invite_code},
@@ -260,7 +288,7 @@ def sso_poll(attempt_id: str, attempt_token: str) -> tuple[str, Optional[dict[st
     if not settings.AGENTMATE_SERVER_URL:
         return "unreachable", None
     try:
-        response = httpx.post(
+        response = _client().post(
             f"{settings.AGENTMATE_SERVER_URL}/api/auth/sso/poll",
             json={"attempt_id": attempt_id, "attempt_token": attempt_token},
             timeout=_TIMEOUT,
@@ -388,7 +416,7 @@ def post_timeline(token: str, project_id: str, event: dict[str, Any]) -> bool:
     if not token or not settings.AGENTMATE_SERVER_URL:
         return False
     try:
-        r = httpx.post(
+        r = _client().post(
             f"{settings.AGENTMATE_SERVER_URL}/api/projects/{project_id}/timeline",
             headers={"Authorization": f"Bearer {token}"},
             json=event, timeout=_TIMEOUT,
@@ -411,7 +439,7 @@ def create_project(token: str, project: dict[str, Any]) -> Optional[str]:
     if not token or not settings.AGENTMATE_SERVER_URL:
         return None
     try:
-        r = httpx.post(
+        r = _client().post(
             f"{settings.AGENTMATE_SERVER_URL}/api/projects",
             headers={"Authorization": f"Bearer {token}"},
             json=project, timeout=_TIMEOUT,
@@ -555,7 +583,7 @@ def list_project_knowledge(token: str, project_id: str) -> Optional[list[dict[st
     if not token or not settings.AGENTMATE_SERVER_URL:
         return None
     try:
-        response = httpx.get(
+        response = _client().get(
             f"{settings.AGENTMATE_SERVER_URL}/api/projects/{project_id}/knowledge-bases",
             headers={"Authorization": f"Bearer {token}"}, timeout=_KNOWLEDGE_TIMEOUT,
             params={"include_counts": "false"},
@@ -575,7 +603,7 @@ def search_project_knowledge(
     if not token or not settings.AGENTMATE_SERVER_URL:
         return None
     try:
-        response = httpx.post(
+        response = _client().post(
             f"{settings.AGENTMATE_SERVER_URL}/api/projects/{project_id}/knowledge-search",
             headers={"Authorization": f"Bearer {token}"},
             json={"query": query, "knowledge_ids": knowledge_ids, "top_k": top_k},
@@ -597,7 +625,7 @@ def upload_project_knowledge_file(
     if not token or not settings.AGENTMATE_SERVER_URL:
         return None
     try:
-        response = httpx.post(
+        response = _client().post(
             f"{settings.AGENTMATE_SERVER_URL}/api/projects/{project_id}/knowledge-bases/{kb_id}/documents",
             headers={
                 "Authorization": f"Bearer {token}",
@@ -616,7 +644,7 @@ def import_project_knowledge_url(
     if not token or not settings.AGENTMATE_SERVER_URL:
         return None
     try:
-        response = httpx.post(
+        response = _client().post(
             f"{settings.AGENTMATE_SERVER_URL}/api/projects/{project_id}/knowledge-bases/{kb_id}/documents/url",
             headers={"Authorization": f"Bearer {token}"},
             json={"url": url}, timeout=_KNOWLEDGE_TIMEOUT,

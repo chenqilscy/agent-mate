@@ -1,6 +1,6 @@
 # AgentMate 实现方案
 
-> 状态：当前实现基线，更新于 2026-07-23。
+> 状态：当前实现基线，更新于 2026-08-04。
 > 历史里程碑、缺陷与验收记录见 [`issues/`](issues/README.md)。腾讯 WorkBuddy 只作为产品与视觉参考，资料集中在
 > [`WorkBuddy/`](WorkBuddy/README.md)。
 
@@ -74,9 +74,9 @@ server/
   main.py            独立 FastAPI 控制平面入口
   routers/           账号、组织、项目、协作、目录等 API
   db.py              Server SQLite 与迁移
-  web/               legacy Console 与构建后的 React Console 资源
+  web/               Server 同源托管的 React Console 构建产物
 
-console/             React + Ant Design Console 源码（分阶段迁移 legacy 页面）
+console/             已完成迁移的 React + Ant Design Console 源码
 src-tauri/           Tauri 2 壳、sidecar、托盘与 updater 脚手架
 docs/                当前方案、专项设计、参考资料和 issue 台账
 ```

@@ -48,7 +48,9 @@ def snapshot() -> dict[str, Any]:
     with _lock:
         components = [dict(_components[name]) for name in sorted(_components)]
     return {
-        "healthy": all(item["consecutive_failures"] == 0 for item in components),
+        "healthy": bool(components) and all(
+            item["consecutive_failures"] == 0 for item in components
+        ),
         "components": components,
     }
 

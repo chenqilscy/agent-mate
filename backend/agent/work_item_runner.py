@@ -28,6 +28,12 @@ def _run_key(launch: dict, attempt: int) -> str:
     return launch["idempotency_key"] if attempt <= 1 else f"{launch['idempotency_key']}:attempt:{attempt}"
 
 
+def find_existing(item: WorkItem, user: User, idempotency_key: str) -> Optional[dict]:
+    """Resolve a launch before a Server-origin execute request performs side effects."""
+    key = f"work-item:{item.id}:{idempotency_key.strip()[:120]}"
+    return db.get_work_item_launch_by_key(user.id, key)
+
+
 def _attempt_run(job: dict, launch: dict, attempt: int | None = None):
     number = int(job.get("attempt") or 1) if attempt is None else attempt
     return db.get_run_by_idempotency(launch["owner_id"], _run_key(launch, number))
@@ -60,7 +66,9 @@ async def _set_item_status(
             updated = await asyncio.to_thread(
                 server_client.update_work_item, token, item.project_id, item.id, {"status": status},
             )
-        except Exception:  # Server rejection/outage must not create a local authority fork
+        except server_client.ServerRejected:
+            raise
+        except Exception:  # Network/transport failure must not create a local authority fork
             return False
         if not updated:
             return False
@@ -93,7 +101,10 @@ async def _fail_launch(job: dict) -> None:
         error_code=code, error_message=message,
     )
     token = _server_tokens.pop(launch["id"], "") or db.get_server_identity(user.id) or ""
-    status_synced = await _set_item_status(item, user, "paused", server_token=token)
+    try:
+        status_synced = await _set_item_status(item, user, "paused", server_token=token)
+    except server_client.ServerRejected:
+        status_synced = False
     sync_note = "" if status_synced else "；Server 任务状态未同步，请恢复连接或权限后重试"
     db.create_notification(
         user_id=user.id, kind="work_item_run", title=f"工作项执行失败：{item.title}",
@@ -129,8 +140,15 @@ async def _execute_job(job: dict) -> None:
                     "执行完成但未产生可验收交付物", code="artifact_missing",
                 )
             token = _server_tokens.get(launch_id, "")
-            if not await _set_item_status(item, user, "review", server_token=token):
-                raise RuntimeError("Server 暂不可达或拒绝状态更新，待验收状态尚未同步")
+            try:
+                status_synced = await _set_item_status(item, user, "review", server_token=token)
+            except server_client.ServerRejected as exc:
+                raise background_worker.TerminalJobError(
+                    f"Server 拒绝待验收状态更新：{exc.detail}",
+                    code=f"server_rejected_{exc.status_code}",
+                ) from exc
+            if not status_synced:
+                raise RuntimeError("Server 暂不可达，待验收状态尚未同步")
             _server_tokens.pop(launch_id, None)
             launch = db.finish_work_item_launch(launch_id, status="completed", run_id=previous.id)
             await _emit_final(launch, item, user)
@@ -177,8 +195,15 @@ async def _execute_job(job: dict) -> None:
                 "执行完成但未产生可验收交付物", code="artifact_missing",
             )
         token = _server_tokens.get(launch_id, "")
-        if not await _set_item_status(item, user, "review", server_token=token):
-            raise RuntimeError("Server 暂不可达或拒绝状态更新，待验收状态尚未同步")
+        try:
+            status_synced = await _set_item_status(item, user, "review", server_token=token)
+        except server_client.ServerRejected as exc:
+            raise background_worker.TerminalJobError(
+                f"Server 拒绝待验收状态更新：{exc.detail}",
+                code=f"server_rejected_{exc.status_code}",
+            ) from exc
+        if not status_synced:
+            raise RuntimeError("Server 暂不可达，待验收状态尚未同步")
         _server_tokens.pop(launch_id, None)
         launch = db.finish_work_item_launch(launch_id, status="completed", run_id=run.id)
         await _emit_final(launch, item, user)

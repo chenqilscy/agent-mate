@@ -276,6 +276,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           doneOk = !errored
           patchBot((m) => ({ ...m, status: 'done', runStatus: errored ? m.runStatus : 'completed' }))
           break
+        default: {
+          const exhaustive: never = ev
+          return exhaustive
+        }
       }
     }
 
