@@ -143,6 +143,10 @@ export const consoleApi = {
     apiRequest<AuthResponse>("POST", "/auth/login", { name, password }),
   register: (name: string, password: string) =>
     apiRequest<AuthResponse>("POST", "/auth/register", { name, password }),
+  authCapabilities: () =>
+    apiRequest<{ password_registration: boolean; registration_policy: string; min_password_length: number; bootstrap_available: boolean }>("GET", "/auth/capabilities"),
+  bootstrapAdmin: (name: string, password: string, bootstrap_secret: string) =>
+    apiRequest<AuthResponse>("POST", "/auth/bootstrap", { name, password, bootstrap_secret }),
   ssoProviders: () =>
     apiRequest<{ providers: { id: string; label: string }[] }>("GET", "/auth/sso/providers"),
   ssoStart: (provider: string, invite_code = "") =>
@@ -160,6 +164,21 @@ export const consoleApi = {
     apiRequest<{ providers: { id: string; label: string; enabled: boolean; client_id: string; secret_configured: boolean; updated_at: number }[] }>(
       "GET", "/admin/sso/providers",
     ),
+  ssoProviderAudit: (limit = 100) =>
+    apiRequest<{ audit: Array<{ id: string; provider: string; actor_id: string; action: string; details: Record<string, unknown>; created_at: number }> }>(
+      "GET", `/admin/sso/audit?limit=${limit}`,
+    ),
+  ssoReadiness: () => apiRequest<{
+    ready: boolean;
+    environment: string;
+    registration_policy: string;
+    public_base_url: string;
+    public_https: boolean;
+    secret_protection: string;
+    blockers: string[];
+    warnings: string[];
+    providers: Array<{ id: string; label: string; enabled: boolean; configured: boolean; callback_url: string; ready_for_external_test: boolean; blockers: string[] }>;
+  }>("GET", "/admin/sso/readiness"),
   saveSsoProvider: (
     provider: string,
     body: { enabled: boolean; client_id: string; client_secret?: string },
@@ -579,6 +598,41 @@ export const consoleApi = {
       "POST",
       `/accounts/${encodeURIComponent(id)}/password`,
       { password },
+    ),
+  setPasswordLogin: (id: string, enabled: boolean) =>
+    apiRequest<{ account: Account }>(
+      "PUT",
+      `/accounts/${encodeURIComponent(id)}/password-login`,
+      { enabled },
+    ),
+  setAccountSuspended: (id: string, suspended: boolean) =>
+    apiRequest<{ account: Account }>(
+      "PUT",
+      `/accounts/${encodeURIComponent(id)}/suspension`,
+      { suspended },
+    ),
+  revokeAccountSessions: (id: string) =>
+    apiRequest<{ revoked: number }>(
+      "POST",
+      `/accounts/${encodeURIComponent(id)}/sessions/revoke`,
+    ),
+  unlinkAccountIdentity: (id: string, provider: string) =>
+    apiRequest<{ ok: boolean }>(
+      "DELETE",
+      `/accounts/${encodeURIComponent(id)}/identities/${encodeURIComponent(provider)}`,
+    ),
+  authAudit: (accountId = "", limit = 100) =>
+    apiRequest<{ audit: Array<{
+      id: string;
+      account_id: string;
+      actor_id: string;
+      action: string;
+      provider: string;
+      details: Record<string, unknown>;
+      created_at: number;
+    }> }>(
+      "GET",
+      `/accounts/auth-audit?account_id=${encodeURIComponent(accountId)}&limit=${limit}`,
     ),
   deleteAccount: (id: string) =>
     apiRequest<{ ok: boolean }>(

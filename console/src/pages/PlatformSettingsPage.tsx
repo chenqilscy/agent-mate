@@ -56,6 +56,8 @@ export default function PlatformSettingsPage() {
   const [testing, setTesting] = useState(false);
   const [ssoProviders, setSsoProviders] = useState<SsoProviderConfig[]>([]);
   const [ssoSaving, setSsoSaving] = useState("");
+  const [ssoAudit, setSsoAudit] = useState<Array<{ id: string; provider: string; actor_id: string; action: string; created_at: number }>>([]);
+  const [ssoReadiness, setSsoReadiness] = useState<Awaited<ReturnType<typeof consoleApi.ssoReadiness>> | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -77,8 +79,8 @@ export default function PlatformSettingsPage() {
 
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    void consoleApi.adminSsoProviders()
-      .then((result) => setSsoProviders(result.providers))
+    void Promise.all([consoleApi.adminSsoProviders(), consoleApi.ssoProviderAudit(), consoleApi.ssoReadiness()])
+      .then(([providers, audit, readiness]) => { setSsoProviders(providers.providers); setSsoAudit(audit.audit); setSsoReadiness(readiness); })
       .catch((reason) => message.error(errorText(reason)));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -96,6 +98,8 @@ export default function PlatformSettingsPage() {
       if (provider.client_secret?.trim()) body.client_secret = provider.client_secret.trim();
       const result = await consoleApi.saveSsoProvider(provider.id, body);
       patchSso(provider.id, { ...result.provider, client_secret: "" });
+      setSsoAudit((await consoleApi.ssoProviderAudit()).audit);
+      setSsoReadiness(await consoleApi.ssoReadiness());
       message.success(`${provider.label} 登录配置已保存`);
     } catch (reason) {
       message.error(errorText(reason));
@@ -179,9 +183,10 @@ export default function PlatformSettingsPage() {
             type="warning"
             showIcon
             title="先登记公开 HTTPS 回调，再启用入口"
-            description="Client Secret 只写不回显；留空表示保持当前值。未启用或凭据不完整的入口不会显示在 App/Console 登录页。"
+            description="Client Secret 只写不回显并在 Server 数据库中加密；生产环境必须配置独立主密钥。未启用或凭据不完整的入口不会显示在 App/Console 登录页。"
             style={{ marginBottom: 16 }}
           />
+          {ssoReadiness ? <Alert type={ssoReadiness.ready ? "success" : "warning"} showIcon title={ssoReadiness.ready ? "SSO 部署自检通过" : "SSO 仍有部署前置条件"} description={<Space direction="vertical"><Typography.Text>公开地址：{ssoReadiness.public_base_url} · 密钥保护：{ssoReadiness.secret_protection}</Typography.Text>{[...ssoReadiness.blockers, ...ssoReadiness.warnings].map((item) => <Typography.Text key={item} type="secondary">{item}</Typography.Text>)}</Space>} style={{ marginBottom: 16 }} /> : null}
           <Space direction="vertical" size={12} style={{ width: "100%" }}>
             {ssoProviders.map((provider) => (
               <Card key={provider.id} size="small">
@@ -207,10 +212,12 @@ export default function PlatformSettingsPage() {
                   <Button loading={ssoSaving === provider.id} onClick={() => void saveSso(provider)}>
                     保存 {provider.label}
                   </Button>
+                  {ssoReadiness?.providers.find((item) => item.id === provider.id) ? <Typography.Text type="secondary">回调：{ssoReadiness.providers.find((item) => item.id === provider.id)?.callback_url}</Typography.Text> : null}
                 </Space>
               </Card>
             ))}
           </Space>
+          <Table rowKey="id" size="small" style={{ marginTop: 16 }} pagination={{ pageSize: 6 }} dataSource={ssoAudit} columns={[{ title: "Provider", dataIndex: "provider" }, { title: "动作", dataIndex: "action" }, { title: "执行人", dataIndex: "actor_id", ellipsis: true }, { title: "时间", dataIndex: "created_at", width: 180, render: (value) => new Date(Number(value) * 1000).toLocaleString() }]} />
         </Card>
         <Card title="启动级配置边界" style={{ marginTop: 16 }}>
           <Typography.Paragraph type="secondary">以下配置必须通过部署环境管理，不能假装热更新：</Typography.Paragraph>

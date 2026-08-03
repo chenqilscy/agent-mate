@@ -16,6 +16,10 @@ SERVICE_SCOPES = {"relay:write", "relay:read"}
 _TOKEN_RE = re.compile(r"^ams_([0-9a-f-]{36})\.([A-Za-z0-9_-]{32,})$")
 _DEVICE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,119}$")
 _EVENT_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$")
+_TERMINAL = ("succeeded", "failed", "dead_letter")
+_cleanup_state: dict[str, Any] = {
+    "last_run_at": None, "payloads_tombstoned": 0, "rows_deleted": 0,
+}
 
 
 def _hash(value: str) -> str:
@@ -101,7 +105,9 @@ def resolve_service_token(token: str, required_scope: str | None = None) -> dict
     if not match:
         return None
     row = db.get_conn().execute(
-        "SELECT * FROM service_accounts WHERE id=? AND revoked_at IS NULL", (match.group(1),),
+        "SELECT sa.* FROM service_accounts sa JOIN accounts a ON a.id=sa.owner_id "
+        "WHERE sa.id=? AND sa.revoked_at IS NULL AND a.suspended_at<=0",
+        (match.group(1),),
     ).fetchone()
     if not row or not secrets.compare_digest(str(row["token_hash"]), _hash(token)):
         return None
@@ -204,7 +210,7 @@ def _event_public(row: sqlite3.Row, *, include_payload: bool = False) -> dict:
         "updated_at": row["updated_at"], "acknowledged_at": row["acknowledged_at"],
     }
     if include_payload:
-        item["payload"] = json.loads(row["payload"])
+        item["payload"] = json.loads(row["payload"] or "{}")
     return item
 
 
@@ -277,3 +283,71 @@ def acknowledge(
     )
     db.get_conn().commit()
     return event_view(event_id)
+
+
+def cleanup_terminal_events(now: float | None = None) -> dict[str, Any]:
+    """Bound terminal relay storage without touching pending or leased delivery."""
+    current = time.time() if now is None else float(now)
+    payload_cutoff = current - settings.RELAY_PAYLOAD_RETENTION_SECONDS
+    row_cutoff = current - settings.RELAY_TERMINAL_RETENTION_SECONDS
+    conn = db.get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        deleted = conn.execute(
+            "DELETE FROM relay_events WHERE status IN ('succeeded','failed','dead_letter') "
+            "AND COALESCE(acknowledged_at,updated_at,created_at)<=?",
+            (row_cutoff,),
+        ).rowcount
+        tombstoned = conn.execute(
+            "UPDATE relay_events SET payload='{}',payload_tombstoned_at=?,updated_at=? "
+            "WHERE status IN ('succeeded','failed','dead_letter') "
+            "AND COALESCE(acknowledged_at,updated_at,created_at)<=? "
+            "AND payload_tombstoned_at IS NULL",
+            (current, current, payload_cutoff),
+        ).rowcount
+        owners = [row[0] for row in conn.execute(
+            "SELECT DISTINCT owner_id FROM relay_events "
+            "WHERE status IN ('succeeded','failed','dead_letter')"
+        ).fetchall()]
+        cap = settings.RELAY_MAX_TERMINAL_ROWS_PER_OWNER
+        for owner_id in owners:
+            overflow = conn.execute(
+                "SELECT id FROM relay_events WHERE owner_id=? "
+                "AND status IN ('succeeded','failed','dead_letter') "
+                "ORDER BY COALESCE(acknowledged_at,updated_at,created_at) DESC,id DESC "
+                "LIMIT -1 OFFSET ?",
+                (owner_id, cap),
+            ).fetchall()
+            if overflow:
+                placeholders = ",".join("?" for _ in overflow)
+                deleted += conn.execute(
+                    f"DELETE FROM relay_events WHERE id IN ({placeholders})",
+                    [row[0] for row in overflow],
+                ).rowcount
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    result = {
+        "last_run_at": current,
+        "payloads_tombstoned": int(tombstoned),
+        "rows_deleted": int(deleted),
+    }
+    _cleanup_state.update(result)
+    return dict(result)
+
+
+def retention_snapshot() -> dict[str, Any]:
+    counts = {
+        str(row["status"]): int(row["count"])
+        for row in db.get_conn().execute(
+            "SELECT status,COUNT(*) AS count FROM relay_events GROUP BY status"
+        ).fetchall()
+    }
+    return {
+        **_cleanup_state,
+        "counts": counts,
+        "payload_retention_seconds": settings.RELAY_PAYLOAD_RETENTION_SECONDS,
+        "terminal_retention_seconds": settings.RELAY_TERMINAL_RETENTION_SECONDS,
+        "max_terminal_rows_per_owner": settings.RELAY_MAX_TERMINAL_ROWS_PER_OWNER,
+    }

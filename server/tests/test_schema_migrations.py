@@ -29,7 +29,7 @@ class ServerSchemaMigrationTest(unittest.TestCase):
                 rows = db.get_conn().execute(
                     "SELECT version,name FROM schema_migrations WHERE scope='server' ORDER BY version"
                 ).fetchall()
-                self.assertEqual([1, 2, 3], [row["version"] for row in rows])
+                self.assertEqual([1, 2, 3, 4, 5, 6, 7], [row["version"] for row in rows])
             finally:
                 conn = getattr(db._local, "conn", None)
                 if conn is not None:

@@ -127,6 +127,12 @@ class HierarchicalPlanningTest(unittest.TestCase):
                 1.0,
             ),
         )
+        # This fixture intentionally rewinds to the pre-v6 schema. A recorded
+        # migration must never be rerun merely because runtime code notices a
+        # missing column; remove only the v6 ledger row to model the historical DB.
+        conn.execute(
+            "DELETE FROM schema_migrations WHERE scope='server' AND version>=6"
+        )
         conn.commit()
 
         db.init_db()

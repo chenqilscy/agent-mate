@@ -44,7 +44,7 @@
 | 助理/频道 channels | **App 本地** | ❌ | 不同步 | 全功能 | 私有 |
 | 会话 sessions/messages | **App 本地** | ❌（仅元数据上行） | 见红线 3 | 全功能 | ✅ |
 | 本机 LLM / MCP /连接器 secret | **App 本地** | ❌ | 永不 | 全功能 | ✅ 红线 1 |
-| SSO / 中央服务 provider secret | **Server deployment** | ✅ | Console 只写；不下发 | 新授权/中央服务不可用 | ✅ 脱敏审计 |
+| SSO / 中央服务 provider secret | **Server deployment** | ✅ | Console 只写；AES-GCM 加密落库且不下发 | 新授权/中央服务不可用 | ✅ 脱敏审计与轮换记录 |
 
 ## 3. 同步契约（协作实体怎么同步）
 
@@ -79,7 +79,7 @@
 ## 4. 统一用户与身份规范
 
 - **单一账号权威**：Server 是**唯一**账号系统。App 登录即用 Server 账号身份，**app token == Server token**；本地 `users` 表用 **Server account id 作本地 id** 镜像（`upsert_external_user`）。全端一个用户体系。
-- **联合身份不自动合并**：Google、微信、Telegram 外部 subject 显式绑定到唯一 account_id；同邮箱冲突时拒绝自动链接。默认 `invite_only` 注册，最后一种可用登录方式不能解除。
+- **联合身份不自动合并**：Google、微信、Telegram 外部 subject 显式绑定到唯一 account_id；同邮箱冲突时拒绝自动链接。默认 `invite_only` 注册，公开密码注册同样受全局策略约束；首管理员仅由一次性 bootstrap secret 创建，最后一种可用登录方式不能解除。
 - **禁止本地账号分叉**：App 不创建或认证本地口令账号；Server 未配置或不可达时不能注册/重新登录。已缓存的 Server token 可继续解析为原 Server account id，保证已登录会话离线可用。
 - **本地匿名映射**：未登录 Server 时用 `LOCAL_USER`（`0000…0001`）承载匿名访客数据作用域；它不是账号。首次登录/导入时 `set_server_link` 记录访客存量数据与 Server account 的归属，存量本地数据归到该云账号。
 - **人归属必须强映射**：任务负责人、动态 actor 等“谁”字段，**权威值一律是 Server `account_id`**，显示名由成员表解析。

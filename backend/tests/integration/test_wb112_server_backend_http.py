@@ -96,6 +96,7 @@ class Wb112ServerBackendHttpTest(unittest.TestCase):
             "AGENTMATE_SERVER_STORAGE": str(self.base / "server-storage"),
             "AGENTMATE_SERVER_HOST": "127.0.0.1",
             "AGENTMATE_SERVER_PORT": str(self.server_port),
+            "AGENTMATE_SSO_REGISTRATION_POLICY": "open",
         })
         self.server = self._spawn(ROOT / "server", env)
         self._wait_health(f"{self.server_url}/api/health")

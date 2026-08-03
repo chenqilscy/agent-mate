@@ -60,10 +60,10 @@ def register(body: RegisterBody) -> dict:
     name = (body.name or "").strip()
     if not name or not body.password:
         raise HTTPException(400, "用户名和密码必填")
-    if len(body.password) < 4:
-        raise HTTPException(400, "密码至少 4 位")
     if not server_client.server_enabled():
         raise HTTPException(503, "AgentMate Server 未配置，无法注册账号")
+    if len(body.password) < 12:
+        raise HTTPException(400, "密码至少 12 位")
     status, data = server_client.server_login_ex(name, body.password, register=True)
     if status == "ok" and data:
         return _mirror_server_account(
@@ -94,6 +94,11 @@ def login(body: LoginBody) -> dict:
 @router.get("/sso/providers")
 def sso_providers() -> dict:
     return {"providers": server_client.sso_providers()}
+
+
+@router.get("/capabilities")
+def auth_capabilities() -> dict:
+    return server_client.auth_capabilities()
 
 
 @router.post("/sso/start")

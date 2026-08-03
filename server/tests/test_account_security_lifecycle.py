@@ -1,0 +1,155 @@
+"""Account registration, revocation and login-method lifecycle (WB-366..368)."""
+from __future__ import annotations
+
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+SERVER = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SERVER))
+
+import db  # noqa: E402
+import relay_store  # noqa: E402
+from config import settings  # noqa: E402
+from routers import accounts, auth  # noqa: E402
+
+
+class AccountSecurityLifecycleTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.old_path = settings.DB_PATH
+        self.old_policy = settings.SSO_REGISTRATION_POLICY
+        self.old_bootstrap = settings.BOOTSTRAP_ADMIN_SECRET
+        self.old_rate = settings.AUTH_RATE_LIMIT_PER_MINUTE
+        settings.DB_PATH = Path(self.temp.name) / "server.db"
+        settings.SSO_REGISTRATION_POLICY = "invite_only"
+        settings.BOOTSTRAP_ADMIN_SECRET = "one-time-bootstrap-secret"
+        settings.AUTH_RATE_LIMIT_PER_MINUTE = 100
+        db._local = threading.local()
+        db.init_db()
+        app = FastAPI()
+        app.include_router(auth.router)
+        app.include_router(accounts.router)
+        self.client = TestClient(app)
+
+    def tearDown(self) -> None:
+        self.client.close()
+        conn = getattr(db._local, "conn", None)
+        if conn is not None:
+            conn.close()
+        db._local = threading.local()
+        settings.DB_PATH = self.old_path
+        settings.SSO_REGISTRATION_POLICY = self.old_policy
+        settings.BOOTSTRAP_ADMIN_SECRET = self.old_bootstrap
+        settings.AUTH_RATE_LIMIT_PER_MINUTE = self.old_rate
+        self.temp.cleanup()
+
+    def _bootstrap(self) -> tuple[dict, dict[str, str]]:
+        response = self.client.post("/api/auth/bootstrap", json={
+            "name": "admin", "password": "AdminPassword-123",
+            "email": "admin@example.com",
+            "bootstrap_secret": "one-time-bootstrap-secret",
+        })
+        self.assertEqual(200, response.status_code, response.text)
+        payload = response.json()
+        return payload["account"], {"Authorization": f"Bearer {payload['token']}"}
+
+    def test_registration_policy_and_bootstrap_are_fail_closed(self) -> None:
+        blocked = self.client.post("/api/auth/register", json={
+            "name": "attacker", "password": "AttackerPass-123",
+        })
+        self.assertEqual(403, blocked.status_code)
+
+        admin, _headers = self._bootstrap()
+        self.assertTrue(admin["is_platform_admin"])
+        again = self.client.post("/api/auth/bootstrap", json={
+            "name": "second", "password": "SecondPassword-123",
+            "bootstrap_secret": "one-time-bootstrap-secret",
+        })
+        self.assertEqual(409, again.status_code)
+
+        settings.SSO_REGISTRATION_POLICY = "open"
+        registered = self.client.post("/api/auth/register", json={
+            "name": "member", "password": "MemberPassword-123",
+        })
+        self.assertEqual(200, registered.status_code, registered.text)
+        self.assertFalse(registered.json()["account"]["is_platform_admin"])
+
+    def test_delete_revokes_every_credential_and_identity_atomically(self) -> None:
+        _admin, headers = self._bootstrap()
+        user = db.create_account(name="member", password="MemberPassword-123")
+        human_token = db.create_token(user.id)[0]
+        _service, service_token = relay_store.create_service_account(
+            user.id, "ci", ["relay:read", "relay:write"],
+        )
+        db.get_conn().execute(
+            "INSERT INTO external_identities "
+            "(id,account_id,provider,subject,email,display_name,created_at,last_login_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (db.new_uuid(), user.id, "google", "subject-1", "member@example.com",
+             "Member", time.time(), time.time()),
+        )
+        db.get_conn().commit()
+
+        deleted = self.client.delete(f"/api/accounts/{user.id}", headers=headers)
+        self.assertEqual(200, deleted.status_code, deleted.text)
+        self.assertIsNone(db.account_id_for_token(human_token))
+        self.assertIsNone(relay_store.resolve_service_token(service_token))
+        self.assertEqual(0, db.get_conn().execute(
+            "SELECT COUNT(*) FROM external_identities WHERE account_id=?", (user.id,),
+        ).fetchone()[0])
+        self.assertEqual(0, db.get_conn().execute(
+            "SELECT COUNT(*) FROM service_accounts WHERE owner_id=?", (user.id,),
+        ).fetchone()[0])
+
+    def test_password_reset_suspension_sessions_and_audit(self) -> None:
+        _admin, headers = self._bootstrap()
+        user = db.create_account(
+            name="sso-user", password="unused-generated-secret",
+            password_login_enabled=False,
+        )
+        db.get_conn().execute(
+            "INSERT INTO external_identities "
+            "(id,account_id,provider,subject,email,display_name,created_at,last_login_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (db.new_uuid(), user.id, "google", "subject-2", "", "SSO", time.time(), time.time()),
+        )
+        db.get_conn().commit()
+
+        reset = self.client.post(
+            f"/api/accounts/{user.id}/password", headers=headers,
+            json={"password": "RecoveredPass-123"},
+        )
+        self.assertEqual(200, reset.status_code, reset.text)
+        login = self.client.post("/api/auth/login", json={
+            "name": "sso-user", "password": "RecoveredPass-123",
+        })
+        self.assertEqual(200, login.status_code, login.text)
+        user_token = login.json()["token"]
+        _service, service_token = relay_store.create_service_account(
+            user.id, "automation", ["relay:read"],
+        )
+
+        suspended = self.client.put(
+            f"/api/accounts/{user.id}/suspension", headers=headers,
+            json={"suspended": True},
+        )
+        self.assertEqual(200, suspended.status_code, suspended.text)
+        self.assertIsNone(db.account_id_for_token(user_token))
+        self.assertIsNone(relay_store.resolve_service_token(service_token))
+        self.assertEqual(401, self.client.post("/api/auth/login", json={
+            "name": "sso-user", "password": "RecoveredPass-123",
+        }).status_code)
+        actions = {item["action"] for item in db.list_auth_audit(account_id=user.id)}
+        self.assertIn("password_reset", actions)
+        self.assertIn("account_suspended", actions)
+
+
+if __name__ == "__main__":
+    unittest.main()

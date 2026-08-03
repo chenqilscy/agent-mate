@@ -25,6 +25,7 @@ class V1ReleaseGateContractTest(unittest.TestCase):
             "server/tests",
             "backend/tests/integration",
             "git ls-files --cached",
+            "Untracked tests are excluded",
             "compile_tracked_python.py",
         ):
             self.assertIn(required, gate)

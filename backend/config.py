@@ -157,6 +157,18 @@ class Settings:
     BACKGROUND_JOB_MAX_CONCURRENCY: int = max(
         1, min(16, int(os.getenv("BACKGROUND_JOB_MAX_CONCURRENCY", "4")))
     )
+    BACKGROUND_AGENT_MAX_CONCURRENCY: int = max(
+        1, min(32, int(os.getenv("BACKGROUND_AGENT_MAX_CONCURRENCY", "4")))
+    )
+    BACKGROUND_AGENT_PER_OWNER_CONCURRENCY: int = max(
+        1, min(BACKGROUND_AGENT_MAX_CONCURRENCY, int(os.getenv("BACKGROUND_AGENT_PER_OWNER_CONCURRENCY", "2")))
+    )
+    RELAY_MAX_IN_FLIGHT: int = max(
+        1, min(32, int(os.getenv("RELAY_MAX_IN_FLIGHT", "4")))
+    )
+    RELAY_PER_OWNER_MAX_IN_FLIGHT: int = max(
+        1, min(RELAY_MAX_IN_FLIGHT, int(os.getenv("RELAY_PER_OWNER_MAX_IN_FLIGHT", "2")))
+    )
     BACKGROUND_JOB_SCAN_SECONDS: float = max(
         0.2, float(os.getenv("BACKGROUND_JOB_SCAN_SECONDS", "2"))
     )

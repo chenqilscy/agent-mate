@@ -98,6 +98,7 @@ class ProjectWeKnoraHttpTest(unittest.TestCase):
             "AGENTMATE_SERVER_DB": str(self.base / "server.db"),
             "AGENTMATE_SERVER_STORAGE": str(self.base / "server-storage"),
             "AGENTMATE_SERVER_HOST": "127.0.0.1", "AGENTMATE_SERVER_PORT": str(self.server_port),
+            "AGENTMATE_SSO_REGISTRATION_POLICY": "open",
             "AGENTMATE_SERVER_WEKNORA_URL": f"http://127.0.0.1:{self.provider.server_port}",
             "AGENTMATE_SERVER_WEKNORA_API_KEY": "server-only-secret",
             "AGENTMATE_SERVER_WEKNORA_EMBEDDING_MODEL_ID": "embedding-1",

@@ -1023,9 +1023,8 @@ def init_db() -> None:
     _migrate_assistants()
 
 
-def _migrate_columns() -> None:
-    """幂等补列：老库缺少后加的列时 ALTER TABLE 补上（CREATE TABLE IF NOT EXISTS 不会改已存在的表）。"""
-    conn = get_conn()
+def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
+    """Versioned upgrade of all columns that predate the migration ledger."""
     # WB-026: work_items 增 description / due_date / attachments。
     # WB-108: 专业 PM 字段 priority / start_date / labels / parent_id / milestone_id（与 Server 对齐）。
     have = {r["name"] for r in conn.execute("PRAGMA table_info(work_items)").fetchall()}
@@ -1187,12 +1186,6 @@ def _migrate_columns() -> None:
         if col not in have_cs:
             conn.execute(f"ALTER TABLE catalog_skills ADD COLUMN {ddl}")
 
-    run_migrations(conn, (
-        Migration(1, "existing-schema-baseline", lambda _conn: None),
-        Migration(2, "model-and-run-audit", migrate_model_and_run_audit),
-        Migration(3, "message-run-link", migrate_message_run_link),
-    ))
-
     # WB-166 认知记忆：user_memories 增强度/衰减/软状态字段（参考 AgentOS）。
     # importance 0..1 重要度、usage_count 命中次数（强化）、status active/superseded/archived（软状态，不硬删）、
     # superseded_by 更替留链、last_used_at 最近命中时间（衰减/强化基准）、embedding 本地嵌入向量 BLOB（档二 WB-167 填）。
@@ -1217,7 +1210,51 @@ def _migrate_columns() -> None:
         "CREATE INDEX IF NOT EXISTS idx_user_memories_scope "
         "ON user_memories(owner_id, scope, project_id, status, created_at DESC)"
     )
-    conn.commit()
+    have_a = {r["name"] for r in conn.execute("PRAGMA table_info(automations)").fetchall()}
+    for col, ddl in (
+        ("timeout_sec", "timeout_sec INTEGER NOT NULL DEFAULT 300"),
+        ("max_attempts", "max_attempts INTEGER NOT NULL DEFAULT 3"),
+        ("retry_backoff_sec", "retry_backoff_sec INTEGER NOT NULL DEFAULT 30"),
+        ("max_total_tokens", "max_total_tokens INTEGER NOT NULL DEFAULT 0"),
+        ("notify_policy", "notify_policy TEXT NOT NULL DEFAULT 'failure,recovery'"),
+        ("concurrency_policy", "concurrency_policy TEXT NOT NULL DEFAULT 'skip'"),
+    ):
+        if col not in have_a:
+            conn.execute(f"ALTER TABLE automations ADD COLUMN {ddl}")
+
+
+def _assert_app_schema(conn: sqlite3.Connection) -> None:
+    required = {
+        "users": {"password_hash"},
+        "auth_tokens": {"expires_at"},
+        "sessions": {"automation_id", "summary", "summary_cursor", "summary_updated_at"},
+        "projects": {"origin", "knowledge_ids", "server_updated_at", "server_dirty"},
+        "automations": {
+            "timeout_sec", "max_attempts", "retry_backoff_sec", "max_total_tokens",
+            "notify_policy", "concurrency_policy",
+        },
+        "automation_fires": {"input_payload"},
+        "user_memories": {"importance", "status", "scope", "project_id"},
+        "messages": {"run_id", "error"},
+        "runs": {"model_snapshot", "estimated_cost", "cached_prompt_tokens"},
+    }
+    missing: list[str] = []
+    for table, columns in required.items():
+        have = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        missing.extend(f"{table}.{column}" for column in sorted(columns - have))
+    if missing:
+        raise RuntimeError("app schema invariant failed: " + ", ".join(missing))
+
+
+def _migrate_columns() -> None:
+    conn = get_conn()
+    run_migrations(conn, (
+        Migration(1, "existing-schema-baseline", lambda _conn: None),
+        Migration(2, "model-and-run-audit", migrate_model_and_run_audit),
+        Migration(3, "message-run-link", migrate_message_run_link),
+        Migration(4, "legacy-schema-completion", _migrate_legacy_schema),
+    ))
+    _assert_app_schema(conn)
 
 
 def _ensure_local_user() -> None:
@@ -2910,17 +2947,6 @@ def expert_catalog_specs() -> list[dict[str, Any]]:
 def replace_server_expert_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
     """用 Server EXPERT_DEFS 全量替换本机 server scope；本机自定义 experts 表完全不动。"""
     conn = get_conn()
-    have_a = {r["name"] for r in conn.execute("PRAGMA table_info(automations)").fetchall()}
-    for col, ddl in (
-        ("timeout_sec", "timeout_sec INTEGER NOT NULL DEFAULT 300"),
-        ("max_attempts", "max_attempts INTEGER NOT NULL DEFAULT 3"),
-        ("retry_backoff_sec", "retry_backoff_sec INTEGER NOT NULL DEFAULT 30"),
-        ("max_total_tokens", "max_total_tokens INTEGER NOT NULL DEFAULT 0"),
-        ("notify_policy", "notify_policy TEXT NOT NULL DEFAULT 'failure,recovery'"),
-        ("concurrency_policy", "concurrency_policy TEXT NOT NULL DEFAULT 'skip'"),
-    ):
-        if col not in have_a:
-            conn.execute(f"ALTER TABLE automations ADD COLUMN {ddl}")
     now = time.time()
     rows: list[tuple[Any, ...]] = []
     seen: set[str] = set()

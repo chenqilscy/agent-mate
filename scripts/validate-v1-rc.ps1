@@ -3,6 +3,7 @@ param(
     [switch]$Live,
     [switch]$IsolatedLive,
     [switch]$DesktopPreflight,
+    [switch]$WebE2E,
     [string]$LiveBaseUrl = "http://127.0.0.1:8101/api"
 )
 
@@ -37,6 +38,18 @@ function Get-TrackedTests {
     return $files
 }
 
+function Assert-NoUntrackedTests {
+    $untracked = @(& git ls-files --others --exclude-standard -- `
+        "backend/tests/**/*.py" "server/tests/**/*.py" `
+        "src/**/*.test.ts" "src/**/*.test.tsx" "console/src/**/*.test.ts" "console/src/**/*.test.tsx")
+    if ($LASTEXITCODE -ne 0) {
+        throw "[BLOCKED] Unable to inspect untracked tests"
+    }
+    if ($untracked.Count -gt 0) {
+        throw "[BLOCKED] Untracked tests are excluded from the release evidence: $($untracked -join ', ')"
+    }
+}
+
 function Invoke-NativeStep {
     param(
         [Parameter(Mandatory)][string]$Name,
@@ -61,6 +74,8 @@ try {
     if ($Live -and $IsolatedLive) {
         throw "Choose either -Live or -IsolatedLive, not both."
     }
+    Assert-NoUntrackedTests
+    $passed.Add("No untracked tests")
     $backendRegressionTests = Get-TrackedTests "backend/tests/regression/test_*.py"
     $serverTests = Get-TrackedTests "server/tests/test_*.py"
     $integrationTests = Get-TrackedTests "backend/tests/integration/test_*.py"
@@ -91,6 +106,15 @@ try {
     }
     Invoke-NativeStep "Tracked Python compilation" {
         & $python scripts/compile_tracked_python.py
+    }
+
+    if ($WebE2E) {
+        Invoke-NativeStep "Web visual theme and responsive E2E" {
+            & $python backend/tests/e2e/visual_theme_check.py
+        }
+    }
+    else {
+        Write-Host "[NOT RUN] Web visual E2E. Start the intended App stack and re-run with -WebE2E." -ForegroundColor Yellow
     }
 
     if ($IsolatedLive) {

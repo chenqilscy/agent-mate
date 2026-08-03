@@ -87,6 +87,7 @@ def main() -> int:
                 "AGENTMATE_SERVER_STORAGE": str(temp / "server-storage"),
                 "AGENTMATE_SERVER_HOST": "127.0.0.1",
                 "AGENTMATE_SERVER_PORT": str(server_port),
+                "AGENTMATE_SSO_REGISTRATION_POLICY": "open",
             })
             server = spawn(ROOT / "server", server_env)
             wait_health(f"{server_url}/api/health", server)

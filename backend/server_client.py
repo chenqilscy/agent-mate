@@ -157,6 +157,25 @@ def sso_providers() -> list[dict[str, str]]:
         return []
 
 
+def auth_capabilities() -> dict[str, Any]:
+    fallback = {
+        "password_registration": False,
+        "registration_policy": "disabled" if not settings.AGENTMATE_SERVER_URL else "unreachable",
+        "min_password_length": 12,
+        "bootstrap_available": False,
+    }
+    if not settings.AGENTMATE_SERVER_URL:
+        return fallback
+    try:
+        response = httpx.get(
+            f"{settings.AGENTMATE_SERVER_URL}/api/auth/capabilities", timeout=_TIMEOUT,
+        )
+        body = response.json() if response.status_code == 200 else {}
+        return body if isinstance(body, dict) else fallback
+    except Exception:  # noqa: BLE001
+        return fallback
+
+
 def sso_start(
     provider: str, *, invite_code: str = "", token: str = "",
 ) -> tuple[str, Optional[dict[str, Any]]]:

@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 import db
+import sso_store
 from auth import CurrentAccount
 from models import Account
 
@@ -29,7 +30,7 @@ def list_accounts(account: Account = CurrentAccount) -> dict:
 
 class CreateBody(BaseModel):
     name: str = Field(min_length=1, max_length=60)
-    password: str = Field(min_length=4, max_length=200)
+    password: str = Field(min_length=12, max_length=200)
     email: str = Field(default="", max_length=120)
     plan: str = Field(default="体验版", max_length=40)
     is_platform_admin: bool = False
@@ -43,9 +44,14 @@ def create_account(body: CreateBody, account: Account = CurrentAccount) -> dict:
         raise HTTPException(400, "empty name")
     if db.find_account_by_name(name):
         raise HTTPException(409, "name already taken")
-    acc = db.create_account(name=name, password=body.password, email=body.email.strip(), plan=body.plan.strip() or "体验版")
-    if body.is_platform_admin and not acc.is_platform_admin:
-        db.update_account(acc.id, is_platform_admin=True)
+    acc = db.create_account(
+        name=name, password=body.password, email=body.email.strip(),
+        plan=body.plan.strip() or "体验版", is_platform_admin=body.is_platform_admin,
+    )
+    db.record_auth_audit(
+        action="account_created", account_id=acc.id, actor_id=account.id,
+        details={"platform_admin": body.is_platform_admin},
+    )
     return {"account": db.get_account_admin_view(acc.id)}
 
 
@@ -77,7 +83,7 @@ def update_account(account_id: str, body: UpdateBody, account: Account = Current
 
 
 class PasswordBody(BaseModel):
-    password: str = Field(min_length=4, max_length=200)
+    password: str = Field(min_length=12, max_length=200)
 
 
 @router.post("/accounts/{account_id}/password")
@@ -85,8 +91,85 @@ def reset_password(account_id: str, body: PasswordBody, account: Account = Curre
     _require_admin(account)
     if db.get_account(account_id) is None:
         raise HTTPException(404, "account not found")
-    db.set_account_password(account_id, body.password)
+    db.set_account_password(account_id, body.password, actor_id=account.id)
     return {"ok": True}
+
+
+class PasswordLoginBody(BaseModel):
+    enabled: bool
+
+
+@router.put("/accounts/{account_id}/password-login")
+def password_login(
+    account_id: str, body: PasswordLoginBody, account: Account = CurrentAccount,
+) -> dict:
+    _require_admin(account)
+    if db.get_account(account_id) is None:
+        raise HTTPException(404, "account not found")
+    try:
+        db.set_password_login_enabled(account_id, body.enabled, actor_id=account.id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"account": db.get_account_admin_view(account_id)}
+
+
+class SuspensionBody(BaseModel):
+    suspended: bool
+
+
+@router.put("/accounts/{account_id}/suspension")
+def suspension(
+    account_id: str, body: SuspensionBody, account: Account = CurrentAccount,
+) -> dict:
+    _require_admin(account)
+    target = db.get_account(account_id)
+    if target is None:
+        raise HTTPException(404, "account not found")
+    if account_id == account.id and body.suspended:
+        raise HTTPException(400, "不能暂停自己")
+    if body.suspended and target.is_platform_admin and db.count_platform_admins() <= 1:
+        raise HTTPException(400, "不能暂停最后一个平台管理员")
+    db.set_account_suspended(account_id, body.suspended, actor_id=account.id)
+    return {"account": db.get_account_admin_view(account_id)}
+
+
+@router.post("/accounts/{account_id}/sessions/revoke")
+def revoke_sessions(account_id: str, account: Account = CurrentAccount) -> dict:
+    _require_admin(account)
+    if db.get_account(account_id) is None:
+        raise HTTPException(404, "account not found")
+    return {"revoked": db.revoke_account_sessions(account_id, actor_id=account.id)}
+
+
+@router.get("/accounts/{account_id}/identities")
+def account_identities(account_id: str, account: Account = CurrentAccount) -> dict:
+    _require_admin(account)
+    if db.get_account(account_id) is None:
+        raise HTTPException(404, "account not found")
+    return {"identities": db.list_account_identities(account_id)}
+
+
+@router.delete("/accounts/{account_id}/identities/{provider}")
+def unlink_account_identity(
+    account_id: str, provider: str, account: Account = CurrentAccount,
+) -> dict:
+    _require_admin(account)
+    try:
+        removed = sso_store.unlink_identity(account_id, provider)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not removed:
+        raise HTTPException(404, "identity not found")
+    db.revoke_account_sessions(account_id, actor_id=account.id, action="identity_unlinked")
+    return {"ok": True}
+
+
+@router.get("/accounts/auth-audit")
+def auth_audit(
+    account_id: str = "", limit: int = 100, account: Account = CurrentAccount,
+) -> dict:
+    _require_admin(account)
+    return {"audit": db.list_auth_audit(limit=limit, account_id=account_id)}
 
 
 @router.delete("/accounts/{account_id}")
@@ -102,5 +185,8 @@ def delete_account(account_id: str, account: Account = CurrentAccount) -> dict:
     owned = db.owned_projects_count(account_id)
     if owned:
         raise HTTPException(400, f"该账号仍拥有 {owned} 个项目，请先移交或删除后再删账号")
-    db.delete_account(account_id)
+    owned_orgs = db.owned_orgs_count(account_id)
+    if owned_orgs:
+        raise HTTPException(400, f"该账号仍拥有 {owned_orgs} 个组织，请先移交或删除后再删账号")
+    db.delete_account(account_id, actor_id=account.id)
     return {"ok": True}

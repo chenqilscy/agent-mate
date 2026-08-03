@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from config import settings
-from agent import worker_health
+from agent import background_limits, worker_health
 from storage import background_job_store as jobs
 
 log = logging.getLogger("agentmate.background_worker")
@@ -80,7 +80,8 @@ async def _run_claimed(job: Job) -> None:
         return
     heartbeat_task = asyncio.create_task(_heartbeat(job["id"]))
     try:
-        await spec.run(job)
+        async with background_limits.slot(str(job.get("owner_id") or "")):
+            await spec.run(job)
     except asyncio.CancelledError:
         current = jobs.get(job["id"])
         if current and current["status"] == "running":

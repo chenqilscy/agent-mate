@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 import db
 import sso_protocol
 import sso_store
+import secret_crypto
 from auth import CurrentAccount, bearer_token
 from models import Account
 
@@ -38,6 +39,18 @@ def admin_providers(account: Account = CurrentAccount) -> dict:
     return {"providers": sso_store.admin_providers()}
 
 
+@router.get("/admin/sso/audit")
+def provider_audit(limit: int = 100, account: Account = CurrentAccount) -> dict:
+    _admin(account)
+    return {"audit": sso_store.list_provider_audit(limit)}
+
+
+@router.get("/admin/sso/readiness")
+def readiness(account: Account = CurrentAccount) -> dict:
+    _admin(account)
+    return sso_store.provider_readiness()
+
+
 class ProviderBody(BaseModel):
     enabled: bool = False
     client_id: str = Field(default="", max_length=300)
@@ -52,7 +65,7 @@ def update_provider(provider: str, body: ProviderBody, account: Account = Curren
             provider, enabled=body.enabled, client_id=body.client_id,
             client_secret=body.client_secret, updated_by=account.id,
         )
-    except ValueError as exc:
+    except (ValueError, secret_crypto.SecretKeyUnavailable) as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"provider": item}
 

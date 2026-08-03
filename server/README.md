@@ -8,6 +8,10 @@ AgentMate 从纯 local-first 走向「本地执行 + 云端控制平面」重构
 联合登录（Google、微信、Telegram）的公网回调、provider 配置、邀请制注册与账号绑定见
 [`docs/sso-deployment.md`](../docs/sso-deployment.md)。
 
+正式部署必须显式配置 `AGENTMATE_BOOTSTRAP_ADMIN_SECRET` 完成一次性管理员初始化，并设置
+`AGENTMATE_ENVIRONMENT=production`、`AGENTMATE_SSO_SECRET_ENCRYPTION_KEY` 与公开 HTTPS
+`AGENTMATE_SSO_PUBLIC_BASE_URL`；生产环境不会回退到本地开发 key。
+
 > monorepo：与本地 `backend/` 代码解耦、可单独部署与启动，但同仓共享一份 git 历史。
 > **绝不承载** LLM 凭据，也不自动同步沙箱工作区。WB-290 起 Server 保存中央 WeKnora
 > 服务凭据，并且只在用户显式上传/`knowledge_add` 时接收目标文件作为项目团队资料。

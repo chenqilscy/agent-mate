@@ -51,7 +51,8 @@ Server 不能执行用户本地任务，不能读取工作区或会话正文，�
 - Server 是唯一账号权威并签发 Bearer token；App 不创建或认证本地口令账号。
 - Server 联合身份 broker 支持 Google OIDC、微信开放平台网站 OAuth 和 Telegram OIDC。默认仅邀请注册；
   已登录用户须显式绑定，邮箱相同不自动合并，最后一种登录方式不能被解除。
-- SSO provider 配置与一次性 signup invite 由 Console 平台设置管理；provider secret 只写不回显。
+- SSO provider 配置与一次性 signup invite 由 Console 平台设置管理；provider secret 只写不回显，
+  以独立主密钥 AES-GCM 加密落库，启停/Client ID/密钥轮换写入脱敏不可变审计。
 - App backend 代理登录/注册并缓存已验证的 Server 身份；前端仍只与 App backend 通信。
 - Server 管理组织、项目、成员、Owner/Admin/Member/Viewer 角色与邀请。
 - App 镜像 server-origin 项目与成员，并在本地路由执行同样的角色门禁；Viewer 只读。
@@ -288,7 +289,7 @@ Console 管账号、组织、项目协作和 AgentMate 自有目录。Skill 定�
 | Console 全站 React/Ant Design | 已完成 | WB-234、WB-236 |
 | 后台循环健康、故障恢复与 CI 隔离 | 已完成 | WB-359、WB-360 |
 | 外部系统 durable relay | 已完成 | WB-361、[`external-system-integration.md`](external-system-integration.md) |
-| Google/微信/Telegram 联合 SSO broker | 已完成协议与管理面；生产 provider 验收待部署条件 | WB-362、[`sso-deployment.md`](sso-deployment.md) |
+| Google/微信/Telegram 联合 SSO broker | 协议、账户生命周期、加密审计和上线自检已完成；真实 provider 验收待部署方域名/凭据 | WB-362、WB-366～372、[`sso-deployment.md`](sso-deployment.md) |
 | App/Server 版本化数据库迁移 | 已完成 | WB-363 |
 | 桌面更新代码链 | 已完成；本机真实 updater 签名升级/拒绝/回滚已演练，正式生产部署验收由外部条件项追踪 | WB-257、WB-283、[`desktop-build.md`](desktop-build.md) |
 

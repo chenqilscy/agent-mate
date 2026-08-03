@@ -7,6 +7,16 @@ export interface Account {
   plan?: string;
   created_at?: number;
   is_platform_admin: boolean;
+  password_login_enabled?: boolean;
+  suspended_at?: number;
+  active_sessions?: number;
+  identities?: Array<{
+    provider: string;
+    email: string;
+    display_name: string;
+    created_at: number;
+    last_login_at: number;
+  }>;
 }
 
 export interface AuthResponse {

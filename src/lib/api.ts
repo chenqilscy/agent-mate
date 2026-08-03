@@ -155,6 +155,7 @@ export const api = {
   login: (name: string, password: string) =>
     send<AuthResult>('POST', '/auth/login', { name, password }),
   ssoProviders: () => get<{ providers: SsoProvider[] }>('/auth/sso/providers'),
+  authCapabilities: () => get<{ password_registration: boolean; registration_policy: string; min_password_length: number; bootstrap_available: boolean }>('/auth/capabilities'),
   ssoStart: (provider: string, invite_code = '') =>
     send<SsoStartResult>('POST', '/auth/sso/start', { provider, invite_code }),
   ssoPoll: (attempt_id: string, attempt_token: string) =>

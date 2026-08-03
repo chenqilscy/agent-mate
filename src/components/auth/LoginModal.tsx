@@ -19,13 +19,19 @@ export function LoginModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   const [providers, setProviders] = useState<SsoProvider[]>([])
   const [inviteCode, setInviteCode] = useState('')
+  const [canRegister, setCanRegister] = useState(false)
+  const [minPasswordLength, setMinPasswordLength] = useState(12)
 
   useEffect(() => {
     void api.ssoProviders().then((result) => setProviders(result.providers)).catch(() => setProviders([]))
+    void api.authCapabilities().then((result) => {
+      setCanRegister(result.password_registration)
+      setMinPasswordLength(result.min_password_length || 12)
+    }).catch(() => setCanRegister(false))
   }, [])
 
   const submit = async () => {
-    if (!name.trim() || !password || busy) return
+    if (!name.trim() || !password || (mode === 'register' && password.length < minPasswordLength) || busy) return
     setBusy(true)
     try {
       if (mode === 'login') await login(name.trim(), password)
@@ -58,7 +64,7 @@ export function LoginModal({ onClose }: { onClose: () => void }) {
           <div className="np-lbl">AgentMate Server 用户名</div>
           <WbInput className="np-input" value={name} autoFocus placeholder="你的 Server 用户名" onChange={(e) => setName(e.target.value)} onKeyDown={onKey} />
           <div className="np-lbl">密码</div>
-          <WbInput className="np-input" type="password" value={password} placeholder={mode === 'register' ? '至少 4 位' : '密码'} onChange={(e) => setPassword(e.target.value)} onKeyDown={onKey} />
+          <WbInput className="np-input" type="password" value={password} placeholder={mode === 'register' ? `至少 ${minPasswordLength} 位` : '密码'} onChange={(e) => setPassword(e.target.value)} onKeyDown={onKey} />
           {mode === 'login' && providers.length > 0 ? (
             <div className="auth-sso">
               <div className="auth-sso-divider"><span>或使用联合登录</span></div>
@@ -74,13 +80,13 @@ export function LoginModal({ onClose }: { onClose: () => void }) {
           ) : null}
           <div className="auth-switch">
             {mode === 'login' ? '还没有账号？' : '已有账号？'}
-            <span {...clickable} onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? '去注册' : '去登录'}</span>
+            {mode === 'register' || canRegister ? <span {...clickable} onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? '去注册' : '去登录'}</span> : <span>请联系管理员邀请或创建</span>}
           </div>
         </div>
         <div className="np-foot">
           <span className="np-hint">账号由 Server 统一提供；关闭后保持匿名访客模式</span>
           <WbButton className="btn-ghost" onClick={onClose}>取消</WbButton>
-          <WbButton className="btn-dark" disabled={!name.trim() || !password || busy} onClick={submit}>{mode === 'login' ? '登录' : '注册'}</WbButton>
+          <WbButton className="btn-dark" disabled={!name.trim() || !password || (mode === 'register' && password.length < minPasswordLength) || busy} onClick={submit}>{mode === 'login' ? '登录' : '注册'}</WbButton>
         </div>
       </div>
     </AntModalBridge>

@@ -19,20 +19,29 @@ export function ServerConnectModal({ onClose }: { onClose: () => void }) {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [notifs, setNotifs] = useState<Notif[]>([])
+  const [canRegister, setCanRegister] = useState(false)
+  const [minPasswordLength, setMinPasswordLength] = useState(12)
 
   useEffect(() => {
     if (!linked) return
     api.serverNotifications().then((r) => setNotifs(r.notifications || [])).catch(() => {})
   }, [linked])
 
+  useEffect(() => {
+    api.authCapabilities().then((result) => {
+      setCanRegister(result.password_registration)
+      setMinPasswordLength(result.min_password_length || 12)
+    }).catch(() => setCanRegister(false))
+  }, [])
+
   const submit = async () => {
-    if (!name.trim() || password.length < 4 || busy) return
+    if (!name.trim() || !password || (mode === 'register' && password.length < minPasswordLength) || busy) return
     setBusy(true)
     try {
       await connect(name.trim(), password, mode === 'register')
       toast('已连接 AgentMate Server · ' + name.trim())
     } catch {
-      toast(mode === 'login' ? '连接失败：用户名或密码错误，或 AgentMate Server 不可达' : '注册失败：用户名可能已被占用，或密码太短（≥4 位）')
+      toast(mode === 'login' ? '连接失败：用户名或密码错误，或 AgentMate Server 不可达' : `注册失败：注册策略未开放、用户名已占用，或密码少于 ${minPasswordLength} 位`)
       setBusy(false)
     }
   }
@@ -87,18 +96,18 @@ export function ServerConnectModal({ onClose }: { onClose: () => void }) {
             <div className="np-body">
               <div className="subtabs">
                 <div className={`subtab ${mode === 'login' ? 'active' : ''}`.trim()} {...clickable} onClick={() => setMode('login')}>登录</div>
-                <div className={`subtab ${mode === 'register' ? 'active' : ''}`.trim()} {...clickable} onClick={() => setMode('register')}>注册</div>
+                {canRegister && <div className={`subtab ${mode === 'register' ? 'active' : ''}`.trim()} {...clickable} onClick={() => setMode('register')}>注册</div>}
               </div>
               <div className="np-lbl">AgentMate Server 用户名</div>
               <WbInput className="np-input" value={name} autoFocus placeholder="你的 Server 用户名" onChange={(e) => setName(e.target.value)} onKeyDown={onKey} />
               <div className="np-lbl">密码</div>
-              <WbInput className="np-input" type="password" value={password} placeholder={mode === 'register' ? '至少 4 位' : '密码'} onChange={(e) => setPassword(e.target.value)} onKeyDown={onKey} />
+              <WbInput className="np-input" type="password" value={password} placeholder={mode === 'register' ? `至少 ${minPasswordLength} 位` : '密码'} onChange={(e) => setPassword(e.target.value)} onKeyDown={onKey} />
               <div className="auth-switch">AgentMate 账号统一由 Server 提供；未登录时仅使用匿名访客模式，不会创建本地账号。</div>
             </div>
             <div className="np-foot">
               <span className="np-hint">中心服务 · 团队协作</span>
               <WbButton className="btn-ghost" onClick={onClose}>取消</WbButton>
-              <WbButton className="btn-dark" disabled={!name.trim() || password.length < 4 || busy} onClick={submit}>{busy ? '连接中…' : mode === 'login' ? '登录并连接' : '注册并连接'}</WbButton>
+              <WbButton className="btn-dark" disabled={!name.trim() || !password || (mode === 'register' && password.length < minPasswordLength) || busy} onClick={submit}>{busy ? '连接中…' : mode === 'login' ? '登录并连接' : '注册并连接'}</WbButton>
             </div>
           </>
         )}

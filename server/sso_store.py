@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import secrets
 import sqlite3
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import db
+import secret_crypto
 from config import settings
 
 PROVIDERS = {
@@ -28,7 +31,13 @@ def provider_config(provider: str) -> dict[str, Any] | None:
     row = db.get_conn().execute(
         "SELECT * FROM sso_provider_configs WHERE provider=?", (provider,)
     ).fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    result = dict(row)
+    result["client_secret"] = secret_crypto.decrypt(
+        str(result.get("client_secret") or ""), context=provider,
+    )
+    return result
 
 
 def public_providers() -> list[dict[str, str]]:
@@ -67,15 +76,145 @@ def set_provider(
     secret = str(old.get("client_secret") or "") if client_secret is None else client_secret.strip()
     if enabled and (not client_id.strip() or not secret):
         raise ValueError("provider_credentials_required")
-    db.get_conn().execute(
-        "INSERT INTO sso_provider_configs "
-        "(provider,enabled,client_id,client_secret,updated_by,updated_at) VALUES (?,?,?,?,?,?) "
-        "ON CONFLICT(provider) DO UPDATE SET enabled=excluded.enabled,client_id=excluded.client_id,"
-        "client_secret=excluded.client_secret,updated_by=excluded.updated_by,updated_at=excluded.updated_at",
-        (provider, int(enabled), client_id.strip(), secret, updated_by, time.time()),
-    )
-    db.get_conn().commit()
+    encrypted = secret_crypto.encrypt(secret, context=provider)
+    now = time.time()
+    conn = db.get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            "INSERT INTO sso_provider_configs "
+            "(provider,enabled,client_id,client_secret,updated_by,updated_at) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(provider) DO UPDATE SET enabled=excluded.enabled,client_id=excluded.client_id,"
+            "client_secret=excluded.client_secret,updated_by=excluded.updated_by,updated_at=excluded.updated_at",
+            (provider, int(enabled), client_id.strip(), encrypted, updated_by, now),
+        )
+        actions: list[tuple[str, dict[str, Any]]] = []
+        if bool(old.get("enabled")) != enabled:
+            actions.append(("enabled" if enabled else "disabled", {}))
+        if str(old.get("client_id") or "") != client_id.strip():
+            actions.append(("client_id_changed", {
+                "before_configured": bool(old.get("client_id")),
+                "after_configured": bool(client_id.strip()),
+            }))
+        if client_secret is not None and str(old.get("client_secret") or "") != secret:
+            actions.append(("client_secret_rotated", {
+                "before_configured": bool(old.get("client_secret")),
+                "after_configured": bool(secret),
+            }))
+        for action, details in actions or [("configuration_saved", {})]:
+            conn.execute(
+                "INSERT INTO sso_provider_audit "
+                "(id,provider,actor_id,action,details,created_at) VALUES (?,?,?,?,?,?)",
+                (db.new_uuid(), provider, updated_by, action,
+                 json.dumps(details, ensure_ascii=False), now),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     return next(item for item in admin_providers() if item["id"] == provider)
+
+
+def migrate_plaintext_provider_secrets() -> int:
+    conn = db.get_conn()
+    rows = conn.execute(
+        "SELECT provider,client_secret FROM sso_provider_configs WHERE client_secret<>''"
+    ).fetchall()
+    changed = 0
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for row in rows:
+            stored = str(row["client_secret"] or "")
+            if secret_crypto.is_encrypted(stored):
+                continue
+            provider = str(row["provider"])
+            conn.execute(
+                "UPDATE sso_provider_configs SET client_secret=?,updated_at=? WHERE provider=?",
+                (secret_crypto.encrypt(stored, context=provider), time.time(), provider),
+            )
+            conn.execute(
+                "INSERT INTO sso_provider_audit "
+                "(id,provider,actor_id,action,details,created_at) VALUES (?,?,?,?,?,?)",
+                (db.new_uuid(), provider, "system", "client_secret_encrypted_migration",
+                 "{}", time.time()),
+            )
+            changed += 1
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return changed
+
+
+def list_provider_audit(limit: int = 100) -> list[dict[str, Any]]:
+    rows = db.get_conn().execute(
+        "SELECT * FROM sso_provider_audit ORDER BY created_at DESC,rowid DESC LIMIT ?",
+        (max(1, min(limit, 500)),),
+    ).fetchall()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["details"] = json.loads(item["details"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            item["details"] = {}
+        result.append(item)
+    return result
+
+
+def provider_readiness() -> dict[str, Any]:
+    parsed = urlparse(settings.SSO_PUBLIC_BASE_URL)
+    loopback = parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+    public_https = parsed.scheme == "https" and bool(parsed.hostname) and not loopback
+    production = settings.ENVIRONMENT in {"production", "prod"}
+    external_key = bool(settings.SSO_SECRET_ENCRYPTION_KEY)
+    blockers: list[str] = []
+    warnings: list[str] = []
+    if not public_https:
+        (blockers if production else warnings).append("public_https_callback_required")
+    if production and not external_key:
+        blockers.append("external_encryption_key_required")
+    if settings.SSO_REGISTRATION_POLICY not in {"open", "invite_only", "existing_only", "disabled"}:
+        blockers.append("invalid_registration_policy")
+    if db.count_accounts() == 0 and not settings.BOOTSTRAP_ADMIN_SECRET:
+        blockers.append("bootstrap_admin_secret_required")
+    providers: list[dict[str, Any]] = []
+    for provider, label in PROVIDERS.items():
+        row = db.get_conn().execute(
+            "SELECT enabled,client_id,client_secret FROM sso_provider_configs WHERE provider=?",
+            (provider,),
+        ).fetchone()
+        config = dict(row) if row else {}
+        configured = bool(config.get("client_id")) and bool(config.get("client_secret"))
+        provider_blockers: list[str] = []
+        if bool(config.get("enabled")) and not configured:
+            provider_blockers.append("credentials_required")
+        if bool(config.get("enabled")) and not public_https:
+            provider_blockers.append("public_https_callback_required")
+        providers.append({
+            "id": provider,
+            "label": label,
+            "enabled": bool(config.get("enabled")),
+            "configured": configured,
+            "callback_url": (
+                f"{settings.SSO_PUBLIC_BASE_URL}/api/auth/sso/{provider}/callback"
+            ),
+            "ready_for_external_test": bool(config.get("enabled")) and configured and public_https,
+            "blockers": provider_blockers,
+        })
+    return {
+        "ready": not blockers and all(
+            not item["blockers"] for item in providers if item["enabled"]
+        ),
+        "environment": settings.ENVIRONMENT,
+        "registration_policy": settings.SSO_REGISTRATION_POLICY,
+        "public_base_url": settings.SSO_PUBLIC_BASE_URL,
+        "public_https": public_https,
+        "secret_protection": "external_master_key" if external_key else "local_development_key",
+        "blockers": blockers,
+        "warnings": warnings,
+        "providers": providers,
+    }
 
 
 def check_rate_limit(rate_key: str) -> bool:
@@ -210,6 +349,9 @@ def resolve_identity(attempt: dict[str, Any], identity: dict[str, Any]) -> str:
             raise ValueError("provider_already_linked") from exc
         return account_id
     if existing:
+        account = db.get_account(str(existing["account_id"]))
+        if not account or account.suspended_at > 0:
+            raise ValueError("account_suspended")
         conn.execute(
             "UPDATE external_identities SET last_login_at=?,email=?,display_name=? WHERE id=?",
             (time.time(), email, display_name, existing["id"]),
@@ -238,7 +380,6 @@ def resolve_identity(attempt: dict[str, Any], identity: dict[str, Any]) -> str:
             raise ValueError("invalid_signup_invite")
     now = time.time()
     account_id = db.new_uuid()
-    first = conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0
     try:
         conn.execute("BEGIN IMMEDIATE")
         if invite:
@@ -254,7 +395,7 @@ def resolve_identity(attempt: dict[str, Any], identity: dict[str, Any]) -> str:
             "(id,name,email,plan,password_hash,created_at,is_platform_admin,password_login_enabled) "
             "VALUES (?,?,?,?,?,?,?,0)",
             (account_id, _unique_name(display_name, email, provider), email, "体验版",
-             db.hash_password(secrets.token_urlsafe(48)), now, int(first)),
+             db.hash_password(secrets.token_urlsafe(48)), now, 0),
         )
         conn.execute(
             "INSERT INTO external_identities "

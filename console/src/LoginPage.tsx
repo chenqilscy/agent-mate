@@ -10,16 +10,24 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ onAuthenticated }: LoginPageProps) {
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "bootstrap">("login");
   const [error, setError] = useState("");
   const [providers, setProviders] = useState<{ id: string; label: string }[]>([]);
   const [inviteCode, setInviteCode] = useState("");
   const [ssoBusy, setSsoBusy] = useState("");
+  const [canRegister, setCanRegister] = useState(false);
+  const [minPasswordLength, setMinPasswordLength] = useState(12);
+  const [canBootstrap, setCanBootstrap] = useState(false);
 
   useEffect(() => {
     void consoleApi.ssoProviders()
       .then((result) => setProviders(result.providers))
       .catch(() => setProviders([]));
+    void consoleApi.authCapabilities().then((result) => {
+      setCanRegister(result.password_registration);
+      setCanBootstrap(result.bootstrap_available);
+      setMinPasswordLength(result.min_password_length || 12);
+    }).catch(() => setCanRegister(false));
   }, []);
 
   async function startSso(provider: string) {
@@ -51,12 +59,14 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
     }
   }
 
-  async function submit(values: { name: string; password: string }) {
+  async function submit(values: { name: string; password: string; bootstrap_secret?: string }) {
     setError("");
     try {
       const response = mode === "login"
         ? await consoleApi.login(values.name, values.password)
-        : await consoleApi.register(values.name, values.password);
+        : mode === "register"
+          ? await consoleApi.register(values.name, values.password)
+          : await consoleApi.bootstrapAdmin(values.name, values.password, values.bootstrap_secret || "");
       setToken(response.token);
       onAuthenticated(response.account);
       return true;
@@ -76,10 +86,10 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
         </Typography.Paragraph>
       </section>
       <Card className="login-card" bordered={false}>
-        <LoginForm<{ name: string; password: string }>
+        <LoginForm<{ name: string; password: string; bootstrap_secret?: string }>
           title="欢迎回来"
           subTitle="管理项目、成员与 AgentMate 平台能力"
-          submitter={{ searchConfig: { submitText: mode === "login" ? "登录" : "创建账号" } }}
+          submitter={{ searchConfig: { submitText: mode === "login" ? "登录" : mode === "bootstrap" ? "初始化管理员" : "创建账号" } }}
           onFinish={submit}
         >
           <Segmented
@@ -88,10 +98,11 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
             value={mode}
             options={[
               { label: "登录", value: "login" },
-              { label: "注册", value: "register" },
+              ...(canRegister ? [{ label: "注册", value: "register" }] : []),
+              ...(canBootstrap ? [{ label: "初始化", value: "bootstrap" }] : []),
             ]}
             onChange={(value) => {
-              setMode(value as "login" | "register");
+              setMode(value as "login" | "register" | "bootstrap");
               setError("");
             }}
           />
@@ -108,9 +119,10 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
             placeholder="密码"
             rules={[
               { required: true, message: "请输入密码" },
-              { min: 4, message: "密码至少 4 个字符" },
+              ...(mode !== "login" ? [{ min: minPasswordLength, message: `密码至少 ${minPasswordLength} 个字符` }] : []),
             ]}
           />
+          {mode === "bootstrap" ? <ProFormText.Password name="bootstrap_secret" fieldProps={{ size: "large", prefix: <LockOutlined />, autoComplete: "off" }} placeholder="一次性 Bootstrap Secret" rules={[{ required: true, message: "请输入部署时配置的一次性 Secret" }]} /> : null}
           {mode === "login" && providers.length > 0 ? (
             <div className="login-sso">
               <Divider plain>或使用联合登录</Divider>

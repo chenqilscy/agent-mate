@@ -22,6 +22,7 @@ sys.path.insert(0, str(SERVER))
 import db  # noqa: E402
 import sso_protocol  # noqa: E402
 import sso_store  # noqa: E402
+import secret_crypto  # noqa: E402
 from config import settings  # noqa: E402
 from routers import auth, sso  # noqa: E402
 
@@ -32,13 +33,22 @@ class SsoAuthTest(unittest.TestCase):
         self.old_db = settings.DB_PATH
         self.old_policy = settings.SSO_REGISTRATION_POLICY
         self.old_limit = settings.AUTH_RATE_LIMIT_PER_MINUTE
+        self.old_environment = settings.ENVIRONMENT
+        self.old_encryption_key = settings.SSO_SECRET_ENCRYPTION_KEY
+        self.old_local_key_path = settings.SSO_LOCAL_KEY_PATH
+        self.old_public_base = settings.SSO_PUBLIC_BASE_URL
         self._close()
         settings.DB_PATH = Path(self.tmp.name) / "sso.db"
         settings.SSO_REGISTRATION_POLICY = "invite_only"
         settings.AUTH_RATE_LIMIT_PER_MINUTE = 100
+        settings.ENVIRONMENT = "development"
+        settings.SSO_SECRET_ENCRYPTION_KEY = ""
+        settings.SSO_LOCAL_KEY_PATH = ""
+        settings.SSO_PUBLIC_BASE_URL = "http://127.0.0.1:8100"
         db.init_db()
         self.admin = db.create_account(
-            name="admin", password="1111", email="admin@example.com"
+            name="admin", password="1111", email="admin@example.com",
+            is_platform_admin=True,
         )
         self.admin_token = db.create_token(self.admin.id)[0]
         app = FastAPI()
@@ -53,6 +63,10 @@ class SsoAuthTest(unittest.TestCase):
         settings.DB_PATH = self.old_db
         settings.SSO_REGISTRATION_POLICY = self.old_policy
         settings.AUTH_RATE_LIMIT_PER_MINUTE = self.old_limit
+        settings.ENVIRONMENT = self.old_environment
+        settings.SSO_SECRET_ENCRYPTION_KEY = self.old_encryption_key
+        settings.SSO_LOCAL_KEY_PATH = self.old_local_key_path
+        settings.SSO_PUBLIC_BASE_URL = self.old_public_base
         self.tmp.cleanup()
 
     @staticmethod
@@ -69,6 +83,11 @@ class SsoAuthTest(unittest.TestCase):
         )
         self.assertEqual(200, response.status_code, response.text)
         self.assertNotIn("client_secret", response.text)
+        stored = db.get_conn().execute(
+            "SELECT client_secret FROM sso_provider_configs WHERE provider=?", (provider,),
+        ).fetchone()["client_secret"]
+        self.assertTrue(secret_crypto.is_encrypted(stored))
+        self.assertNotIn("top-secret", stored)
 
     def _start(self, provider: str = "google", invite_code: str = "", headers=None) -> dict:
         response = self.client.post(
@@ -88,6 +107,11 @@ class SsoAuthTest(unittest.TestCase):
         )
         self.assertEqual(403, denied.status_code)
         self._configure()
+        audit_text = self.client.get(
+            "/api/admin/sso/audit", headers=self.admin_auth,
+        ).text
+        self.assertIn("client_secret_rotated", audit_text)
+        self.assertNotIn("top-secret", audit_text)
         public = self.client.get("/api/auth/sso/providers").json()["providers"]
         self.assertEqual([{"id": "google", "label": "Google"}], public)
         invite = self.client.post(
@@ -264,6 +288,52 @@ class SsoAuthTest(unittest.TestCase):
             identity = sso_protocol.exchange_identity("wechat", config or {}, attempt, "code")
         self.assertEqual("union-1", identity["subject"])
         self.assertEqual("微信用户", identity["name"])
+
+    def test_plaintext_secret_migration_and_production_key_gate(self) -> None:
+        db.get_conn().execute(
+            "INSERT INTO sso_provider_configs "
+            "(provider,enabled,client_id,client_secret,updated_by,updated_at) "
+            "VALUES ('google',1,'client','legacy-plaintext','legacy',?)",
+            (time.time(),),
+        )
+        db.get_conn().commit()
+        self.assertEqual(1, sso_store.migrate_plaintext_provider_secrets())
+        stored = db.get_conn().execute(
+            "SELECT client_secret FROM sso_provider_configs WHERE provider='google'"
+        ).fetchone()["client_secret"]
+        self.assertTrue(secret_crypto.is_encrypted(stored))
+        self.assertEqual("legacy-plaintext", sso_store.provider_config("google")["client_secret"])
+        audit = sso_store.list_provider_audit()
+        self.assertEqual("client_secret_encrypted_migration", audit[0]["action"])
+        self.assertNotIn("legacy-plaintext", str(audit))
+
+        settings.ENVIRONMENT = "production"
+        settings.SSO_SECRET_ENCRYPTION_KEY = ""
+        with self.assertRaises(secret_crypto.SecretKeyUnavailable):
+            sso_store.set_provider(
+                "wechat", enabled=True, client_id="client",
+                client_secret="production-secret", updated_by=self.admin.id,
+            )
+
+    def test_provider_readiness_requires_public_https_for_external_acceptance(self) -> None:
+        self._configure("google")
+        local = self.client.get(
+            "/api/admin/sso/readiness", headers=self.admin_auth,
+        ).json()
+        google = next(item for item in local["providers"] if item["id"] == "google")
+        self.assertFalse(local["public_https"])
+        self.assertFalse(google["ready_for_external_test"])
+
+        settings.SSO_PUBLIC_BASE_URL = "https://agentmate.example.com"
+        public = self.client.get(
+            "/api/admin/sso/readiness", headers=self.admin_auth,
+        ).json()
+        google = next(item for item in public["providers"] if item["id"] == "google")
+        self.assertTrue(google["ready_for_external_test"])
+        self.assertEqual(
+            "https://agentmate.example.com/api/auth/sso/google/callback",
+            google["callback_url"],
+        )
 
 
 if __name__ == "__main__":

@@ -38,6 +38,8 @@ class Account:
     created_at: float
     # 平台超级管理员：可维护 builtin 目录下发（WB-066）。首个注册账号自举为 admin。
     is_platform_admin: bool = False
+    password_login_enabled: bool = True
+    suspended_at: float = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

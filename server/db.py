@@ -23,8 +23,13 @@ from catalog_seed import (
 from models import Account, Invite, Org, Project, Role
 from migrations import (
     Migration,
+    migrate_account_login_lifecycle,
     migrate_federated_identity_security,
     migrate_governance_activity_sequence,
+    migrate_relay_retention,
+    migrate_server_legacy_schema,
+    assert_server_schema,
+    migrate_sso_provider_audit,
     run_migrations,
 )
 
@@ -84,7 +89,9 @@ def init_db() -> None:
             password_hash TEXT NOT NULL,
             created_at REAL NOT NULL,
             is_platform_admin INTEGER NOT NULL DEFAULT 0,
-            last_seen REAL NOT NULL DEFAULT 0
+            last_seen REAL NOT NULL DEFAULT 0,
+            password_login_enabled INTEGER NOT NULL DEFAULT 1,
+            suspended_at REAL NOT NULL DEFAULT 0
         );
 
         -- Server 签发的 Bearer token（本地 backend 作为客户端持有并回传）。
@@ -106,6 +113,16 @@ def init_db() -> None:
             updated_by TEXT NOT NULL DEFAULT '',
             updated_at REAL NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS sso_provider_audit (
+            id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            details TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sso_provider_audit_created
+            ON sso_provider_audit(created_at DESC);
         CREATE TABLE IF NOT EXISTS external_identities (
             id TEXT PRIMARY KEY,
             account_id TEXT NOT NULL,
@@ -202,6 +219,7 @@ def init_db() -> None:
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL,
             acknowledged_at REAL,
+            payload_tombstoned_at REAL,
             UNIQUE(service_account_id, event_key)
         );
         CREATE INDEX IF NOT EXISTS idx_relay_events_pull
@@ -643,85 +661,41 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_platform_settings_audit_created
             ON platform_settings_audit(created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS auth_audit (
+            id TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL DEFAULT '',
+            actor_id TEXT NOT NULL DEFAULT '',
+            action TEXT NOT NULL,
+            provider TEXT NOT NULL DEFAULT '',
+            details TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_auth_audit_created
+            ON auth_audit(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_auth_audit_account
+            ON auth_audit(account_id, created_at DESC);
         """
     )
     conn.commit()
-    # 幂等补列（老库）：accounts.is_platform_admin（WB-066）、last_seen（WB-065 在线状态）。
-    have_acct = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
-    if "is_platform_admin" not in have_acct:
-        conn.execute("ALTER TABLE accounts ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0")
-    if "last_seen" not in have_acct:
-        conn.execute("ALTER TABLE accounts ADD COLUMN last_seen REAL NOT NULL DEFAULT 0")
-    # WB-326：旧 token 没有生命周期。升级时给它们一个从升级时刻起算的短兼容窗口；
-    # 新 token 始终按 TOKEN_TTL_SECONDS 签发。
-    have_tokens = {r["name"] for r in conn.execute("PRAGMA table_info(server_tokens)").fetchall()}
-    if "expires_at" not in have_tokens:
-        conn.execute("ALTER TABLE server_tokens ADD COLUMN expires_at REAL")
-    conn.execute(
-        "UPDATE server_tokens SET expires_at=? WHERE expires_at IS NULL OR expires_at<=0",
-        (time.time() + min(settings.TOKEN_TTL_SECONDS, settings.TOKEN_LEGACY_GRACE_SECONDS),),
-    )
-    have_project = {r["name"] for r in conn.execute("PRAGMA table_info(projects)").fetchall()}
-    if "archived_at" not in have_project:
-        conn.execute("ALTER TABLE projects ADD COLUMN archived_at REAL NOT NULL DEFAULT 0")
-    # 幂等补列（老库）：work_items 专业化字段（WB-104）。
-    have_wi = {r["name"] for r in conn.execute("PRAGMA table_info(work_items)").fetchall()}
-    for _col, _ddl in (
-        ("priority", "priority TEXT NOT NULL DEFAULT ''"),
-        ("due_date", "due_date TEXT NOT NULL DEFAULT ''"),
-        ("start_date", "start_date TEXT NOT NULL DEFAULT ''"),
-        ("labels", "labels TEXT NOT NULL DEFAULT '[]'"),
-        ("parent_id", "parent_id TEXT NOT NULL DEFAULT ''"),
-        ("milestone_id", "milestone_id TEXT NOT NULL DEFAULT ''"),
-        ("estimate_h", "estimate_h REAL NOT NULL DEFAULT 0"),   # 工时预估/投入（WB-116）
-        ("spent_h", "spent_h REAL NOT NULL DEFAULT 0"),
-        ("custom_fields", "custom_fields TEXT NOT NULL DEFAULT '{}'"),
-        ("dependency_ids", "dependency_ids TEXT NOT NULL DEFAULT '[]'"),
-        ("sprint_id", "sprint_id TEXT NOT NULL DEFAULT ''"),
-    ):
-        if _col not in have_wi:
-            conn.execute(f"ALTER TABLE work_items ADD COLUMN {_ddl}")
-    # WB-310：Sprint 可选归属里程碑；旧 Sprint 保持未规划状态。
-    have_sprint = {r["name"] for r in conn.execute("PRAGMA table_info(sprints)").fetchall()}
-    if "milestone_id" not in have_sprint:
-        conn.execute("ALTER TABLE sprints ADD COLUMN milestone_id TEXT NOT NULL DEFAULT ''")
-    # 幂等补列（老库）：comments.work_item_id —— 任务级评论（WB-115），'' = 项目级。
-    have_cm = {r["name"] for r in conn.execute("PRAGMA table_info(comments)").fetchall()}
-    if "work_item_id" not in have_cm:
-        conn.execute("ALTER TABLE comments ADD COLUMN work_item_id TEXT NOT NULL DEFAULT ''")
-    # WB-351：事件通知按语义键去重；普通通知 dedupe_key='' 不受约束。
-    have_notif = {r["name"] for r in conn.execute("PRAGMA table_info(server_notifications)").fetchall()}
-    if "dedupe_key" not in have_notif:
-        conn.execute("ALTER TABLE server_notifications ADD COLUMN dedupe_key TEXT NOT NULL DEFAULT ''")
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_server_notifs_dedupe "
-        "ON server_notifications(account_id,dedupe_key) WHERE dedupe_key!=''"
-    )
-    # WB-290：旧 Console 自建知识库升级为中央 WeKnora 绑定。旧行绝不假装已迁移。
-    have_kb = {r["name"] for r in conn.execute("PRAGMA table_info(knowledge_bases)").fetchall()}
-    for _col, _ddl in (
-        ("provider", "provider TEXT NOT NULL DEFAULT 'legacy'"),
-        ("provider_id", "provider_id TEXT NOT NULL DEFAULT ''"),
-        ("provider_status", "provider_status TEXT NOT NULL DEFAULT 'legacy_pending'"),
-        ("provider_error", "provider_error TEXT NOT NULL DEFAULT ''"),
-    ):
-        if _col not in have_kb:
-            conn.execute(f"ALTER TABLE knowledge_bases ADD COLUMN {_ddl}")
-    have_kbd = {r["name"] for r in conn.execute("PRAGMA table_info(kb_documents)").fetchall()}
-    if "provider_id" not in have_kbd:
-        conn.execute("ALTER TABLE kb_documents ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''")
-    if _table_exists(conn, "catalog_skills"):
-        conn.execute("UPDATE catalog_skills SET source='Server' WHERE source='Hub'")
-    have_tools = {r["name"] for r in conn.execute("PRAGMA table_info(tool_catalog)").fetchall()}
-    for _col, _ddl in (
-        ("implementation_type", "implementation_type TEXT NOT NULL DEFAULT 'native'"),
-        ("parameters", "parameters TEXT NOT NULL DEFAULT '{}'"),
-        ("scripts", "scripts TEXT NOT NULL DEFAULT '{}'"),
-        ("timeout_seconds", "timeout_seconds INTEGER NOT NULL DEFAULT 30"),
-        ("output_limit", "output_limit INTEGER NOT NULL DEFAULT 65536"),
-    ):
-        if _col not in have_tools:
-            conn.execute(f"ALTER TABLE tool_catalog ADD COLUMN {_ddl}")
+    run_migrations(conn, (
+        Migration(1, "existing-schema-baseline", lambda _conn: None),
+        Migration(2, "federated-identity-security", migrate_federated_identity_security),
+        Migration(3, "governance-activity-sequence", migrate_governance_activity_sequence),
+        Migration(4, "account-login-lifecycle", migrate_account_login_lifecycle),
+        Migration(5, "relay-terminal-retention", migrate_relay_retention),
+        Migration(
+            6, "legacy-schema-completion",
+            lambda target: migrate_server_legacy_schema(
+                target,
+                time.time() + min(
+                    settings.TOKEN_TTL_SECONDS, settings.TOKEN_LEGACY_GRACE_SECONDS,
+                ),
+            ),
+        ),
+        Migration(7, "sso-provider-audit", migrate_sso_provider_audit),
+    ))
+    assert_server_schema(conn)
     # 新 App 版本可补充真实实现，但绝不覆盖 Console 已管理的运营字段。
     # 因而本清单只是 bootstrap/migration 输入，不是运行时管理源。
     now = time.time()
@@ -987,16 +961,6 @@ def init_db() -> None:
             (now,),
         )
     conn.commit()
-    run_migrations(conn, (
-        Migration(1, "existing-schema-baseline", lambda _conn: None),
-        Migration(2, "federated-identity-security", migrate_federated_identity_security),
-        Migration(3, "governance-activity-sequence", migrate_governance_activity_sequence),
-    ))
-    have_pm = {r["name"] for r in conn.execute("PRAGMA table_info(project_members)").fetchall()}
-    if "updated_at" not in have_pm:
-        conn.execute("ALTER TABLE project_members ADD COLUMN updated_at REAL NOT NULL DEFAULT 0")
-    conn.execute("UPDATE project_members SET updated_at=created_at WHERE updated_at=0")
-    conn.commit()
     # 一次性：存量 work_items.assignee 自由文本 → account_id 强映射（WB-112c-B）。
     if get_setting("assignee_norm_v1") != "1":
         migrate_assignees_to_account_id()
@@ -1049,6 +1013,11 @@ def _token_key(token: str) -> str:
 
 
 def create_token(account_id: str) -> tuple[str, float]:
+    account = get_conn().execute(
+        "SELECT suspended_at FROM accounts WHERE id=?", (account_id,)
+    ).fetchone()
+    if not account or float(account["suspended_at"] or 0) > 0:
+        raise ValueError("account_suspended_or_missing")
     token = secrets.token_hex(32)
     now = time.time()
     expires_at = now + settings.TOKEN_TTL_SECONDS
@@ -1093,17 +1062,20 @@ def _row_to_account(r: sqlite3.Row) -> Account:
     return Account(
         id=r["id"], name=r["name"], email=r["email"], plan=r["plan"], created_at=r["created_at"],
         is_platform_admin=bool(r["is_platform_admin"]) if "is_platform_admin" in keys else False,
+        password_login_enabled=(
+            bool(r["password_login_enabled"]) if "password_login_enabled" in keys else True
+        ),
+        suspended_at=float(r["suspended_at"] or 0) if "suspended_at" in keys else 0,
     )
 
 
 def create_account(
     *, name: str, password: str, email: str = "", plan: str = "体验版",
-    password_login_enabled: bool = True,
+    password_login_enabled: bool = True, is_platform_admin: bool = False,
 ) -> Account:
-    # 首个注册账号自举为平台管理员（WB-066：可维护 builtin 目录下发）。
-    first = get_conn().execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0
     a = Account(id=new_uuid(), name=name[:60], email=email[:120], plan=plan, created_at=time.time(),
-                is_platform_admin=first)
+                is_platform_admin=is_platform_admin,
+                password_login_enabled=password_login_enabled)
     get_conn().execute(
         "INSERT INTO accounts (id,name,email,plan,password_hash,created_at,is_platform_admin,password_login_enabled) "
         "VALUES (?,?,?,?,?,?,?,?)",
@@ -1112,6 +1084,36 @@ def create_account(
     )
     get_conn().commit()
     return a
+
+
+def bootstrap_admin(*, name: str, password: str, email: str = "") -> Account:
+    """Create the only first administrator under a database write lock."""
+    conn = get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if int(conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]) != 0:
+            raise ValueError("bootstrap_already_completed")
+        account = Account(
+            id=new_uuid(), name=name[:60], email=email[:120], plan="体验版",
+            created_at=time.time(), is_platform_admin=True,
+            password_login_enabled=True,
+        )
+        conn.execute(
+            "INSERT INTO accounts "
+            "(id,name,email,plan,password_hash,created_at,is_platform_admin,password_login_enabled) "
+            "VALUES (?,?,?,?,?,?,1,1)",
+            (account.id, account.name, account.email, account.plan,
+             hash_password(password), account.created_at),
+        )
+        record_auth_audit(
+            action="bootstrap_admin_created", account_id=account.id,
+            actor_id=account.id, conn=conn,
+        )
+        conn.commit()
+        return account
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def get_account(account_id: str) -> Optional[Account]:
@@ -1124,7 +1126,7 @@ def get_account_by_name(name: str) -> Optional[tuple[Account, str]]:
     r = get_conn().execute("SELECT * FROM accounts WHERE name=?", (name,)).fetchone()
     return (
         (_row_to_account(r), r["password_hash"])
-        if r and bool(r["password_login_enabled"])
+        if r and bool(r["password_login_enabled"]) and float(r["suspended_at"] or 0) <= 0
         else None
     )
 
@@ -1146,7 +1148,19 @@ def member_projects_count(account_id: str) -> int:
 
 
 def count_platform_admins() -> int:
-    return get_conn().execute("SELECT COUNT(*) FROM accounts WHERE is_platform_admin=1").fetchone()[0]
+    return get_conn().execute(
+        "SELECT COUNT(*) FROM accounts WHERE is_platform_admin=1 AND suspended_at<=0"
+    ).fetchone()[0]
+
+
+def count_accounts() -> int:
+    return int(get_conn().execute("SELECT COUNT(*) FROM accounts").fetchone()[0])
+
+
+def owned_orgs_count(account_id: str) -> int:
+    return int(get_conn().execute(
+        "SELECT COUNT(*) FROM orgs WHERE owner_id=?", (account_id,)
+    ).fetchone()[0])
 
 
 def _account_admin_view(a: Account, last_seen: float) -> dict:
@@ -1156,6 +1170,8 @@ def _account_admin_view(a: Account, last_seen: float) -> dict:
     d["online"] = bool(last_seen) and (time.time() - last_seen) < _ONLINE_WINDOW
     d["owned_projects"] = owned_projects_count(a.id)
     d["member_projects"] = member_projects_count(a.id)
+    d["identities"] = list_account_identities(a.id)
+    d["active_sessions"] = active_session_count(a.id)
     return d
 
 
@@ -1190,18 +1206,175 @@ def update_account(account_id: str, *, name: Optional[str] = None, email: Option
     return get_account(account_id)
 
 
-def set_account_password(account_id: str, password: str) -> None:
-    get_conn().execute("UPDATE accounts SET password_hash=? WHERE id=?", (hash_password(password), account_id))
-    get_conn().commit()
+def record_auth_audit(
+    *, action: str, account_id: str = "", actor_id: str = "",
+    provider: str = "", details: Optional[dict[str, Any]] = None,
+    conn: Optional[sqlite3.Connection] = None,
+) -> None:
+    target = conn or get_conn()
+    target.execute(
+        "INSERT INTO auth_audit(id,account_id,actor_id,action,provider,details,created_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (new_uuid(), account_id, actor_id, action[:80], provider[:40],
+         json.dumps(details or {}, ensure_ascii=False), time.time()),
+    )
+    if conn is None:
+        target.commit()
 
 
-def delete_account(account_id: str) -> None:
-    """删账号并级联清其 token / 项目成员行。调用方须已守卫（非自己/非最后管理员/不拥有项目）。"""
+def list_auth_audit(limit: int = 100, account_id: str = "") -> list[dict[str, Any]]:
+    sql = "SELECT * FROM auth_audit"
+    values: list[Any] = []
+    if account_id:
+        sql += " WHERE account_id=?"
+        values.append(account_id)
+    sql += " ORDER BY created_at DESC,rowid DESC LIMIT ?"
+    values.append(max(1, min(limit, 500)))
+    rows = get_conn().execute(sql, values).fetchall()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["details"] = json.loads(item["details"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            item["details"] = {}
+        result.append(item)
+    return result
+
+
+def active_session_count(account_id: str) -> int:
+    return int(get_conn().execute(
+        "SELECT COUNT(*) FROM server_tokens WHERE account_id=? AND expires_at>?",
+        (account_id, time.time()),
+    ).fetchone()[0])
+
+
+def revoke_account_sessions(
+    account_id: str, *, actor_id: str, action: str = "sessions_revoked",
+    conn: Optional[sqlite3.Connection] = None,
+) -> int:
+    target = conn or get_conn()
+    changed = target.execute(
+        "DELETE FROM server_tokens WHERE account_id=?", (account_id,)
+    ).rowcount
+    record_auth_audit(
+        action=action, account_id=account_id, actor_id=actor_id,
+        details={"revoked_sessions": int(changed)}, conn=target,
+    )
+    if conn is None:
+        target.commit()
+    return int(changed)
+
+
+def list_account_identities(account_id: str) -> list[dict[str, Any]]:
+    return [dict(row) for row in get_conn().execute(
+        "SELECT provider,email,display_name,created_at,last_login_at "
+        "FROM external_identities WHERE account_id=? ORDER BY created_at",
+        (account_id,),
+    ).fetchall()]
+
+
+def set_account_password(account_id: str, password: str, *, actor_id: str = "") -> None:
+    conn = get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            "UPDATE accounts SET password_hash=?,password_login_enabled=1 WHERE id=?",
+            (hash_password(password), account_id),
+        )
+        revoke_account_sessions(
+            account_id, actor_id=actor_id, action="password_reset", conn=conn,
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def set_password_login_enabled(account_id: str, enabled: bool, *, actor_id: str) -> None:
+    conn = get_conn()
+    if not enabled:
+        identities = conn.execute(
+            "SELECT COUNT(*) FROM external_identities WHERE account_id=?", (account_id,)
+        ).fetchone()[0]
+        if identities < 1:
+            raise ValueError("last_login_method")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            "UPDATE accounts SET password_login_enabled=? WHERE id=?",
+            (int(enabled), account_id),
+        )
+        revoke_account_sessions(
+            account_id, actor_id=actor_id,
+            action="password_login_enabled" if enabled else "password_login_disabled",
+            conn=conn,
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def set_account_suspended(account_id: str, suspended: bool, *, actor_id: str) -> None:
+    conn = get_conn()
+    now = time.time() if suspended else 0
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("UPDATE accounts SET suspended_at=? WHERE id=?", (now, account_id))
+        if suspended:
+            revoke_account_sessions(
+                account_id, actor_id=actor_id, action="account_suspended", conn=conn,
+            )
+            conn.execute(
+                "UPDATE service_accounts SET revoked_at=? "
+                "WHERE owner_id=? AND revoked_at IS NULL", (now, account_id),
+            )
+        else:
+            record_auth_audit(
+                action="account_reactivated", account_id=account_id,
+                actor_id=actor_id, conn=conn,
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def delete_account(account_id: str, *, actor_id: str = "") -> None:
+    """Atomically revoke credentials and remove an account's authentication state."""
     c = get_conn()
-    c.execute("DELETE FROM server_tokens WHERE account_id=?", (account_id,))
-    c.execute("DELETE FROM project_members WHERE account_id=?", (account_id,))
-    c.execute("DELETE FROM accounts WHERE id=?", (account_id,))
-    c.commit()
+    c.execute("BEGIN IMMEDIATE")
+    try:
+        record_auth_audit(
+            action="account_deleted", account_id=account_id, actor_id=actor_id,
+            conn=c,
+        )
+        service_ids = [row[0] for row in c.execute(
+            "SELECT id FROM service_accounts WHERE owner_id=?", (account_id,)
+        ).fetchall()]
+        for service_id in service_ids:
+            c.execute("DELETE FROM service_rate_windows WHERE service_account_id=?", (service_id,))
+        c.execute("DELETE FROM relay_events WHERE owner_id=?", (account_id,))
+        c.execute("DELETE FROM relay_devices WHERE owner_id=?", (account_id,))
+        c.execute("DELETE FROM service_accounts WHERE owner_id=?", (account_id,))
+        c.execute("DELETE FROM external_identities WHERE account_id=?", (account_id,))
+        c.execute(
+            "DELETE FROM sso_attempts WHERE account_id=? OR result_account_id=?",
+            (account_id, account_id),
+        )
+        c.execute("DELETE FROM sso_signup_invites WHERE created_by=?", (account_id,))
+        c.execute(
+            "UPDATE sso_signup_invites SET consumed_by=NULL WHERE consumed_by=?", (account_id,)
+        )
+        c.execute("DELETE FROM server_tokens WHERE account_id=?", (account_id,))
+        c.execute("DELETE FROM project_members WHERE account_id=?", (account_id,))
+        c.execute("DELETE FROM org_members WHERE account_id=?", (account_id,))
+        c.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
 
 
 # ---- orgs ---------------------------------------------------------------

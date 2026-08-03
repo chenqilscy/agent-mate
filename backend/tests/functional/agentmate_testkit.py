@@ -23,7 +23,7 @@ BASE = os.environ.get("AGENTMATE_TEST_BASE", "http://127.0.0.1:8101/api")
 DB = os.environ.get("AGENTMATE_DB", str(_BACKEND / "agentmate.db"))
 WS = Path(os.environ.get("AGENTMATE_WORKSPACE", str(_BACKEND / "workspace")))
 TEST_MODEL = f"test:{_settings.LLM_MODEL}"
-PW = "pw1234"
+PW = "AgentMate-Test-123"
 THROTTLE = 2.0  # seconds paced before each real /chat run (rate-limit friendly)
 
 

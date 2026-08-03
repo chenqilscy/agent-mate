@@ -21,7 +21,7 @@ def current_account(authorization: str = Header(default="")) -> Account:
     token = bearer_token(authorization)
     aid = db.account_id_for_token(token) if token else None
     acc = db.get_account(aid) if aid else None
-    if acc is None:
+    if acc is None or acc.suspended_at > 0:
         raise HTTPException(status_code=401, detail="unauthorized")
     db.touch_last_seen(acc.id)  # WB-065 在线状态心跳：每个 authed 请求刷新 last_seen
     return acc

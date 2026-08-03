@@ -16,7 +16,7 @@ from project_health_service import (
     resolve_project_health,
     scan_local_project_health,
 )
-from agent import runtime, worker_health
+from agent import background_limits, runtime, worker_health
 from config import settings
 from storage import db
 from storage.models import Automation, AutomationFire, LOCAL_USER_ID
@@ -26,7 +26,10 @@ HEALTH_SCAN_SECONDS = 300
 
 _task: Optional[asyncio.Task] = None
 _running: set[str] = set()  # durable fire ids currently driven by this process
+_fire_tasks: dict[str, asyncio.Task] = {}
+_fire_owners: dict[str, str] = {}
 _relay_tasks: dict[str, asyncio.Task] = {}
+_relay_owners: dict[str, str] = {}
 _last_health_scan_at = 0.0
 log = logging.getLogger("agentmate.scheduler")
 
@@ -211,18 +214,32 @@ async def _execute_fire(fire_id: str) -> None:
     )
 
 
-async def _fire_guarded(fire_id: str) -> None:
+async def _fire_guarded(fire_id: str, owner_id: str) -> None:
     try:
-        await _execute_fire(fire_id)
+        async with background_limits.slot(owner_id):
+            await _execute_fire(fire_id)
     finally:
         _running.discard(fire_id)
+        _fire_tasks.pop(fire_id, None)
+        _fire_owners.pop(fire_id, None)
 
 
 def _launch(fire_id: str) -> Optional[asyncio.Task]:
     if fire_id in _running:
+        return _fire_tasks.get(fire_id)
+    if len(_running) >= settings.BACKGROUND_AGENT_MAX_CONCURRENCY:
+        return None
+    fire = db.get_automation_fire(fire_id)
+    if fire is None:
+        return None
+    owner_active = sum(1 for owner in _fire_owners.values() if owner == fire.owner_id)
+    if owner_active >= settings.BACKGROUND_AGENT_PER_OWNER_CONCURRENCY:
         return None
     _running.add(fire_id)
-    return asyncio.create_task(_fire_guarded(fire_id))
+    _fire_owners[fire_id] = fire.owner_id
+    task = asyncio.create_task(_fire_guarded(fire_id, fire.owner_id))
+    _fire_tasks[fire_id] = task
+    return task
 
 
 async def _scan_health_transitions(now: float) -> None:
@@ -337,17 +354,37 @@ async def _process_relay_event(
         )
     finally:
         _relay_tasks.pop(event_id, None)
+        _relay_owners.pop(event_id, None)
 
 
 async def _poll_relay_once() -> None:
+    global_slots = max(0, settings.RELAY_MAX_IN_FLIGHT - len(_relay_tasks))
+    if not global_slots:
+        return
+    active_by_owner: dict[str, int] = {}
+    for owner_id in _relay_owners.values():
+        active_by_owner[owner_id] = active_by_owner.get(owner_id, 0) + 1
+
     def _pull() -> tuple[str, list[tuple[str, str, dict]]]:
         device = server_sync.relay_device_id()
         batches: list[tuple[str, str, dict]] = []
+        remaining = global_slots
         try:
             for owner_id, token in db.list_server_identities():
-                events = server_client.pull_relay_events(token, device)
+                owner_slots = max(
+                    0,
+                    settings.RELAY_PER_OWNER_MAX_IN_FLIGHT - active_by_owner.get(owner_id, 0),
+                )
+                limit = min(remaining, owner_slots)
+                if limit <= 0:
+                    continue
+                events = server_client.pull_relay_events(token, device, limit=limit)
                 if events:
-                    batches.extend((owner_id, token, event) for event in events)
+                    selected = events[:limit]
+                    batches.extend((owner_id, token, event) for event in selected)
+                    remaining -= len(selected)
+                    if remaining <= 0:
+                        break
         finally:
             db.close_thread_connection()
         return device, batches
@@ -359,6 +396,7 @@ async def _poll_relay_once() -> None:
             continue
         task = asyncio.create_task(_process_relay_event(owner_id, token, device_id, event))
         _relay_tasks[event_id] = task
+        _relay_owners[event_id] = owner_id
 
 
 async def _tick() -> None:
@@ -484,3 +522,12 @@ async def stop() -> None:
     if relay:
         await asyncio.gather(*relay, return_exceptions=True)
     _relay_tasks.clear()
+    _relay_owners.clear()
+    fires = list(_fire_tasks.values())
+    for task in fires:
+        task.cancel()
+    if fires:
+        await asyncio.gather(*fires, return_exceptions=True)
+    _fire_tasks.clear()
+    _fire_owners.clear()
+    _running.clear()

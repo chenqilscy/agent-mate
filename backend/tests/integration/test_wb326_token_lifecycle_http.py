@@ -74,6 +74,7 @@ class TokenLifecycleHttpTest(unittest.TestCase):
             "AGENTMATE_SERVER_STORAGE": str(self.base / "server-storage"),
             "AGENTMATE_SERVER_HOST": "127.0.0.1",
             "AGENTMATE_SERVER_PORT": str(self.server_port),
+            "AGENTMATE_SSO_REGISTRATION_POLICY": "open",
         })
         process = self._spawn(ROOT / "server", env)
         self._wait_health(f"{self.server_url}/api/health")
@@ -121,7 +122,7 @@ class TokenLifecycleHttpTest(unittest.TestCase):
     def test_backend_logout_revokes_server_token(self) -> None:
         register = self.client.post(
             f"{self.backend_url}/api/auth/register",
-            json={"name": "wb326-user", "password": "password123"},
+            json={"name": "wb326-user", "password": "Password-1234"},
         )
         self.assertEqual(200, register.status_code, register.text)
         auth = register.json()
@@ -150,7 +151,7 @@ class TokenLifecycleHttpTest(unittest.TestCase):
     def test_expired_server_token_is_rejected_and_removed(self) -> None:
         register = self.client.post(
             f"{self.server_url}/api/auth/register",
-            json={"name": "wb326-expired", "password": "password123"},
+            json={"name": "wb326-expired", "password": "Password-1234"},
         )
         self.assertEqual(200, register.status_code, register.text)
         token = register.json()["token"]

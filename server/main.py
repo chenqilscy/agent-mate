@@ -7,7 +7,9 @@
 """
 from __future__ import annotations
 
+import asyncio
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 # 扁平 import（同 backend）：无论从何处启动，都把 server/ 放进模块搜索路径。
@@ -23,13 +25,33 @@ _CONSOLE_DIST = Path(__file__).resolve().parent / "web" / "console-dist"
 _CONSOLE_NEXT = _CONSOLE_DIST / "index.html"
 
 import db  # noqa: E402
+import relay_store  # noqa: E402
+import sso_store  # noqa: E402
 from config import settings  # noqa: E402
 from routers import accounts, auth, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, relay, sso, timeline, work_items  # noqa: E402
 
 db.init_db()
+sso_store.migrate_plaintext_provider_secrets()
 
 
-app = FastAPI(title="AgentMate Server API", version="1.0.0")
+async def _relay_retention_loop() -> None:
+    while True:
+        await asyncio.sleep(settings.RELAY_CLEANUP_INTERVAL_SECONDS)
+        await asyncio.to_thread(relay_store.cleanup_terminal_events)
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    await asyncio.to_thread(relay_store.cleanup_terminal_events)
+    cleanup_task = asyncio.create_task(_relay_retention_loop())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        await asyncio.gather(cleanup_task, return_exceptions=True)
+
+
+app = FastAPI(title="AgentMate Server API", version="1.0.0", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=False,
     allow_methods=["*"], allow_headers=["*"],
@@ -55,7 +77,7 @@ def console() -> str:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True, "service": "server"}
+    return {"ok": True, "service": "server", "relay_retention": relay_store.retention_snapshot()}
 
 
 app.include_router(auth.router)

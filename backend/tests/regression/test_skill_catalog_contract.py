@@ -156,6 +156,9 @@ class SkillCatalogContractTest(unittest.TestCase):
             "WHERE scope='builtin' AND slug='skill-creator-guide'",
             (old_instruction,),
         )
+        conn.execute(
+            "DELETE FROM schema_migrations WHERE scope='app' AND version>=4"
+        )
         conn.commit()
         db._migrate_columns()
 

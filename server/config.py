@@ -20,6 +20,13 @@ class Settings:
     STORAGE_DIR: Path = Path(os.getenv("AGENTMATE_SERVER_STORAGE", str(SERVER_DIR / "storage")))
     HOST: str = os.getenv("AGENTMATE_SERVER_HOST", "127.0.0.1")
     PORT: int = int(os.getenv("AGENTMATE_SERVER_PORT", "8100"))
+    ENVIRONMENT: str = os.getenv("AGENTMATE_ENVIRONMENT", "development").strip().lower()
+    SSO_SECRET_ENCRYPTION_KEY: str = os.getenv(
+        "AGENTMATE_SSO_SECRET_ENCRYPTION_KEY", ""
+    ).strip()
+    SSO_LOCAL_KEY_PATH: str = os.getenv(
+        "AGENTMATE_SSO_LOCAL_KEY_PATH", ""
+    ).strip()
     # pbkdf2 迭代次数（与 backend 一致的口令散列强度）。
     PBKDF2_ITERS: int = int(os.getenv("AGENTMATE_SERVER_PBKDF2_ITERS", "600000"))
     AUTH_RATE_LIMIT_PER_MINUTE: int = max(
@@ -34,6 +41,12 @@ class Settings:
     SSO_REGISTRATION_POLICY: str = os.getenv(
         "AGENTMATE_SSO_REGISTRATION_POLICY", "invite_only"
     ).strip().lower()
+    BOOTSTRAP_ADMIN_SECRET: str = os.getenv(
+        "AGENTMATE_BOOTSTRAP_ADMIN_SECRET", ""
+    ).strip()
+    MIN_PASSWORD_LENGTH: int = max(
+        12, int(os.getenv("AGENTMATE_MIN_PASSWORD_LENGTH", "12"))
+    )
     # Server Bearer token 有界生命周期（WB-326）。默认 30 天；存量无 expires_at 的 token
     # 升级后仅保留 7 天兼容窗口，避免无限续用，同时不强制所有在线用户立即掉线。
     TOKEN_TTL_SECONDS: int = max(
@@ -50,6 +63,19 @@ class Settings:
     )
     RELAY_MAX_ATTEMPTS: int = max(
         1, int(os.getenv("AGENTMATE_RELAY_MAX_ATTEMPTS", "5"))
+    )
+    RELAY_PAYLOAD_RETENTION_SECONDS: int = max(
+        60, int(os.getenv("AGENTMATE_RELAY_PAYLOAD_RETENTION_SECONDS", "86400"))
+    )
+    RELAY_TERMINAL_RETENTION_SECONDS: int = max(
+        RELAY_PAYLOAD_RETENTION_SECONDS,
+        int(os.getenv("AGENTMATE_RELAY_TERMINAL_RETENTION_SECONDS", "2592000")),
+    )
+    RELAY_MAX_TERMINAL_ROWS_PER_OWNER: int = max(
+        100, int(os.getenv("AGENTMATE_RELAY_MAX_TERMINAL_ROWS_PER_OWNER", "50000"))
+    )
+    RELAY_CLEANUP_INTERVAL_SECONDS: int = max(
+        60, int(os.getenv("AGENTMATE_RELAY_CLEANUP_INTERVAL_SECONDS", "3600"))
     )
     # Public desktop update telemetry is best-effort operational data, never an
     # unbounded audit log. Dedupe retries and enforce both age and row caps.
