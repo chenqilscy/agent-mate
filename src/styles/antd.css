@@ -41,7 +41,7 @@
 
 .agentmate-antd-app {
   color: var(--text);
-  background: var(--bg);
+  background: var(--bg-page);
 }
 
 .agentmate-pro-shell,
@@ -150,7 +150,7 @@ body.dark .agentmate-ant-message .ant-message-notice-content {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--bg-elevated, #fff);
+  background: var(--bg-elevated);
   box-shadow: var(--shadow-md);
 }
 
@@ -166,5 +166,5 @@ body.dark .agentmate-ant-message .ant-message-notice-content {
 }
 
 body.dark .wb-ant-popover .ant-popover-inner {
-  background: #242a31;
+  background: var(--bg-elevated);
 }
