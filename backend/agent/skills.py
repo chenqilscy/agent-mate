@@ -29,7 +29,7 @@ from agent.skill_discovery import DISCOVERY_TOOLS
 from agent.skill_resources import RESOURCE_TOOLS
 from agent.tools import (
     TOOLS, Tool, ToolOutcome, knowledge_add, knowledge_retrieve,
-    list_work_items, set_work_item_status,
+    list_work_items, set_work_item_status, tool_search,
 )
 
 _MAX = 6000
@@ -377,6 +377,7 @@ _TOOL_REGISTRY: dict[str, Tool] = {
     "knowledge_add": knowledge_add,
     **{tool.name: tool for tool in DISCOVERY_TOOLS},
     **{tool.name: tool for tool in RESOURCE_TOOLS},
+    tool_search.name: tool_search,
 }
 
 # 普通 Skill 允许显式声明的工具。contextual/automatic 由 runtime 根据项目、知识库和资源状态

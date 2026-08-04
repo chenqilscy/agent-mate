@@ -48,6 +48,7 @@ BUILTIN_CONNECTORS: list[dict[str, Any]] = [
     {"slug": "kdocs", "name": "金山文档", "icon": "📄", "status": "tok",
      "launch": {"builtin_server": "kdocs", "builtin": True, "requires_bin": ["kdocs-cli"]}},
     {"slug": "github", "name": "GitHub", "icon": "🐙", "status": "tok",
+     "companion_skill_slug": "github-connector-guide",
      "launch": {
          "command": "npx",
          "args": ["-y", "@modelcontextprotocol/server-github"],
@@ -90,5 +91,9 @@ BUILTIN_SKILLS: list[dict[str, Any]] = [
     {"slug": "stock-analyzer", "name": "股票综合分析器", "icon": "📈", "category": "商业运营",
      "description": "分基本面 / 消息面 / 资金面三维展开，结论先行并提示风险。",
      "instructions": "做股票分析时分三维展开：基本面、消息面、资金面，结论先行并提示风险。",
+     "tools": []},
+    {"slug": "github-connector-guide", "name": "GitHub 连接器操作规程", "icon": "🐙", "category": "开发编程",
+     "description": "为已显式选择的 GitHub 连接器提供读取、变更、验证和失败处理规程。",
+     "instructions": "使用 GitHub 连接器时，先读取并确认仓库、分支和目标对象，再进行修改；写操作只能针对用户明确授权的目标，不能扩大范围。提交、评论、合并或关闭前核对真实返回结果；连接器不可用、权限不足或结果不完整时如实停止并说明，不得假装完成。",
      "tools": []},
 ]

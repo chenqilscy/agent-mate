@@ -177,3 +177,23 @@ def migrate_artifact_presentation(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_artifacts_presentation "
         "ON artifacts(run_id,is_primary DESC,display_order,created_at,id)"
     )
+
+
+def migrate_connector_companion_skill(conn: sqlite3.Connection) -> None:
+    """Bind trusted connector definitions to an optional companion Skill (WB-409)."""
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='catalog_connectors'"
+    ).fetchone():
+        return
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(catalog_connectors)")}
+    if "companion_skill_slug" not in columns:
+        conn.execute(
+            "ALTER TABLE catalog_connectors "
+            "ADD COLUMN companion_skill_slug TEXT NOT NULL DEFAULT ''"
+        )
+    # This is shipped execution policy, not Server display metadata. Keep existing
+    # databases aligned with the bundled connector definition.
+    conn.execute(
+        "UPDATE catalog_connectors SET companion_skill_slug='github-connector-guide' "
+        "WHERE scope='builtin' AND slug='github'"
+    )

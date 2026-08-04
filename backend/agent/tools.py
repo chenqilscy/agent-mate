@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextvars
 import json
 import mimetypes
+import re
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
@@ -69,6 +70,9 @@ class Tool:
     permissions: tuple[str, ...] = ()
     timeout_seconds: float = 30.0
     isolation: Literal["thread", "subprocess"] = "thread"
+    # automatic schemas are present from the first model round; deferred schemas
+    # are discoverable through tool_search and become active only next round.
+    exposure: Literal["automatic", "deferred"] = "automatic"
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -233,6 +237,7 @@ create_docx = Tool(
     run=lambda a: _office_create(a, office.create_docx),
     permissions=("workspace.write",),
     timeout_seconds=60,
+    exposure="deferred",
 )
 
 create_xlsx = Tool(
@@ -266,6 +271,7 @@ create_xlsx = Tool(
     run=lambda a: _office_create(a, office.create_xlsx),
     permissions=("workspace.write",),
     timeout_seconds=60,
+    exposure="deferred",
 )
 
 create_pptx = Tool(
@@ -286,6 +292,7 @@ create_pptx = Tool(
     run=lambda a: _office_create(a, office.create_pptx),
     permissions=("workspace.write",),
     timeout_seconds=60,
+    exposure="deferred",
 )
 
 create_pdf = Tool(
@@ -305,6 +312,7 @@ create_pdf = Tool(
     run=lambda a: _office_create(a, office.create_pdf),
     permissions=("workspace.write",),
     timeout_seconds=60,
+    exposure="deferred",
 )
 
 
@@ -326,6 +334,7 @@ inspect_office_file = Tool(
     plan_safe=True,
     permissions=("workspace.read",),
     timeout_seconds=60,
+    exposure="deferred",
 )
 
 
@@ -357,6 +366,7 @@ browser_navigate = Tool(
     plan_safe=True,
     permissions=("network.read", "browser.state"),
     timeout_seconds=45,
+    exposure="deferred",
 )
 
 browser_read = Tool(
@@ -368,6 +378,7 @@ browser_read = Tool(
     plan_safe=True,
     permissions=("network.read", "browser.state"),
     timeout_seconds=45,
+    exposure="deferred",
 )
 
 browser_interact = Tool(
@@ -388,6 +399,7 @@ browser_interact = Tool(
     run=lambda a: _browser_outcome(browser.interact(a)),
     permissions=("network.read", "browser.state", "workspace.write"),
     timeout_seconds=60,
+    exposure="deferred",
 )
 
 
@@ -964,6 +976,61 @@ TOOLS: list[Tool] = [
 ]
 _BY_NAME = {t.name: t for t in TOOLS}
 
+_deferred_tool_ctx: contextvars.ContextVar[tuple[Tool, ...]] = contextvars.ContextVar(
+    "deferred_tool_candidates", default=(),
+)
+
+
+def set_deferred_tool_candidates(values: list[Tool]) -> None:
+    _deferred_tool_ctx.set(tuple(values))
+
+
+def _tool_search_run(args: dict[str, Any]) -> ToolOutcome:
+    query = str(args.get("query") or "").strip().casefold()
+    if not query:
+        return ToolOutcome(text="query 不能为空；请描述需要的能力或文件类型。")
+    tokens = [token for token in re.split(r"\s+", query) if token]
+    matches: list[tuple[int, Tool]] = []
+    for tool in _deferred_tool_ctx.get():
+        haystack = f"{tool.name} {tool.description}".casefold()
+        score = sum(3 if token in tool.name.casefold() else 1 for token in tokens if token in haystack)
+        if score:
+            matches.append((score, tool))
+    matches.sort(key=lambda item: (-item[0], item[1].name))
+    selected = [tool for _, tool in matches[:4]]
+    if not selected:
+        available = "、".join(tool.name for tool in _deferred_tool_ctx.get()) or "无"
+        return ToolOutcome(text=f"未找到匹配的延迟工具。当前可发现：{available}")
+    names = [tool.name for tool in selected]
+    return ToolOutcome(
+        text=(
+            "已验证并请求加载以下工具；它们会从下一轮开始可用：\n"
+            + "\n".join(f"- {tool.name}：{tool.description}" for tool in selected)
+        ),
+        trace=[{
+            "kind": "step", "tool": "tool_search", "label": "按需加载 · " + "、".join(names),
+            "loaded_tools": names,
+        }],
+    )
+
+
+tool_search = Tool(
+    name="tool_search",
+    description=(
+        "检索并加载当前 Run 有权使用的长尾工具（如 Office 生成/检查、浏览器操作）。"
+        "用自然语言描述所需能力；命中的 schema 仅从下一轮开始可用。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {"query": {"type": "string", "description": "所需能力、文件类型或操作"}},
+        "required": ["query"],
+    },
+    pre=lambda _a: None,
+    run=_tool_search_run,
+    plan_safe=True,
+    permissions=("tool.definition.read",),
+)
+
 # ask_user is not a pure function — the runtime suspends on it and resumes when
 # the user answers (spec 5.3). Its schema is exposed to the model; execution is
 # special-cased in the runtime, not dispatched through safe_run.
@@ -1010,8 +1077,13 @@ for _t in TOOLS:  # 建表期自检：名单与 plan_safe 必须一致，防止�
     )
 
 
-def base_tools(plan: bool = False) -> list[Tool]:
-    return plan_filter(TOOLS, plan)
+def base_tools(plan: bool = False, *, include_deferred: bool = False) -> list[Tool]:
+    values = TOOLS if include_deferred else [tool for tool in TOOLS if tool.exposure == "automatic"]
+    return plan_filter(values, plan)
+
+
+def deferred_tools(plan: bool = False) -> list[Tool]:
+    return plan_filter([tool for tool in TOOLS if tool.exposure == "deferred"], plan)
 
 
 def plan_filter(tools: list[Tool], plan: bool) -> list[Tool]:
@@ -1031,6 +1103,12 @@ def server_tool_enabled(name: str) -> bool:
     if not rows:
         return True
     item = next((value for value in rows if value.get("name") == name), None)
+    if item is None and name == tool_search.name:
+        # Compatibility for a last-known catalog produced before WB-411. This
+        # metadata-only discovery tool grants no execution permission itself;
+        # every candidate is still independently filtered by its Server row and
+        # the Run authorization policy. A newer catalog can explicitly disable it.
+        return True
     return bool(item and item.get("enabled"))
 
 

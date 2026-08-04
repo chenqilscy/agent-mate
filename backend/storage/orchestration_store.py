@@ -50,6 +50,7 @@ def ensure_tables() -> None:
             session_id TEXT,
             run_id TEXT,
             output TEXT NOT NULL DEFAULT '',
+            handoff TEXT NOT NULL DEFAULT '{}',
             error TEXT NOT NULL DEFAULT '',
             prompt_tokens INTEGER NOT NULL DEFAULT 0,
             completion_tokens INTEGER NOT NULL DEFAULT 0,
@@ -81,6 +82,11 @@ def ensure_tables() -> None:
             ON orchestration_attempts(orchestration_id,node_key,attempt);
         """
     )
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(orchestration_nodes)").fetchall()
+    }
+    if "handoff" not in columns:
+        conn.execute("ALTER TABLE orchestration_nodes ADD COLUMN handoff TEXT NOT NULL DEFAULT '{}'")
     conn.commit()
 
 
@@ -92,9 +98,18 @@ def _loads(value: str) -> list[str]:
         return []
 
 
+def _load_object(value: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+
 def _node(row: Any, attempts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     item = dict(row)
     item["depends_on"] = _loads(item["depends_on"])
+    item["handoff"] = _load_object(item.get("handoff", "{}"))
     item["attempts"] = attempts if attempts is not None else list_attempts(
         item["orchestration_id"], item["node_key"],
     )
@@ -198,7 +213,7 @@ def prepare_resume(orchestration_id: str, error: str = "worker_restarted") -> No
         )
         conn.execute(
             "UPDATE orchestration_nodes SET status='pending',session_id=NULL,run_id=NULL,"
-            "output='',error='',ended_at=NULL WHERE orchestration_id=? AND status='running'",
+            "output='',handoff='{}',error='',ended_at=NULL WHERE orchestration_id=? AND status='running'",
             (orchestration_id,),
         )
         conn.execute(
@@ -215,6 +230,11 @@ def prepare_resume(orchestration_id: str, error: str = "worker_restarted") -> No
 def fail_nonterminal(orchestration_id: str, error: str) -> None:
     conn = db.get_conn()
     now = time.time()
+    handoff = json.dumps({
+        "schema_version": 1, "summary": "", "claims": [],
+        "run": {"id": None, "status": "failed"}, "artifacts": [], "evidence": [],
+        "side_effects": [], "open_questions": [], "risks": [error[:2000]],
+    }, ensure_ascii=False)
     try:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
@@ -223,9 +243,9 @@ def fail_nonterminal(orchestration_id: str, error: str) -> None:
             (error[:2000], now, orchestration_id),
         )
         conn.execute(
-            "UPDATE orchestration_nodes SET status='failed',error=?,ended_at=? "
+            "UPDATE orchestration_nodes SET status='failed',handoff=?,error=?,ended_at=? "
             "WHERE orchestration_id=? AND status IN ('pending','running')",
-            (error[:2000], now, orchestration_id),
+            (handoff, error[:2000], now, orchestration_id),
         )
         conn.execute(
             "UPDATE orchestrations SET status='failed',error=?,ended_at=?,updated_at=? "
@@ -263,6 +283,11 @@ def cancel_nonterminal(orchestration_id: str, error: str = "cancelled_by_user") 
     """Atomically converge an interrupted orchestration and all active children."""
     conn = db.get_conn()
     now = time.time()
+    handoff = json.dumps({
+        "schema_version": 1, "summary": "", "claims": [],
+        "run": {"id": None, "status": "cancelled"}, "artifacts": [], "evidence": [],
+        "side_effects": [], "open_questions": [], "risks": [error[:2000]],
+    }, ensure_ascii=False)
     try:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
@@ -271,9 +296,9 @@ def cancel_nonterminal(orchestration_id: str, error: str = "cancelled_by_user") 
             (error[:2000], now, orchestration_id),
         )
         conn.execute(
-            "UPDATE orchestration_nodes SET status='cancelled',error=?,ended_at=? "
+            "UPDATE orchestration_nodes SET status='cancelled',handoff=?,error=?,ended_at=? "
             "WHERE orchestration_id=? AND status IN ('pending','running')",
-            (error[:2000], now, orchestration_id),
+            (handoff, error[:2000], now, orchestration_id),
         )
         conn.execute(
             "UPDATE orchestrations SET status='cancelled',cancel_requested=1,error=?,"
@@ -400,7 +425,7 @@ def reset_node(orchestration_id: str, node_key: str) -> None:
     conn = db.get_conn()
     now = time.time()
     conn.execute(
-        "UPDATE orchestration_nodes SET status='pending',output='',error='',ended_at=NULL "
+        "UPDATE orchestration_nodes SET status='pending',output='',handoff='{}',error='',ended_at=NULL "
         "WHERE orchestration_id=? AND node_key=?",
         (orchestration_id, node_key),
     )
@@ -410,10 +435,23 @@ def reset_node(orchestration_id: str, node_key: str) -> None:
 
 def finish_node(
     orchestration_id: str, node_key: str, *, status: str, run_id: str | None,
-    output: str = "", error: str = "", prompt_tokens: int = 0, completion_tokens: int = 0,
+    output: str = "", error: str = "", handoff: dict[str, Any] | None = None,
+    prompt_tokens: int = 0, completion_tokens: int = 0,
 ) -> None:
     if status not in {"completed", "failed", "skipped", "cancelled"}:
         raise ValueError("invalid node status")
+    if handoff is None:
+        handoff = {
+            "schema_version": 1,
+            "summary": output,
+            "claims": [],
+            "run": {"id": run_id, "status": status},
+            "artifacts": [],
+            "evidence": ([{"type": "run", "id": run_id, "status": status}] if run_id else []),
+            "side_effects": [],
+            "open_questions": [],
+            "risks": ([error] if error else []),
+        }
     conn = db.get_conn()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -425,9 +463,10 @@ def finish_node(
         if attempt_totals[0]:
             prompt_tokens, completion_tokens = attempt_totals[1], attempt_totals[2]
         conn.execute(
-            "UPDATE orchestration_nodes SET status=?,run_id=?,output=?,error=?,prompt_tokens=?,"
+            "UPDATE orchestration_nodes SET status=?,run_id=?,output=?,handoff=?,error=?,prompt_tokens=?,"
             "completion_tokens=?,ended_at=? WHERE orchestration_id=? AND node_key=?",
-            (status, run_id, output[:100000], error[:2000], max(0, prompt_tokens),
+            (status, run_id, output[:100000], json.dumps(handoff or {}, ensure_ascii=False),
+             error[:2000], max(0, prompt_tokens),
              max(0, completion_tokens), time.time(), orchestration_id, node_key),
         )
         totals = conn.execute(

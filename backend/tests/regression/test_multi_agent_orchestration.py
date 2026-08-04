@@ -93,6 +93,50 @@ class MultiAgentOrchestrationTest(unittest.TestCase):
         self.assertEqual(run.id, saved["nodes"][0]["run_id"])
         self.assertEqual("真实成员输出", saved["nodes"][0]["output"])
 
+    def test_structured_handoff_preserves_run_and_artifact_evidence_outside_summary_budget(self) -> None:
+        item, _ = store.create(
+            owner_id=LOCAL_USER_ID, project_id=None, team_name="深度研究团队", goal="研究目标",
+            idempotency_key=None, max_nodes=6, max_parallel=2, max_total_tokens=12000,
+        )
+        upstream = store.add_node(
+            item["id"], node_key="upstream", title="上游", role="分析师",
+            expert_slug="data-report-analyst", instruction="分析", depends_on=[],
+        )
+        downstream = store.add_node(
+            item["id"], node_key="downstream", title="下游", role="主编",
+            expert_slug="long-form-editor", instruction="综合", depends_on=["upstream"],
+        )
+        session = db.create_session(owner_id=LOCAL_USER_ID, title="handoff")
+        run, _ = db.create_run(
+            session_id=session.id, owner_id=LOCAL_USER_ID, project_id=None,
+            mode="ask", workspace="default", idempotency_key="handoff-run",
+        )
+        db.set_run_status(run.id, "completed")
+        target = settings.WORKSPACE_ROOT / "default" / "evidence.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("authoritative evidence", encoding="utf-8")
+        artifact = db.upsert_artifact(
+            run_id=run.id, path="evidence.md", full_path=target,
+            source_tool="test", kind="document", validation={"checked": True},
+            is_primary=True,
+        )
+        handoff = orchestrator._build_handoff(
+            run_id=run.id, status="completed", output="摘要" * 20000,
+        )
+        store.finish_node(
+            item["id"], upstream["node_key"], status="completed", run_id=run.id,
+            output="摘要" * 20000, handoff=handoff,
+        )
+        saved = store.get_node(item["id"], upstream["node_key"])
+        self.assertEqual(1, saved["handoff"]["schema_version"])
+        self.assertEqual(run.id, saved["handoff"]["run"]["id"])
+        self.assertEqual(artifact.sha256, saved["handoff"]["artifacts"][0]["sha256"])
+        context = orchestrator._dependency_context(downstream, [saved, downstream])
+        self.assertIn(run.id, context)
+        self.assertIn("evidence.md", context)
+        self.assertIn(artifact.sha256, context)
+        self.assertLess(len(context), len(saved["output"]))
+
     def test_process_recovery_preserves_completed_nodes_and_requeues_interrupted_node(self) -> None:
         item, _ = store.create(
             owner_id=LOCAL_USER_ID, project_id=None, team_name="产品战略团队", goal="目标",

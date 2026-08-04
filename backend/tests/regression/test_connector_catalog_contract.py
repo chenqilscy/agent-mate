@@ -45,6 +45,11 @@ class ConnectorCatalogContractTest(unittest.TestCase):
         self.assertNotIn("actual-secret", str(db.connector_specs()))
         card = next(c for c in db.connector_catalog_specs() if c["slug"] == "github")
         self.assertEqual("Server 定义", card["description"])
+        self.assertEqual("github-connector-guide", card["companion_skill_slug"])
+        self.assertEqual(
+            {"GitHub": "github-connector-guide"},
+            db.connector_companion_skills(["GitHub"]),
+        )
 
     def test_matching_server_metadata_uses_local_launch_and_server_only_is_not_executable(self) -> None:
         trusted = db.connector_specs()["GitHub"]
@@ -58,9 +63,14 @@ class ConnectorCatalogContractTest(unittest.TestCase):
         specs = db.connector_specs()
         self.assertNotIn("GitHub", specs)
         self.assertEqual("npx", specs["GitHub Cloud"]["command"])
+        self.assertEqual(
+            {"GitHub Cloud": "github-connector-guide"},
+            db.connector_companion_skills(["GitHub Cloud"]),
+        )
         self.assertNotIn("Remote only", specs)
         cards = {item["slug"]: item for item in db.connector_catalog_specs()}
         self.assertEqual("新展示名", cards["github"]["description"])
+        self.assertEqual("github-connector-guide", cards["github"]["companion_skill_slug"])
         self.assertIn("remote-only", cards)
 
     def test_mcp_open_reports_untrusted_launch_drift_without_spawning(self) -> None:

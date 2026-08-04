@@ -24,6 +24,7 @@ from agent import agent_settings, memory, security, session_context, skills_stor
 from agent.experts import expert_for
 from agent.personalization import build_personalization_prompt
 from agent.context_layers import ContextLayers
+from agent.delivery import build_delivery_summary
 from agent.llm import LLMError, stream_chat
 from agent.mcp_client import call_mcp, mcp_schema, open_connectors
 from agent.sandbox import current_root, resolve_in_sandbox, use_root, workspace_root
@@ -43,15 +44,18 @@ from agent.execution_policy import ExecutionAuthorization, ToolAuthorizationDeni
 from agent.tools import (
     ASK_USER_SCHEMA,
     base_tools,
+    deferred_tools,
     knowledge_add,
     knowledge_retrieve,
     plan_filter,
     run_tool,
     server_tool_enabled,
+    set_deferred_tool_candidates,
     set_knowledge_context,
     set_work_context,
     Tool,
     ToolOutcome,
+    tool_search,
     work_item_tools,
 )
 from config import settings
@@ -94,12 +98,14 @@ def _knowledge_tools(
 SYSTEM_PROMPT = (
     "你是 AgentMate，一个运行在用户本机的智能工作伙伴。\n"
     "你可以使用提供的工具在工作区（沙箱目录）内操作：列目录(list_dir)、读文件(read_file)、"
-    "写文件(write_file)、生成并校验 DOCX/XLSX/PPTX/PDF、使用浏览器导航/读取/安全交互、"
-    "运行命令(run_command)、更新待办清单(update_plan)；"
+    "写文件(write_file)、运行命令(run_command)、更新待办清单(update_plan)；"
+    "生成或检查 DOCX/XLSX/PPTX/PDF、使用浏览器导航/读取/安全交互等长尾能力不会默认暴露 schema，"
+    "需要时先调用 tool_search 检索并加载，再从下一轮使用；"
     "遇到影响方向的关键决策时用 ask_user 向用户确认。\n"
     "工作方式：先思考再行动；多步任务先用 update_plan 拆解；需要时调用工具，逐步完成并核对结果。\n"
     "只在确有必要时使用工具——简单问答直接回答，不要空跑工具。所有路径都相对工作区根目录。\n"
     "最终回答使用 Markdown：用二级标题（##）分章节，善用列表、表格、代码块，让结构清晰。"
+    "最终回复必须自包含地说明完成内容、实际验证结果和仍未完成的边界；不得把未校验或待验收产物说成已经验收。"
 )
 
 # Plan mode (spec 5.3): plan, don't execute. Confirm key decisions via ask_user.
@@ -547,11 +553,16 @@ async def _run_chat_inner(
     # 规程，首轮模型调用前完整加载；其余已安装 Skill 仍通过精简候选索引渐进发现。
     project_skill_candidates = canonical_skill_keys(_dedup(proj_skills), keep_unknown=True)
     required_project_skills = [] if ask else list(project_skill_candidates)
+    active_connectors = _dedup(proj_connectors + (connectors or []))
+    connector_skill_pairs = (
+        {} if ask or plan else db.connector_companion_skills(active_connectors)
+    )
+    required_connector_skills = _dedup(list(connector_skill_pairs.values()))
+    required_skills = _dedup(required_project_skills + required_connector_skills)
     active_skills = canonical_skill_keys(
-        _dedup(required_project_skills + (skills or []) + bundle_resolution["skills"]),
+        _dedup(required_skills + (skills or []) + bundle_resolution["skills"]),
         keep_unknown=True,
     )
-    active_connectors = _dedup(proj_connectors + (connectors or []))
     active_skill_set = set(active_skills)
     skill_candidates = [
         item for item in build_skill_candidates(project_skill_candidates)
@@ -698,16 +709,22 @@ async def _run_chat_inner(
         if snapshot.get("slug")
     }
     required_skill_failures: list[dict[str, str]] = []
-    for slug in required_project_skills:
+    for slug in required_skills:
+        is_connector_requirement = slug in required_connector_skills
+        requirement_name = "连接器伴生 Skill" if is_connector_requirement else "项目必需 Skill"
         if slug in skills_budget_omitted:
-            reason = "项目必需 Skill 超出本轮指令预算，未加载"
+            reason = f"{requirement_name} 超出本轮指令预算，未加载"
         elif slug in skills_truncated:
-            reason = "项目必需 Skill 指令被截断，拒绝以不完整规程执行"
+            reason = f"{requirement_name} 指令被截断，拒绝以不完整规程执行"
         elif slug not in loaded_skill_slugs:
-            reason = skill_skip_reasons.get(slug) or "项目必需 Skill 未安装、未启用或当前环境不兼容"
+            reason = skill_skip_reasons.get(slug) or f"{requirement_name} 未安装、未启用或当前环境不兼容"
         else:
             continue
         required_skill_failures.append({"slug": slug, "reason": reason})
+    connector_skill_failures = [
+        item for item in required_skill_failures
+        if item["slug"] in required_connector_skills
+    ]
     set_active_skill_resources(skill_release_snapshots)
 
     async def report_skill_runs(event: str) -> None:
@@ -776,8 +793,10 @@ async def _run_chat_inner(
         loaded = list(dict.fromkeys(explicitly_loaded_skill_slugs + viewed_skill_slugs))
         return {
             "offered": offered_skill_slugs,
-            "required": required_project_skills,
-            "required_loaded": [slug for slug in required_project_skills if slug in loaded],
+            "required": required_skills,
+            "required_project": required_project_skills,
+            "required_connector": required_connector_skills,
+            "required_loaded": [slug for slug in required_skills if slug in loaded],
             "explicitly_loaded": explicitly_loaded_skill_slugs,
             "viewed_loaded": list(viewed_skill_slugs),
             "loaded": loaded,
@@ -856,6 +875,24 @@ async def _run_chat_inner(
             "skill_candidates": [item["slug"] for item in skill_candidates],
             "project_skill_candidates": project_skill_candidates,
             "required_project_skills": required_project_skills,
+            "required_connector_skills": required_connector_skills,
+            "connector_skill_pairs": connector_skill_pairs,
+            "connector_pair_gate": {
+                "status": "blocked" if connector_skill_failures else (
+                    "pending" if connector_skill_pairs else "passed"
+                ),
+                "failures": [
+                    {
+                        "connector": next(
+                            (name for name, slug in connector_skill_pairs.items() if slug == item["slug"]),
+                            "",
+                        ),
+                        "skill": item["slug"],
+                        "reason": item["reason"],
+                    }
+                    for item in connector_skill_failures
+                ],
+            },
             "skill_bundles": bundle_resolution["bundles"],
             "missing_skill_bundles": bundle_resolution["missing_bundles"],
             "missing_bundle_skills": bundle_resolution["missing_skills"],
@@ -957,7 +994,7 @@ async def _run_chat_inner(
             detail = "；".join(
                 f"{item['slug']}：{item['reason']}" for item in required_skill_failures
             )
-            assistant_text = f"项目要求的 Skill 未能完整加载，已在执行前阻断：{detail}"
+            assistant_text = f"执行所需的 Skill 未能完整加载，已在执行前阻断：{detail}"
             yield record({
                 "kind": "step", "tool": "skill_preload_gate",
                 "label": assistant_text, "status": "blocked",
@@ -986,7 +1023,7 @@ async def _run_chat_inner(
                 "label": "；".join(str(note) for note in policy_notes)[:500],
             })
 
-        # Resolve once and compact before connectors/tools are opened. A summary call
+        # Resolve once, then open connectors before context compaction. A summary call
         # uses the same real configured LLM; failure falls back to a bounded recent
         # window and never blocks the actual run for more than the configured timeout.
         if not governance_decision.get("allowed", True):
@@ -994,6 +1031,67 @@ async def _run_chat_inner(
         model_id, model_base, model_key, model_path = resolve_model_config(
             user.id, selected_model_ref,
         )
+        # A connector with a trusted companion Skill is one atomic execution unit:
+        # the Skill gate above and the MCP startup below must both pass before any
+        # model request (including history compaction). Unpaired legacy connectors
+        # retain their best-effort compatibility behavior.
+        mcp_tools = []
+        mcp_skipped = connector_mode_skips(active_connectors, plan=plan, ask=ask)
+        mcp_permissions = ("connector.call", "external.dynamic")
+        connector_authorized = authorization.tool_available(mcp_permissions)
+        if active_connectors and not plan and not ask and connector_authorized:
+            mcp_tools, mcp_stack, mcp_skipped = await open_connectors(
+                active_connectors, env={"AGENTMATE_NOTES_DIR": str(current_root())}
+            )
+        elif active_connectors and not plan and not ask and not connector_authorized:
+            mcp_skipped.extend(
+                {"name": name, "reason": "后台运行未预授权外部连接器"}
+                for name in active_connectors
+            )
+        skipped_by_name = {item["name"]: item["reason"] for item in mcp_skipped}
+        connector_pair_failures = [
+            {
+                "connector": name,
+                "skill": skill_slug,
+                "reason": skipped_by_name[name],
+            }
+            for name, skill_slug in connector_skill_pairs.items()
+            if name in skipped_by_name
+        ]
+        db.update_run_runtime(
+            run_id,
+            permission_snapshot={
+                **run.permission_snapshot,
+                "connector_skill_pairs": connector_skill_pairs,
+                "required_connector_skills": required_connector_skills,
+                "connector_pair_gate": {
+                    "status": "blocked" if connector_pair_failures else "passed",
+                    "failures": connector_pair_failures,
+                },
+                "connector_skipped": mcp_skipped,
+            },
+        )
+        if connector_pair_failures:
+            detail = "；".join(
+                f"{item['connector']} + {item['skill']}：{item['reason']}"
+                for item in connector_pair_failures
+            )
+            assistant_text = f"连接器与伴生 Skill 未能原子加载，已在执行前阻断：{detail}"
+            yield record({
+                "kind": "step", "tool": "connector_skill_gate",
+                "label": assistant_text, "status": "blocked",
+            })
+            yield events.error(assistant_text)
+            mid = _persist_partial(assistant_text)
+            db.set_run_status(
+                run_id, "failed", error_code="connector_pair_unavailable",
+                error_message=detail,
+            )
+            db.touch_session(session_id, status="idle")
+            finished_ok = True
+            yield events.done(mid)
+            await report_skill_runs("run_failed")
+            return
         run = db.set_run_model_snapshot(
             run_id,
             model_ref=selected_model_ref,
@@ -1065,27 +1163,28 @@ async def _run_chat_inner(
         # wi_tools 认 plan）。技能侧当时恰好 3 个工具全只读所以没暴雷；知识库侧却是真漏：
         # knowledge_add 是写（灌文件进库 + 解析/切片/向量化），计划模式下 agent 真能调它。
         # 现在统一按 Tool.plan_safe 过滤（默认 False = 保守，新工具不标注就进不了 plan）。
-        mcp_tools = []
-        mcp_skipped = connector_mode_skips(active_connectors, plan=plan, ask=ask)
-        mcp_permissions = ("connector.call", "external.dynamic")
-        connector_authorized = authorization.tool_available(mcp_permissions)
-        if active_connectors and not plan and not ask and connector_authorized:
-            mcp_tools, mcp_stack, mcp_skipped = await open_connectors(
-                active_connectors, env={"AGENTMATE_NOTES_DIR": str(current_root())}
-            )
-        elif active_connectors and not plan and not ask and not connector_authorized:
-            mcp_skipped.extend(
-                {"name": name, "reason": "后台运行未预授权外部连接器"}
-                for name in active_connectors
-            )
         mcp_by_name = {t.qualified: t for t in mcp_tools}
         active_tools: dict[str, Tool] = {}
+        deferred_candidates = [] if ask else [
+            tool for tool in deferred_tools(plan)
+            if authorization.tool_available(tool.permissions)
+        ]
+        deferred_by_name = {tool.name: tool for tool in deferred_candidates}
+        loaded_deferred_tools: dict[str, Tool] = {}
+        discovery_available = bool(
+            deferred_candidates
+            and server_tool_enabled(tool_search.name)
+            and authorization.tool_available(tool_search.permissions)
+        )
+        set_deferred_tool_candidates(deferred_candidates if discovery_available else [])
 
         def refresh_skill_contract() -> None:
-            """Rebuild schemas and the immutable Run authority snapshot after skill_view."""
+            """Rebuild schemas and Run authority after progressive capability loading."""
             nonlocal schemas
             tools_list = [] if ask else (
-                base_tools(plan)
+                base_tools(plan, include_deferred=not discovery_available)
+                + ([tool_search] if discovery_available else [])
+                + list(loaded_deferred_tools.values())
                 + plan_filter(DISCOVERY_TOOLS if skill_candidates else [], plan)
                 + plan_filter(skill_tools, plan)
                 + plan_filter(RESOURCE_TOOLS if has_active_resources() else [], plan)
@@ -1113,6 +1212,9 @@ async def _run_chat_inner(
                     "project_skill_candidates": project_skill_candidates,
                     "skill_releases": list(skill_release_snapshots),
                     "tools": sorted(active_tools),
+                    "deferred_tool_candidates": sorted(deferred_by_name),
+                    "deferred_tools_loaded": sorted(loaded_deferred_tools),
+                    "tool_discovery": "tool_search" if discovery_available else "legacy_direct",
                     "mcp_tools": sorted(mcp_by_name),
                     "permissions": sorted(
                         {permission for tool in active_tools.values() for permission in tool.permissions}
@@ -1206,6 +1308,35 @@ async def _run_chat_inner(
                 changed = True
             if changed:
                 set_active_skill_resources(skill_release_snapshots)
+                refresh_skill_contract()
+
+        def validate_tool_search(outcome: ToolOutcome) -> tuple[ToolOutcome, list[Tool]]:
+            event = next(
+                (
+                    item for item in outcome.trace
+                    if item.get("kind") == "step" and item.get("tool") == "tool_search"
+                ),
+                None,
+            )
+            raw_names = event.get("loaded_tools") if event else None
+            if not isinstance(raw_names, list):
+                return outcome, []
+            selected: list[Tool] = []
+            for raw_name in raw_names:
+                name = str(raw_name)
+                tool = deferred_by_name.get(name)
+                if tool is None or name in loaded_deferred_tools:
+                    continue
+                selected.append(tool)
+            return outcome, selected
+
+        def activate_deferred_tools(values: list[Tool]) -> None:
+            changed = False
+            for tool in values:
+                if tool.name not in loaded_deferred_tools:
+                    loaded_deferred_tools[tool.name] = tool
+                    changed = True
+            if changed:
                 refresh_skill_contract()
 
         # Show the loadout so the persona / skills / connectors that shaped this
@@ -1408,6 +1539,7 @@ async def _run_chat_inner(
             llm_messages.append({"role": "assistant", "content": content_buf or None, "tool_calls": calls})
 
             pending_skill_defs: list[dict[str, Any]] = []
+            pending_deferred_tools: list[Tool] = []
             for call in calls:
                 name = call["function"]["name"]
                 try:
@@ -1579,7 +1711,7 @@ async def _run_chat_inner(
                         # must never be mistaken for runtime authority changes.
                         outcome = (
                             run_tool(tool, args)
-                            if name in {"skills_list", "skill_view"}
+                            if name in {"skills_list", "skill_view", "tool_search"}
                             else await execute_tool(tool, args, stop, authorization=authorization)
                         )
                         tool_completed = True
@@ -1601,6 +1733,9 @@ async def _run_chat_inner(
                     outcome, definition = validate_viewed_skill(outcome)
                     if definition:
                         pending_skill_defs.append(definition)
+                if name == "tool_search" and tool_completed and not stopped:
+                    outcome, selected_tools = validate_tool_search(outcome)
+                    pending_deferred_tools.extend(selected_tools)
                 if tool_completed and not stopped and any(
                     permission.endswith(".write") for permission in tool.permissions
                 ):
@@ -1646,7 +1781,14 @@ async def _run_chat_inner(
             # Dynamic Skill tools/resources become visible only in the next LLM
             # round, never to sibling calls from the batch that requested skill_view.
             activate_viewed_skills(pending_skill_defs)
+            # Deferred schemas obey the same batch boundary: a sibling call cannot
+            # use a tool that tool_search discovered in this batch.
+            activate_deferred_tools(pending_deferred_tools)
             # loop again so the model can use the results
+        delivery_summary = build_delivery_summary(db.list_artifacts(run_id), stopped=stopped)
+        if delivery_summary:
+            assistant_text += delivery_summary
+            yield events.text(delivery_summary)
         finished_ok = True  # loop completed normally (incl. user-stop)
     except RuntimeBudgetExceeded as e:
         chat_trace.update(
@@ -1699,6 +1841,7 @@ async def _run_chat_inner(
     finally:
         _unregister_run(session_id, run_id)
         clear_skill_candidates()
+        set_deferred_tool_candidates([])
         skill_usage.clear_context()
         skills_store.set_environment(["adhoc"])
         set_active_skill_resources([])

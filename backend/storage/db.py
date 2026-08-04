@@ -32,6 +32,7 @@ from storage.migrations import (
     migrate_message_run_link,
     migrate_model_and_run_audit,
     migrate_artifact_presentation,
+    migrate_connector_companion_skill,
     migrate_project_org_scope,
     migrate_run_plan_version,
     run_migrations,
@@ -584,6 +585,7 @@ def init_db() -> None:
             description TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT 'rdy',
             launch TEXT NOT NULL DEFAULT '{}',
+            companion_skill_slug TEXT NOT NULL DEFAULT '',
             enabled INTEGER NOT NULL DEFAULT 1,
             sort INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL,
@@ -1272,6 +1274,7 @@ def _assert_app_schema(conn: sqlite3.Connection) -> None:
         "messages": {"run_id", "error"},
         "runs": {"model_snapshot", "estimated_cost", "cached_prompt_tokens", "plan_version"},
         "artifacts": {"is_primary", "display_order"},
+        "catalog_connectors": {"companion_skill_slug"},
     }
     missing: list[str] = []
     for table, columns in required.items():
@@ -1291,6 +1294,7 @@ def _migrate_columns() -> None:
         Migration(5, "durable-run-plan-version", migrate_run_plan_version),
         Migration(6, "project-org-model-policy-scope", migrate_project_org_scope),
         Migration(7, "artifact-presentation-authority", migrate_artifact_presentation),
+        Migration(8, "connector-companion-skill", migrate_connector_companion_skill),
     ))
     _assert_app_schema(conn)
 
@@ -1340,11 +1344,12 @@ def _seed_catalog() -> None:
             continue
         conn.execute(
             """INSERT INTO catalog_connectors
-               (id,scope,owner_id,slug,name,icon,description,status,launch,enabled,sort,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               (id,scope,owner_id,slug,name,icon,description,status,launch,companion_skill_slug,
+                enabled,sort,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (new_uuid(), "builtin", None, c.get("slug", ""), name, c.get("icon", ""), c.get("description", ""),
              c.get("status", "rdy"), json.dumps(c.get("launch", {}), ensure_ascii=False),
-             1, i, now, now),
+             c.get("companion_skill_slug", ""), 1, i, now, now),
         )
     for i, s in enumerate(BUILTIN_SKILLS):  # WB-183
         slug = s["slug"]
@@ -3373,6 +3378,7 @@ def _row_to_catalog_connector(r: sqlite3.Row) -> CatalogConnector:
     return CatalogConnector(
         id=r["id"], scope=r["scope"], owner_id=r["owner_id"], slug=r["slug"], name=r["name"], icon=r["icon"],
         description=r["description"], status=r["status"], launch=launch if isinstance(launch, dict) else {},
+        companion_skill_slug=r["companion_skill_slug"],
         enabled=bool(r["enabled"]), sort=r["sort"], created_at=r["created_at"], updated_at=r["updated_at"],
     )
 
@@ -3419,6 +3425,45 @@ def connector_specs() -> dict[str, dict[str, Any]]:
             # immutable local definition that passed the equality gate.
             out[server_row["name"]] = trusted
     return out
+
+
+def connector_companion_skills(names: list[str]) -> dict[str, str]:
+    """Resolve selected executable connector names to App-trusted companion Skills.
+
+    Server metadata may rename a bundled connector, but cannot choose or replace
+    the companion procedure. A known bundled slug keeps its local pairing even
+    when the Server launch declaration drifts, so the later atomic preflight can
+    fail closed instead of silently degrading the selected pair.
+    """
+    conn = get_conn()
+    trusted_rows = conn.execute(
+        "SELECT slug,name,launch,companion_skill_slug FROM catalog_connectors "
+        "WHERE enabled=1 AND scope='builtin' ORDER BY sort,name"
+    ).fetchall()
+    server_rows = conn.execute(
+        "SELECT slug,name,launch FROM catalog_connectors "
+        "WHERE enabled=1 AND scope='server' ORDER BY sort,name"
+    ).fetchall()
+
+    def _launch(row: sqlite3.Row) -> dict[str, Any] | None:
+        try:
+            value = json.loads(row["launch"]) if row["launch"] else {}
+        except (json.JSONDecodeError, TypeError):
+            return None
+        return value if isinstance(value, dict) and value else None
+
+    server_by_slug = {row["slug"]: row for row in server_rows if row["slug"]}
+    resolved: dict[str, str] = {}
+    for row in trusted_rows:
+        companion = str(row["companion_skill_slug"] or "").strip()
+        trusted = _launch(row)
+        if not companion or trusted is None:
+            continue
+        server_row = server_by_slug.get(row["slug"])
+        effective_name = server_row["name"] if server_row is not None else row["name"]
+        resolved[effective_name] = companion
+    selected = set(names)
+    return {name: slug for name, slug in resolved.items() if name in selected}
 
 
 def skill_specs() -> list[dict[str, Any]]:
@@ -3476,11 +3521,13 @@ def skill_specs() -> list[dict[str, Any]]:
 def connector_catalog_specs() -> list[dict[str, Any]]:
     """返回去重后的连接器公开元数据，供推荐位解析；不包含本机凭据值。"""
     rows = get_conn().execute(
-        "SELECT scope,slug,name,icon,description,status FROM catalog_connectors WHERE enabled=1 "
+        "SELECT scope,slug,name,icon,description,status,companion_skill_slug "
+        "FROM catalog_connectors WHERE enabled=1 "
         "ORDER BY CASE scope WHEN 'server' THEN 0 ELSE 1 END, sort, name"
     ).fetchall()
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
+    companions = connector_companion_skills([str(row["name"]) for row in rows])
     for row in rows:
         # slug is the stable identity.  A Server rename must replace the local
         # card instead of producing two cards whose names happen to differ.
@@ -3491,6 +3538,7 @@ def connector_catalog_specs() -> list[dict[str, Any]]:
         out.append({
             "slug": row["slug"], "name": row["name"], "icon": row["icon"], "description": row["description"],
             "status": row["status"], "scope": row["scope"],
+            "companion_skill_slug": companions.get(row["name"], ""),
         })
     return out
 
@@ -3544,14 +3592,15 @@ def replace_server_connector_catalog(items: list[dict[str, Any]]) -> dict[str, i
         rows.append((
             new_uuid(), "server", None, slug, name, str(raw.get("icon", "🔗")),
             str(raw.get("desc") or raw.get("description") or ""), status,
-            json.dumps(safe_launch, ensure_ascii=False), 1, int(raw.get("sort", index)), now, now,
+            json.dumps(safe_launch, ensure_ascii=False), "", 1, int(raw.get("sort", index)), now, now,
         ))
     with conn:
         conn.execute("DELETE FROM catalog_connectors WHERE scope='server'")
         conn.executemany(
             "INSERT INTO catalog_connectors "
-            "(id,scope,owner_id,slug,name,icon,description,status,launch,enabled,sort,created_at,updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "(id,scope,owner_id,slug,name,icon,description,status,launch,companion_skill_slug,"
+            "enabled,sort,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
     return {"inserted": len(rows), "skipped": skipped}

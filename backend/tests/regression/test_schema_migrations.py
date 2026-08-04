@@ -16,6 +16,7 @@ from storage import db  # noqa: E402
 from storage.migrations import (  # noqa: E402
     Migration,
     migrate_artifact_presentation,
+    migrate_connector_companion_skill,
     migrate_message_run_link,
     migrate_model_and_run_audit,
     migrate_project_org_scope,
@@ -36,7 +37,7 @@ class AppSchemaMigrationTest(unittest.TestCase):
                 rows = db.get_conn().execute(
                     "SELECT version,name FROM schema_migrations WHERE scope='app' ORDER BY version"
                 ).fetchall()
-                self.assertEqual([1, 2, 3, 4, 5, 6, 7], [row["version"] for row in rows])
+                self.assertEqual([1, 2, 3, 4, 5, 6, 7, 8], [row["version"] for row in rows])
                 db._assert_app_schema(db.get_conn())
             finally:
                 db.close_thread_connection()
@@ -57,6 +58,7 @@ class AppSchemaMigrationTest(unittest.TestCase):
             Migration(5, "durable-run-plan-version", migrate_run_plan_version),
             Migration(6, "project-org-model-policy-scope", migrate_project_org_scope),
             Migration(7, "artifact-presentation-authority", migrate_artifact_presentation),
+            Migration(8, "connector-companion-skill", migrate_connector_companion_skill),
         )
         run_migrations(conn, migrations)
         run_migrations(conn, migrations)
@@ -64,7 +66,7 @@ class AppSchemaMigrationTest(unittest.TestCase):
         self.assertIn("model_snapshot", {row[1] for row in conn.execute("PRAGMA table_info(runs)")})
         self.assertIn("plan_version", {row[1] for row in conn.execute("PRAGMA table_info(runs)")})
         self.assertIn("run_id", {row[1] for row in conn.execute("PRAGMA table_info(messages)")})
-        self.assertEqual(7, conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0])
+        self.assertEqual(8, conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0])
 
     def test_legacy_artifacts_gain_one_primary_and_stable_order(self) -> None:
         conn = sqlite3.connect(":memory:")

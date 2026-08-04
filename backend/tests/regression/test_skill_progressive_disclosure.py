@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
+from contextlib import AsyncExitStack, contextmanager
 import json
 from pathlib import Path
 import sys
@@ -26,6 +26,10 @@ from agent.skill_discovery import (  # noqa: E402
 from config import settings  # noqa: E402
 from storage import db  # noqa: E402
 from storage.models import LOCAL_USER_ID  # noqa: E402
+
+
+async def _collect(stream) -> list[str]:
+    return [chunk async for chunk in stream]
 
 
 class SkillProgressiveDisclosureTest(unittest.TestCase):
@@ -236,6 +240,148 @@ class SkillProgressiveDisclosureTest(unittest.TestCase):
         compliance = run.permission_snapshot["skill_compliance"]
         self.assertEqual("passed", compliance["gate"])
         self.assertEqual(["web-access"], compliance["required_loaded"])
+
+    def test_connector_companion_skill_and_connector_fail_as_one_preflight_unit(self) -> None:
+        session = db.create_session(owner_id=LOCAL_USER_ID, title="connector-pair")
+        companion = db.skill_spec_for("github-connector-guide")
+        self.assertIsNotNone(companion)
+        skills_store.install_catalog_skill(
+            companion["slug"], companion["name"], companion["description"],
+            companion["instructions"], companion.get("version", ""), tools=[],
+        )
+
+        async def unavailable(_names, **_kwargs):
+            return [], AsyncExitStack(), [{"name": "GitHub", "reason": "缺少测试凭据"}]
+
+        class NoopObservation:
+            def update(self, **_kwargs):
+                pass
+
+        @contextmanager
+        def noop_observation(**_kwargs):
+            yield NoopObservation()
+
+        with (
+            patch.object(runtime, "open_connectors", side_effect=unavailable),
+            patch.object(runtime, "stream_chat") as stream_mock,
+            patch.object(runtime, "resolve_model_config", return_value=("test", "http://test", "key", "/chat")),
+            patch.object(runtime.memory, "capture_enabled", return_value=False),
+            patch.object(runtime.telemetry, "chat_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "generation_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "tool_observation", side_effect=noop_observation),
+        ):
+            payload = "".join(asyncio.run(_collect(runtime.run_chat(
+                session, db.get_user(LOCAL_USER_ID), "读取仓库", connectors=["GitHub"],
+            ))))
+
+        stream_mock.assert_not_called()
+        run = db.list_runs(LOCAL_USER_ID, session_id=session.id)[0]
+        self.assertEqual("failed", run.status)
+        self.assertEqual("connector_pair_unavailable", run.error_code)
+        self.assertEqual(
+            {"GitHub": "github-connector-guide"},
+            run.permission_snapshot["connector_skill_pairs"],
+        )
+        self.assertEqual("blocked", run.permission_snapshot["connector_pair_gate"]["status"])
+        self.assertIn("连接器与伴生 Skill 未能原子加载", payload)
+
+    def test_long_tail_tool_schema_loads_only_after_tool_search_round(self) -> None:
+        session = db.create_session(owner_id=LOCAL_USER_ID, title="deferred-tools")
+        captured: list[set[str]] = []
+
+        async def fake_stream(_messages, **kwargs):
+            captured.append({
+                item["function"]["name"] for item in kwargs.get("tools", [])
+                if item.get("function")
+            })
+            if len(captured) == 1:
+                yield Delta(tool_calls=[
+                    ToolCallDelta(
+                        index=0, id="call-search", name="tool_search",
+                        arguments=json.dumps({"query": "create_docx DOCX"}),
+                    ),
+                    ToolCallDelta(
+                        index=1, id="call-too-early", name="create_docx",
+                        arguments=json.dumps({
+                            "path": "too-early.docx", "title": "x", "sections": [],
+                        }),
+                    ),
+                ], usage={"prompt_tokens": 10, "completion_tokens": 2})
+            else:
+                yield Delta(content="工具已按需加载。", usage={"prompt_tokens": 12, "completion_tokens": 3})
+
+        class NoopObservation:
+            def update(self, **_kwargs):
+                pass
+
+        @contextmanager
+        def noop_observation(**_kwargs):
+            yield NoopObservation()
+
+        with (
+            patch.object(runtime, "stream_chat", side_effect=fake_stream),
+            patch.object(runtime, "resolve_model_config", return_value=("test", "http://test", "key", "/chat")),
+            patch.object(runtime.memory, "capture_enabled", return_value=False),
+            patch.object(runtime.telemetry, "chat_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "generation_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "tool_observation", side_effect=noop_observation),
+        ):
+            asyncio.run(_collect(runtime.run_chat(
+                session, db.get_user(LOCAL_USER_ID), "生成 DOCX",
+            )))
+
+        self.assertEqual(2, len(captured))
+        self.assertIn("tool_search", captured[0])
+        self.assertNotIn("create_docx", captured[0])
+        self.assertNotIn("browser_navigate", captured[0])
+        self.assertIn("create_docx", captured[1])
+        self.assertFalse((settings.WORKSPACE_ROOT / "default" / "too-early.docx").exists())
+        run = db.list_runs(LOCAL_USER_ID, session_id=session.id)[0]
+        self.assertIn("create_docx", run.permission_snapshot["deferred_tools_loaded"])
+        self.assertEqual("tool_search", run.permission_snapshot["tool_discovery"])
+
+    def test_final_message_appends_authoritative_artifact_delivery(self) -> None:
+        session = db.create_session(owner_id=LOCAL_USER_ID, title="delivery")
+        rounds = 0
+
+        async def fake_stream(_messages, **_kwargs):
+            nonlocal rounds
+            rounds += 1
+            if rounds == 1:
+                yield Delta(tool_calls=[ToolCallDelta(
+                    index=0, id="call-write", name="write_file",
+                    arguments=json.dumps({"path": "delivery.md", "content": "verified"}),
+                )], usage={"prompt_tokens": 8, "completion_tokens": 2})
+            else:
+                yield Delta(content="已完成。", usage={"prompt_tokens": 10, "completion_tokens": 2})
+
+        class NoopObservation:
+            def update(self, **_kwargs):
+                pass
+
+        @contextmanager
+        def noop_observation(**_kwargs):
+            yield NoopObservation()
+
+        with (
+            patch.object(runtime, "stream_chat", side_effect=fake_stream),
+            patch.object(runtime, "resolve_model_config", return_value=("test", "http://test", "key", "/chat")),
+            patch.object(runtime.memory, "capture_enabled", return_value=False),
+            patch.object(runtime.telemetry, "chat_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "generation_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "tool_observation", side_effect=noop_observation),
+        ):
+            payload = "".join(asyncio.run(_collect(runtime.run_chat(
+                session, db.get_user(LOCAL_USER_ID), "创建文件",
+            ))))
+
+        message = db.list_messages(session.id)[-1]
+        artifact = db.list_artifacts(message.run_id)[0]
+        self.assertIn("## 权威交付记录", message.content)
+        self.assertIn("delivery.md", message.content)
+        self.assertIn(artifact.sha256, message.content)
+        self.assertIn("待验收状态", message.content)
+        self.assertIn("权威交付记录", payload)
 
     def test_missing_project_skill_fails_before_model_call(self) -> None:
         project = db.create_project(

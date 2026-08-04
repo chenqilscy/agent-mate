@@ -131,6 +131,68 @@ def _sse(chunk: str) -> tuple[str, dict[str, Any]]:
     return event, data
 
 
+def _build_handoff(
+    *, run_id: str | None, status: str, output: str = "", error: str = "",
+) -> dict[str, Any]:
+    """Build a versioned handoff only from persisted Run/Artifact evidence."""
+    run = db.get_run(run_id or "") if run_id else None
+    artifacts = db.list_artifacts(run.id) if run else []
+    artifact_items = [
+        {
+            "id": artifact.id,
+            "path": artifact.path,
+            "name": artifact.name,
+            "kind": artifact.kind,
+            "sha256": artifact.sha256,
+            "size": artifact.size,
+            "is_primary": artifact.is_primary,
+            "display_order": artifact.display_order,
+            "validation_status": artifact.validation_status,
+            "validation": artifact.validation,
+            "acceptance_status": artifact.acceptance_status,
+        }
+        for artifact in artifacts
+    ]
+    risks: list[str] = []
+    if error:
+        risks.append(error)
+    for artifact in artifact_items:
+        if artifact["validation_status"] != "passed":
+            risks.append(f"产物 {artifact['path']} 校验状态为 {artifact['validation_status']}")
+        if artifact["acceptance_status"] != "accepted":
+            risks.append(f"产物 {artifact['path']} 尚未验收（{artifact['acceptance_status']}）")
+    return {
+        "schema_version": 1,
+        "summary": output,
+        "claims": [],
+        "run": {
+            "id": run.id if run else run_id,
+            "status": run.status if run else status,
+            "error_code": run.error_code if run else "",
+            "prompt_tokens": run.prompt_tokens if run else 0,
+            "completion_tokens": run.completion_tokens if run else 0,
+            "tool_calls": run.tool_calls if run else 0,
+        },
+        "artifacts": artifact_items,
+        "evidence": [
+            {"type": "run", "id": run.id, "status": run.status}
+            for _ in [0] if run
+        ] + [
+            {
+                "type": "artifact", "id": item["id"], "path": item["path"],
+                "sha256": item["sha256"], "validation_status": item["validation_status"],
+            }
+            for item in artifact_items
+        ],
+        "side_effects": [
+            {"type": "artifact_write", "artifact_id": item["id"], "path": item["path"]}
+            for item in artifact_items
+        ],
+        "open_questions": [],
+        "risks": list(dict.fromkeys(risks)),
+    }
+
+
 async def _execute_node(
     orchestration: dict[str, Any], user: User, node: dict[str, Any], prompt: str,
     *, token_budget: int, max_attempts: int = 3,
@@ -218,6 +280,9 @@ async def _execute_node(
         store.finish_node(
             orchestration["id"], node["node_key"], status=status, run_id=run.id if run else None,
             output=text, error=error,
+            handoff=_build_handoff(
+                run_id=run.id if run else None, status=status, output=text, error=error,
+            ),
         )
         return store.get_node(orchestration["id"], node["node_key"]) or {}
     return store.get_node(orchestration["id"], node["node_key"]) or {}
@@ -255,9 +320,30 @@ def _dependency_context(node: dict[str, Any], nodes: list[dict[str, Any]]) -> st
     remaining = 24000
     for dep in node["depends_on"]:
         source = by_key[dep]
-        body = str(source.get("output") or "")[:remaining]
+        handoff = source.get("handoff") if isinstance(source.get("handoff"), dict) else {}
+        run = handoff.get("run") if isinstance(handoff.get("run"), dict) else {}
+        artifacts = handoff.get("artifacts") if isinstance(handoff.get("artifacts"), list) else []
+        evidence_lines = [
+            f"Run：{run.get('id') or source.get('run_id') or '-'} · {run.get('status') or source['status']}"
+        ]
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                continue
+            evidence_lines.append(
+                f"产物：{'主产物 · ' if artifact.get('is_primary') else ''}{artifact.get('path') or '-'}"
+                f" · sha256 {artifact.get('sha256') or '-'} · 校验 {artifact.get('validation_status') or '-'}"
+                f" · 验收 {artifact.get('acceptance_status') or '-'}"
+            )
+        risks = handoff.get("risks") if isinstance(handoff.get("risks"), list) else []
+        if risks:
+            evidence_lines.append("风险：" + "；".join(str(item) for item in risks))
+        body = str(handoff.get("summary") or source.get("output") or "")[:remaining]
         remaining -= len(body)
-        blocks.append(f"【上游 {dep} · {source['role']}】\n{body}")
+        blocks.append(
+            f"【上游 {dep} · {source['role']} · 结构化交接 v{handoff.get('schema_version') or 0}】\n"
+            + "\n".join(evidence_lines)
+            + f"\n摘要：\n{body}"
+        )
         if remaining <= 0:
             break
     return "\n\n".join(blocks)
@@ -269,10 +355,19 @@ def _review_prompt(orchestration: dict[str, Any], nodes: list[dict[str, Any]]) -
     for node in nodes:
         if node["node_key"] in {"planner", "reviewer"}:
             continue
-        body = str(node.get("output") or node.get("error") or "")[:remaining]
+        handoff = node.get("handoff") if isinstance(node.get("handoff"), dict) else {}
+        evidence = json.dumps({
+            "schema_version": handoff.get("schema_version", 0),
+            "run": handoff.get("run") or {"id": node.get("run_id"), "status": node["status"]},
+            "artifacts": handoff.get("artifacts") or [],
+            "risks": handoff.get("risks") or ([node.get("error")] if node.get("error") else []),
+            "open_questions": handoff.get("open_questions") or [],
+        }, ensure_ascii=False, sort_keys=True)
+        body = str(handoff.get("summary") or node.get("output") or node.get("error") or "")[:remaining]
         remaining -= len(body)
         blocks.append(
-            f"【{node['node_key']} · {node['role']} · {node['status']} · Run {node.get('run_id') or '-'}】\n{body}"
+            f"【{node['node_key']} · {node['role']} · {node['status']} · 结构化证据】\n"
+            f"{evidence}\n摘要：\n{body}"
         )
         if remaining <= 0:
             break
@@ -458,6 +553,9 @@ async def run_orchestration(orchestration_id: str, user: User, team: dict[str, A
         store.finish_node(
             orchestration_id, "reviewer", status="completed", run_id=reviewer.get("run_id"),
             output=final_output,
+            handoff=_build_handoff(
+                run_id=reviewer.get("run_id"), status="completed", output=final_output,
+            ),
         )
         reviewer = store.get_node(orchestration_id, "reviewer") or reviewer
         final_nodes = store.list_nodes(orchestration_id)

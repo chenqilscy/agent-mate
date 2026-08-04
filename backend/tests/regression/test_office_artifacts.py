@@ -74,7 +74,9 @@ class OfficeArtifactToolsTest(unittest.TestCase):
         self.assertGreater(check["extractable_characters"], 0)
 
     def test_writers_are_not_plan_safe_but_inspection_is(self) -> None:
-        plan_names = {tool.name for tool in tools.base_tools(plan=True)}
+        plan_names = {
+            tool.name for tool in tools.base_tools(plan=True) + tools.deferred_tools(plan=True)
+        }
         self.assertIn("inspect_office_file", plan_names)
         for name in ("create_docx", "create_xlsx", "create_pptx", "create_pdf"):
             self.assertNotIn(name, plan_names)

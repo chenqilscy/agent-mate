@@ -217,6 +217,7 @@ class CatalogConnector:
     description: str
     status: str  # "rdy" 内置即用 | "tok" 需凭据/CLI | "catalog" 未接入橱窗卡
     launch: dict[str, Any]  # 启动 spec（存 JSON）
+    companion_skill_slug: str  # 可选；来自 App 可信目录，Server 不得覆盖
     enabled: bool
     sort: int
     created_at: float

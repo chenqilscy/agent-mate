@@ -125,7 +125,9 @@ class BrowserToolsTest(unittest.TestCase):
             security.set_security_context("browser-owner-b")
             echo = browser.read({"url": self.base + "/echo"})
             self.assertIn("no-cookie", echo["text"])
-        plan_names = {tool.name for tool in tools.base_tools(plan=True)}
+        plan_names = {
+            tool.name for tool in tools.base_tools(plan=True) + tools.deferred_tools(plan=True)
+        }
         self.assertTrue({"browser_navigate", "browser_read"} <= plan_names)
         self.assertNotIn("browser_interact", plan_names)
 
