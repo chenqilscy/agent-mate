@@ -349,6 +349,9 @@ body {
 
 .editor-tabs { margin-bottom: 22px; }
 .hidden-panel { display: none !important; }
+.skill-editor-mode-note,
+.skill-tools-panel > .ant-alert { margin-bottom: 18px; }
+.skill-tools-panel .ant-form-item { margin-bottom: 0; }
 .full-width { width: 100%; }
 .code-input textarea,
 .file-content-editor textarea {

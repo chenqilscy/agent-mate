@@ -35,7 +35,6 @@ interface SkillFormValues {
   icon: string;
   category_slug: string;
   description: string;
-  instructions: string;
   tools: string[];
   min_app_version: string;
   sort: number;
@@ -46,7 +45,7 @@ interface SkillEditorProps {
   item: CatalogItem<SkillData> | null;
   tools: SkillTool[];
   categories: CatalogItem<SkillCategoryData>[];
-  initialTab: "info" | "files";
+  initialTab: "info" | "files" | "tools";
   onClose: () => void;
   onSaved: () => void;
 }
@@ -55,6 +54,35 @@ const RESERVED_FILES = new Set(["skill.md", "_skillhub_meta.json", "_meta.json",
 
 function normalizePath(value: string): string {
   return value.replace(/\\/g, "/").trim();
+}
+
+function buildSkillMarkdown(values: Partial<SkillFormValues>, version: number): string {
+  return `---\nname: ${JSON.stringify(values.name || "")}\nslug: ${values.slug || ""}\ndescription: ${JSON.stringify(values.description || "")}\nversion: ${JSON.stringify(String(version || 1))}\nsource: agentmate\n---\n\n`;
+}
+
+function parseFrontmatterValue(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return typeof parsed === "string" ? parsed : String(parsed);
+  } catch {
+    return trimmed.replace(/^['"]|['"]$/g, "");
+  }
+}
+
+function parseSkillMarkdown(markdown: string): { frontmatter: Record<string, string>; body: string } | null {
+  const match = markdown.replace(/^\uFEFF/, "").match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/);
+  if (!match) return null;
+  const frontmatter: Record<string, string> = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const separator = line.indexOf(":");
+    if (separator <= 0) continue;
+    const key = line.slice(0, separator).trim();
+    if (/^[A-Za-z0-9_-]+$/.test(key)) frontmatter[key] = parseFrontmatterValue(line.slice(separator + 1));
+  }
+  if (!frontmatter.name?.trim() || !frontmatter.slug?.trim() || !frontmatter.description?.trim()) return null;
+  return { frontmatter, body: match[2].replace(/^\r?\n/, "") };
 }
 
 function validateFilePath(path: string, files: SkillFile[], currentIndex: number): string | null {
@@ -71,16 +99,18 @@ function validateFilePath(path: string, files: SkillFile[], currentIndex: number
 export default function SkillEditor({ open, item, tools, categories, initialTab, onClose, onSaved }: SkillEditorProps) {
   const { message, modal } = App.useApp();
   const [form] = Form.useForm<SkillFormValues>();
-  const [tab, setTab] = useState<"info" | "files">(initialTab);
+  const [tab, setTab] = useState<"info" | "files" | "tools">(initialTab);
   const [files, setFiles] = useState<SkillFile[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number | "skill">("skill");
   const [fileQuery, setFileQuery] = useState("");
   const [draftPath, setDraftPath] = useState("");
   const [draftContent, setDraftContent] = useState("");
+  const [skillMarkdown, setSkillMarkdown] = useState("");
   const [fileDirty, setFileDirty] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const initialFilesSnapshot = useRef("");
+  const initialSkillMarkdownSnapshot = useRef("");
 
   useEffect(() => {
     if (!open) return;
@@ -92,29 +122,31 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
       icon: data?.icon || "🧩",
       category_slug: data?.category_slug || categories.find((category) => category.data.name === data?.category)?.data.slug || "",
       description: data?.description || "",
-      instructions: data?.instructions || "",
       tools: Array.isArray(data?.tools) ? data.tools : [],
       min_app_version: data?.min_app_version || "0.0.0",
       sort: item?.sort || 0,
     };
+    const nextSkillMarkdown = `${buildSkillMarkdown(values, item?.version || 1)}${data?.instructions || ""}\n`;
     form.setFieldsValue(values);
     setFiles(nextFiles);
     setSelectedIndex("skill");
     setDraftPath("");
-    setDraftContent("");
+    setSkillMarkdown(nextSkillMarkdown);
+    setDraftContent(nextSkillMarkdown);
     setFileDirty(false);
     setFormDirty(false);
     setFileQuery("");
     setTab(initialTab);
     initialFilesSnapshot.current = JSON.stringify(nextFiles);
+    initialSkillMarkdownSnapshot.current = nextSkillMarkdown;
   }, [categories, form, initialTab, item, open]);
 
   const generatedSkillMarkdown = useMemo(() => {
     const values = form.getFieldsValue();
-    return `---\nname: ${JSON.stringify(values.name || "")}\nslug: ${values.slug || ""}\ndescription: ${JSON.stringify(values.description || "")}\nversion: ${JSON.stringify(String(item?.version || 1))}\nsource: agentmate\n---\n\n${values.instructions || ""}\n`;
+    return `${buildSkillMarkdown(values, item?.version || 1)}${parseSkillMarkdown(skillMarkdown)?.body || ""}`;
     // Watching the form below causes this memo to update through the component render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [Form.useWatch([], form), item?.version]);
+  }, [Form.useWatch([], form), item?.version, skillMarkdown]);
 
   const visibleFiles = useMemo(() => {
     const query = fileQuery.trim().toLowerCase();
@@ -129,7 +161,7 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
     setSelectedIndex(index);
     if (index === "skill") {
       setDraftPath("");
-      setDraftContent(generatedSkillMarkdown);
+      setDraftContent(skillMarkdown);
     } else {
       setDraftPath(files[index]?.path || "");
       setDraftContent(files[index]?.content || "");
@@ -139,11 +171,34 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
 
   useEffect(() => {
     if (!open || fileDirty) return;
+    setSkillMarkdown(generatedSkillMarkdown);
     if (selectedIndex === "skill") setDraftContent(generatedSkillMarkdown);
   }, [fileDirty, generatedSkillMarkdown, open, selectedIndex]);
 
+  function applySkillDraft(): boolean {
+    const parsed = parseSkillMarkdown(draftContent);
+    if (!parsed) {
+      message.error("SKILL.md 必须包含有效的 front-matter：name、slug、description");
+      return false;
+    }
+    const currentSlug = String(form.getFieldValue("slug") || "").trim();
+    if (item && parsed.frontmatter.slug !== currentSlug) {
+      message.error("已有技能的 slug 不可修改，请保持 front-matter 中的 slug 不变");
+      return false;
+    }
+    form.setFieldsValue({
+      name: parsed.frontmatter.name,
+      slug: parsed.frontmatter.slug,
+      description: parsed.frontmatter.description,
+    });
+    setSkillMarkdown(draftContent);
+    setFileDirty(false);
+    message.success("SKILL.md 修改已应用，将在保存技能时提交");
+    return true;
+  }
+
   function applyFileDraft(): SkillFile[] | null {
-    if (selectedIndex === "skill") return files;
+    if (selectedIndex === "skill") return applySkillDraft() ? files : null;
     const path = normalizePath(draftPath);
     const validation = validateFilePath(path, files, selectedIndex);
     if (validation) {
@@ -163,7 +218,11 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
   }
 
   function revertFileDraft() {
-    if (selectedIndex === "skill") return;
+    if (selectedIndex === "skill") {
+      setDraftContent(skillMarkdown);
+      setFileDirty(false);
+      return;
+    }
     const current = files[selectedIndex];
     setDraftPath(current?.path || "");
     setDraftContent(current?.content || "");
@@ -206,7 +265,7 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
   }
 
   function isDirty(): boolean {
-    return formDirty || fileDirty || JSON.stringify(files) !== initialFilesSnapshot.current;
+    return formDirty || fileDirty || skillMarkdown !== initialSkillMarkdownSnapshot.current || JSON.stringify(files) !== initialFilesSnapshot.current;
   }
 
   function requestClose() {
@@ -227,6 +286,10 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
   async function save() {
     let values: SkillFormValues;
     try {
+      if (fileDirty && selectedIndex === "skill" && !applySkillDraft()) {
+        setTab("files");
+        return;
+      }
       values = await form.validateFields();
     } catch {
       setTab("info");
@@ -244,16 +307,21 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
       category_slug: values.category_slug.trim(),
       category: categories.find((category) => category.data.slug === values.category_slug)?.data.name || "",
       description: values.description.trim(),
-      instructions: values.instructions.trim(),
+      instructions: parseSkillMarkdown(skillMarkdown)?.body.trim() || "",
       tools: values.tools || [],
       files: effectiveFiles,
       source: "Server",
       min_app_version: values.min_app_version.trim() || "0.0.0",
     };
+    if (!data.instructions) {
+      message.error("请在“文件”Tab中填写 SKILL.md 正文");
+      setTab("files");
+      return;
+    }
     setSaving(true);
     try {
       await consoleApi.createSkillRelease(data, values.sort || 0, item?.id || "", data.min_app_version);
-      message.success(item ? "新版本草稿已创建，测试和审核后方可发布" : "技能草稿已创建，尚未进入客户端下行");
+      message.success(item ? "新版本草稿已保存，测试和审核后方可发布" : "技能草稿已创建，尚未进入客户端下行");
       onSaved();
       onClose();
     } catch (reason) {
@@ -267,7 +335,7 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
     <Drawer
       open={open}
       width={960}
-      title={item ? `新建版本草稿 · ${item.data.name}` : "新增技能草稿"}
+      title={item ? `编辑技能 · ${item.data.name}` : "新建技能草稿"}
       onClose={requestClose}
       destroyOnHidden
       maskClosable={false}
@@ -275,7 +343,7 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
         <Space>
           <Button onClick={requestClose}>取消</Button>
           <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => void save()}>
-            保存草稿
+            {item ? "保存新版本草稿" : "创建技能草稿"}
           </Button>
         </Space>
       )}
@@ -286,11 +354,19 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
         options={[
           { label: "基本信息", value: "info" },
           { label: `文件 ${files.length + 1}`, value: "files" },
+          { label: "可用工具", value: "tools" },
         ]}
-        onChange={(value) => setTab(value as "info" | "files")}
+        onChange={(value) => setTab(value as "info" | "files" | "tools")}
       />
 
-      <Form<SkillFormValues> form={form} layout="vertical" requiredMark="optional" onValuesChange={() => setFormDirty(true)} className={tab === "info" ? "" : "hidden-panel"}>
+      <Form<SkillFormValues> form={form} layout="vertical" requiredMark="optional" onValuesChange={() => setFormDirty(true)}>
+        <section className={tab === "info" ? "" : "hidden-panel"}>
+        <Alert
+          type={item ? "info" : "success"}
+          showIcon
+          className="skill-editor-mode-note"
+          title={item ? "编辑已有技能：保存后会创建新的版本草稿，不会立即发布。" : "新建技能：保存后会创建一个待测试、待审核的技能草稿。"}
+        />
         <Row gutter={16}>
           <Col xs={24} md={12}>
             <Form.Item name="slug" label="slug（稳定身份）" rules={[
@@ -330,10 +406,10 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
         <Form.Item name="min_app_version" label="最低 App 版本" extra="低于该版本的客户端只能看到兼容提示，不能安装或运行。" rules={[{ required: true, pattern: /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/, message: "请输入语义版本，如 1.2.0" }]}>
           <Input placeholder="0.0.0" />
         </Form.Item>
-        <Form.Item name="instructions" label="技能指令" extra="保存后生成 SKILL.md 正文，并在使用技能时注入模型。" rules={[{ required: true, whitespace: true, message: "请输入技能指令" }]}>
-          <Input.TextArea rows={9} maxLength={50000} showCount className="code-input" />
-        </Form.Item>
-        <Form.Item name="tools" label="可用工具">
+        </section>
+        <section className={`skill-tools-panel ${tab === "tools" ? "" : "hidden-panel"}`}>
+          <Alert type="info" showIcon title="可用工具会作为技能的工具绑定保存；工具实现、权限和可绑定状态由“内置工具”页统一管理。" />
+          <Form.Item name="tools" label="可用工具">
           <Checkbox.Group className="tool-grid">
             {tools.map((tool) => (
               <Checkbox value={tool.name} key={tool.name} className="tool-choice">
@@ -345,14 +421,15 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
               </Checkbox>
             ))}
           </Checkbox.Group>
-        </Form.Item>
+          </Form.Item>
+        </section>
       </Form>
 
       <section className={tab === "files" ? "file-workspace" : "hidden-panel"}>
         <Alert
           type="info"
           showIcon
-          title="SKILL.md 由基本信息和技能指令自动生成；这里只维护随技能安装的 UTF-8 文本附件。"
+          title="SKILL.md 是技能的指令文件，可直接编辑；保存时会读取 front-matter 和正文。下面的附件会随技能一起安装。"
         />
         <div className="file-browser">
           <aside className="file-list-panel">
@@ -363,7 +440,7 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
             <Input.Search allowClear placeholder="搜索文件" value={fileQuery} onChange={(event) => setFileQuery(event.target.value)} />
             <List
               size="small"
-              dataSource={[{ file: { path: "SKILL.md", content: generatedSkillMarkdown }, index: "skill" as const }, ...visibleFiles]}
+              dataSource={[{ file: { path: "SKILL.md", content: skillMarkdown }, index: "skill" as const }, ...visibleFiles]}
               locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配文件" /> }}
               renderItem={({ file, index }) => (
                 <List.Item
@@ -380,7 +457,7 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
             <div className="file-editor-toolbar">
               <Space>
                 <Typography.Text strong>{selectedIndex === "skill" ? "SKILL.md" : files[selectedIndex]?.path}</Typography.Text>
-                {selectedIndex === "skill" ? <Tag color="blue">自动生成</Tag> : fileDirty ? <Tag color="gold">未应用</Tag> : <Tag>附件</Tag>}
+                {selectedIndex === "skill" ? <Tag color="blue">技能指令文件</Tag> : fileDirty ? <Tag color="gold">未应用</Tag> : <Tag>附件</Tag>}
               </Space>
               {selectedIndex !== "skill" ? <Button size="small" danger icon={<DeleteOutlined />} onClick={deleteFile}>删除</Button> : null}
             </div>
@@ -389,19 +466,21 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
             ) : null}
             <Input.TextArea
               className="file-content-editor"
-              value={selectedIndex === "skill" ? generatedSkillMarkdown : draftContent}
-              readOnly={selectedIndex === "skill"}
+              value={draftContent}
+              maxLength={selectedIndex === "skill" ? 50000 : undefined}
               onChange={(event) => { setDraftContent(event.target.value); setFileDirty(true); }}
               spellCheck={false}
             />
             <div className="file-editor-footer">
               <Typography.Text type="secondary">最多 128 个附件，总计 1MB</Typography.Text>
-              {selectedIndex !== "skill" ? (
+              {selectedIndex === "skill" ? (
+                <Button type="primary" disabled={!fileDirty} onClick={() => { applySkillDraft(); }}>应用 SKILL.md 更改</Button>
+              ) : (
                 <Space>
                   <Button disabled={!fileDirty} onClick={revertFileDraft}>撤销</Button>
                   <Button type="primary" disabled={!fileDirty} onClick={applyFileDraft}>应用更改</Button>
                 </Space>
-              ) : null}
+              )}
             </div>
           </article>
         </div>

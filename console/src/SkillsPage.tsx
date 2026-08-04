@@ -61,7 +61,7 @@ export default function SkillsPage() {
   const [status, setStatus] = useState<StatusFilter>("all");
   const requestedTab = new URLSearchParams(window.location.search).get("tab");
   const [tab, setTab] = useState<SkillTab>(requestedTab === "manage" || requestedTab === "categories" || requestedTab === "tools" || requestedTab === "releases" || requestedTab === "recommendations" || requestedTab === "skillhub-policy" ? requestedTab : "gallery");
-  const [editor, setEditor] = useState<{ item: CatalogItem<SkillData> | null; tab: "info" | "files" } | null>(null);
+  const [editor, setEditor] = useState<{ item: CatalogItem<SkillData> | null; tab: "info" | "files" | "tools" } | null>(null);
 
   async function load() {
     setLoading(true);
