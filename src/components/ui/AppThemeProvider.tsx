@@ -6,9 +6,9 @@ import { UI_CONTROL_FONT_WEIGHT, uiTypographyToken } from '../../theme/typograph
 
 const sharedToken: ThemeConfig['token'] = {
   colorPrimary: '#16b37a',
-  colorInfo: '#1677ff',
+  colorInfo: '#3b82f6',
   colorSuccess: '#16b37a',
-  colorWarning: '#f0a020',
+  colorWarning: '#f59e0b',
   colorError: '#e5484d',
   borderRadius: 10,
   borderRadiusLG: 14,
@@ -28,11 +28,11 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
         algorithm: dark ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
         token: {
           ...sharedToken,
-          colorBgBase: dark ? '#15191e' : '#ffffff',
-          colorBgContainer: dark ? '#1d2228' : '#ffffff',
-          colorBgElevated: dark ? '#242a31' : '#ffffff',
-          colorTextBase: dark ? '#f3f5f7' : '#161a1d',
-          colorBorder: dark ? '#343b44' : '#e6e8eb',
+          colorBgBase: dark ? '#0d1117' : '#ffffff',
+          colorBgContainer: dark ? '#141a21' : '#ffffff',
+          colorBgElevated: dark ? '#1f2329' : '#ffffff',
+          colorTextBase: dark ? '#eceef1' : '#161a1d',
+          colorBorder: dark ? '#2b3138' : '#e6e8eb',
         },
         components: {
           Button: { fontWeight: UI_CONTROL_FONT_WEIGHT },
