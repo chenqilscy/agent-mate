@@ -226,6 +226,7 @@ class SkillCatalogContractTest(unittest.TestCase):
             "slug": "ops-guide", "name": "运营指南", "description": "带配套文件的技能",
             "instructions": "执行前阅读 references/guide.md。", "tools": [], "category": "商业运营",
             "release_id": "server-release-ops-v1", "content_hash": "server-content-ops-v1",
+            "skill_markdown": "---\nname: \"运营指南\"\nslug: ops-guide\ndescription: \"带配套文件的技能\"\nx-custom: keep-me\n---\n\n执行前阅读 references/guide.md。\n",
             "files": [
                 {"path": "references/guide.md", "content": "# 运营检查表\n"},
                 {"path": "templates/report.txt", "content": "结论：{{summary}}\n"},
@@ -235,7 +236,7 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertIsNotNone(spec)
         result = skills_store.install_catalog_skill(
             spec["slug"], spec["name"], spec["description"], spec["instructions"], files=spec["files"],
-            release_id=spec["server_release_id"],
+            release_id=spec["server_release_id"], skill_markdown=spec["skill_markdown"],
         )
         self.assertTrue(result["ok"])
         root = settings.SKILLS_DIR / "ops-guide"
@@ -243,6 +244,7 @@ class SkillCatalogContractTest(unittest.TestCase):
         self.assertEqual("# 运营检查表\n", (root / "references" / "guide.md").read_text(encoding="utf-8"))
         self.assertEqual("结论：{{summary}}\n", (root / "templates" / "report.txt").read_text(encoding="utf-8"))
         self.assertEqual("server-release-ops-v1", skills_store.release_snapshot("ops-guide")["release_id"])
+        self.assertIn("x-custom: keep-me", (root / "SKILL.md").read_text(encoding="utf-8"))
 
     def test_catalog_upgrade_is_versioned_atomic_and_preserves_disabled_state(self) -> None:
         from agent import skills_store

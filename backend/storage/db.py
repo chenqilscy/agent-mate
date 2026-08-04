@@ -608,6 +608,7 @@ def init_db() -> None:
             icon TEXT NOT NULL DEFAULT '🧩',
             description TEXT NOT NULL DEFAULT '',
             instructions TEXT NOT NULL DEFAULT '',
+            skill_markdown TEXT NOT NULL DEFAULT '',
             version TEXT NOT NULL DEFAULT '',
             tools TEXT NOT NULL DEFAULT '[]',
             permissions TEXT NOT NULL DEFAULT '[]',
@@ -1208,6 +1209,8 @@ def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE catalog_skills ADD COLUMN files TEXT NOT NULL DEFAULT '[]'")
     if "version" not in have_cs:
         conn.execute("ALTER TABLE catalog_skills ADD COLUMN version TEXT NOT NULL DEFAULT ''")
+    if "skill_markdown" not in have_cs:
+        conn.execute("ALTER TABLE catalog_skills ADD COLUMN skill_markdown TEXT NOT NULL DEFAULT ''")
     for col, ddl in (
         ("withdrawn", "withdrawn INTEGER NOT NULL DEFAULT 0"),
         ("compatible", "compatible INTEGER NOT NULL DEFAULT 1"),
@@ -1360,11 +1363,12 @@ def _seed_catalog() -> None:
             continue
         conn.execute(
             """INSERT INTO catalog_skills
-               (id,scope,owner_id,slug,name,icon,description,instructions,tools,files,category,source,
+               (id,scope,owner_id,slug,name,icon,description,instructions,skill_markdown,tools,files,category,source,
                 enabled,sort,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (new_uuid(), "builtin", None, slug, s["name"], s.get("icon", "🧩"),
              s.get("description", ""), s.get("instructions", ""),
+             s.get("skill_markdown", ""),
              json.dumps(s.get("tools", []), ensure_ascii=False),
              json.dumps(s.get("files", []), ensure_ascii=False), s.get("category", ""),
              "内置", 1, i, now, now),
@@ -3474,7 +3478,7 @@ def skill_specs() -> list[dict[str, Any]]:
     （同连接器「launch spec 存库、实现在代码」的分工）。
     """
     rows = get_conn().execute(
-        "SELECT scope,slug,name,icon,description,instructions,version,tools,permissions,"
+        "SELECT scope,slug,name,icon,description,instructions,skill_markdown,version,tools,permissions,"
         "tool_contract_version,server_release_id,server_content_hash,files,category,source,"
         "withdrawn,compatible,compatibility_error,min_app_version "
         "FROM catalog_skills WHERE enabled=1 OR (scope='server' AND withdrawn=1) "
@@ -3503,6 +3507,7 @@ def skill_specs() -> list[dict[str, Any]]:
         out.append({
             "slug": r["slug"], "name": r["name"], "icon": r["icon"],
             "description": r["description"], "instructions": r["instructions"],
+            "skill_markdown": r["skill_markdown"],
             "version": r["version"],
             "tools": tools if isinstance(tools, list) else [],
             "permissions": permissions if isinstance(permissions, list) else [],
@@ -3626,6 +3631,7 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
         withdrawn = bool(raw.get("withdrawn"))
         description = str(raw.get("description", "")).strip()
         instructions = str(raw.get("instructions", "")).strip()
+        skill_markdown = str(raw.get("skill_markdown", ""))
         if (
             not slug or not name or (not withdrawn and (not description or not instructions))
             or len(name) > 120 or len(description) > 500 or len(instructions) > 50_000
@@ -3649,7 +3655,7 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
         seen.add(slug)
         rows.append((
             new_uuid(), "server", None, slug, name, str(raw.get("icon", "🧩")),
-            description, instructions, str(raw.get("version", "")),
+            description, instructions, skill_markdown, str(raw.get("version", "")),
             json.dumps([str(t) for t in tools], ensure_ascii=False),
             json.dumps(sorted({str(value) for value in permissions if str(value)}), ensure_ascii=False),
             str(raw.get("tool_contract_version", "1")),
@@ -3664,10 +3670,10 @@ def replace_server_skill_catalog(items: list[dict[str, Any]]) -> dict[str, int]:
         conn.execute("DELETE FROM catalog_skills WHERE scope='server'")
         conn.executemany(
             """INSERT INTO catalog_skills
-               (id,scope,owner_id,slug,name,icon,description,instructions,version,tools,permissions,
+               (id,scope,owner_id,slug,name,icon,description,instructions,skill_markdown,version,tools,permissions,
                 tool_contract_version,server_release_id,server_content_hash,files,category,source,
                 withdrawn,compatible,compatibility_error,min_app_version,enabled,sort,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
     return {"inserted": len(rows), "skipped": skipped}

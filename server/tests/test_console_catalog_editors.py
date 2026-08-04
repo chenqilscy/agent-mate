@@ -22,7 +22,7 @@ class ConsoleCatalogEditorContractTests(unittest.TestCase):
         for marker in ('label: "技能浏览"', 'label: "技能管理"', "推荐位管理",
                        "SkillRecommendations", "SKILL_RECOMMENDATIONS"):
             self.assertIn(marker, page)
-        for marker in ("file-workspace", "tools.map", "requestClose", "saving"):
+        for marker in ("file-workspace", "tools.map", "skill_markdown", "hiddenBoundTools", "requestClose", "saving"):
             self.assertIn(marker, editor)
 
     def test_skill_page_uses_release_governance_instead_of_mutable_definition_save(self) -> None:

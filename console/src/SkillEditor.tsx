@@ -51,13 +51,29 @@ interface SkillEditorProps {
 }
 
 const RESERVED_FILES = new Set(["skill.md", "_skillhub_meta.json", "_meta.json", "_agentmate_release.json", ".disabled"]);
+const MANAGED_FRONTMATTER_KEYS = new Set(["name", "slug", "description", "version", "source"]);
+
+interface SkillMarkdownDocument {
+  frontmatter: Record<string, string>;
+  frontmatterRaw: string;
+  body: string;
+}
 
 function normalizePath(value: string): string {
   return value.replace(/\\/g, "/").trim();
 }
 
-function buildSkillMarkdown(values: Partial<SkillFormValues>, version: number): string {
-  return `---\nname: ${JSON.stringify(values.name || "")}\nslug: ${values.slug || ""}\ndescription: ${JSON.stringify(values.description || "")}\nversion: ${JSON.stringify(String(version || 1))}\nsource: agentmate\n---\n\n`;
+function buildSkillMarkdown(
+  values: Partial<SkillFormValues>,
+  version: number,
+  existing?: SkillMarkdownDocument | null,
+  fallbackBody = "",
+): string {
+  const preserved = existing ? preserveUnmanagedFrontmatter(existing.frontmatterRaw) : "";
+  const body = existing?.body ?? fallbackBody;
+  const extra = preserved ? `${preserved}\n` : "";
+  const markdown = `---\nname: ${JSON.stringify(values.name || "")}\nslug: ${values.slug || ""}\ndescription: ${JSON.stringify(values.description || "")}\nversion: ${JSON.stringify(String(version || 1))}\nsource: agentmate\n${extra}---\n\n${body}`;
+  return body && !body.endsWith("\n") ? `${markdown}\n` : markdown;
 }
 
 function parseFrontmatterValue(value: string): string {
@@ -71,18 +87,46 @@ function parseFrontmatterValue(value: string): string {
   }
 }
 
-function parseSkillMarkdown(markdown: string): { frontmatter: Record<string, string>; body: string } | null {
+function preserveUnmanagedFrontmatter(raw: string): string {
+  const lines = raw.split(/\r?\n/);
+  const kept: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^([A-Za-z0-9_-]+):[ \t]*(.*)$/);
+    if (!match || !MANAGED_FRONTMATTER_KEYS.has(match[1])) {
+      kept.push(lines[index]);
+      continue;
+    }
+    const value = match[2].trim();
+    if (!value || /^[|>][0-9+-]*$/.test(value)) {
+      while (index + 1 < lines.length && (!lines[index + 1].trim() || /^[ \t]/.test(lines[index + 1]))) index += 1;
+    }
+  }
+  return kept.join("\n").trim();
+}
+
+function parseSkillMarkdown(markdown: string): SkillMarkdownDocument | null {
   const match = markdown.replace(/^\uFEFF/, "").match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/);
   if (!match) return null;
   const frontmatter: Record<string, string> = {};
-  for (const line of match[1].split(/\r?\n/)) {
-    const separator = line.indexOf(":");
-    if (separator <= 0) continue;
-    const key = line.slice(0, separator).trim();
-    if (/^[A-Za-z0-9_-]+$/.test(key)) frontmatter[key] = parseFrontmatterValue(line.slice(separator + 1));
+  const lines = match[1].split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const parsed = lines[index].match(/^([A-Za-z0-9_-]+):[ \t]*(.*)$/);
+    if (!parsed) continue;
+    const [, key, rawValue] = parsed;
+    const value = rawValue.trim();
+    if (/^[|>][0-9+-]*$/.test(value)) {
+      const continuation: string[] = [];
+      while (index + 1 < lines.length && (!lines[index + 1].trim() || /^[ \t]/.test(lines[index + 1]))) {
+        index += 1;
+        continuation.push(lines[index].replace(/^[ \t]+/, ""));
+      }
+      frontmatter[key] = value.startsWith(">") ? continuation.join(" ").trim() : continuation.join("\n").trim();
+    } else {
+      frontmatter[key] = parseFrontmatterValue(value);
+    }
   }
   if (!frontmatter.name?.trim() || !frontmatter.slug?.trim() || !frontmatter.description?.trim()) return null;
-  return { frontmatter, body: match[2].replace(/^\r?\n/, "") };
+  return { frontmatter, frontmatterRaw: match[1], body: match[2].replace(/^\r?\n/, "") };
 }
 
 function validateFilePath(path: string, files: SkillFile[], currentIndex: number): string | null {
@@ -111,6 +155,8 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
   const [saving, setSaving] = useState(false);
   const initialFilesSnapshot = useRef("");
   const initialSkillMarkdownSnapshot = useRef("");
+  const selectedTools = Form.useWatch("tools", form) || [];
+  const hiddenBoundTools = selectedTools.filter((name) => !tools.some((tool) => tool.name === name));
 
   useEffect(() => {
     if (!open) return;
@@ -126,7 +172,11 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
       min_app_version: data?.min_app_version || "0.0.0",
       sort: item?.sort || 0,
     };
-    const nextSkillMarkdown = `${buildSkillMarkdown(values, item?.version || 1)}${data?.instructions || ""}\n`;
+    const sourceMarkdown = typeof data?.skill_markdown === "string" ? data.skill_markdown : "";
+    const parsedSource = sourceMarkdown ? parseSkillMarkdown(sourceMarkdown) : null;
+    const nextSkillMarkdown = parsedSource
+      ? sourceMarkdown
+      : buildSkillMarkdown(values, item?.version || 1, null, data?.instructions || "");
     form.setFieldsValue(values);
     setFiles(nextFiles);
     setSelectedIndex("skill");
@@ -140,13 +190,6 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
     initialFilesSnapshot.current = JSON.stringify(nextFiles);
     initialSkillMarkdownSnapshot.current = nextSkillMarkdown;
   }, [categories, form, initialTab, item, open]);
-
-  const generatedSkillMarkdown = useMemo(() => {
-    const values = form.getFieldsValue();
-    return `${buildSkillMarkdown(values, item?.version || 1)}${parseSkillMarkdown(skillMarkdown)?.body || ""}`;
-    // Watching the form below causes this memo to update through the component render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [Form.useWatch([], form), item?.version, skillMarkdown]);
 
   const visibleFiles = useMemo(() => {
     const query = fileQuery.trim().toLowerCase();
@@ -170,10 +213,25 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
   }
 
   useEffect(() => {
-    if (!open || fileDirty) return;
-    setSkillMarkdown(generatedSkillMarkdown);
-    if (selectedIndex === "skill") setDraftContent(generatedSkillMarkdown);
-  }, [fileDirty, generatedSkillMarkdown, open, selectedIndex]);
+    if (!open || fileDirty || selectedIndex !== "skill") return;
+    setDraftContent(skillMarkdown);
+  }, [fileDirty, open, selectedIndex, skillMarkdown]);
+
+  function syncSkillMarkdown(values: SkillFormValues) {
+    if (fileDirty) return;
+    const parsed = parseSkillMarkdown(skillMarkdown);
+    const next = buildSkillMarkdown(values, item?.version || 1, parsed, parsed?.body || "");
+    setSkillMarkdown(next);
+    if (selectedIndex === "skill") setDraftContent(next);
+  }
+
+  function changeTab(next: "info" | "files" | "tools") {
+    if (fileDirty) {
+      message.warning("请先应用或撤销当前文件修改");
+      return;
+    }
+    setTab(next);
+  }
 
   function applySkillDraft(): boolean {
     const parsed = parseSkillMarkdown(draftContent);
@@ -258,7 +316,7 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
         setFiles((current) => current.filter((_file, index) => index !== selectedIndex));
         setSelectedIndex("skill");
         setDraftPath("");
-        setDraftContent(generatedSkillMarkdown);
+        setDraftContent(skillMarkdown);
         setFileDirty(false);
       },
     });
@@ -308,6 +366,7 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
       category: categories.find((category) => category.data.slug === values.category_slug)?.data.name || "",
       description: values.description.trim(),
       instructions: parseSkillMarkdown(skillMarkdown)?.body.trim() || "",
+      skill_markdown: skillMarkdown,
       tools: values.tools || [],
       files: effectiveFiles,
       source: "Server",
@@ -356,10 +415,15 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
           { label: `文件 ${files.length + 1}`, value: "files" },
           { label: "可用工具", value: "tools" },
         ]}
-        onChange={(value) => setTab(value as "info" | "files" | "tools")}
+        onChange={(value) => changeTab(value as "info" | "files" | "tools")}
       />
 
-      <Form<SkillFormValues> form={form} layout="vertical" requiredMark="optional" onValuesChange={() => setFormDirty(true)}>
+      <Form<SkillFormValues>
+        form={form}
+        layout="vertical"
+        requiredMark="optional"
+        onValuesChange={(_changed, values) => { setFormDirty(true); syncSkillMarkdown(values); }}
+      >
         <section className={tab === "info" ? "" : "hidden-panel"}>
         <Alert
           type={item ? "info" : "success"}
@@ -409,7 +473,24 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
         </section>
         <section className={`skill-tools-panel ${tab === "tools" ? "" : "hidden-panel"}`}>
           <Alert type="info" showIcon title="可用工具会作为技能的工具绑定保存；工具实现、权限和可绑定状态由“内置工具”页统一管理。" />
-          <Form.Item name="tools" label="可用工具">
+          {hiddenBoundTools.length ? (
+            <Alert
+              type="warning"
+              showIcon
+              className="skill-tools-legacy"
+              title="已有不可绑定工具将被保留"
+              description={(
+                <Space size={[4, 4]} wrap>
+                  {hiddenBoundTools.map((name) => <Tag key={name}>{name}</Tag>)}
+                </Space>
+              )}
+            />
+          ) : null}
+          <Form.Item
+            name="tools"
+            label="可用工具"
+            getValueFromEvent={(next: string[]) => Array.from(new Set([...hiddenBoundTools, ...next]))}
+          >
           <Checkbox.Group className="tool-grid">
             {tools.map((tool) => (
               <Checkbox value={tool.name} key={tool.name} className="tool-choice">
@@ -457,7 +538,7 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
             <div className="file-editor-toolbar">
               <Space>
                 <Typography.Text strong>{selectedIndex === "skill" ? "SKILL.md" : files[selectedIndex]?.path}</Typography.Text>
-                {selectedIndex === "skill" ? <Tag color="blue">技能指令文件</Tag> : fileDirty ? <Tag color="gold">未应用</Tag> : <Tag>附件</Tag>}
+                {selectedIndex === "skill" ? <Tag color={fileDirty ? "gold" : "blue"}>{fileDirty ? "未应用" : "技能指令文件"}</Tag> : fileDirty ? <Tag color="gold">未应用</Tag> : <Tag>附件</Tag>}
               </Space>
               {selectedIndex !== "skill" ? <Button size="small" danger icon={<DeleteOutlined />} onClick={deleteFile}>删除</Button> : null}
             </div>
@@ -474,7 +555,10 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
             <div className="file-editor-footer">
               <Typography.Text type="secondary">最多 128 个附件，总计 1MB</Typography.Text>
               {selectedIndex === "skill" ? (
-                <Button type="primary" disabled={!fileDirty} onClick={() => { applySkillDraft(); }}>应用 SKILL.md 更改</Button>
+                <Space>
+                  <Button disabled={!fileDirty} onClick={revertFileDraft}>撤销</Button>
+                  <Button type="primary" disabled={!fileDirty} onClick={() => { applySkillDraft(); }}>应用 SKILL.md 更改</Button>
+                </Space>
               ) : (
                 <Space>
                   <Button disabled={!fileDirty} onClick={revertFileDraft}>撤销</Button>

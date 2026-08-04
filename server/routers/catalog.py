@@ -663,6 +663,8 @@ def _normalize_app_skill(data: Any) -> Any:
     normalized = _normalize_skill_category(data)
     for key in ("slug", "name", "icon", "category", "description", "instructions"):
         normalized[key] = str(normalized.get(key, "")).strip()
+    if "skill_markdown" in normalized:
+        normalized["skill_markdown"] = str(normalized.get("skill_markdown") or "")
     tools = normalized.get("tools", [])
     normalized["tools"] = list(dict.fromkeys(str(tool).strip() for tool in tools)) if isinstance(tools, list) else tools
     for field in ("platforms", "environments", "requires_tools"):
@@ -702,6 +704,14 @@ def _validate_app_skill(data: Any, *, ignore_id: str = "") -> None:
         raise HTTPException(400, "skill name, description and instructions are required")
     if len(name) > 120 or len(description) > 500 or len(instructions) > 50_000:
         raise HTTPException(400, "skill name, description or instructions is too long")
+    skill_markdown = str(data.get("skill_markdown") or "")
+    if skill_markdown:
+        if len(skill_markdown.encode("utf-8")) > 512 * 1024:
+            raise HTTPException(413, "skill SKILL.md is too large")
+        if not re.match(r"^---[ \t]*\r?\n", skill_markdown) or not re.search(r"(?m)^---[ \t]*(?:\r?\n|$)", skill_markdown[4:]):
+            raise HTTPException(400, "skill SKILL.md must contain frontmatter")
+        if not all(re.search(rf"(?m)^{field}:[ \t]*", skill_markdown) for field in ("name", "slug", "description")):
+            raise HTTPException(400, "skill SKILL.md frontmatter must contain name, slug and description")
     if not category_row:
         raise HTTPException(400, "skill category must reference a managed category")
     if not category_row.get("enabled", False):

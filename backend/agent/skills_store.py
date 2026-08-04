@@ -936,6 +936,18 @@ def create_skill(
     )
 
 
+def _validate_catalog_skill_markdown(markdown: str, slug: str, name: str, description: str, instructions: str) -> None:
+    if len(markdown.encode("utf-8")) > 512 * 1024:
+        raise SkillImportError("目录技能 SKILL.md 过大", 422)
+    frontmatter, body = parse_frontmatter(markdown)
+    if not frontmatter or not str(frontmatter.get("name") or "").strip() or not str(frontmatter.get("slug") or "").strip():
+        raise SkillImportError("目录技能 SKILL.md frontmatter 不完整", 422)
+    if str(frontmatter.get("name") or "").strip() != name or str(frontmatter.get("slug") or "").strip() != slug:
+        raise SkillImportError("目录技能 SKILL.md 身份与目录定义不一致", 422)
+    if "description" not in frontmatter or not body.strip() or body.strip() != instructions.strip():
+        raise SkillImportError("目录技能 SKILL.md 与目录定义指令不一致", 422)
+
+
 def install_catalog_skill(
     slug: str, name: str, description: str, instructions: str, version: str = "",
     files: list[dict[str, str]] | None = None,
@@ -946,6 +958,7 @@ def install_catalog_skill(
     platforms: list[str] | None = None,
     environments: list[str] | None = None,
     requires_tools: list[str] | None = None,
+    skill_markdown: str = "",
 ) -> dict[str, Any]:
     """Install an AgentMate catalog definition as a real local skill snapshot."""
     slug = (slug or "").strip()
@@ -969,17 +982,21 @@ def install_catalog_skill(
         )
         if values
     )
-    markdown = (
-        "---\n"
-        f"name: {json.dumps(name, ensure_ascii=False)}\n"
-        f"slug: {slug}\n"
-        f"description: {json.dumps(description, ensure_ascii=False)}\n"
-        f"{version_line}"
-        f"{compatibility_lines}"
-        "source: agentmate\n"
-        "---\n\n"
-        f"{instructions}\n"
-    )
+    if skill_markdown:
+        _validate_catalog_skill_markdown(skill_markdown, slug, name, description, instructions)
+        markdown = skill_markdown if skill_markdown.endswith("\n") else f"{skill_markdown}\n"
+    else:
+        markdown = (
+            "---\n"
+            f"name: {json.dumps(name, ensure_ascii=False)}\n"
+            f"slug: {slug}\n"
+            f"description: {json.dumps(description, ensure_ascii=False)}\n"
+            f"{version_line}"
+            f"{compatibility_lines}"
+            "source: agentmate\n"
+            "---\n\n"
+            f"{instructions}\n"
+        )
     package_files: list[tuple[str, bytes]] = [(SKILL_MD, markdown.encode("utf-8"))]
     for item in files or []:
         if not isinstance(item, dict):
@@ -1014,6 +1031,7 @@ def upgrade_catalog_skill(
     platforms: list[str] | None = None,
     environments: list[str] | None = None,
     requires_tools: list[str] | None = None,
+    skill_markdown: str = "",
 ) -> dict[str, Any]:
     """原子升级一个 AgentMate 目录技能；保留启停状态，失败时恢复旧目录。"""
     slug = (slug or "").strip()
@@ -1037,17 +1055,21 @@ def upgrade_catalog_skill(
         )
         if values
     )
-    markdown = (
-        "---\n"
-        f"name: {json.dumps(name, ensure_ascii=False)}\n"
-        f"slug: {slug}\n"
-        f"description: {json.dumps(description, ensure_ascii=False)}\n"
-        f"{version_line}"
-        f"{compatibility_lines}"
-        "source: agentmate\n"
-        "---\n\n"
-        f"{instructions}\n"
-    )
+    if skill_markdown:
+        _validate_catalog_skill_markdown(skill_markdown, slug, name, description, instructions)
+        markdown = skill_markdown if skill_markdown.endswith("\n") else f"{skill_markdown}\n"
+    else:
+        markdown = (
+            "---\n"
+            f"name: {json.dumps(name, ensure_ascii=False)}\n"
+            f"slug: {slug}\n"
+            f"description: {json.dumps(description, ensure_ascii=False)}\n"
+            f"{version_line}"
+            f"{compatibility_lines}"
+            "source: agentmate\n"
+            "---\n\n"
+            f"{instructions}\n"
+        )
     package_files: list[tuple[str, bytes]] = [(SKILL_MD, markdown.encode("utf-8"))]
     for item in files or []:
         if not isinstance(item, dict):

@@ -417,6 +417,7 @@ def install_catalog_skill(key: str) -> dict:
             spec.get("platforms") if isinstance(spec.get("platforms"), list) else [],
             spec.get("environments") if isinstance(spec.get("environments"), list) else [],
             spec.get("requires_tools") if isinstance(spec.get("requires_tools"), list) else [],
+            skill_markdown=str(spec.get("skill_markdown") or ""),
         )
         _report_release_metric(owner, str(spec.get("server_release_id") or ""), "installed")
         return result
@@ -466,6 +467,7 @@ def upgrade_catalog_skill(key: str, body: UpgradeCatalogBody | None = None) -> d
             spec.get("platforms") if isinstance(spec.get("platforms"), list) else [],
             spec.get("environments") if isinstance(spec.get("environments"), list) else [],
             spec.get("requires_tools") if isinstance(spec.get("requires_tools"), list) else [],
+            skill_markdown=str(spec.get("skill_markdown") or ""),
         )
         _report_release_metric(owner, str(spec.get("server_release_id") or ""), "installed")
         return result

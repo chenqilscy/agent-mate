@@ -70,6 +70,7 @@ export interface SkillData {
   category: string;
   description: string;
   instructions: string;
+  skill_markdown?: string;
   tools: string[];
   permissions?: string[];
   files: SkillFile[];
