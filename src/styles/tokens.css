@@ -43,6 +43,7 @@
   --bg-elevated: var(--neutral-0);    /* elevated surfaces (dropdowns) */
   --bg-chip:     #F4F5F7;            /* chips, tabs, hover */
   --bg-input:    var(--neutral-0);    /* input backgrounds */
+  --bg-inverse:  #1F2329;            /* dark surfaces w/ white text (btn-dark, toasts) */
 
   /* -- Text — aliased to neutral for backward compat -- */
   --text:   var(--neutral-700);
@@ -132,12 +133,27 @@ body.dark {
   --neutral-700: #ECEEF1;
   --neutral-900: #FFFFFF;
 
-  /* Surfaces — now auto-flip via neutral refs */
-  --bg-chip:   #2A3036;
-  --bg-input:  var(--neutral-50);
-  --border-2:  #2B3138;
+  /* Surfaces — re-declared here so the var() refs resolve against the dark
+     neutral scale. (Declaring them only on :root froze their computed value;
+     this re-declaration is what makes the dark surfaces actually auto-flip.) */
+  --bg-surface:  var(--neutral-0);
+  --bg-page:     var(--neutral-50);
+  --bg-elevated: var(--neutral-0);
+  --bg-chip:     #2A3036;
+  --bg-input:    var(--neutral-50);
+  --bg-inverse:  #2A3036;              /* stays dark in dark mode for inverse surfaces */
+  --border-2:    #2B3138;
 
-  /* Text/border aliases auto-flip via neutral refs above */
+  /* Text/border aliases — re-declared so they flip with the theme */
+  --text:    var(--neutral-700);
+  --text-2:  var(--neutral-500);
+  --text-3:  var(--neutral-300);
+  --ink:     var(--neutral-700);
+  --border:  var(--neutral-100);
+  --card:    var(--bg-surface);
+  --chip:    var(--bg-chip);
+  --bg:      var(--bg-page);
+  --line:    var(--neutral-100);
 
   /* Semantic — slightly adjust for dark contrast */
   --color-error:   #EF7074;
