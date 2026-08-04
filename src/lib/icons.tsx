@@ -72,9 +72,9 @@ export const IcGear = (p: P) => (
 // Brand cat logo (the AgentMate mascot), used as bot avatar & app icon.
 export const CatLogo = (p: P) => (
   <svg viewBox="0 0 40 40" aria-hidden="true" {...p}>
-    <rect x="4" y="6" width="32" height="30" rx="9" fill="#16B37A" />
-    <path d="M11 12l4 5h10l4-5" fill="none" stroke="#0E8A5F" strokeWidth="2.4" strokeLinecap="round" />
-    <circle cx="15.5" cy="24" r="2.4" fill="#eafff6" />
-    <circle cx="24.5" cy="24" r="2.4" fill="#eafff6" />
+    <rect x="4" y="6" width="32" height="30" rx="9" fill="var(--brand)" />
+    <path d="M11 12l4 5h10l4-5" fill="none" stroke="var(--brand-700)" strokeWidth="2.4" strokeLinecap="round" />
+    <circle cx="15.5" cy="24" r="2.4" fill="var(--brand-50)" />
+    <circle cx="24.5" cy="24" r="2.4" fill="var(--brand-50)" />
   </svg>
 )

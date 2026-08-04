@@ -122,7 +122,7 @@ export function TeamOrchestrationPanel({ teamName, suggestedGoal }: { teamName: 
                   {STATUS[node.status] || node.status} · {node.prompt_tokens + node.completion_tokens} tokens
                   {node.attempts.length > 1 ? ` · ${node.attempts.length} 次尝试` : ''}
                 </div>
-                {node.error && <div className="pd" style={{ color: '#E5484D' }}>{node.error}</div>}
+                {node.error && <div className="pd" style={{ color: 'var(--color-error)' }}>{node.error}</div>}
               </div>
             </div>
           ))}
@@ -132,7 +132,7 @@ export function TeamOrchestrationPanel({ teamName, suggestedGoal }: { teamName: 
             </div>
           )}
           {item.artifact && <div className="pd" style={{ marginTop: 8 }}>交付产物：{item.artifact.name}</div>}
-          {item.error && <div className="pd" style={{ marginTop: 8, color: '#E5484D' }}>失败原因：{item.error}</div>}
+          {item.error && <div className="pd" style={{ marginTop: 8, color: 'var(--color-error)' }}>失败原因：{item.error}</div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             {active && <WbButton className="btn-ghost" disabled={busy} onClick={() => void cancel()}>取消执行</WbButton>}
             {TERMINAL.has(item.status) && <WbButton className="btn-ghost" onClick={() => setItem(null)}>发起新任务</WbButton>}

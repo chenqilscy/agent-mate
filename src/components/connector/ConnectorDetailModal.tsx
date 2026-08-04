@@ -177,7 +177,7 @@ export function ConnectorDetailModal(
             </div>
           )}
           {isOAuth && conn === 'not_installed' && (
-            <div className="ec-d" style={{ fontSize: 12.5, lineHeight: 1.7, color: '#C77700', marginTop: 10 }}>
+            <div className="ec-d" style={{ fontSize: 12.5, lineHeight: 1.7, color: 'var(--color-warning)', marginTop: 10 }}>
               未检测到 kdocs-cli（金山文档命令行工具）。请先在本机安装后再连接。
             </div>
           )}

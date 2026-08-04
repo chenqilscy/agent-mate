@@ -37,7 +37,7 @@ const STATUS_OPTS: { key: WorkStatus; label: string }[] = [
   { key: 'review', label: '待验收' },
   { key: 'done', label: '已完成' },
 ]
-const DOT: Record<WorkStatus, string> = { todo: '#9AA0A6', doing: '#3D6BFF', paused: '#F0A020', review: '#8B5CF6', done: '#16B37A' }
+const DOT: Record<WorkStatus, string> = { todo: 'var(--text-3)', doing: 'var(--color-info)', paused: 'var(--color-warning)', review: '#8B5CF6', done: 'var(--brand)' }
 
 // 添加数据源 (WB-028): honest placeholder — the picker UI is real, but wiring a live
 // TAPD/CNB/GitHub sync is a large external integration, so the actions say「敬请期待」
@@ -930,7 +930,7 @@ export function WorkloadView() {
             {r.t > 0 && <>{seg(r.todo, DOT.todo)}{seg(r.doing, DOT.doing)}{seg(r.paused, DOT.paused)}{seg(r.review, DOT.review)}{seg(r.done, DOT.done)}</>}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11.5, color: 'var(--text-3)' }}>
-            <span>待办 {r.todo}</span><span style={{ color: DOT.doing }}>进行 {r.doing}</span><span style={{ color: DOT.review }}>待验收 {r.review}</span><span style={{ color: DOT.done }}>完成 {r.done} · {r.pct}%</span>{r.overdue > 0 && <span style={{ color: '#EF4444' }}>逾期 {r.overdue}</span>}
+            <span>待办 {r.todo}</span><span style={{ color: DOT.doing }}>进行 {r.doing}</span><span style={{ color: DOT.review }}>待验收 {r.review}</span><span style={{ color: DOT.done }}>完成 {r.done} · {r.pct}%</span>{r.overdue > 0 && <span style={{ color: 'var(--color-error)' }}>逾期 {r.overdue}</span>}
           </div>
           {(r.est > 0 || r.spent > 0) && <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--text-3)' }}>⏱ 预估 {r.est}h · 投入 {r.spent}h</div>}
         </div>

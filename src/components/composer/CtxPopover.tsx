@@ -4,11 +4,11 @@ import { clickable } from '../../lib/a11y'
 // Context-usage panel (spec 5.2 `usage` event). Numbers are real: fed by the
 // backend's usage event after each turn (token accounting).
 const COLORS: Record<string, string> = {
-  系统提示词: '#16B37A',
-  工具及子智能体: '#F0A020',
+  系统提示词: 'var(--brand)',
+  工具及子智能体: 'var(--color-warning)',
   对话消息: '#7C5CFC',
   连接器及MCP: '#12B5C9',
-  技能: '#3D6BFF',
+  技能: 'var(--color-info)',
 }
 
 function fmt(n: number): string {

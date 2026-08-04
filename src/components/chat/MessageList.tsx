@@ -39,7 +39,7 @@ function BotMessage({ msg, streaming, onRetry }: { msg: ChatMessage; streaming: 
           <div className="typing"><i /><i /><i /></div>
         )}
         {html && <div dangerouslySetInnerHTML={{ __html: html }} />}
-        {msg.error && <p style={{ color: '#E5484D' }}>⚠ {msg.error}</p>}
+        {msg.error && <p style={{ color: 'var(--color-error)' }}>⚠ {msg.error}</p>}
         {msg.pendingQuestion && (
           <div className="ask-card ask-recovery" role="status">
             <div className="ak-h"><span className="ak-q">上次运行在等待回答时中断</span></div>
