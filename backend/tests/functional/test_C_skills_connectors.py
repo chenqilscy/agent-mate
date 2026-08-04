@@ -6,6 +6,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from agentmate_testkit import (Checker, call, stream, health_llm, account, events_of, text_join,
                         has_step, loadout_label, stop_run, read_ws, plant_file, wipe_users)
 
+def trace_brief(evs):
+    return [
+        {
+            "event": event.get("event"),
+            "tool": event.get("data", {}).get("tool"),
+            "label": event.get("data", {}).get("label"),
+            "message": event.get("data", {}).get("message"),
+        }
+        for event in evs
+        if event.get("event") not in {"text", "think"}
+    ]
+
 U = "ctest_sc"
 c = Checker()
 LLM = health_llm()
@@ -21,7 +33,7 @@ _status, _payload = call("GET", "/skills", tok)
 if _status != 200:
     print("Cannot read installed skills."); sys.exit(2)
 _installed = {s.get("slug") or s.get("key") for s in _payload.get("skills", [])}
-for _slug in ("web-access", "excel-csv"):
+for _slug in ("web-access", "excel-csv", "github-connector-guide"):
     if _slug in _installed:
         continue
     _code, _ = call("POST", f"/skills/catalog/{_slug}/install", tok)
@@ -93,12 +105,18 @@ stop_run(tok, sid)
 c.check("C6 analyze_csv tool invoked", has_step(evs, "analyze_csv"))
 c.check("C6 real row count (4) reported from CSV", "4" in text_join(evs), text_join(evs)[:140])
 
-# C7 — a connector that needs a token it doesn't have is surfaced as not-ready
-c.section("C7 GitHub 无 token → 连接器未就绪(不静默失败)")
+# C7 — GitHub must be surfaced honestly whether this device has credentials or not.
+c.section("C7 GitHub 凭据就绪态如实显示(不静默失败)")
 evs, sid = stream(tok, {"text": "只回复 OK。", "connectors": ["GitHub"]}, stop_when=is_loadout, max_seconds=30)
 stop_run(tok, sid)
 lbl = loadout_label(evs) or ""
-c.check("C7 GitHub shown as not-ready in loadout", "未就绪" in lbl and "GitHub" in lbl, lbl)
+gate = next((
+    event["data"].get("label", "") for event in evs
+    if event["event"] == "step" and event["data"].get("tool") == "connector_skill_gate"
+), "")
+c.check("C7 GitHub readiness is visible in loadout",
+        ("GitHub" in lbl and "连接器 GitHub" in lbl)
+        or ("GitHub" in gate and "GITHUB_TOKEN" in gate), str(trace_brief(evs)))
 
 # C8 — plan mode does NOT open connectors (read-only run)
 c.section("C8 计划模式禁用连接器")

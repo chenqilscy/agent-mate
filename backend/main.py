@@ -156,7 +156,11 @@ class BodySizeLimitMiddleware:
                         message = messages[index]
                         index += 1
                         return message
-                    return {"type": "http.disconnect"}
+                    # Once the buffered request frames are consumed, preserve the
+                    # real client lifecycle. Synthesizing a disconnect here makes
+                    # StreamingResponse cancel an SSE generator after its first
+                    # frame even though the client is still connected.
+                    return await receive()
 
                 await self.app(scope, replay_receive, send)
                 return

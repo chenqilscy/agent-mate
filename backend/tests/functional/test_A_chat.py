@@ -38,10 +38,24 @@ c.check("A2 secret from file present in answer", "BETA-3344" in text_join(evs), 
 
 # A3 — run_command: real subprocess runs, side effect lands in the sandbox
 c.section("A3 run_command → real subprocess writes a file in the sandbox")
+approval = {"sid": None, "accepted": False}
+def _approve_run_command(e):
+    if e["event"] == "session":
+        approval["sid"] = e["data"].get("id")
+    if e["event"] == "ask_user" and approval["sid"] and not approval["accepted"]:
+        questions = e["data"].get("questions") or []
+        if any("run_command" in str(question.get("q", "")) for question in questions):
+            status, _ = call(
+                "POST", f"/chat/{approval['sid']}/answer", tok, {"answers": ["允许一次"]},
+            )
+            approval["accepted"] = status == 200
+    return False
+
 evs, sid = stream(tok, {"text": "只用 run_command 工具运行一条 shell 命令，把文本 WBRUN-5150 写入工作区文件 cmdout.txt（用 echo 重定向即可）。完成后停止。", "project_id": pid},
-                  stop_when=lambda e: e["event"] == "step" and e["data"].get("tool") == "run_command", max_seconds=45)
-time.sleep(0.5); stop_run(tok, sid)
+                  stop_when=_approve_run_command, until_type="done", max_seconds=60)
+stop_run(tok, sid)
 c.check("A3 run_command step emitted", has_step(evs, "run_command"))
+c.check("A3 run_command one-time authorization accepted", approval["accepted"])
 c.check("A3 real command wrote file in sandbox", "WBRUN-5150" in (read_ws(pid, "cmdout.txt") or ""), repr(read_ws(pid, "cmdout.txt")))
 
 # A4 — list_dir
@@ -51,12 +65,14 @@ evs, sid = stream(tok, {"text": "用 list_dir 列出工作区根目录，告诉�
 stop_run(tok, sid)
 c.check("A4 list_dir step emitted", has_step(evs, "list_dir"))
 
-# A5 — update_plan → todo events
-c.section("A5 update_plan → todo trace events")
+# A5 — update_plan → authoritative plan snapshot
+c.section("A5 update_plan → plan_snapshot event")
 evs, sid = stream(tok, {"text": "把「做一杯手冲咖啡」拆成 3 个步骤，用 update_plan 工具登记这份待办清单。", "project_id": pid},
-                  stop_when=lambda e: e["event"] == "todo", max_seconds=40)
+                  stop_when=lambda e: e["event"] == "plan_snapshot", max_seconds=40)
 stop_run(tok, sid)
-c.check("A5 at least one todo event", len(events_of(evs, "todo")) >= 1)
+plans = events_of(evs, "plan_snapshot")
+c.check("A5 persisted three-item plan snapshot",
+        bool(plans) and len(plans[0]["data"].get("items", [])) == 3, str(plans[:1]))
 
 # A6 — plan mode is read-only: no write_file, file must NOT appear
 c.section("A6 plan mode read-only (no write tools)")

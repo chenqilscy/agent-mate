@@ -90,7 +90,12 @@ def stream(token, body, stop_when=None, until_type=None, max_seconds=45):
     try:
         r = urllib.request.urlopen(req, timeout=max_seconds)
     except urllib.error.HTTPError as e:
-        return [{"event": "http_error", "data": {"code": e.code}}], None
+        raw = e.read().decode("utf-8", "replace")
+        try:
+            response = json.loads(raw) if raw else None
+        except json.JSONDecodeError:
+            response = raw
+        return [{"event": "http_error", "data": {"code": e.code, "response": response}}], None
     try:
         for raw in r:
             line = raw.decode("utf-8", "replace").rstrip("\n")

@@ -19,8 +19,9 @@ The working baseline includes:
 - optional AgentMate Server control plane and its same-origin AgentMate Console.
 
 The active issue ledger is [`docs/issues/`](docs/issues/README.md), with completed records compacted under its archive.
-The product/code roadmap is closed; the only deferred item is formal production desktop-update deployment, which needs
-deployment-owned HTTPS infrastructure, protected signing material and a production rollout window.
+The product/code roadmap is closed. Two release milestones remain deferred: formal production desktop-update deployment
+needs deployment-owned HTTPS infrastructure, protected signing material and a production rollout window; the V1
+controlled-user pilot needs a fixed beta build, 3–5 target users and five working days of real-use evidence.
 
 ## Architecture
 

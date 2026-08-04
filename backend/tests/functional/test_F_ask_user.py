@@ -18,7 +18,7 @@
   cd backend && python tests/functional/test_F_ask_user.py
 未配置 LLM 时本套件以退出码 2 跳过（与 test_A 一致）。
 """
-import sys, os, time, json, threading, urllib.request
+import sys, os, time, json, threading, urllib.error, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/../..")
 from agentmate_testkit import (
@@ -40,7 +40,20 @@ def _stream(tok, body, box, on_event=None, timeout=120):
     req.add_header("Content-Type", "application/json")
     req.add_header("Authorization", "Bearer " + tok)
     evs, cur, deadline = [], None, time.time() + timeout
-    r = urllib.request.urlopen(req, timeout=timeout + 10)
+    # Pace requests once, rather than delaying every SSE protocol line.  A
+    # per-line sleep turns a healthy suspended stream into a client-side
+    # timeout as event/data/blank lines accumulate.
+    time.sleep(THROTTLE)
+    try:
+        r = urllib.request.urlopen(req, timeout=timeout + 10)
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", "replace")
+        try:
+            response = json.loads(raw) if raw else None
+        except json.JSONDecodeError:
+            response = raw
+        box["evs"] = [{"event": "http_error", "data": {"code": exc.code, "response": response}}]
+        return
     try:
         for raw in r:
             if time.time() > deadline:
@@ -55,12 +68,11 @@ def _stream(tok, body, box, on_event=None, timeout=120):
                     d = {}
                 evs.append({"event": cur, "data": d})
                 if box.get("sid") is None and cur == "session":
-                    box["sid"] = d.get("session_id")
+                    box["sid"] = d.get("id") or d.get("session_id")
                 if on_event:
                     on_event(cur, d, box["sid"])
                 if cur == "done":
                     break
-            time.sleep(THROTTLE)
     finally:
         try:
             r.close()
@@ -94,6 +106,20 @@ def _wait_for_sid(box, timeout=30):
             return box["sid"]
         time.sleep(0.3)
     return None
+
+
+def _wait_for_session_status(tok, sid, expected, timeout=30):
+    """Poll until the persisted session reaches the expected lifecycle state."""
+    deadline = time.time() + timeout
+    last_status = None
+    while time.time() < deadline:
+        st, body = call("GET", f"/sessions/{sid}/messages", tok)
+        if st == 200:
+            last_status = body["session"].get("status")
+            if last_status == expected:
+                return last_status
+        time.sleep(0.2)
+    return last_status
 
 
 # --------------------------------------------------------------------------- #
@@ -142,15 +168,15 @@ def test_ask_user_resume_and_owner_scope():
             st_o, _ = call("POST", f"/chat/{sid}/answer", tok, {"answers": [CHOICE]})
             c.check("F1 owner answer accepted (200)", st_o == 200)
 
-    evs, sid = stream_chat(tok, {"message": PROMPT_ASK}, on_event=on, timeout=120)
+    evs, sid = stream_chat(tok, {"text": PROMPT_ASK}, on_event=on, timeout=120)
     c.check("ask_user event emitted", state.get("asked") is True)
     ask = events_of(evs, "ask_user")
     c.check("ask_user payload has ≥1 question",
-            bool(ask) and len(ask[0].get("questions", [])) >= 1)
+            bool(ask) and len(ask[0]["data"].get("questions", [])) >= 1)
     qa = events_of(evs, "qa_summary")
     c.check("qa_summary emitted after answer", len(qa) >= 1)
     if qa:
-        got = qa[0].get("qa", [])
+        got = qa[0]["data"].get("qa", [])
         c.check("answer injected into qa card", bool(got) and got[0].get("a") == CHOICE)
     c.check("stream completed with done", any(e["event"] == "done" for e in evs))
 
@@ -159,16 +185,17 @@ def test_ask_user_resume_and_owner_scope():
 # F3 — suspend really pauses: session stays 'waiting', does not auto-finish
 # --------------------------------------------------------------------------- #
 def test_suspend_no_auto_finish():
-    box, th = open_chat(tok, {"message": PROMPT_ASK}, timeout=120)
+    box, th = open_chat(tok, {"text": PROMPT_ASK}, timeout=120)
     sid = _wait_for_sid(box)
     c.check("ask_user session started", sid is not None)
     if sid is None:
         th.join(timeout=10)
         return
 
-    # Immediately after the agent suspends, the session must be 'waiting'.
-    _, b1 = call("GET", f"/sessions/{sid}/messages", tok)
-    c.check("session status == waiting on suspend", b1["session"].get("status") == "waiting")
+    # The session event is emitted before the LLM calls ask_user.  Synchronize
+    # on the persisted lifecycle state instead of racing that first event.
+    status = _wait_for_session_status(tok, sid, "waiting", timeout=30)
+    c.check("session status == waiting on suspend", status == "waiting")
 
     # It must remain waiting (not auto-finish) for several seconds.
     time.sleep(5)
@@ -195,7 +222,7 @@ def test_stop_wakes_suspended_run():
             st, _ = call("POST", f"/chat/{sid}/stop", tok, {})
             state["stop_st"] = st
 
-    evs, sid = stream_chat(tok, {"message": PROMPT_ASK}, on_event=on, timeout=120)
+    evs, sid = stream_chat(tok, {"text": PROMPT_ASK}, on_event=on, timeout=120)
     c.check("ask_user event emitted", "sid" in state)
     c.check("stop accepted (200)", state.get("stop_st") == 200)
     c.check("stream ended with done after stop", any(e["event"] == "done" for e in evs))
@@ -211,5 +238,6 @@ if __name__ == "__main__":
     test_ask_user_resume_and_owner_scope()
     test_suspend_no_auto_finish()
     test_stop_wakes_suspended_run()
-    c.report()
-    wipe_users(U, U + "_other")
+    ok = c.summary("test_F_ask_user")
+    print("cleanup:", wipe_users(U, U + "_other"))
+    sys.exit(0 if ok else 1)

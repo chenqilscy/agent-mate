@@ -69,6 +69,26 @@ class JsonBodyStreamLimitTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(204, status)
         self.assertEqual(b"12345678", body)
 
+    async def test_receive_after_replay_delegates_to_real_client_lifecycle(self) -> None:
+        incoming = [
+            {"type": "http.request", "body": b"{}", "more_body": False},
+            {"type": "http.disconnect", "source": "real-client"},
+        ]
+        observed: list[dict] = []
+
+        async def app(_scope, receive, _send) -> None:
+            observed.append(await receive())
+            observed.append(await receive())
+
+        async def receive() -> dict:
+            return incoming.pop(0)
+
+        scope = {"type": "http", "method": "POST", "path": "/api/chat", "headers": []}
+        await BodySizeLimitMiddleware(app, 8)(scope, receive, lambda _message: None)
+
+        self.assertEqual("http.request", observed[0]["type"])
+        self.assertEqual("real-client", observed[1].get("source"))
+
     async def test_upload_route_keeps_its_independent_streaming_limit(self) -> None:
         called, status, body = await self._exercise(
             headers=[], chunks=[b"123456789"], path="/api/files/upload",
