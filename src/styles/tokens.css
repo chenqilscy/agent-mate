@@ -1,32 +1,170 @@
-/* Design tokens — migrated verbatim from the prototype (design/prototype.html).
-   These are the visual contract; do not retune without checking against the
-   prototype. Dark theme is a variable overlay on `body.dark`. */
+/* Design tokens — AgentMate Design System v2.
+   Four-layer: base → token → component → page.
+   Light theme in :root, dark theme as body.dark variable overlay. */
+
+/* ============================================================
+   Layer 1: Base — font stack, scrollbar, reset, animations
+   ============================================================ */
 :root {
-  --brand: #16B37A;
+  /* Typography base */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  --font-size-base: 14px;
+  --line-height-base: 1.5714285714;
+
+  /* ===== Layer 2: Design Tokens (Light) ===== */
+
+  /* -- Brand Green Scale -- */
+  --brand-50:  #EEFBF5;
+  --brand-100: #D7F5E7;
+  --brand-300: #6ED8A8;
+  --brand-500: #16B37A;
   --brand-600: #0FA06C;
-  --brand-soft: #EAF7F1;
+  --brand-700: #0C8A5C;
+  --brand-900: #065836;
+
+  /* Aliases for backward compat */
+  --brand:      var(--brand-500);
+  --brand-soft: var(--brand-50);
   --brand-soft2: #F1FAF5;
-  --ink: #1F2329;
-  --text: #1F2329;
-  --text-2: #5B6169;
-  --text-3: #9AA0A6;
-  --border: #ECEEF1;
+
+  /* -- Neutral Gray Scale -- */
+  --neutral-0:   #FFFFFF;
+  --neutral-50:  #F8F9FA;
+  --neutral-100: #ECEEF1;
+  --neutral-200: #D5D9DE;
+  --neutral-300: #9AA0A6;
+  --neutral-500: #5B6169;
+  --neutral-700: #1F2329;
+  --neutral-900: #0D1117;
+
+  /* -- Surface Tokens (replace --card, --chip, body bg) -- */
+  --bg-surface:  var(--neutral-0);    /* cards, popovers, modals */
+  --bg-page:     var(--neutral-50);   /* page background */
+  --bg-elevated: var(--neutral-0);    /* elevated surfaces (dropdowns) */
+  --bg-chip:     #F4F5F7;            /* chips, tabs, hover */
+  --bg-input:    var(--neutral-0);    /* input backgrounds */
+
+  /* -- Text — aliased to neutral for backward compat -- */
+  --text:   var(--neutral-700);
+  --text-2: var(--neutral-500);
+  --text-3: var(--neutral-300);
+  --ink:    var(--neutral-700);
+
+  /* -- Border — aliased to neutral for backward compat -- */
+  --border:   var(--neutral-100);
   --border-2: #F2F3F5;
-  --chip: #F4F5F7;
-  --card: #FFFFFF;
-  --shadow-sm: 0 1px 2px rgba(20, 28, 40, .05), 0 6px 18px -12px rgba(20, 28, 40, .22);
-  --shadow-md: 0 10px 34px -14px rgba(20, 28, 40, .28);
-  --r: 12px;
-  /* highlight.js token colors (light) — GitHub-light palette */
+
+  /* Backward compat aliases */
+  --card: var(--bg-surface);
+  --chip: var(--bg-chip);
+  --bg:   var(--bg-page);
+  --line: var(--neutral-100);
+
+  /* -- Spacing Scale (4px base) -- */
+  --space-xs:  4px;
+  --space-sm:  8px;
+  --space-md:  12px;
+  --space-lg:  16px;
+  --space-xl:  24px;
+  --space-2xl: 32px;
+  --space-3xl: 48px;
+
+  /* -- Typography Scale -- */
+  --text-xs:   12px;
+  --text-sm:   13px;
+  --text-base: 14px;
+  --text-lg:   16px;
+  --text-xl:   18px;
+  --text-2xl:  22px;
+  --text-3xl:  28px;
+
+  /* -- Radius -- */
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-full: 999px;
+  --r: var(--radius-lg);  /* backward compat */
+
+  /* -- Shadows (blue-tint) -- */
+  --shadow-sm: 0 1px 2px rgba(20,28,40,.05), 0 6px 18px -12px rgba(20,28,40,.22);
+  --shadow-md: 0 10px 34px -14px rgba(20,28,40,.28);
+  --shadow-lg: 0 20px 48px -16px rgba(20,28,40,.35);
+  --shadow-xl: 0 32px 64px -20px rgba(20,28,40,.45);
+
+  /* -- Semantic Colors -- */
+  --color-error:   #E5484D;
+  --color-warning: #F59E0B;
+  --color-info:    #3B82F6;
+  --color-success: #16B37A;
+
+  /* -- highlight.js token colors (GitHub-light) -- */
   --hl-comment: #6a737d;
   --hl-keyword: #d73a49;
-  --hl-string: #22863a;
-  --hl-number: #005cc5;
-  --hl-func: #6f42c1;
-  --hl-built: #005cc5;
-  --hl-attr: #e36209;
+  --hl-string:  #22863a;
+  --hl-number:  #005cc5;
+  --hl-func:    #6f42c1;
+  --hl-built:   #005cc5;
+  --hl-attr:    #e36209;
 }
 
+/* ============================================================
+   Dark Theme — variable overrides
+   ============================================================ */
+body.dark {
+  /* Brand — keep primary stable, invert ends */
+  --brand-50:  #065836;
+  --brand-100: #0C6B42;
+  --brand-300: #16B37A;
+  --brand-500: #16B37A;  /* stable across themes */
+  --brand-600: #1BBD7D;
+  --brand-700: #21C985;
+  --brand-900: #EEFBF5;
+  --brand-soft:  var(--brand-50);
+  --brand-soft2: #152A21;
+
+  /* Neutral — flip the scale */
+  --neutral-0:   #0D1117;
+  --neutral-50:  #141A21;
+  --neutral-100: #1F2329;
+  --neutral-200: #2B3138;
+  --neutral-300: #5B6169;
+  --neutral-500: #9AA0A6;
+  --neutral-700: #ECEEF1;
+  --neutral-900: #FFFFFF;
+
+  /* Surfaces — now auto-flip via neutral refs */
+  --bg-chip:   #2A3036;
+  --bg-input:  var(--neutral-50);
+  --border-2:  #2B3138;
+
+  /* Text/border aliases auto-flip via neutral refs above */
+
+  /* Semantic — slightly adjust for dark contrast */
+  --color-error:   #EF7074;
+  --color-warning: #F9B83A;
+  --color-info:    #6098F8;
+
+  /* hljs dark palette */
+  --hl-comment: #8b949e;
+  --hl-keyword: #ff7b72;
+  --hl-string:  #a5d6ff;
+  --hl-number:  #79c0ff;
+  --hl-func:    #d2a8ff;
+  --hl-built:   #79c0ff;
+  --hl-attr:    #7ee787;
+
+  /* Shadows — stronger alpha in dark */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.15), 0 6px 18px -12px rgba(0,0,0,.35);
+  --shadow-md: 0 10px 34px -14px rgba(0,0,0,.45);
+  --shadow-lg: 0 20px 48px -16px rgba(0,0,0,.55);
+  --shadow-xl: 0 32px 64px -20px rgba(0,0,0,.65);
+
+  color-scheme: dark;
+}
+
+/* ============================================================
+   Global reset & base
+   ============================================================ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body, #root { height: 100%; }
 body {
@@ -34,7 +172,7 @@ body {
   font-size: var(--font-size-base);
   line-height: var(--line-height-base);
   color: var(--text);
-  background: #E7E9ED;
+  background: var(--bg-page);
   -webkit-font-smoothing: antialiased;
   display: flex;
   align-items: center;
@@ -42,97 +180,44 @@ body {
 }
 #root { width: 100%; }
 
-/* ---- dark theme ---- */
-body.dark {
-  --ink: #EDEFF2; --text: #E7EAEE; --text-2: #A6ADB6; --text-3: #79818B;
-  --border: #343A42; --border-2: #2B3138; --chip: #2A3036;
-  --brand-soft: #17382C; --brand-soft2: #152A21;
-  /* highlight.js token colors (dark) — GitHub-dark palette */
-  --hl-comment: #8b949e;
-  --hl-keyword: #ff7b72;
-  --hl-string: #a5d6ff;
-  --hl-number: #79c0ff;
-  --hl-func: #d2a8ff;
-  --hl-built: #79c0ff;
-  --hl-attr: #7ee787;
-  color-scheme: dark;
-}
-body.dark .win, body.dark .sidebar, body.dark .main,
-body.dark .kd-right, body.dark .kd-frame { background: #1B1F24; }
-body.dark .composer, body.dark .tpl, body.dark .ecard, body.dark .scard, body.dark .conn,
-body.dark .pop, body.dark .profile, body.dark .more-menu, body.dark .scene, body.dark .qchip,
-body.dark .search-box, body.dark .buddy-b, body.dark .cap-act, body.dark .btn-line,
-body.dark .my-proj, body.dark .ctool, body.dark .cicon, body.dark .insp, body.dark .inst-card,
-body.dark .activity, body.dark .scene-card, body.dark .mf-type, body.dark .pf-buddy .try,
-body.dark .hcard, body.dark .fcard, body.dark .card-menu, body.dark .hc-more,
-body.dark .skd-card, body.dark .skd-viewtoggle-btn.on,
-body.dark .home-metric, body.dark .home-run,
-body.dark .kd-item,
-body.dark .seg2 b.on { background: #22272D; }
-body.dark .scene.active, body.dark .cap-tab.active { background: var(--chip); color: var(--text); }
-body.dark .csend { background: var(--brand); }
+/* Dark surface overrides — only for elements that need a specific
+   dark tone different from the auto-flipping --bg-surface token.
+   This is drastically reduced from the 55-line block in v1. */
 body.dark .sc-top { background: linear-gradient(135deg, #20362C, #1E2A36); }
-body.dark .pf-row .up { background: var(--brand); color: #fff; }
-
-/* dark-mode readability: these used var(--ink) as a dark surface + white text,
-   but --ink flips to a LIGHT color in dark mode → white-on-light was unreadable.
-   Force a real dark surface so the text stays legible (fixes toasts, buttons,
-   badges, the stop/send-off states). */
-body.dark .toast { background: #2A2F36; }
-body.dark .btn-dark:not(:disabled) { background: #343A42; }
-/* Dark-mode gaps (WB-008): disabled dark button (else #C9CDD3+#fff ≈ 1.4 contrast),
-   the white add-btn on dark cards, and the hard-coded discount badge. */
-body.dark .btn-dark:disabled { background: #3A414B; color: var(--text-3); }
-body.dark .add-btn { background: #22272D; }
 body.dark .mrow .off { background: #3A2326; color: #F98A8E; }
-body.dark .cat.active { background: #3A414B; color: #fff; }
 body.dark .pe-badge { background: transparent; }
-body.dark .cstop { background: #343A42; }
-body.dark .cstop:hover { background: #434B56; }
-body.dark .ctool.model .mk { background: #17382C; }
-body.dark .ctray { background: #20252B; }
-body.dark .tray-chip:hover { background: #2A3036; }
-body.dark .csend:disabled { background: #3A414B; }
-/* WB-024: filter menu floats above the sidebar → elevated dark surface (--card
-   stays #fff in dark, so it needs its own override like .more-menu). */
-body.dark .sb-fmenu { background: #22272D; }
-body.dark .ringc { border-color: #3A414B; }
-body.dark .scrolldn { background: #22272D; }
-body.dark .skill-add-menu { background: #22272D; }
-body.dark .skill-import-error { background: #3A2326; color: #F98A8E; }
-body.dark .reward { background: #22272D; }
+body.dark .ctool.model .mk { background: var(--brand-50); }
+body.dark .bell-dot { border-color: var(--neutral-50); }
 body.dark .ov-art:hover { box-shadow: none; }
-body.dark .ovpanel { background: #1B1F24; }
-body.dark [data-tip]:hover::after { background: #22272D; }
-body.dark .ask-card { background: #22272D; }
-body.dark .pv-tab { background: #22272D; }
-body.dark .fart:hover { background: #2A3036; }
-body.dark .fart .fi { background: #1B1F24; }
+body.dark .fart .fi { background: var(--neutral-50); }
+body.dark .selcard.sel { background: var(--brand-50); }
+body.dark .upd, body.dark .upd-x, body.dark .upd .log { background: var(--bg-surface); }
 body.dark .np-modal, body.dark .btn-ghost, body.dark .np-tplbtn, body.dark .selcard { background: #1F242A; }
-body.dark .selcard.sel { background: #17382C; }
-body.dark .upd, body.dark .upd-x, body.dark .upd .log { background: #22272D; }
-body.dark .bell-dot { border-color: #1B1F24; }
 
+/* Scrollbar */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: #D7DAE0; border-radius: 9px; }
 ::-webkit-scrollbar-thumb:hover { background: #C2C6CE; }
 body.dark ::-webkit-scrollbar-thumb { background: #4A515B; }
 body.dark ::-webkit-scrollbar-thumb:hover { background: #606975; }
+
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 body.reduce-motion * { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 
-/* 系统设置 · 界面缩放（Chromium/Tauri）：补偿布局尺寸，使缩放后仍恰好填满窗口。 */
-body[data-ui-scale="90"] .win { zoom: .9; width: 111.111111%; height: 111.111111vh; }
-body[data-ui-scale="95"] .win { zoom: .95; width: 105.263158%; height: 105.263158vh; }
-body[data-ui-scale="105"] .win { zoom: 1.05; width: 95.238095%; height: 95.238095vh; }
-body[data-ui-scale="110"] .win { zoom: 1.1; width: 90.909091%; height: 90.909091vh; }
+/* UI scale compensation */
+body[data-ui-scale="90"]  .win { zoom: .9;  width: 111.111111%; height: 111.111111vh; }
+body[data-ui-scale="95"]  .win { zoom: .95; width: 105.263158%; height: 105.263158vh; }
+body[data-ui-scale="105"] .win { zoom: 1.05; width: 95.238095%;  height: 95.238095vh; }
+body[data-ui-scale="110"] .win { zoom: 1.1;  width: 90.909091%;  height: 90.909091vh; }
 
+/* Animations */
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
-@keyframes tb { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+@keyframes pop  { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes tb   { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
 @keyframes fade { from { opacity: 0; } }
-@keyframes rot { to { transform: rotate(360deg); } }
-@keyframes pul { 50% { opacity: .35; } }
+@keyframes rot  { to { transform: rotate(360deg); } }
+@keyframes pul  { 50% { opacity: .35; } }
