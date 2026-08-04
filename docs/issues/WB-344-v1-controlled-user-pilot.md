@@ -40,9 +40,10 @@ P1。缺少真实使用证据时继续扩功能或直接发布，都会跳过产
 
 ## 推进记录（2026-08-04）
 
-- 已完成试用前工程基线：正式 `scripts/validate-v1-rc.ps1 -IsolatedLive -DesktopPreflight` 同一次运行通过
-  12 个选定门禁；Backend 336、Server 117、隔离 HTTP 集成 4、真实 LLM A–F 共 101 条断言、263 个跟踪
-  Python 源编译和 Tauri Rust 预检全部通过。
+- 已完成试用前工程基线：正式
+  `scripts/validate-v1-rc.ps1 -WebE2E -IsolatedLive -DesktopPreflight` 同一次运行通过 13 个选定门禁；
+  Backend 336、Server 117、隔离 HTTP 集成 4、Web 明暗主题/响应式 E2E 4、真实 LLM A–F 共 101 条断言、
+  263 个跟踪 Python 源编译和 Tauri Rust 预检全部通过。
 - 已修复试用门禁暴露的 WB-415：Chat body 限流中间件不再截断 SSE 客户端生命周期，`ask_user` 挂起/恢复
   的真实链路稳定通过 17/17。
 - 已在提交 `b76d652ac36dcc812646d43ae3dfe8edf179e496` 上重新冻结 sidecar 并生成当前候选包：NSIS
