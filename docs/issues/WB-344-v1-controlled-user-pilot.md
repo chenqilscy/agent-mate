@@ -45,8 +45,14 @@ P1。缺少真实使用证据时继续扩功能或直接发布，都会跳过产
   Python 源编译和 Tauri Rust 预检全部通过。
 - 已修复试用门禁暴露的 WB-415：Chat body 限流中间件不再截断 SSE 客户端生命周期，`ask_user` 挂起/恢复
   的真实链路稳定通过 17/17。
-- 仓库现有安装包 `AgentMate_1.0.0_x64-setup.exe` 的时间为 2026-07-22 02:16:24 +08:00、大小
-  159136110 bytes、SHA-256 `831290F931CADBD847C99161D9E9AB5C29961E1EB28AA3B15F22ECFBDD35EEC2`；
-  它早于当前基线 `1360de815ea43ffd258bcd882b4940877b54aa6a` 及本次修复，不能冒充本轮固定 beta。
-- 真实试用尚未启动：仍缺 3–5 名已确认参与者、试用负责人、连续 5 个工作日窗口，以及基于本次修复构建并
-  可回滚的固定 beta 安装包/哈希。状态保持 `deferred`，等待这些外部输入后按现有任务卡开始逐日取证。
+- 已在提交 `b76d652ac36dcc812646d43ae3dfe8edf179e496` 上重新冻结 sidecar 并生成当前候选包：NSIS
+  `AgentMate_1.0.0_x64-setup.exe` 为 163433389 bytes，SHA-256
+  `64CE62BE7D1832DB6F63BB70D0315E4BBA03D00E33420871F2F2953F7CBC9371`；MSI 为 175542272 bytes，
+  SHA-256 `7507783E10C059C87ED686B7154FB052D5311281893BFFF59CAD73E3D0D60AE8`。发布目录结构校验通过，
+  主程序、当前 sidecar 与 WebView2 Loader 均存在且为 x86_64。
+- `pnpm tauri build` 在 MSI/NSIS 生成后因缺少 `TAURI_SIGNING_PRIVATE_KEY` 以退出码 1 终止；这是
+  [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) 的既有签名边界。上述文件只能视为
+  未签名受控 beta 候选，尚未完成干净机器安装、真启动和回滚验收，不能描述为正式发布包。
+- 真实试用尚未启动：仍缺 3–5 名已确认参与者、试用负责人和连续 5 个工作日窗口；开始前还需由试用负责人
+  确认是否接受未签名包的系统警告，或提供受保护签名流水线产物。状态保持 `deferred`，不以构建和自动门禁
+  代替真实用户逐日证据。
