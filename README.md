@@ -87,6 +87,10 @@ Database paths, bind ports, cryptographic bootstrap material and release version
 This starts Server `:8100`, App backend `:8101` with `AGENTMATE_SERVER_URL`, and App frontend `:8102`. Remove the
 Server URL for pure-local operation; local execution remains available when Server is absent or unreachable.
 
+Reusable local Server test-account credentials, when provisioned, are recorded in
+`docs/local-test-accounts.md`. That file is intentionally ignored by Git because it contains login passwords; use it
+only against the local or explicitly designated controlled-test database.
+
 ## Repository layout
 
 ```text

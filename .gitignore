@@ -11,6 +11,8 @@ dist/
 # env & secrets (API keys live in backend/.env only, never committed)
 .env
 backend/.env
+# Local persistent test-account credentials (usernames may be shared; passwords must not be committed).
+docs/local-test-accounts.md
 
 # local data
 backend/agentmate.db
@@ -33,3 +35,8 @@ server/storage/
 # test / tooling artifacts
 .playwright-mcp/
 /*.png
+# sidecar smoke 测试产生的本地 DB（WB-419 配套：本地数据，不入库）
+backend/.sidecar-smoke-langfuse/
+# scratchpad 临时产物（截图、未提交构建产物；铁律：提交前清理）
+scratchpad/
+console/scratchpad/
