@@ -18,6 +18,7 @@
 |----|------|--------|------|------|
 | [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) | ⏸ | P1 | fullstack | 正式桌面更新服务缺少生产域名、CI 签名材料与上线验收 |
 | [WB-344](WB-344-v1-controlled-user-pilot.md) | ⏸ | P1 | misc | V1.0 受控真实用户试用缺少参与者、安装版本与连续证据 |
+| [WB-419](WB-419-local-test-accounts-ignore.md) | ✅ | P3 | backend | 本地 Server 测试账号凭据文件应被忽略且不入库 |
 
 ## 已关闭归档
 
