@@ -1573,7 +1573,6 @@ export function ProjectOverview() {
     activity,
     loading,
     navigateToTab,
-    openTask,
   } = useProjectWork();
   const [liveHealth, setLiveHealth] = useState<ProjectHealth | null>(health);
   useEffect(() => {
@@ -1599,25 +1598,21 @@ export function ProjectOverview() {
   return (
     <div className="tab-stack">
       {!loading && !roots.length && (
-        <Card>
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="从第一个任务开始规划项目"
-          >
-            <Space wrap>
-              {canWrite(project) && (
-                <Button type="primary" onClick={() => openTask(null)}>
-                  新建任务
-                </Button>
-              )}
-              <Button onClick={() => navigateToTab("milestones")}>
-                {canWrite(project)
-                  ? "配置里程碑和 Sprint"
-                  : "查看里程碑和 Sprint"}
-              </Button>
-            </Space>
-          </Empty>
-        </Card>
+        <Alert
+          showIcon
+          type="info"
+          title="项目尚无任务"
+          description={
+            canWrite(project)
+              ? "使用右上角“新建任务”即可开始；里程碑和 Sprint 可按需稍后配置。"
+              : "此项目尚未创建任务，你可以查看现有的计划配置。"
+          }
+          action={(
+            <Button size="small" onClick={() => navigateToTab("milestones")}>
+              {canWrite(project) ? "按需配置计划" : "查看计划"}
+            </Button>
+          )}
+        />
       )}
       <Card
         title="项目健康"
