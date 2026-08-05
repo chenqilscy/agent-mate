@@ -19,6 +19,7 @@
 | [WB-283](WB-283-production-desktop-update-deployment-acceptance.md) | ⏸ | P1 | fullstack | 正式桌面更新服务缺少生产域名、CI 签名材料与上线验收 |
 | [WB-344](WB-344-v1-controlled-user-pilot.md) | ⏸ | P1 | misc | V1.0 受控真实用户试用缺少参与者、安装版本与连续证据 |
 | [WB-419](WB-419-local-test-accounts-ignore.md) | ✅ | P3 | backend | 本地 Server 测试账号凭据文件应被忽略且不入库 |
+| [WB-420](WB-420-workbuddy-reference-and-design-docs.md) | ✅ | P3 | docs | 补充 WorkBuddy 参考解读与 AgentMate 设计系统文档资料 |
 
 ## 已关闭归档
 
