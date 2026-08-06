@@ -221,13 +221,11 @@ def resolve_model_config(
          No default configured → raise, honestly (no silent .env fallback).
       1. Built-in provider pick `@{provider}:{model}` (WB-128) → the provider's
          base_url/chat_path (provider_seed) + the owner's key for that provider.
-      2. DB custom model matched by display name (WB-124) → its own base/key
-         (blank base/key intentionally means「用后端 .env 凭据」, that model's own design).
-      3. Legacy "Display:real-id" custom labels → the id after the colon.
-      4. Anything else (unknown provider / key revoked / model deleted) → raise,
-         so the user picks a valid default instead of silently running .env's model.
-    api_base/api_key None means "use the .env default" (see llm.stream_chat) — only
-    custom/legacy models opt into that; the account default resolves to a real ref.
+      2. DB custom model matched by display name (WB-124) → its own base/key.
+      3. Anything else (unknown provider / key revoked / model deleted) → raise,
+         so the user picks a valid default instead of silently running a config-file model.
+    Every successful path returns an owner-scoped API base and key. There is no
+    environment/config-file fallback.
     """
     default_path = provider_seed.DEFAULT_CHAT_PATH
     if not client_model:
@@ -256,23 +254,21 @@ def resolve_model_config(
         row = db.get_custom_model_by_name(owner_id, client_model, include_secrets=True)
         if row and row.get("model_id"):
             base = row.get("api_base")
-            if base:
+            key = row.get("api_key")
+            if base and key:
                 try:
                     base = model_governance.validate_endpoint_url(base)
                 except ValueError as exc:
                     raise LLMError(str(exc)) from exc
-            return row["model_id"], base, row.get("api_key"), default_path
-        real = parse_legacy_model_id(client_model)
-        if real:
-            return real, None, None, default_path
+                return row["model_id"], base, key, default_path
     raise LLMError(
         f"模型「{client_model}」当前不可用（可能厂商 Key 已撤销、或模型已删除）。"
-        "请在「模型管理」里重新选择默认模型，或在模型菜单里换一个。"
+        "请在「模型管理」里补充该模型的 API Base/API Key，或重新选择可运行模型。"
     )
 
 
 def parse_legacy_model_id(selection: str) -> str | None:
-    """Parse old `Display:real-id` values without truncating colon-bearing IDs."""
+    """Parse old display labels for data compatibility; never supplies credentials."""
     label, sep, model_id = selection.partition(":")
     if not sep:
         return None

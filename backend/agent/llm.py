@@ -2,7 +2,7 @@
 
 One interface adapts DeepSeek / GLM / Kimi / MiniMax / OpenAI — anything that
 speaks the /chat/completions SSE protocol. We use httpx directly rather than a
-vendor SDK so the same code path works against any `LLM_API_BASE` (decision A.2).
+vendor SDK so the same code path works against any owner-configured provider endpoint (decision A.2).
 
 Streams three kinds of increment: assistant prose (`content`), chain-of-thought
 (`reasoning_content`, when the model exposes it), and function/tool-call deltas.
@@ -14,8 +14,6 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 import httpx
-
-from config import settings
 
 
 class LLMError(RuntimeError):
@@ -53,17 +51,23 @@ async def stream_chat(
 ) -> AsyncIterator[Delta]:
     """Yield Delta increments from an OpenAI-compatible /chat/completions stream.
 
-    api_base/api_key override the .env defaults so a custom model (WB-124) or a
-    built-in provider (WB-128) can hit its own endpoint. chat_path lets a
-    non-standard provider (e.g. MiniMax's /text/chatcompletion_v2) work while the
-    request/response stay OpenAI-shaped. Absent overrides fall back to the .env provider.
+    api_base/api_key identify the owner-scoped model configuration. A custom
+    model (WB-124) or built-in provider (WB-128) can hit its own endpoint.
+    chat_path lets a non-standard provider (e.g. MiniMax's
+    /text/chatcompletion_v2) work while the request/response stay OpenAI-shaped.
+    There is deliberately no environment/config-file fallback.
     """
-    base = (api_base or settings.LLM_API_BASE).rstrip("/")
-    key = api_key or settings.LLM_API_KEY
-    # Custom/provider models carry their own key; a bare .env with no key is only
-    # fatal when this call also lacks an override.
+    base = (api_base or "").strip().rstrip("/")
+    key = (api_key or "").strip()
     if not key or not base:
-        raise LLMError("LLM 未配置：请在 backend/.env 填入 LLM_API_KEY 与 LLM_API_BASE，或为该厂商/自定义模型填写 API Key")
+        raise LLMError(
+            "LLM 未配置：请在「模型管理」中为当前模型配置 API Key 和 API Base；"
+            "内置厂商使用厂商凭据，自定义模型需填写完整地址。"
+        )
+
+    selected_model = (model or "").strip()
+    if not selected_model:
+        raise LLMError("LLM 未配置：请在「模型管理」中选择一个模型。")
 
     url = f"{base}/{chat_path.lstrip('/')}"
     headers = {
@@ -71,7 +75,7 @@ async def stream_chat(
         "Content-Type": "application/json",
     }
     body: dict[str, Any] = {
-        "model": model or settings.LLM_MODEL,
+        "model": selected_model,
         "messages": messages,
         "stream": True,
         "temperature": temperature,

@@ -266,12 +266,13 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
   const cancelForm = () => { setShowForm(false); setEditing(null); setForm({ ...BLANK }) }
   const saveCustom = async () => {
     const name = form.name.trim(); const modelId = form.model_id.trim()
-    if (!name || !modelId || busy) return
+    const apiBase = form.api_base.trim(); const apiKey = form.api_key.trim()
+    if (!name || !modelId || !apiBase || (!editing?.has_key && !apiKey) || busy) return
     setBusy(true)
     try {
       const payload = {
-        name, model_id: modelId, api_base: form.api_base.trim(), icon: form.icon.trim() || '🧩',
-        ...(form.api_key ? { api_key: form.api_key } : {}),
+        name, model_id: modelId, api_base: apiBase, icon: form.icon.trim() || '🧩',
+        ...(apiKey ? { api_key: apiKey } : {}),
       }
       if (editing?.id) await api.updateCustomModel(editing.id, payload)
       else await api.createCustomModel(payload)
@@ -498,12 +499,12 @@ export function ModelConfigModal({ onClose, embedded }: { onClose: () => void; e
                 <WbInput className="np-input" style={{ flex: 1 }} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={80} placeholder="显示名，如 我的自建 Llama" />
               </div>
               <WbInput className="np-input" style={{ marginTop: 8 }} value={form.model_id} onChange={(e) => setForm({ ...form, model_id: e.target.value })} maxLength={120} placeholder="模型 id" />
-              <WbInput className="np-input" style={{ marginTop: 8 }} value={form.api_base} onChange={(e) => setForm({ ...form, api_base: e.target.value })} maxLength={300} placeholder="API Base（留空用后端默认），如 https://host/v1" />
-              <WbInput className="np-input" type="password" style={{ marginTop: 8 }} value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} maxLength={400} placeholder={editing?.has_key ? 'API Key（已保存，留空不改）' : 'API Key（留空则用后端默认凭据）'} autoComplete="off" />
-              <div className="mc-hint">Key 只存本机后端、绝不回传前端。</div>
+              <WbInput className="np-input" style={{ marginTop: 8 }} value={form.api_base} onChange={(e) => setForm({ ...form, api_base: e.target.value })} maxLength={300} placeholder="API Base（必填），如 https://host/v1" />
+              <WbInput className="np-input" type="password" style={{ marginTop: 8 }} value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} maxLength={400} placeholder={editing?.has_key ? 'API Key（已保存，留空不改）' : 'API Key（必填）'} autoComplete="off" />
+              <div className="mc-hint">API Base 和 Key 只存本机后端模型 DB，绝不回传前端，也不依赖配置文件。</div>
               <div className="mc-fbtns">
                 <WbButton className="btn-ghost" onClick={cancelForm}>取消</WbButton>
-                <WbButton className="btn-dark" disabled={!form.name.trim() || !form.model_id.trim() || busy} onClick={saveCustom}>{editing ? '保存' : '添加'}</WbButton>
+                <WbButton className="btn-dark" disabled={!form.name.trim() || !form.model_id.trim() || !form.api_base.trim() || (!editing?.has_key && !form.api_key.trim()) || busy} onClick={saveCustom}>{editing ? '保存' : '添加'}</WbButton>
               </div>
             </div>
           )}

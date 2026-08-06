@@ -6,12 +6,13 @@ Two real sources feed the composer model picker:
     通义 / OpenAI, see storage/provider_seed.py). Each has a fixed base_url + real model
     names; the user supplies an API key per provider and its models become runnable.
     Keys are backend-only, per-owner, NEVER returned to the frontend (铁律#4).
-  - **custom**: free-form fallback (WB-124) for anything not in the preset list.
+  - **custom**: free-form fallback (WB-124) for anything not in the preset list;
+    each custom model stores its own API base and key in the local DB.
 
 There is no fake "Auto"/multiplier anymore — a pick resolves to a real provider at run
 time (agent.runtime.resolve_model_config). The 「默认模型」(what an empty selection follows)
 is a user choice set here via PUT /models/default and stored per-owner in DB — it no longer
-reads .env's LLM_MODEL (WB-136). No default set → chat surfaces an honest error.
+reads an environment/config-file model. No default set → chat surfaces an honest error.
 """
 from __future__ import annotations
 
@@ -82,7 +83,7 @@ def _resolve_runnable_name(owner_id: str, ref: str) -> str | None:
         visible = {m["model_id"] for m in _provider_models_mgmt(owner_id, prov) if not m["hidden"]}
         return mid if mid in visible else None
     row = db.get_custom_model_by_name(owner_id, ref, include_secrets=False)
-    return row["name"] if row else None
+    return row["name"] if row and row.get("has_key") and row.get("api_base") else None
 
 
 def _pack_custom(row: dict) -> dict:
@@ -161,10 +162,13 @@ def list_models() -> dict:
     for cm in custom:  # WB-132: 自定义模型也附 meta（ref = 自定义名）
         cm["meta"] = _effective_meta(user.id, cm["name"], cm.get("model_id") or "", stored_meta)
 
-    # 「默认模型」= 用户在「配置模型」里选定、按 owner 存 DB 的 ref（WB-136，取代 .env LLM_MODEL）。
+    # 「默认模型」= 用户在「配置模型」里选定、按 owner 存 DB 的 ref（WB-136）。
     # 校验它仍指向一个可运行模型（厂商有 key 的模型 ∨ 自定义）；失效（撤 key/删模型）则自愈清空。
     runnable = {p["key"]: p["name"] for p in picker}
-    runnable.update({c["key"]: c["name"] for c in custom})
+    runnable.update({
+        c["key"]: c["name"] for c in custom
+        if c.get("has_key") and c.get("api_base")
+    })
     default_model = db.get_default_model(user.id)
     if default_model and default_model not in runnable:
         db.set_default_model(user.id, "")  # 自愈：不再可用就清掉
@@ -268,7 +272,7 @@ class DefaultModelIn(BaseModel):
 @router.put("/models/default")
 def set_default_model(body: DefaultModelIn) -> dict:
     """设/清「默认模型」（WB-136）——未显式选模型时跟随它。ref 必须是当前可运行的模型
-    （厂商有 key 的模型 ∨ 自定义模型），否则拒绝；''=清除。取代 .env LLM_MODEL。"""
+    （厂商有 key 的模型 ∨ 带完整凭据的自定义模型），否则拒绝；''=清除。"""
     user = current_user()
     ref = body.model_ref.strip()
     if ref and not _resolve_runnable_name(user.id, ref):
@@ -461,8 +465,12 @@ def create_custom(body: CustomModelIn) -> dict:
     user = current_user()
     if db.get_custom_model_by_name(user.id, body.name.strip()):
         raise HTTPException(409, "已有同名自定义模型")
+    raw_base = (body.api_base or "").strip()
+    raw_key = (body.api_key or "").strip()
+    if not raw_base or not raw_key:
+        raise HTTPException(400, "自定义模型必须填写 API Base 和 API Key；凭据保存在本机模型管理中")
     try:
-        api_base = model_governance.validate_endpoint_url(body.api_base) if (body.api_base or "").strip() else None
+        api_base = model_governance.validate_endpoint_url(raw_base)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     row = db.create_custom_model(
@@ -470,7 +478,7 @@ def create_custom(body: CustomModelIn) -> dict:
         name=body.name.strip(),
         model_id=body.model_id.strip(),
         api_base=api_base,
-        api_key=(body.api_key or "").strip() or None,
+        api_key=raw_key,
         icon=body.icon,
         color=body.color,
         mult=body.mult,
@@ -481,6 +489,9 @@ def create_custom(body: CustomModelIn) -> dict:
 @router.patch("/models/custom/{model_id}")
 def update_custom(model_id: str, body: CustomModelPatch) -> dict:
     user = current_user()
+    existing = db.get_custom_model(model_id, user.id, include_secrets=True)
+    if not existing:
+        raise HTTPException(404, "自定义模型不存在")
     if body.name is not None:
         clash = db.get_custom_model_by_name(user.id, body.name.strip())
         if clash and clash["id"] != model_id:

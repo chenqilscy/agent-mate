@@ -32,8 +32,8 @@ class V1ReleaseGateContractTest(unittest.TestCase):
 
     def test_live_and_desktop_are_explicit_not_silent_skips(self) -> None:
         gate = (ROOT / "scripts" / "validate-v1-rc.ps1").read_text(encoding="utf-8")
-        self.assertIn("llm_configured=false", gate)
         self.assertIn("[BLOCKED]", gate)
+        self.assertIn("owner-scoped model DB configuration", gate)
         self.assertGreaterEqual(gate.count("[NOT RUN]"), 2)
         self.assertIn("run_all.py", gate)
         self.assertIn("run_v1_live_isolated.py", gate)

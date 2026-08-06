@@ -14,9 +14,9 @@
   F3  挂起真实生效：session 保持 waiting，不自动结束，owner 唤醒后才 done
   F4  stop 在挂起期间唤醒并把该轮标记为「跳过/取消」→ 流结束
 
-运行（需后端 :8101 已起且已配置 LLM）：
+运行（需后端 :8101 已起且测试账号已在本机 DB 配置模型）：
   cd backend && python tests/functional/test_F_ask_user.py
-未配置 LLM 时本套件以退出码 2 跳过（与 test_A 一致）。
+未设置 `AGENTMATE_TEST_MODEL` 时本套件以退出码 2 跳过（与 test_A 一致）。
 """
 import sys, os, time, json, threading, urllib.error, urllib.request
 
@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/../..")
 from agentmate_testkit import (
     BASE, THROTTLE, call, health_llm, account, wipe_users, events_of, Checker,
 )
-from config import settings as _settings
+from agentmate_testkit import TEST_MODEL
 
 
 # --------------------------------------------------------------------------- #
@@ -34,7 +34,7 @@ def _stream(tok, body, box, on_event=None, timeout=120):
     """Open the /chat SSE stream in the current thread.
     on_event(event, data, sid) is called per message and may itself issue
     /answer or /stop requests to wake a suspended run. Results land in `box`."""
-    payload = {"model": f"test:{_settings.LLM_MODEL}", **body}
+    payload = ({"model": TEST_MODEL} if TEST_MODEL else {}) | body
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(BASE + "/chat", data=data, method="POST")
     req.add_header("Content-Type", "application/json")

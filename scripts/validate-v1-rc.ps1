@@ -123,18 +123,15 @@ try {
         }
     }
     elseif ($Live) {
-        Write-Host "`n[RUN] Live backend and LLM preflight" -ForegroundColor Cyan
+        Write-Host "`n[RUN] Live backend preflight" -ForegroundColor Cyan
         try {
             $health = Invoke-RestMethod -Method Get -Uri "$($LiveBaseUrl.TrimEnd('/'))/health" -TimeoutSec 10
         }
         catch {
             throw "[BLOCKED] Live backend is unreachable at $LiveBaseUrl. Start the intended backend before using -Live."
         }
-        if ($health.llm_configured -ne $true) {
-            throw "[BLOCKED] Live backend reports llm_configured=false. Configure a real LLM before using -Live."
-        }
-        $passed.Add("Live backend and LLM preflight")
-        Write-Host "[PASS] Live backend and LLM preflight" -ForegroundColor Green
+        $passed.Add("Live backend preflight")
+        Write-Host "[PASS] Live backend preflight; functional tests use their owner-scoped model DB configuration" -ForegroundColor Green
 
         $env:AGENTMATE_TEST_BASE = $LiveBaseUrl.TrimEnd('/')
         Invoke-NativeStep "Live functional journeys A-E" {

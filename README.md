@@ -61,7 +61,6 @@ Prerequisites: Node.js 20+, pnpm and Python 3.11+.
 Set-Location backend
 python -m venv .venv
 ./.venv/Scripts/pip.exe install -r requirements.txt
-Copy-Item .env.example .env          # configure backend-only LLM settings
 ./.venv/Scripts/python.exe main.py   # http://127.0.0.1:8101
 
 # App frontend (new terminal, repository root)
@@ -69,13 +68,15 @@ pnpm install
 pnpm dev                             # http://127.0.0.1:8102
 ```
 
-Open `http://127.0.0.1:8102`. LLM provider credentials may be supplied through `backend/.env` or the local per-owner
-model settings stored by the backend; they are never placed in frontend code.
+Open `http://127.0.0.1:8102`, then open “模型管理” to configure a provider or custom model. LLM provider credentials,
+API bases, and default model choices are stored in the local per-owner database; they are never placed in frontend
+code or required in `backend/.env`.
 
 Settings follow explicit ownership: Console manages platform-wide WeKnora and collaboration policy; the App's
 Settings dialog manages device-wide Langfuse, local ASR and Server/timeline behavior; existing model, connector,
 assistant, user and project settings keep their narrower scopes. Runtime settings are persisted by the owning backend,
-take effect without a service restart, keep secrets write-only, and fall back to environment variables when cleared.
+take effect without a service restart, and keep secrets write-only. Only deployment/connector settings that explicitly
+support environment variables use them as fallbacks.
 Database paths, bind ports, cryptographic bootstrap material and release versions remain deployment-only.
 
 ### Optional Server and Console
@@ -124,7 +125,8 @@ One event type maps to one UI shape. The backend contract is defined in `backend
 
 ## Security summary
 
-- Secrets stay in the local backend (`backend/.env` or local owner-scoped DB) and are excluded from source control.
+- LLM credentials stay in the local owner-scoped DB; other local backend/connector secrets may use `backend/.env` where
+  documented. Secrets are excluded from source control.
 - Workspace paths are resolved inside the active project/assistant sandbox.
 - `run_command` is constrained and audited but still runs with backend OS permissions; it is not a VM sandbox.
 - Server-origin resources enforce account/project roles; Viewer is read-only.

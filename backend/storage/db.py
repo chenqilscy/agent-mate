@@ -912,7 +912,7 @@ def init_db() -> None:
         );
 
         -- 通用「按 owner 的偏好」KV（WB-136 起）：一格一条设置，value 存字符串。
-        -- 目前用到的 key：default_model（未显式选模型时跟随的默认模型 ref，取代 .env LLM_MODEL）。
+        -- 目前用到的 key：default_model（未显式选模型时跟随的默认模型 ref）。
         CREATE TABLE IF NOT EXISTS user_settings (
             owner_id TEXT NOT NULL,
             key TEXT NOT NULL,
@@ -6059,7 +6059,7 @@ def clear_memories(
 
 
 def get_default_model(owner_id: str) -> str:
-    """未显式选模型时跟随的默认模型 ref（WB-136）。'' = 未设置。取代 .env LLM_MODEL。"""
+    """未显式选模型时跟随的默认模型 ref（WB-136）。'' = 未设置。"""
     return get_user_setting(owner_id, _DEFAULT_MODEL_KEY) or ""
 
 

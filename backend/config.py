@@ -1,7 +1,7 @@
-"""Runtime configuration, loaded from backend/.env.
+"""Runtime configuration, loaded from backend/.env where deployment needs it.
 
-The API key lives here and only here — it is never sent to the frontend
-(engineering hard-line: "API Key 只存后端 .env，前端永不接触").
+LLM model credentials are intentionally not part of this configuration. They
+are stored per owner in the local database and resolved by the model manager.
 """
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from dotenv import dotenv_values, load_dotenv
 
 BACKEND_DIR = Path(__file__).resolve().parent
 
-# WB-192：本次实际读入的 .env 键名。`.env` 就是后端凭据的来源（load_dotenv 把它们写进
-# os.environ），故通用子进程（run_command）一律不给见 —— 见下方 SECRET_ENV_KEYS。
+# WB-192：本次实际读入的 .env 键名。配置文件中的本地凭据会被 load_dotenv 写进
+# os.environ，故通用子进程（run_command）一律不给见 —— 见下方 SECRET_ENV_KEYS。
 _ENV_FILE_KEYS: set[str] = set()
 
 
@@ -64,10 +64,6 @@ class Settings:
     # Release packaging sets AGENTMATE_APP_VERSION to the signed desktop version.
     APP_VERSION: str = os.getenv("AGENTMATE_APP_VERSION", "1.0.0").strip()
     TOOL_CONTRACT_VERSION: str = os.getenv("AGENTMATE_TOOL_CONTRACT_VERSION", "1").strip()
-    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "").strip()
-    LLM_API_BASE: str = os.getenv("LLM_API_BASE", "https://api.deepseek.com/v1").strip().rstrip("/")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "deepseek-chat").strip()
-
     # 可选 Langfuse LLM 可观测性（WB-230）。默认关闭；即使启用，提示词/回复/工具正文也要
     # LANGFUSE_CAPTURE_CONTENT=1 才上传。密钥只在本地 backend 读取，且下方 SECRET_ENV_KEYS
     # 会把 LANGFUSE_SECRET_KEY 从 run_command 子进程环境剔除。
@@ -212,10 +208,6 @@ class Settings:
     AGENTMATE_SERVER_TIMELINE_UPLOAD: bool = os.getenv("AGENTMATE_SERVER_TIMELINE_UPLOAD", "0").strip().lower() in ("1", "true", "yes")
 
     @property
-    def llm_configured(self) -> bool:
-        return bool(self.LLM_API_KEY)
-
-    @property
     def server_enabled(self) -> bool:
         return bool(self.AGENTMATE_SERVER_URL)
 
@@ -244,8 +236,8 @@ settings = Settings()
 # + 进消息持久化与导出，与铁律#4 冲突。WB-011 早已把**连接器**子进程的 env 收成
 # 白名单，run_command 这条一直没收口 —— 本名单就是给它用的。
 #
-# 名单 = ① 本次 .env 实际读入的所有键（.env 就是后端凭据的来源，load_dotenv 把它们
-# 塞进了 os.environ；非密钥项如 LLM_API_BASE 一并剔除也无害，子命令不需要它们）
+# 名单 = ① 本次 .env 实际读入的所有键（load_dotenv 把它们塞进了 os.environ；
+# 非密钥项一并剔除也无害，子命令不需要它们）
 # ∪ ② Settings 上按名字模式识别出的密钥字段（兜住「用真实环境变量而非 .env 配」的情况，
 # 也让将来新增密钥不必记得回来改这里）。
 #

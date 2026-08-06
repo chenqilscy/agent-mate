@@ -7,7 +7,7 @@ import { clickable } from '../../lib/a11y'
 // 能力徽标（WB-132）：picker 里 text 不显（默认都有），只显图片/音频/视频/工具/推理。
 const CAP_ICON: Record<string, string> = { image: '🖼', audio: '🎧', video: '🎬', tools: '🔧', reasoning: '🧠' }
 
-// Model menu (WB-128). Flat list from GET /api/models → settingsStore: a 默认(.env)
+// Model menu (WB-128). Flat list from GET /api/models → settingsStore: a default
 // backstop, built-in provider models (grouped by vendor, only those with a key), and
 // free-form custom models. Selecting persists the entry's `key` via setModel.
 // 模型管理入口已移到左侧「更多」菜单（WB-138），这里只负责选模型。
@@ -56,7 +56,7 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
     <>
       {def && row(def)}
       {providers.length === 0 && custom.length === 0 && (
-        <div className="mpick-empty">还没有配置可用模型。到左侧「更多 · 模型管理」给某个厂商填 API Key 即可启用。</div>
+        <div className="mpick-empty">还没有配置可用模型。到左侧「更多 · 模型管理」配置厂商 Key，或添加一个自定义模型。</div>
       )}
       {provSections}
       {custom.length > 0 && <div className="pop-h">自定义模型</div>}

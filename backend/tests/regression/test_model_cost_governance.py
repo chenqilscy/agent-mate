@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -13,7 +14,7 @@ BACKEND = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BACKEND))
 
 from agent import runtime  # noqa: E402
-from agent.llm import Delta  # noqa: E402
+from agent.llm import Delta, LLMError  # noqa: E402
 from auth.deps import set_current_user_id  # noqa: E402
 from config import settings  # noqa: E402
 from routers import me as me_router, models as models_router  # noqa: E402
@@ -125,8 +126,7 @@ class ModelCostGovernanceTest(unittest.TestCase):
     def test_governance_and_me_follow_owner_database_configuration(self) -> None:
         set_current_user_id(LOCAL_USER_ID)
         db.set_provider_key(LOCAL_USER_ID, "weknora", "knowledge-only")
-        with patch.object(settings, "LLM_API_KEY", ""):
-            self.assertFalse(model_governance.account_has_model_configuration(LOCAL_USER_ID))
+        self.assertFalse(model_governance.account_has_model_configuration(LOCAL_USER_ID))
         db.set_provider_key(LOCAL_USER_ID, "deepseek", "secret-never-returned")
         db.set_default_model(LOCAL_USER_ID, "@deepseek:deepseek-chat")
         response = models_router.set_model_governance(
@@ -138,6 +138,40 @@ class ModelCostGovernanceTest(unittest.TestCase):
         self.assertTrue(me["llm_configured"])
         self.assertEqual("@deepseek:deepseek-chat", me["model"])
         self.assertNotIn("secret", str(me).lower())
+
+    def test_model_resolution_never_falls_back_to_environment_credentials(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "LLM_API_KEY": "legacy-env-key",
+                "LLM_API_BASE": "https://legacy.example/v1",
+                "LLM_MODEL": "legacy-env-model",
+            },
+            clear=False,
+        ):
+            db.set_default_model(LOCAL_USER_ID, "legacy-env-model")
+            with self.assertRaisesRegex(LLMError, "当前不可用"):
+                runtime.resolve_model_config(LOCAL_USER_ID, None)
+
+            empty = db.create_custom_model(
+                LOCAL_USER_ID, name="empty-custom", model_id="empty-model",
+            )
+            self.assertEqual("empty-custom", empty["name"])
+            self.assertFalse(model_governance.model_is_runnable(LOCAL_USER_ID, "empty-custom"))
+            with self.assertRaisesRegex(LLMError, "当前不可用"):
+                runtime.resolve_model_config(LOCAL_USER_ID, "empty-custom")
+
+            db.create_custom_model(
+                LOCAL_USER_ID,
+                name="db-custom",
+                model_id="db-model",
+                api_base="https://db.example/v1",
+                api_key="db-key",
+            )
+            self.assertEqual(
+                ("db-model", "https://db.example/v1", "db-key", "/chat/completions"),
+                runtime.resolve_model_config(LOCAL_USER_ID, "db-custom"),
+            )
 
     def test_account_default_budget_applies_and_explicit_budget_wins(self) -> None:
         class NoopObservation:

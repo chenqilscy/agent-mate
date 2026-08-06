@@ -1,7 +1,7 @@
 """Shared kit for AgentMate detailed functional tests against a LIVE backend.
 
 These are INTEGRATION / end-to-end tests: they need the backend running on
-:8101 (real LLM configured in backend/.env) and hit the real SQLite DB. Run them
+:8101 (a real owner-scoped model configured in the local DB) and hit the real SQLite DB. Run them
 from a scratch state or accept that each suite creates a throwaway account and
 deletes ALL of its data at the end.
 
@@ -18,11 +18,12 @@ from pathlib import Path
 
 _BACKEND = Path(__file__).resolve().parents[2]   # backend/tests/functional/ -> backend/
 sys.path.insert(0, str(_BACKEND))
-from config import settings as _settings
 BASE = os.environ.get("AGENTMATE_TEST_BASE", "http://127.0.0.1:8101/api")
 DB = os.environ.get("AGENTMATE_DB", str(_BACKEND / "agentmate.db"))
 WS = Path(os.environ.get("AGENTMATE_WORKSPACE", str(_BACKEND / "workspace")))
-TEST_MODEL = f"test:{_settings.LLM_MODEL}"
+# This is a picker ref already configured for each test owner in the DB; it is
+# never expanded through a legacy environment-backed model.
+TEST_MODEL = os.environ.get("AGENTMATE_TEST_MODEL", "")
 PW = "AgentMate-Test-123"
 THROTTLE = 2.0  # seconds paced before each real /chat run (rate-limit friendly)
 
@@ -63,9 +64,11 @@ def call(method, path, token=None, body=None):
 
 
 def health_llm():
+    if not TEST_MODEL:
+        return False
     try:
         with urllib.request.urlopen(BASE + "/health", timeout=5) as h:
-            return json.loads(h.read().decode()).get("llm_configured", False)
+            return json.loads(h.read().decode()).get("ok", False)
     except Exception:
         return False
 
@@ -79,9 +82,9 @@ def stream(token, body, stop_when=None, until_type=None, max_seconds=45):
     trip the LLM endpoint's rate limit (which would surface as a transient error
     run and confuse a per-behaviour assertion)."""
     time.sleep(THROTTLE)
-    # WB-136 后新账号没有默认模型是正常产品行为；E2E 明确选择 backend/.env 的测试模型，
-    # 避免把“未配置默认模型”误报成技能/连接器失效。`test:<id>` 走 runtime 的 legacy 显式模型分支。
-    body = {"model": TEST_MODEL, **body}
+    # The test runner supplies a real owner-scoped model reference; no config
+    # file or legacy `test:<id>` model fallback is used.
+    body = ({"model": TEST_MODEL} if TEST_MODEL else {}) | body
     data = json.dumps(body).encode()
     req = urllib.request.Request(BASE + "/chat", data=data, method="POST")
     req.add_header("Content-Type", "application/json")

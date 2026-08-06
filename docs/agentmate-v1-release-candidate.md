@@ -38,13 +38,13 @@ pwsh -NoLogo -NoProfile -NonInteractive -File scripts/validate-v1-rc.ps1 -Deskto
 也可执行 `pnpm validate:v1-rc` 进入默认工程门禁。工程测试集合来自 Git 已跟踪/已暂存文件，避免把工作区中
 尚未纳入版本的测试草稿误当成发布内容；脚本仍会针对这些正式测试读取当前工作树代码。脚本只汇报选中的
 门禁；未选择的 live/desktop 层会显示 `NOT RUN`，服务、LLM 或工具链缺失会显示 `BLOCKED` 并以非零状态退出。
-`-IsolatedLive` 不复用开发数据库或工作区，结束时会终止临时服务并删除临时目录，但仍会调用
-`backend/.env` 配置的真实 LLM。
+`-IsolatedLive` 不复用开发数据库或工作区，结束时会终止临时服务并删除临时目录；真实 LLM 必须通过
+临时测试账号的模型管理 DB 配置，不能依赖 `backend/.env`。
 
 | 层级 | 自动检查 | 通过后可以声称 |
 |---|---|---|
 | Engineering | issue 一致性、App/Console 类型与构建、Backend/Server 回归、隔离 HTTP 集成、Python 编译 | 工程候选版 |
-| Live | 健康接口确认真实 LLM，功能套件 A–E；覆盖成果、项目与到点自动化 | 本机真实功能候选版 |
+| Live | 健康接口确认后端，功能套件 A–E 使用测试账号 DB 中的真实模型 | 本机真实功能候选版 |
 | Desktop preflight | Tauri Rust 编译检查 | 桌面源码可编译；**不等于安装包验收** |
 | Desktop release | sidecar/安装包、签名、干净 Windows 安装、启动与退出、升级/回滚 | 桌面可发布候选版 |
 | Pilot | 下述真实用户连续证据 | 可进入受控发布决策 |

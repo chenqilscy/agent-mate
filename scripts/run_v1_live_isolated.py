@@ -104,10 +104,7 @@ def main() -> int:
                 "PORT": str(backend_port),
             })
             backend = spawn(ROOT / "backend", backend_env)
-            health = wait_health(f"{backend_api}/health", backend)
-            if health.get("llm_configured") is not True:
-                print("[BLOCKED] Isolated backend reports llm_configured=false.", file=sys.stderr)
-                return 2
+            wait_health(f"{backend_api}/health", backend)
 
             test_env = backend_env.copy()
             test_env.update({
@@ -115,7 +112,7 @@ def main() -> int:
                 "AGENTMATE_DB": str(app_db),
                 "AGENTMATE_WORKSPACE": str(workspace),
             })
-            print(f"[PASS] Isolated Server and Backend healthy; LLM configured; port={backend_port}")
+            print(f"[PASS] Isolated Server and Backend healthy; functional tests must provide owner-scoped model DB configuration; port={backend_port}")
             result = subprocess.run(
                 [str(PYTHON), str(ROOT / "backend" / "tests" / "functional" / "run_all.py")],
                 cwd=ROOT,

@@ -123,9 +123,7 @@ def model_is_runnable(owner_id: str, model_ref: str) -> bool:
         added = {item["model_id"] for item in overrides if not item["hidden"]}
         return model_id in (set(provider["models"]) | added) - hidden
     custom = db.get_custom_model_by_name(owner_id, model_ref, include_secrets=False)
-    # Custom rows intentionally allow a blank per-row key to use the backend .env
-    # credential fallback; existence is therefore the runnable contract.
-    return bool(custom)
+    return bool(custom and custom.get("has_key") and custom.get("api_base"))
 
 
 def _policy_layers(owner_id: str, project_id: str | None) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
@@ -348,12 +346,12 @@ def estimate_cost(
 
 
 def account_has_model_configuration(owner_id: str) -> bool:
-    """Reflect the actual owner-scoped credential sources instead of only `.env`."""
+    """Reflect only owner-scoped model credentials stored in the local DB."""
     # provider_keys also stores non-LLM credentials such as WeKnora; only curated
     # model providers count as an enabled LLM channel.
     if db.list_provider_keys(owner_id) & set(provider_seed.PROVIDERS_BY_ID):
         return True
     custom = db.list_custom_models(owner_id, include_secrets=False)
-    if any(bool(item.get("has_key")) for item in custom):
+    if any(item.get("has_key") and item.get("api_base") for item in custom):
         return True
-    return settings.llm_configured
+    return False

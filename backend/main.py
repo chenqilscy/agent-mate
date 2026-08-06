@@ -194,7 +194,6 @@ app.add_middleware(
 def health() -> dict:
     return {
         "ok": True,
-        "llm_configured": settings.llm_configured,
         "langfuse_configured": settings.langfuse_configured,
     }
 

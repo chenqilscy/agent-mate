@@ -13,7 +13,7 @@
 
 ## 1. 三条不可妥协的红线（哪些**永不**上云）
 
-1. **本机任务执行凭据**：`LLM_API_KEY`、bot token、本机 MCP/连接器 OAuth 令牌等。只存 App 本地（`backend/.env` 或本地 DB），绝不进 Server、绝不进前端、绝不透传子进程。SSO provider client secret 与中央 WeKnora secret 是 Server 控制平面凭据，必须只写不回显、禁止下发 App。
+1. **本机任务执行凭据**：LLM API Key、bot token、本机 MCP/连接器 OAuth 令牌等。LLM 凭据按 owner 存 App 本地 DB；其它凭据按各自设置契约存本地（必要时使用 `backend/.env`），绝不进 Server、绝不进前端、绝不透传子进程。SSO provider client secret 与中央 WeKnora secret 是 Server 控制平面凭据，必须只写不回显、禁止下发 App。
 2. **沙箱工作区文件（资产/云盘）**：`workspace/projects/<id>/` 下的一切文件本体。属用户私有产物，只在本机。
 3. **会话正文（消息/工具轨迹）**：对话内容、工具调用参数与返回。只以**元数据**（一条 timeline 事件：谁、在哪个项目、干了什么、何时）上行 Server，正文不上云。
 

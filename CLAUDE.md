@@ -27,7 +27,7 @@ React + Ant Design 迁移、正式 Tauri 签名更新服务及 SaaS 生产基建
 1. **不硬编码、不模拟**。所有流式输出来自真实 LLM；所有状态真持久化（SQLite）；所有 trace 来自真实工具事件。不要为了「看起来能跑」而造假数据。
 2. **视觉零重设计**。CSS class 名与设计 token 逐字沿用原型；样式在 `src/styles/{tokens,app}.css`。新组件要**复用既有 class 与 token**，不要引入不协调的硬编码间距/圆角/颜色。
 3. **暗色主题 = `body.dark` 上的变量覆盖**。切忌用 `var(--ink)` 之类会在暗色翻转成浅色的 token 当深色背景、或写死浅底深字 —— 这类「白底白字/深底深字」是本项目反复出现的坑（见 WB-004、WB-008）。加了会随主题翻转的组件后，务必在**明暗双主题**下都看一眼。
-4. **密钥只存后端、绝不提交**。LLM API Key 只存**后端**——`backend/.env`（`LLM_API_KEY` 等）**或按 owner 存本机 DB**（模型管理 WB-124/128/136：各厂商 base/key 按用户入库，运行时按 owner 解析；`backend/storage/db.py` `get_provider_key`/`set_provider_key`），两者都**绝不进前端**、不透传给子进程环境（见 WB-011）。连接器 / 机器人 token（如 Telegram bot token）存后端 **DB**（已 `.gitignore`、绝不提交）；作为 local-first 本机应用（后端只绑 `127.0.0.1`、token 不出本机），它在**本机设置 UI 内可见可改**（用户显式选择，见 WB-077/093）。
+4. **密钥只存后端、绝不提交**。LLM API Key、模型 API Base 和默认模型只按 owner 存本机 DB（模型管理 WB-124/128/136：运行时按 owner 解析），不再依赖 `backend/.env`；它们都**绝不进前端**、不透传给子进程环境（见 WB-011）。连接器 / 机器人 token（如 Telegram bot token）存后端 **DB**（已 `.gitignore`、绝不提交）；作为 local-first 本机应用（后端只绑 `127.0.0.1`、token 不出本机），它在**本机设置 UI 内可见可改**（用户显式选择，见 WB-077/093）。
 5. **SSE 协议是前后端契约**。一种事件类型 ⇄ 一种 UI 形态。定义在 `backend/agent/events.py`，消费在 `src/stores/chatStore.ts`。加新事件要两端同步。
 6. **先登记 issue，再处理**。见下方「Issue 流程」。
 
