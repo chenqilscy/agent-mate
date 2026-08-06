@@ -26,9 +26,12 @@ def status(state: str, secs: int | None = None) -> str:
     return sse("status", d)
 
 
-def run(item: dict[str, Any]) -> str:
+def run(item: dict[str, Any], user_message_id: str | None = None) -> str:
     """Stable execution identity/lifecycle, separate from its Session (WB-242)."""
-    return sse("run", {"run": item})
+    data: dict[str, Any] = {"run": item}
+    if user_message_id:
+        data["user_message_id"] = user_message_id
+    return sse("run", data)
 
 
 def think(text: str = "深度思考") -> str:

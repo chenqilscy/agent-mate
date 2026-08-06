@@ -23,6 +23,7 @@ import { Alert, Avatar, Breadcrumb, Empty, Progress, Space, Tabs, Tag, Tooltip }
 import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
+import { ProjectIdeaPanel } from '../components/ideas/IdeaInbox'
 
 type Tab = '动态' | '计划' | '任务' | '治理' | '资产' | '讨论'
 const PROJECT_TABS: Tab[] = ['动态', '计划', '任务', '治理', '资产', '讨论']
@@ -117,6 +118,7 @@ export function ProjectHomeView() {
   const [timelineStale, setTimelineStale] = useState(false)
   const [health, setHealth] = useState<ProjectHealth | null>(null)
   const [activityExpanded, setActivityExpanded] = useState(false)
+  const [configOpen, setConfigOpen] = useState(false)
   const [editInstr, setEditInstr] = useState(false)
   const [instrDraft, setInstrDraft] = useState('')
   const [picker, setPicker] = useState<Kind | null>(null)
@@ -304,6 +306,7 @@ export function ProjectHomeView() {
           {timelineStale && <Tooltip title="Server 当前不可达；动态展示本机最后一次成功回读的缓存（如有）。"><Tag>动态缓存</Tag></Tooltip>}
         </div>
         <div style={{ marginLeft: 'auto' }}>
+          <WbButton className="btn-ghost pjcfg-toggle" style={{ height: 32 }} onClick={() => setConfigOpen(true)}>配置</WbButton>
           <WbButton className="btn-dark" style={{ height: 32 }} onClick={() => setMembersOpen(true)}>{canManage ? '邀请' : '成员'}</WbButton>
         </div>
       </div>
@@ -321,6 +324,7 @@ export function ProjectHomeView() {
             {tab === '治理' && <ProjectGovernance projectId={project.id} canWrite={canWrite} />}
             {tab === '动态' && (
               <>
+                <ProjectIdeaPanel project={project} projects={projects} canWrite={canWrite} />
                 {health && <ProjectHealthPanel health={health} onOpenGovernance={() => setTab('治理')} />}
                 {activityFeed.length ? (
                 <>
@@ -367,7 +371,8 @@ export function ProjectHomeView() {
           </div>
         </div>
 
-        <ProCard className="pjcfg" styles={{ body: { display: 'contents' } }}>
+        <div className={`pjcfg-scrim${configOpen ? ' open' : ''}`} aria-label="关闭项目配置" {...clickable} onClick={() => setConfigOpen(false)} />
+        <ProCard className={`pjcfg${configOpen ? ' mobile-open' : ''}`} styles={{ body: { display: 'contents' } }}>
           <h3>项目配置</h3>
           <div className="pjcfg-sec">
             <div className="pjcfg-h">

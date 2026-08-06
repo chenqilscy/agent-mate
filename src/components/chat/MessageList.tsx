@@ -68,6 +68,7 @@ export function MessageList({ messages, streaming, onRetry }: { messages: ChatMe
         m.role === 'user' ? (
           <div className="msg me" key={m.id} id={`msg-${m.id}`}>
             <div className="bub-me">{m.content}</div>
+            {!streaming && <BotActions msg={m} simple />}
           </div>
         ) : (
           <BotMessage key={m.id} msg={m} streaming={streaming} onRetry={onRetry} />

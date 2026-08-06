@@ -113,7 +113,7 @@ export interface ArtifactEvent {
   display_order?: number
   acceptance_status?: 'pending' | 'accepted' | 'rejected'
 }
-export interface RunEvent { run: AgentRun }
+export interface RunEvent { run: AgentRun; user_message_id?: string }
 export interface WorkItemEvent { item: { id: string; project_id: string; status: WorkStatus; title: string } }
 export interface UsageEvent { pct: number; used: number; detail: Record<string, number> }
 export interface ErrorEvent { message: string }
@@ -796,6 +796,43 @@ export interface CreateAutomationInput {
   notify_policy?: string
   concurrency_policy?: 'skip'
   preauthorized_permissions?: string[]
+}
+
+export type IdeaStatus = 'inbox' | 'active' | 'settled' | 'archived'
+export type IdeaRelationType = 'related' | 'derived' | 'duplicate'
+export type IdeaSettlementType = 'work_item' | 'decision' | 'memory'
+
+export interface Idea {
+  id: string
+  owner_id: string
+  project_id: string | null
+  title: string
+  content: string
+  processed_content: string
+  status: IdeaStatus
+  tags: string[]
+  source_type: string
+  source_session_id: string | null
+  source_message_id: string | null
+  processing_session_id: string | null
+  settled_type: IdeaSettlementType | ''
+  settled_id: string
+  created_at: number
+  updated_at: number
+  can_write: boolean
+}
+
+export interface IdeaRelation {
+  source_idea_id: string
+  target_idea_id: string
+  relation: IdeaRelationType
+  direction: 'outbound' | 'inbound'
+  created_at: number
+  related: Idea
+}
+
+export interface IdeaDetail extends Idea {
+  relations: IdeaRelation[]
 }
 
 export interface AutomationFire {

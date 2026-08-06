@@ -282,6 +282,52 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_projects_owner
             ON projects(owner_id, updated_at DESC);
 
+        -- WB-422: local-only idea inbox. Raw idea/message content never enters
+        -- AgentMate Server; explicit settlement promotes a confirmed snapshot to
+        -- an existing project work item, decision or curated project memory.
+        CREATE TABLE IF NOT EXISTS ideas (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            project_id TEXT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            processed_content TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'inbox'
+                CHECK (status IN ('inbox','active','settled','archived')),
+            tags TEXT NOT NULL DEFAULT '[]',
+            source_type TEXT NOT NULL DEFAULT 'manual',
+            source_session_id TEXT,
+            source_message_id TEXT,
+            processing_session_id TEXT,
+            settled_type TEXT NOT NULL DEFAULT '',
+            settled_id TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+            FOREIGN KEY (source_session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+            FOREIGN KEY (source_message_id) REFERENCES messages(id) ON DELETE SET NULL,
+            FOREIGN KEY (processing_session_id) REFERENCES sessions(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ideas_owner
+            ON ideas(owner_id, status, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_ideas_project
+            ON ideas(owner_id, project_id, status, updated_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ideas_source_message
+            ON ideas(owner_id, source_message_id) WHERE source_message_id IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS idea_relations (
+            source_idea_id TEXT NOT NULL,
+            target_idea_id TEXT NOT NULL,
+            relation TEXT NOT NULL CHECK (relation IN ('related','derived','duplicate')),
+            created_at REAL NOT NULL,
+            PRIMARY KEY (source_idea_id, target_idea_id, relation),
+            CHECK (source_idea_id <> target_idea_id),
+            FOREIGN KEY (source_idea_id) REFERENCES ideas(id) ON DELETE CASCADE,
+            FOREIGN KEY (target_idea_id) REFERENCES ideas(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_idea_relations_target
+            ON idea_relations(target_idea_id, created_at DESC);
+
         -- 自定义专家（我的专家 · WB-049），owner 维度。persona 在 run_chat 里
         -- 注入系统提示，命中优先于内置 EXPERTS 字典，让自造专家真影响回答。
         CREATE TABLE IF NOT EXISTS experts (
@@ -1268,6 +1314,11 @@ def _assert_app_schema(conn: sqlite3.Connection) -> None:
         "auth_tokens": {"expires_at", "validated_at"},
         "sessions": {"automation_id", "summary", "summary_cursor", "summary_updated_at"},
         "projects": {"origin", "knowledge_ids", "server_updated_at", "server_dirty", "org_id"},
+        "ideas": {
+            "owner_id", "project_id", "processed_content", "source_session_id",
+            "source_message_id", "processing_session_id", "settled_type", "settled_id",
+        },
+        "idea_relations": {"source_idea_id", "target_idea_id", "relation"},
         "automations": {
             "timeout_sec", "max_attempts", "retry_backoff_sec", "max_total_tokens",
             "notify_policy", "concurrency_policy", "preauthorized_permissions",
@@ -3066,6 +3117,166 @@ def add_message(
     )
     get_conn().commit()
     return m
+
+
+# ---- idea inbox (WB-422) -----------------------------------------------
+
+def get_message(message_id: str) -> Optional[Message]:
+    row = get_conn().execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
+    if not row:
+        return None
+    return Message(
+        id=row["id"], session_id=row["session_id"], role=row["role"],
+        content=row["content"], actor=row["actor"],
+        trace=json.loads(row["trace"]) if row["trace"] else [],
+        usage=json.loads(row["usage"]) if row["usage"] else None,
+        run_id=row["run_id"], error=row["error"], created_at=row["created_at"],
+    )
+
+
+def _row_to_idea(row: sqlite3.Row) -> dict:
+    value = dict(row)
+    try:
+        value["tags"] = json.loads(value.get("tags") or "[]")
+    except (TypeError, ValueError):
+        value["tags"] = []
+    return value
+
+
+def create_idea(
+    *, owner_id: str, title: str, content: str, project_id: Optional[str] = None,
+    tags: Optional[list[str]] = None, source_type: str = "manual",
+    source_session_id: Optional[str] = None, source_message_id: Optional[str] = None,
+) -> tuple[dict, bool]:
+    conn = get_conn()
+    if source_message_id:
+        existing = conn.execute(
+            "SELECT * FROM ideas WHERE owner_id=? AND source_message_id=?",
+            (owner_id, source_message_id),
+        ).fetchone()
+        if existing:
+            return _row_to_idea(existing), False
+    now = time.time()
+    idea_id = new_uuid()
+    status = "active" if project_id else "inbox"
+    try:
+        conn.execute(
+            """INSERT INTO ideas
+               (id,owner_id,project_id,title,content,status,tags,source_type,
+                source_session_id,source_message_id,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (idea_id, owner_id, project_id, title, content, status,
+             json.dumps(tags or [], ensure_ascii=False), source_type,
+             source_session_id, source_message_id, now, now),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        if source_message_id:
+            existing = conn.execute(
+                "SELECT * FROM ideas WHERE owner_id=? AND source_message_id=?",
+                (owner_id, source_message_id),
+            ).fetchone()
+            if existing:
+                return _row_to_idea(existing), False
+        raise
+    return get_idea(idea_id), True  # type: ignore[return-value]
+
+
+def get_idea(idea_id: str) -> Optional[dict]:
+    row = get_conn().execute("SELECT * FROM ideas WHERE id=?", (idea_id,)).fetchone()
+    return _row_to_idea(row) if row else None
+
+
+def list_ideas(owner_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM ideas WHERE owner_id=? ORDER BY updated_at DESC, id DESC",
+        (owner_id,),
+    ).fetchall()
+    return [_row_to_idea(row) for row in rows]
+
+
+def update_idea(idea_id: str, **changes: Any) -> Optional[dict]:
+    allowed = {
+        "project_id", "title", "content", "processed_content", "status", "tags",
+        "processing_session_id", "settled_type", "settled_id",
+    }
+    fields: list[str] = []
+    values: list[Any] = []
+    for key, value in changes.items():
+        if key not in allowed:
+            continue
+        fields.append(f"{key}=?")
+        values.append(json.dumps(value, ensure_ascii=False) if key == "tags" else value)
+    if not fields:
+        return get_idea(idea_id)
+    fields.append("updated_at=?")
+    values.extend((time.time(), idea_id))
+    get_conn().execute(f"UPDATE ideas SET {','.join(fields)} WHERE id=?", values)
+    get_conn().commit()
+    return get_idea(idea_id)
+
+
+def clear_idea_relations(idea_id: str) -> int:
+    cursor = get_conn().execute(
+        "DELETE FROM idea_relations WHERE source_idea_id=? OR target_idea_id=?",
+        (idea_id, idea_id),
+    )
+    get_conn().commit()
+    return max(0, cursor.rowcount)
+
+
+def add_idea_relation(source_idea_id: str, target_idea_id: str, relation: str) -> bool:
+    # Related/duplicate are symmetric; canonical ordering prevents A→B and B→A
+    # duplicates. Derived remains directional (source was derived from target).
+    if relation in {"related", "duplicate"} and source_idea_id > target_idea_id:
+        source_idea_id, target_idea_id = target_idea_id, source_idea_id
+    cursor = get_conn().execute(
+        "INSERT OR IGNORE INTO idea_relations (source_idea_id,target_idea_id,relation,created_at) VALUES (?,?,?,?)",
+        (source_idea_id, target_idea_id, relation, time.time()),
+    )
+    get_conn().commit()
+    return cursor.rowcount > 0
+
+
+def remove_idea_relation(source_idea_id: str, target_idea_id: str, relation: str) -> bool:
+    pairs = [(source_idea_id, target_idea_id)]
+    if relation in {"related", "duplicate"}:
+        pairs.append((target_idea_id, source_idea_id))
+    cursor = None
+    for source, target in pairs:
+        cursor = get_conn().execute(
+            "DELETE FROM idea_relations WHERE source_idea_id=? AND target_idea_id=? AND relation=?",
+            (source, target, relation),
+        )
+        if cursor.rowcount:
+            break
+    get_conn().commit()
+    return bool(cursor and cursor.rowcount)
+
+
+def list_idea_relations(idea_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        """SELECT source_idea_id,target_idea_id,relation,created_at
+           FROM idea_relations WHERE source_idea_id=? OR target_idea_id=?
+           ORDER BY created_at DESC""",
+        (idea_id, idea_id),
+    ).fetchall()
+    result: list[dict] = []
+    for row in rows:
+        outbound = row["source_idea_id"] == idea_id
+        related_id = row["target_idea_id"] if outbound else row["source_idea_id"]
+        related = get_idea(related_id)
+        if related:
+            result.append({
+                "source_idea_id": row["source_idea_id"],
+                "target_idea_id": row["target_idea_id"],
+                "relation": row["relation"],
+                "direction": "outbound" if outbound else "inbound",
+                "created_at": row["created_at"],
+                "related": related,
+            })
+    return result
 
 
 # ---- projects -----------------------------------------------------------

@@ -15,6 +15,7 @@ import { Empty, Segmented, Spin, Statistic } from 'antd'
 import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
+import { HomeIdeaInbox } from '../components/ideas/IdeaInbox'
 
 const SCENES: [string, string, string][] = [
   ['day', '🔥', '日常办公'],
@@ -200,6 +201,8 @@ export function HomeView() {
               <PermPopover />
             </Popover>
           </div>
+
+          <HomeIdeaInbox projects={projects} />
 
           <ProCard className="home-console" aria-label="任务进展" styles={{ body: { display: 'contents' } }}>
             <div className="home-console-head">

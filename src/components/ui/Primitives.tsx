@@ -1,5 +1,6 @@
 import { Button as AntButton, Checkbox as AntCheckbox, Input as AntInput, Select as AntSelect, Slider as AntSlider } from 'antd'
 import type { ButtonProps, InputProps, SelectProps } from 'antd'
+import type { TextAreaProps } from 'antd/es/input/TextArea'
 import {
   Children,
   forwardRef,
@@ -29,6 +30,8 @@ const BORDERLESS_VISUAL_CLASSES = new Set([
   'asst-new',
   'auto-more',
   'btn-dark',
+  'idea-archive',
+  'idea-unlink',
   'cs-btn',
   'csend',
   'cstop',
@@ -129,7 +132,11 @@ export const WbInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInpu
   return <AntInput ref={(instance) => assignRef(ref, instance?.input ?? null)} type={type} {...(props as InputProps)} />
 })
 
-export const WbTextArea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
+type WbTextAreaProps = TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  autoSize?: TextAreaProps['autoSize']
+}
+
+export const WbTextArea = forwardRef<HTMLTextAreaElement, WbTextAreaProps>(
   function WbTextArea(props, ref) {
     return (
       <AntInput.TextArea

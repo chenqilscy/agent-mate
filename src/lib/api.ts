@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, ProjectMember, RunStatus, SessionInfo, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, ProjectMember, RunStatus, SessionInfo, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -132,6 +132,36 @@ export const api = {
     get<WorkspaceMemory>(`/memory/workspace?project_id=${encodeURIComponent(projectId)}`),
   saveWorkspaceMemory: (projectId: string, content: string) =>
     send<WorkspaceMemory>('PUT', '/memory/workspace', { project_id: projectId, content }),
+
+  // WB-422 local-only idea inbox. Raw idea content never syncs to Server.
+  listIdeas: (filters?: { projectId?: string; status?: string; q?: string }) => {
+    const query = new URLSearchParams()
+    if (filters?.projectId) query.set('project_id', filters.projectId)
+    if (filters?.status) query.set('status', filters.status)
+    if (filters?.q) query.set('q', filters.q)
+    return get<{ ideas: Idea[] }>(`/ideas${query.size ? `?${query}` : ''}`)
+  },
+  getIdea: (id: string) => get<IdeaDetail>(`/ideas/${id}`),
+  createIdea: (body: {
+    title?: string; content: string; project_id?: string | null; tags?: string[]
+    source_type?: string; source_session_id?: string | null; source_message_id?: string | null
+  }) => send<{ idea: Idea; created: boolean }>('POST', '/ideas', body),
+  updateIdea: (id: string, patch: {
+    title?: string; content?: string; project_id?: string | null
+    status?: string; tags?: string[]; processing_session_id?: string | null
+  }) => send<IdeaDetail>('PATCH', `/ideas/${id}`, patch),
+  addIdeaRelation: (id: string, targetIdeaId: string, relation: IdeaRelationType) =>
+    send<IdeaDetail>('POST', `/ideas/${id}/relations`, { target_idea_id: targetIdeaId, relation }),
+  removeIdeaRelation: (id: string, targetIdeaId: string, relation: IdeaRelationType) =>
+    send<IdeaDetail>('DELETE', `/ideas/${id}/relations/${targetIdeaId}/${relation}`),
+  applyIdeaProcessing: (id: string) => send<IdeaDetail>('POST', `/ideas/${id}/apply-processing`),
+  ideaMemoryPreview: (id: string) => get<{
+    current: string; addition: string; proposed: string; base_sha256: string; would_exceed: boolean
+  }>(`/ideas/${id}/memory-preview`),
+  settleIdea: (id: string, kind: IdeaSettlementType, memoryBaseSha256 = '') =>
+    send<{ idea: IdeaDetail; target: { type: IdeaSettlementType; id: string }; created: boolean }>(
+      'POST', `/ideas/${id}/settle`, { kind, memory_base_sha256: memoryBaseSha256 },
+    ),
 
   // 设置 · 数据管理（WB-149）：导出本人数据（下载 JSON）+ 清空个人对话。
   dataSummary: () => get<DataSummary>('/data/summary'),

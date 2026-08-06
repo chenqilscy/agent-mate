@@ -1,6 +1,6 @@
 # AgentMate 实现方案
 
-> 状态：当前实现基线，更新于 2026-08-04。
+> 状态：当前实现基线，更新于 2026-08-07。
 > 历史里程碑、缺陷与验收记录见 [`issues/`](issues/README.md)。腾讯 WorkBuddy 只作为产品与视觉参考，资料集中在
 > [`WorkBuddy/`](WorkBuddy/README.md)。
 
@@ -91,6 +91,9 @@ Console 全站已按 [WB-236](issues/archive/2026/WB-200-299.md#wb-236) 迁移�
 - `chatStore` 消费 SSE 并持久化会话投影；停止、提问恢复、轨迹与 token 用量都来自后端事件。
 - `projectStore` / `workItemStore` 管理项目工作台；server-origin 项目的协作实体通过本地 backend
   代理到 Server。
+- `ideaStore` 管理“想法收集箱”：首页快速捕捉、消息收取和项目动态共用本机 `ideas` /
+  `idea_relations`，不新增顶级页面；正文与关联不进入 Server。想法只有在用户显式确认后，才复用
+  既有链路沉淀为项目任务、决策或 `MEMORY.md`，Agent 加工结果也必须由用户手动应用。
 - `catalogStore` 合并 AgentMate 目录下行与 App 本地市场数据，但不接收第三方 SkillHub 镜像。
 - `skillStore` 展示磁盘上真实安装的 Skill，安装、编辑、启停和卸载均经 App backend。
 - `loadoutStore` 将会话级专家、Skill 与连接器选择传给 runtime；ask 模式不挂工具。

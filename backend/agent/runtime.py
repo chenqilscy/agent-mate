@@ -929,7 +929,7 @@ async def _run_chat_inner(
     skill_usage.record_many(
         "loaded", skill_release_snapshots, owner_id=user.id, run_id=run_id,
     )
-    db.add_message(session_id=session_id, role="user", content=user_text, actor=user.id)
+    user_message = db.add_message(session_id=session_id, role="user", content=user_text, actor=user.id)
     db.touch_session(session_id, status="running")
 
     stop = asyncio.Event()
@@ -987,7 +987,7 @@ async def _run_chat_inner(
     # MCP servers are closed, never leaked (WB-012, plus the mcp_stack-outside-try
     # leak noted in WB-023).
     try:
-        yield events.run(run.to_dict())
+        yield events.run(run.to_dict(), user_message.id)
         yield events.status("running")
 
         if required_skill_failures:

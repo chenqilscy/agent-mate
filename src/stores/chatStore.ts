@@ -49,7 +49,7 @@ interface ChatState {
   openSession: (id: string) => Promise<void>
   startDraft: (title: string) => void
   startProject: (projectId: string, name: string) => void
-  send: (text: string, retryOf?: string) => Promise<void>
+  send: (text: string, retryOf?: string) => Promise<string | null>
   retry: (messageId: string) => Promise<void>
   answer: (answers: string[]) => void
   stop: () => void
@@ -135,7 +135,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const trimmed = text.trim()
     // Read-only = viewing a teammate's session (M7 C3); the backend would 404 a
     // drive attempt anyway, so refuse locally and keep the view clean.
-    if (!trimmed || get().streaming || get().readOnly) return
+    if (!trimmed || get().streaming || get().readOnly) return null
 
     const userMsg: ChatMessage = { id: uuid(), role: 'user', content: trimmed, trace: [] }
     const botMsg: ChatMessage = {
@@ -161,6 +161,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // (WB-006). We only clear them when the stream finished cleanly (done, no error).
     let errored = false
     let doneOk = false
+    let streamSessionId = get().activeId
 
     const onEvent = (ev: SSEEvent) => {
       // Drop frames from a superseded stream: after stop()/openSession the active
@@ -169,6 +170,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (get().abort !== controller) return
       switch (ev.type) {
         case 'session':
+          streamSessionId = ev.data.id
           set({ activeId: ev.data.id, title: ev.data.title })
           {
             const projectId = get().activeProjectId ?? undefined
@@ -180,6 +182,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
           break
         case 'run':
+          if (ev.data.user_message_id) {
+            set((s) => ({
+              messages: s.messages.map((m) => (
+                m.id === userMsg.id ? { ...m, id: ev.data.user_message_id! } : m
+              )),
+            }))
+          }
           patchBot((m) => ({
             ...m,
             runId: ev.data.run.id,
@@ -274,7 +283,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
           break
         case 'done':
           doneOk = !errored
-          patchBot((m) => ({ ...m, status: 'done', runStatus: errored ? m.runStatus : 'completed' }))
+          patchBot((m) => ({
+            ...m,
+            id: ev.data.message_id || m.id,
+            status: 'done',
+            runStatus: errored ? m.runStatus : 'completed',
+          }))
           break
         default: {
           const exhaustive: never = ev
@@ -318,6 +332,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((s) => (s.abort === controller ? { streaming: false, abort: null, pending: null } : {}))
       get().loadSessions()
     }
+    return streamSessionId
   },
 
   retry: async (messageId) => {
