@@ -27,7 +27,7 @@ def capabilities() -> dict:
 
 class RegisterBody(BaseModel):
     name: str = Field(min_length=1, max_length=60)
-    password: str = Field(min_length=12, max_length=200)
+    password: str = Field(min_length=6, max_length=200)
     email: str = Field(default="", max_length=120)
 
 
@@ -54,18 +54,23 @@ def register(body: RegisterBody, request: Request) -> dict:
         raise HTTPException(400, "empty name")
     if db.find_account_by_name(name):
         raise HTTPException(409, "name already taken")
+    # WB-423: 首个注册用户自动提权为平台管理员，无需额外 bootstrap 步骤。
+    first_account = db.count_accounts() == 0
     acc = db.create_account(
         name=name, password=body.password, email=body.email.strip(),
-        is_platform_admin=False,
+        is_platform_admin=first_account,
     )
-    db.record_auth_audit(action="password_registered", account_id=acc.id, actor_id=acc.id)
+    db.record_auth_audit(
+        action="bootstrap_first_admin" if first_account else "password_registered",
+        account_id=acc.id, actor_id=acc.id,
+    )
     token, expires_at = db.create_token(acc.id)
     return {"token": token, "expires_at": expires_at, "account": acc.to_dict()}
 
 
 class BootstrapBody(BaseModel):
     name: str = Field(min_length=1, max_length=60)
-    password: str = Field(min_length=12, max_length=200)
+    password: str = Field(min_length=6, max_length=200)
     email: str = Field(default="", max_length=120)
     bootstrap_secret: str = Field(min_length=1, max_length=1000)
 

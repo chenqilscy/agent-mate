@@ -46,14 +46,17 @@ class Settings:
     SSO_STATE_TTL_SECONDS: int = max(
         60, int(os.getenv("AGENTMATE_SSO_STATE_TTL_SECONDS", "600"))
     )
+    # WB-423: 开发环境默认开放注册（首个用户自动提权为平台管理员），
+    # 生产环境默认 invite_only，必须通过 bootstrap 或邀请码创建首个 admin。
+    _default_policy = "open" if ENVIRONMENT == "development" else "invite_only"
     SSO_REGISTRATION_POLICY: str = os.getenv(
-        "AGENTMATE_SSO_REGISTRATION_POLICY", "invite_only"
+        "AGENTMATE_SSO_REGISTRATION_POLICY", _default_policy
     ).strip().lower()
     BOOTSTRAP_ADMIN_SECRET: str = os.getenv(
         "AGENTMATE_BOOTSTRAP_ADMIN_SECRET", ""
     ).strip()
     MIN_PASSWORD_LENGTH: int = max(
-        12, int(os.getenv("AGENTMATE_MIN_PASSWORD_LENGTH", "12"))
+        6, int(os.getenv("AGENTMATE_MIN_PASSWORD_LENGTH", "6"))
     )
     # Server Bearer token 有界生命周期（WB-326）。默认 30 天；存量无 expires_at 的 token
     # 升级后仅保留 7 天兼容窗口，避免无限续用，同时不强制所有在线用户立即掉线。
