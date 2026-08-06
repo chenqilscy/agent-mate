@@ -9,6 +9,7 @@ import { TOKEN_KEY } from '../lib/api'
 
 interface ServerState {
   enabled: boolean // 本地 backend 是否已配 AGENTMATE_SERVER_URL
+  consoleUrl: string
   linked: { account_id: string; name: string } | null // 是否已绑定某 Server 账号
   authState: 'unconfigured' | 'disconnected' | 'online' | 'offline_grace' | 'offline_expired' | 'revoked'
   onlineValidationTtl: number
@@ -21,6 +22,7 @@ interface ServerState {
 
 export const useServerStore = create<ServerState>((set) => ({
   enabled: false,
+  consoleUrl: '',
   linked: null,
   authState: 'unconfigured',
   onlineValidationTtl: 30,
@@ -31,6 +33,7 @@ export const useServerStore = create<ServerState>((set) => ({
       const s = await api.serverStatus()
       set({
         enabled: s.enabled,
+        consoleUrl: s.console_url || '',
         linked: s.linked,
         authState: s.auth_state,
         onlineValidationTtl: s.online_validation_ttl_seconds,

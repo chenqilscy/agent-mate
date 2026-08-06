@@ -433,6 +433,33 @@ def list_timeline(token: str, project_id: str) -> Optional[list[dict[str, Any]]]
     return events if isinstance(events, list) else None
 
 
+def list_project_activity(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
+    """读取 Server 项目活动流，供 App 与 Console 共享同一项目事实。"""
+    d = _get(f"/api/projects/{project_id}/activity", token, strict=True)
+    events = d.get("activity") if isinstance(d, dict) else None
+    return events if isinstance(events, list) else None
+
+
+def list_project_custom_fields(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
+    """读取 Server 项目字段定义；字段定义永远以 Server 为权威。"""
+    d = _get(f"/api/projects/{project_id}/custom-fields", token, strict=True)
+    fields = d.get("fields") if isinstance(d, dict) else None
+    return fields if isinstance(fields, list) else None
+
+
+def list_project_sprints(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
+    """读取 Server 项目迭代定义；App 只读回，不在本地伪造。"""
+    d = _get(f"/api/projects/{project_id}/sprints", token, strict=True)
+    sprints = d.get("sprints") if isinstance(d, dict) else None
+    return sprints if isinstance(sprints, list) else None
+
+
+def get_project_pm_preferences(token: str, project_id: str) -> Optional[dict[str, Any]]:
+    """读取 Server 共享的 PM 模板/保存视图/WIP 偏好。"""
+    d = _get(f"/api/projects/{project_id}/pm-preferences", token, strict=True)
+    return d if isinstance(d, dict) else None
+
+
 def create_project(token: str, project: dict[str, Any]) -> Optional[str]:
     """在 Server 新建一个项目（WB-063 存量导入用），返回其 Server id 或 None。
     project 只带元数据（name/instruction/loadout），无凭据/工作区文件。"""

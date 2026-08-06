@@ -108,6 +108,14 @@
 .qchip { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 15px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-surface); cursor: pointer; font-size: 13px; font-weight: 500; color: var(--text); }
 .qchip:hover { border-color: var(--brand); color: var(--brand-600); }
 .qchip svg { width: 15px; height: 15px; color: var(--text-3); }
+.more-shortcuts-head { padding: 5px 10px 8px; color: var(--text-3); font-size: 11px; font-weight: 700; }
+.more-shortcut-item { width: 100%; min-height: 48px; display: flex; align-items: center; gap: 9px; padding: 7px 10px; border: 0; background: transparent; color: var(--text); font-family: inherit; text-align: left; }
+.more-shortcut-item:hover { background: var(--chip); }
+.more-shortcut-icon { width: 28px; height: 28px; flex: 0 0 28px; display: grid; place-items: center; border-radius: 8px; background: var(--brand-soft); font-size: 15px; }
+.more-shortcut-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.more-shortcut-copy b { font-size: 13px; font-weight: 650; }
+.more-shortcut-copy small { overflow: hidden; color: var(--text-2); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.more-shortcut-arrow { flex: 0 0 auto; color: var(--text-3); font-size: 18px; line-height: 1; }
 
 /* Composer */
 .composer { margin-top: 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-surface); box-shadow: var(--shadow-sm); overflow: hidden; transition: .15s; }
@@ -1354,6 +1362,12 @@ body.dark .ph-illus { filter: brightness(.72) saturate(.78); }
 /* ---- project home (§11) ---- */
 .pjh { flex: 1; display: flex; min-height: 0; }
 .pjh-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pj-syncbar { display: flex; align-items: center; gap: 14px; margin: 12px 24px 0; padding: 11px 13px; border: 1px solid var(--border); border-radius: 11px; background: var(--brand-soft2); }
+.pj-syncbar-copy { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.pj-syncbar-copy b { font-size: 12.5px; color: var(--text); }
+.pj-syncbar-copy span, .pj-syncbar-copy small { color: var(--text-2); font-size: 11.5px; line-height: 1.5; }
+.pj-syncbar-copy small { color: var(--brand-600); font-weight: 600; }
+.pj-syncbar-action { flex: 0 0 auto; height: 30px; white-space: nowrap; }
 .pjh-tabs { display: flex; gap: 22px; padding: 0 24px; border-bottom: 1px solid var(--border-2); flex-shrink: 0; }
 .pjh-tab { padding: 13px 2px; font-size: 14px; font-weight: 600; color: var(--text-3); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .pjh-tab.active { color: var(--text); border-bottom-color: var(--ink); }
@@ -1481,6 +1495,8 @@ body.dark .pj-kcol-h .plus:hover { background: #2A3036; }
   .pj-calendar-add { opacity: 1; }
 }
 @media (max-width: 700px) {
+  .pj-syncbar { align-items: flex-start; flex-direction: column; gap: 9px; margin-inline: 14px; }
+  .pj-syncbar-action { width: 100%; }
   .wb-new-todo { width: 96vw; }
   .wb-new-todo .np-foot { gap: 7px; padding-inline: 14px; }
   .pj-plan-head { margin-top: -2px; }

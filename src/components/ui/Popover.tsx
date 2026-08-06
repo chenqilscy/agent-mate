@@ -49,11 +49,18 @@ export function Popover({ open, anchor, dir = 'up', onClose, className = '', min
   }, [open, anchor, onClose])
 
   if (!open || !anchor || !rect) return null
+  // Ant's default bottom-left placement can push a wide menu past the right
+  // edge on narrow screens. Keep a small viewport gutter while preserving the
+  // trigger as the primary anchor.
+  const horizontalOffset = minWidth
+    ? Math.min(0, window.innerWidth - (rect.left + minWidth + 24) - 8)
+    : 0
   return (
     <AntPopover
       open
       arrow={false}
       placement={dir === 'down' ? 'bottomLeft' : 'topLeft'}
+      align={{ offset: [horizontalOffset, 0] }}
       trigger={[]}
       onOpenChange={(next) => { if (!next) onClose() }}
       getPopupContainer={() => document.body}

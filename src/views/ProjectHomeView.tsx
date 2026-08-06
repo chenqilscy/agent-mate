@@ -18,6 +18,7 @@ import { ServerCommentsPanel } from '../components/server/ServerCommentsPanel'
 import { useWorkItemStore } from '../stores/workItemStore'
 import { useCatalogStore } from '../stores/catalogStore'
 import { useKnowledgeStore } from '../stores/knowledgeStore'
+import { useServerStore } from '../stores/serverStore'
 import { skillDisplayName, useSkillStore } from '../stores/skillStore'
 import { Alert, Avatar, Breadcrumb, Empty, Progress, Space, Tabs, Tag, Tooltip } from 'antd'
 import { CompatList as List } from '../components/ui/CompatList'
@@ -27,6 +28,13 @@ import { ProjectIdeaPanel } from '../components/ideas/IdeaInbox'
 
 type Tab = '动态' | '计划' | '任务' | '治理' | '资产' | '讨论'
 const PROJECT_TABS: Tab[] = ['动态', '计划', '任务', '治理', '资产', '讨论']
+type ServerProjectMetadata = {
+  fields: number
+  sprints: number
+  activity: number
+  savedViews: number
+  reachable: boolean
+}
 
 function initialProjectTab(): Tab {
   const requested = new URLSearchParams(window.location.search).get('tab')
@@ -108,6 +116,9 @@ export function ProjectHomeView() {
   const startProject = useChatStore((s) => s.startProject)
   const openSession = useChatStore((s) => s.openSession)
   const send = useChatStore((s) => s.send)
+  const consoleUrl = useServerStore((s) => s.consoleUrl)
+  const serverChecked = useServerStore((s) => s.checked)
+  const refreshServer = useServerStore((s) => s.refreshStatus)
   useSkillStore((s) => s.builtin)
   useSkillStore((s) => s.installed)
 
@@ -128,6 +139,7 @@ export function ProjectHomeView() {
   const [assistants, setAssistants] = useState<Assistant[]>([])
   const [automations, setAutomations] = useState<Automation[]>([])
   const [bindingsLoaded, setBindingsLoaded] = useState(false)
+  const [serverMetadata, setServerMetadata] = useState<ServerProjectMetadata | null>(null)
   const loadWork = useWorkItemStore((s) => s.load)
   const kbs = useKnowledgeStore((s) => s.kbs)
   const kbLoaded = useKnowledgeStore((s) => s.loaded)
@@ -173,6 +185,36 @@ export function ProjectHomeView() {
     }).catch(() => {})
     void loadBindings()
   }, [pid, active?.origin, setActive, loadWork, loadBindings])
+
+  useEffect(() => {
+    if (!pid || active?.origin !== 'server') {
+      setServerMetadata(null)
+      return
+    }
+    if (!serverChecked) void refreshServer()
+    let alive = true
+    void Promise.allSettled([
+      api.serverProjectCustomFields(pid),
+      api.serverProjectSprints(pid),
+      api.serverProjectActivity(pid),
+      api.serverProjectPmPreferences(pid),
+    ]).then(([fields, sprints, activity, preferences]) => {
+      if (!alive) return
+      const fieldCount = fields.status === 'fulfilled' ? fields.value.fields.length : null
+      const sprintCount = sprints.status === 'fulfilled' ? sprints.value.sprints.length : null
+      const activityCount = activity.status === 'fulfilled' ? activity.value.activity.length : null
+      const savedViews = preferences.status === 'fulfilled' ? (preferences.value.preferences.views?.length ?? 0) : null
+      const values = [fieldCount, sprintCount, activityCount, savedViews]
+      setServerMetadata({
+        fields: fieldCount ?? 0,
+        sprints: sprintCount ?? 0,
+        activity: activityCount ?? 0,
+        savedViews: savedViews ?? 0,
+        reachable: values.every((value) => value !== null),
+      })
+    })
+    return () => { alive = false }
+  }, [pid, active?.origin, serverChecked, refreshServer])
 
   useEffect(() => { if (!kbLoaded) void loadKbs() }, [kbLoaded, loadKbs])
   useEffect(() => {
@@ -230,6 +272,13 @@ export function ProjectHomeView() {
     void send(text)
   }
   const openExec = (id: string) => { openSession(id); setView('projexec', { projectId: project.id, sessionId: id }) }
+  const openConsoleProject = () => {
+    if (!consoleUrl) {
+      toast('Console 地址尚未就绪，请稍后重试')
+      return
+    }
+    window.open(`${consoleUrl}/projects/${encodeURIComponent(project.id)}`, '_blank', 'noopener,noreferrer')
+  }
 
   const boundAssistants = assistants.filter((item) => item.workspace === `project:${project.id}`)
   const boundAutomations = automations.filter((item) => item.project_id === project.id)
@@ -310,6 +359,17 @@ export function ProjectHomeView() {
           <WbButton className="btn-dark" style={{ height: 32 }} onClick={() => setMembersOpen(true)}>{canManage ? '邀请' : '成员'}</WbButton>
         </div>
       </div>
+
+      {project.origin === 'server' && (
+        <div className="pj-syncbar" role="status">
+          <div className="pj-syncbar-copy">
+            <b>团队项目由 Server 统一管理</b>
+            <span>{serverMetadata?.reachable === false ? 'Server 暂不可达，以下为已读取的可用信息。' : '字段、Sprint 和活动来自 Server；共享模板、WIP 与保存视图请在 Console 管理。'}</span>
+            {serverMetadata && <small>自定义字段 {serverMetadata.fields} · Sprint {serverMetadata.sprints} · 活动 {serverMetadata.activity} · 保存视图 {serverMetadata.savedViews}</small>}
+          </div>
+          <WbButton className="btn-ghost pj-syncbar-action" onClick={openConsoleProject} disabled={!consoleUrl}>在 Console 打开此项目</WbButton>
+        </div>
+      )}
 
       <div className="pjh">
         <div className="pjh-main">

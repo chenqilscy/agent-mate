@@ -248,6 +248,7 @@ export const api = {
   // 前端接 Server 协作（WB-067 Slice 2）：都经本地 backend 代理转发到 Server；未接 Server → {server:false}/空。
   serverStatus: () => get<{
     enabled: boolean
+    console_url: string
     linked: { account_id: string; name: string } | null
     auth_state: 'unconfigured' | 'disconnected' | 'online' | 'offline_grace' | 'offline_expired' | 'revoked'
     online_validation_ttl_seconds: number
@@ -269,6 +270,14 @@ export const api = {
     get<{ server: boolean; presence: { account_id: string; name: string; role: string; online: boolean; last_seen: number }[] }>(`/server/projects/${pid}/presence`),
   serverTimeline: (pid: string) =>
     get<{ server: boolean; reachable: boolean; stale: boolean; events: import('./types').ServerTimelineEvent[] }>(`/server/projects/${pid}/timeline`),
+  serverProjectActivity: (pid: string) =>
+    get<{ server: boolean; activity: { id: string; actor: string; kind: string; detail: string; created_at: number }[] }>(`/server/projects/${pid}/activity`),
+  serverProjectCustomFields: (pid: string) =>
+    get<{ server: boolean; fields: { id: string; name: string; field_type: string; options: string[]; required: boolean }[] }>(`/server/projects/${pid}/custom-fields`),
+  serverProjectSprints: (pid: string) =>
+    get<{ server: boolean; sprints: { id: string; name: string; goal: string; start_date: string; end_date: string; status: string }[] }>(`/server/projects/${pid}/sprints`),
+  serverProjectPmPreferences: (pid: string) =>
+    get<{ server: boolean; preferences: { templates?: unknown[]; views?: unknown[]; wip?: Record<string, number> } }>(`/server/projects/${pid}/pm-preferences`),
   serverSyncConflicts: (pid: string) =>
     get<{ count: number; conflicts: { entity_type: string; entity_id: string; reason: string; detected_at: number }[] }>(`/server/projects/${pid}/sync-conflicts`),
   serverNotifications: () =>

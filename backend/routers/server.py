@@ -102,6 +102,8 @@ def server_status(authorization: str = Header(default="")) -> dict:
         )
     return {
         "enabled": enabled,
+        # Console 与 Server 同源部署；仅返回可导航的 origin，不返回 token 或其他凭据。
+        "console_url": settings.AGENTMATE_SERVER_URL.rstrip("/") if enabled else "",
         "linked": linked,
         "auth_state": auth_state,
         "online_validation_ttl_seconds": settings.SERVER_TOKEN_VALIDATION_TTL_SECONDS,
@@ -213,6 +215,60 @@ def server_timeline(project_id: str, authorization: str = Header(default="")) ->
         return {"server": True, "reachable": False, "stale": bool(cached), "events": cached}
     db.mirror_server_timeline(project_id, events)
     return {"server": True, "reachable": True, "stale": False, "events": db.list_server_timeline(project_id)}
+
+
+def _server_project_read_token(project_id: str, authorization: str) -> str:
+    """Guard metadata reads to a locally mirrored Server project and identity token."""
+    user = current_user()
+    project = db.get_project_for(project_id, user.id)
+    if not project:
+        raise HTTPException(404, "project not found")
+    token = _required_server_token(authorization)
+    if project.origin != "server" or not server_client.server_enabled():
+        raise HTTPException(400, "not a Server project")
+    if db.user_id_for_token(token) != user.id:
+        raise HTTPException(401, "server identity required")
+    return token
+
+
+@router.get("/server/projects/{project_id}/activity")
+def server_project_activity(project_id: str, authorization: str = Header(default="")) -> dict:
+    events = server_client.list_project_activity(
+        _server_project_read_token(project_id, authorization), project_id,
+    )
+    if events is None:
+        raise HTTPException(503, "Server 暂不可达，项目活动未加载")
+    return {"server": True, "activity": events}
+
+
+@router.get("/server/projects/{project_id}/custom-fields")
+def server_project_custom_fields(project_id: str, authorization: str = Header(default="")) -> dict:
+    fields = server_client.list_project_custom_fields(
+        _server_project_read_token(project_id, authorization), project_id,
+    )
+    if fields is None:
+        raise HTTPException(503, "Server 暂不可达，项目字段未加载")
+    return {"server": True, "fields": fields}
+
+
+@router.get("/server/projects/{project_id}/sprints")
+def server_project_sprints(project_id: str, authorization: str = Header(default="")) -> dict:
+    sprints = server_client.list_project_sprints(
+        _server_project_read_token(project_id, authorization), project_id,
+    )
+    if sprints is None:
+        raise HTTPException(503, "Server 暂不可达，项目 Sprint 未加载")
+    return {"server": True, "sprints": sprints}
+
+
+@router.get("/server/projects/{project_id}/pm-preferences")
+def server_project_pm_preferences(project_id: str, authorization: str = Header(default="")) -> dict:
+    preferences = server_client.get_project_pm_preferences(
+        _server_project_read_token(project_id, authorization), project_id,
+    )
+    if preferences is None:
+        raise HTTPException(503, "Server 暂不可达，项目工作台偏好未加载")
+    return {"server": True, "preferences": preferences}
 
 
 @router.get("/server/projects/{project_id}/sync-conflicts")

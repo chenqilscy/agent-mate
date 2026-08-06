@@ -1,5 +1,5 @@
 import { WbButton } from '../components/ui/Primitives'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Composer } from '../components/composer/Composer'
 import { useChatStore } from '../stores/chatStore'
 import { useUIStore } from '../stores/uiStore'
@@ -16,11 +16,19 @@ import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
 import { HomeIdeaInbox } from '../components/ideas/IdeaInbox'
+import type { ViewId } from '../lib/types'
 
 const SCENES: [string, string, string][] = [
   ['day', '🔥', '日常办公'],
   ['code', '💻', '代码开发'],
   ['design', '🎨', '设计创意'],
+]
+
+const MORE_SHORTCUTS: [ViewId, string, string, string][] = [
+  ['assistant', '🧑‍💼', '助理管理', '管理可复用的工作助理'],
+  ['experts', '🧠', '专家能力', '按场景组合专家与团队'],
+  ['skills', '✨', '技能', '安装并使用真实技能'],
+  ['connectors', '🔗', '连接器', '连接本地与第三方服务'],
 ]
 
 function runState(session: SessionInfo): { label: string; tone: string } {
@@ -39,6 +47,8 @@ export function HomeView() {
   const send = useChatStore((s) => s.send)
   const setView = useUIStore((s) => s.setView)
   const { QUICK } = useCatalog()
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreAnchor = useRef<HTMLElement | null>(null)
 
   const projects = useProjectStore((s) => s.projects)
   const loadProjects = useProjectStore((s) => s.load)
@@ -114,6 +124,11 @@ export function HomeView() {
 
   const attentionRuns = [...activeRuns, ...recentFailures.filter((failed) => !activeRuns.some((run) => run.id === failed.id))].slice(0, 4)
 
+  const openMore = (event: MouseEvent<HTMLDivElement>) => {
+    moreAnchor.current = event.currentTarget
+    setMoreOpen(true)
+  }
+
   return (
     <section className="view active" data-view="home">
       <div className="reward" {...clickable} onClick={() => toast('打开成长计划')}>
@@ -138,7 +153,9 @@ export function HomeView() {
                 key={label}
                 className="qchip"
                 {...clickable}
-                onClick={() => (label === '更多' ? toast('更多快捷入口，敬请期待') : launch(label))}
+                aria-haspopup={label === '更多' ? 'menu' : undefined}
+                aria-expanded={label === '更多' ? moreOpen : undefined}
+                onClick={label === '更多' ? openMore : () => launch(label)}
               >
                 {ic === '⋯' ? (
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></svg>
@@ -149,6 +166,23 @@ export function HomeView() {
               </div>
             ))}
           </div>
+
+          <Popover open={moreOpen} anchor={moreAnchor.current} dir="down" onClose={() => setMoreOpen(false)} className="more-shortcuts" minWidth={248}>
+            <div className="more-shortcuts-head">更多能力</div>
+            {MORE_SHORTCUTS.map(([view, icon, label, description]) => (
+              <button
+                key={view}
+                type="button"
+                role="menuitem"
+                className="pop-item more-shortcut-item"
+                onClick={() => { setMoreOpen(false); setView(view) }}
+              >
+                <span className="more-shortcut-icon" aria-hidden="true">{icon}</span>
+                <span className="more-shortcut-copy"><b>{label}</b><small>{description}</small></span>
+                <span className="more-shortcut-arrow" aria-hidden="true">›</span>
+              </button>
+            ))}
+          </Popover>
 
           <div className="comp-zone">
             <svg className="mascot2" viewBox="0 0 100 100" aria-hidden="true">
