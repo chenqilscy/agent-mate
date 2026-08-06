@@ -20,6 +20,27 @@ from storage.models import LOCAL_USER_ID  # noqa: E402
 
 
 class ServerAccountAuthorityTest(unittest.TestCase):
+    def test_login_mirrors_server_user_payload_shape(self) -> None:
+        mirrored = {"token": "server-token", "user": {"id": "account-1"}}
+        with (
+            patch.object(auth_router.server_client, "server_enabled", return_value=True),
+            patch.object(
+                auth_router.server_client, "server_login_ex", return_value=("ok", {
+                    "token": "server-token", "expires_at": 12345,
+                    "user": {"id": "account-1", "name": "admin", "plan": "体验版"},
+                }),
+            ),
+            patch.object(auth_router, "_mirror_server_account", return_value=mirrored) as mirror,
+        ):
+            result = auth_router.login(auth_router.LoginBody(name="admin", password="admin123"))
+
+        self.assertEqual(mirrored, result)
+        mirror.assert_called_once_with(
+            "server-token",
+            {"id": "account-1", "name": "admin", "plan": "体验版"},
+            12345,
+        )
+
     def test_unconfigured_server_cannot_create_or_login_local_account(self) -> None:
         with (
             patch.object(auth_router.server_client, "server_enabled", return_value=False),

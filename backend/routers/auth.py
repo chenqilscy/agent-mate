@@ -41,6 +41,12 @@ def _user_view(user) -> dict:
     return {"id": user.id, "name": user.name, "role": user.role.value, "plan": user.plan}
 
 
+def _server_account(data: dict) -> dict:
+    """Normalize deployed Server login payloads (`account` and legacy `user`)."""
+    candidate = data.get("account") or data.get("user")
+    return candidate if isinstance(candidate, dict) else {}
+
+
 def _mirror_server_account(token: str, acct: dict, expires_at: float | None = None) -> dict:
     """把 Console 校验过的账号镜像进本地 users + 缓存 Server token（后续请求本地命中，不再打 Console），
     并记住 Server 身份供后台 outbox 以本人推送。返回 {token, user}——token 即 Server token。"""
@@ -67,7 +73,7 @@ def register(body: RegisterBody) -> dict:
     status, data = server_client.server_login_ex(name, body.password, register=True)
     if status == "ok" and data:
         return _mirror_server_account(
-            data["token"], data.get("account") or {}, data.get("expires_at")
+            data["token"], _server_account(data), data.get("expires_at")
         )
     if status == "rejected":
         code = (data or {}).get("code", 400)
@@ -84,7 +90,7 @@ def login(body: LoginBody) -> dict:
     status, data = server_client.server_login_ex(name, body.password, register=False)
     if status == "ok" and data:
         return _mirror_server_account(
-            data["token"], data.get("account") or {}, data.get("expires_at")
+            data["token"], _server_account(data), data.get("expires_at")
         )
     if status == "rejected":
         raise HTTPException(401, "用户名或密码错误")
@@ -121,7 +127,7 @@ def sso_poll(body: SsoPollBody) -> dict:
             return {
                 "status": "completed",
                 **_mirror_server_account(
-                    str(data.get("token") or ""), data.get("account") or {},
+                    str(data.get("token") or ""), _server_account(data),
                     data.get("expires_at"),
                 ),
             }
