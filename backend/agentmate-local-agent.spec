@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for the AgentMate backend sidecar.
+# PyInstaller spec for the AgentMate Local Agent sidecar.
 # uvicorn and mcp import their impl modules dynamically, so collect them; the
 # mcp_servers subpackage is bundled so the `--mcp-server=<name>` re-exec works.
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
@@ -49,7 +49,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='agentmate-backend',
+    name='agentmate-local-agent',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

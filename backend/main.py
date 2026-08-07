@@ -1,9 +1,10 @@
-"""AgentMate backend entrypoint (FastAPI + SSE).
+"""AgentMate Local Agent entrypoint (FastAPI + SSE).
 
-Local-first: this runs on the user's machine as a localhost service. The browser
-(Vite dev server, or the Tauri shell) is just the display. Requests resolve a
-Server-issued Bearer identity through the auth middleware; without one they use
-the anonymous LOCAL_USER data scope, which is not a login account.
+This process runs on the user's device as a loopback-only execution service; it
+is not the AgentMate Server API. During the Server-first migration it also keeps
+compatibility App APIs. Requests resolve a Server-issued Bearer identity through
+the auth middleware; without one they use the anonymous LOCAL_USER data scope,
+which is not a login account.
 """
 from __future__ import annotations
 
@@ -81,7 +82,7 @@ def _startup() -> None:
     recovered = db.recover_stale_runs()
     if recovered:
         logging.getLogger("agentmate.runs").warning(
-            "paused %d Run(s) abandoned by the previous backend process", len(recovered),
+            "paused %d Run(s) abandoned by the previous Local Agent process", len(recovered),
         )
     import device_settings as runtime_device_settings
     runtime_device_settings.apply_all()
@@ -115,7 +116,7 @@ async def _lifespan(_app: FastAPI):
             server_client.close()
 
 
-app = FastAPI(title="AgentMate API", version="1.0.0", lifespan=_lifespan)
+app = FastAPI(title="AgentMate Local Agent API", version="1.0.0", lifespan=_lifespan)
 
 
 @app.exception_handler(server_client.ServerRejected)

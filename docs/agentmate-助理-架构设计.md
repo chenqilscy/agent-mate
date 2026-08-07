@@ -8,7 +8,7 @@
 “助理”是一个可长期存在、可由 App 或外部渠道触达的本地 agent 配置。每个助理拥有独立的指令、
 模型、权限模式、工作空间和专家/Skill/连接器 loadout；一个助理可以绑定多个渠道。
 
-助理仍在 App backend 本机执行。AgentMate Server/Console 不保存助理渠道凭据，也不代替本机轮询或
+助理仍由本机 Local Agent 执行。AgentMate Server/Console 不保存助理渠道凭据，也不代替本机轮询或
 发送消息。
 
 ## 2. 当前对象

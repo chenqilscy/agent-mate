@@ -1,12 +1,12 @@
 # 桌面版构建与发布（路线 A）
 
 AgentMate 用 Tauri 2 打成桌面应用：前端在系统 WebView2 里显示，Rust 壳负责窗口、
-托盘、自动更新，并把 Python 后端作为 **sidecar** 打成单文件 exe 一起分发、启动时拉起、
+托盘、自动更新，并把 Python Local Agent 作为 **sidecar** 打成单文件 exe 一起分发、启动时拉起、
 退出时清理。本文覆盖构建、发布、签名与已知事项。
 
 ## 前置
 
-- Node 20+ / pnpm、Python 3.11+（后端 venv 已装 PyInstaller）、Rust（`cargo` / `rustc`）。
+- Node 20+ / pnpm、Python 3.11+（Local Agent venv 已装 PyInstaller）、Rust（`cargo` / `rustc`）。
 - Windows 打包还需要 WebView2 运行时（Win10/11 一般自带）。它与 GNU 目标动态链接所需的
   `WebView2Loader.dll` 不是同一个组件；后者由 Windows bundle 配置随安装包放到主程序同目录。
   WiX / NSIS 由 `tauri build` 首次自动下载。
@@ -15,26 +15,28 @@ AgentMate 用 Tauri 2 打成桌面应用：前端在系统 WebView2 里显示，
 
 两种方式：
 
-**浏览器开发**（全功能、开发库 `backend/agentmate.db`）：
+**浏览器开发**（全功能；Local Agent 兼容源码目录为 `backend/`）：
 ```bash
-cd backend && ./.venv/Scripts/python.exe main.py     # 后端 :8101
-pnpm dev                                              # Vite :8102
+pnpm dev:local-agent                                  # Local Agent :8101
+pnpm dev:app                                          # App UI :8102
 # 浏览器打开 http://localhost:8102
 ```
 
 **桌面壳里跑**（验证打包行为）：
 ```bash
-backend/.venv/Scripts/python.exe backend/build_sidecar.py   # 构建 sidecar（改了后端才需重跑）
+backend/.venv/Scripts/python.exe backend/build_sidecar.py   # 构建 Local Agent sidecar
 pnpm dev                                                     # Vite :8102
-pnpm tauri:dev                                               # 原生窗口，壳自动拉起 sidecar 后端
+pnpm tauri:dev                                               # 原生窗口，壳自动拉起 Local Agent sidecar
 ```
-> 桌面壳用的是**打包版后端**：数据目录在 `%LOCALAPPDATA%/AgentMate`，与开发库隔离。
+> 桌面壳用的是**打包版 Local Agent**：数据目录在 `%LOCALAPPDATA%/AgentMate`，与开发库隔离。
 
 ## 构建安装包
 
 ```bash
-# 1) 构建后端 sidecar（PyInstaller onefile → src-tauri/binaries/）
+# 1) 构建 Local Agent sidecar（PyInstaller onefile → src-tauri/binaries/）
 backend/.venv/Scripts/python.exe backend/build_sidecar.py
+# 1.1) 真启动新产物并验证受 IPC token 保护的 Local Agent 健康接口
+pwsh -NoLogo -NoProfile -NonInteractive -File scripts/smoke-local-agent-sidecar.ps1
 # 2) 出安装包（release 编译 + WiX/NSIS 打包）
 pnpm tauri build
 # 3) 安装产物后核对主程序、sidecar 与 GNU WebView2 Loader 均已落盘
@@ -54,15 +56,15 @@ x86_64/arm64 混装都会 fail closed。`-LaunchSmoke` 同时等待真实窗口�
 
 ## 架构要点
 
-- **sidecar**：`backend/build_sidecar.py` 跑 `agentmate-backend.spec`（onefile），按 Rust
+- **sidecar**：`backend/build_sidecar.py` 跑 `agentmate-local-agent.spec`（onefile），按 Rust
   目标三元组命名拷进 `src-tauri/binaries/`。Windows 上 Tauri 按 `x86_64-pc-windows-msvc`
   匹配（即便 host 是 gnu），脚本已同时放 msvc/gnu 两个名字。
 - **WebView2 Loader**：Windows GNU Rust 目标会动态依赖 Cargo 生成到
   `src-tauri/target/release/WebView2Loader.dll` 的 Loader；`tauri.windows.conf.json` 将它安装到
   `agentmate.exe` 同目录。它缺失时 Windows 会在应用代码运行前直接拒绝启动。
 - **进程接管**：`src-tauri/src/lib.rs` 启动时 `spawn` sidecar、drain 其输出、退出时 kill。
-- **前端 API 基址**：壳内自动走绝对 `http://127.0.0.1:8101/api`（无 Vite 代理），后端 CORS
-  已放行 tauri 源。
+- **Local Agent API 基址**：壳内自动走绝对 `http://127.0.0.1:8101/api`（无 Vite 代理），Local Agent
+  CORS 已放行 tauri 源。
 - **冻结感知**：`config.py` 打包后在 `%LOCALAPPDATA%/AgentMate` 存放 DB/工作区，`.env` 在
   exe 旁/数据目录查找。
 - **本地连接器**：内置 MCP 服务器（本地便签/时间助手/工作区检索）在打包版里改用**内存

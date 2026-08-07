@@ -28,7 +28,7 @@ pwsh -NoLogo -NoProfile -NonInteractive -File scripts/validate-v1-rc.ps1
 # 已启动隔离测试后端且配置真实 LLM 时，再加入真实功能门禁
 pwsh -NoLogo -NoProfile -NonInteractive -File scripts/validate-v1-rc.ps1 -Live
 
-# 自动在临时目录与随机端口启动隔离 Server/Backend，跑完后清理
+# 自动在临时目录与随机端口启动隔离 Server/Local Agent，跑完后清理
 pwsh -NoLogo -NoProfile -NonInteractive -File scripts/validate-v1-rc.ps1 -IsolatedLive
 
 # 本机具备 Rust 工具链时，加入 Tauri 编译预检
@@ -43,7 +43,7 @@ pwsh -NoLogo -NoProfile -NonInteractive -File scripts/validate-v1-rc.ps1 -Deskto
 
 | 层级 | 自动检查 | 通过后可以声称 |
 |---|---|---|
-| Engineering | issue 一致性、App/Console 类型与构建、Backend/Server 回归、隔离 HTTP 集成、Python 编译 | 工程候选版 |
+| Engineering | issue 一致性、App/Console 类型与构建、Local Agent/Server 回归、隔离 HTTP 集成、Python 编译 | 工程候选版 |
 | Live | 健康接口确认后端，功能套件 A–E 使用测试账号 DB 中的真实模型 | 本机真实功能候选版 |
 | Desktop preflight | Tauri Rust 编译检查 | 桌面源码可编译；**不等于安装包验收** |
 | Desktop release | sidecar/安装包、签名、干净 Windows 安装、启动与退出、升级/回滚 | 桌面可发布候选版 |

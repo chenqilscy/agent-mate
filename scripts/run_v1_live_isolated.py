@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run V1 A-E journeys against temporary real Server and Backend processes."""
+"""Run V1 A-E journeys against temporary real Server and Local Agent processes."""
 from __future__ import annotations
 
 import json
@@ -112,7 +112,7 @@ def main() -> int:
                 "AGENTMATE_DB": str(app_db),
                 "AGENTMATE_WORKSPACE": str(workspace),
             })
-            print(f"[PASS] Isolated Server and Backend healthy; functional tests must provide owner-scoped model DB configuration; port={backend_port}")
+            print(f"[PASS] Isolated Server and Local Agent healthy; functional tests must provide owner-scoped model DB configuration; port={backend_port}")
             result = subprocess.run(
                 [str(PYTHON), str(ROOT / "backend" / "tests" / "functional" / "run_all.py")],
                 cwd=ROOT,

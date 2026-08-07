@@ -1,5 +1,5 @@
 // AgentMate desktop shell (Tauri 2). The application uses a borderless window
-// without reserving a custom title-bar row. On startup we spawn the bundled Python backend as a sidecar
+// without reserving a custom title-bar row. On startup we spawn the bundled Python Local Agent as a sidecar
 // and kill it on exit. A system tray keeps the app alive when the window is
 // closed (X hides to tray; the tray's 退出 actually quits).
 use std::sync::Mutex;
@@ -15,8 +15,8 @@ use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
-/// Holds the backend sidecar child so we can terminate it on exit.
-struct Backend(Mutex<Option<CommandChild>>);
+/// Holds the Local Agent sidecar child so we can terminate it on exit.
+struct LocalAgentProcess(Mutex<Option<CommandChild>>);
 
 /// The webview never receives this per-launch secret. Narrow native commands
 /// use it to call the protected loopback Local Agent API.
@@ -296,7 +296,7 @@ pub fn run() {
     }
 
     builder
-        .manage(Backend(Mutex::new(None)))
+        .manage(LocalAgentProcess(Mutex::new(None)))
         .manage(LocalAgentIpc {
             token: new_ipc_token(),
         })
@@ -307,12 +307,12 @@ pub fn run() {
             local_agent_download_asset
         ])
         .setup(|app| {
-            // ---- backend sidecar: spawn + drain its output ----
+            // ---- Local Agent sidecar: spawn + drain its output ----
             let ipc_token = app.state::<LocalAgentIpc>().token.clone();
             match app
                 .handle()
                 .shell()
-                .sidecar("agentmate-backend")
+                .sidecar("agentmate-local-agent")
                 .map(|command| command.arg("--ipc-token-stdin"))
             {
                 Ok(cmd) => match cmd.spawn() {
@@ -322,7 +322,7 @@ pub fn run() {
                             eprintln!("[agentmate] IPC bootstrap failed: {error}");
                             let _ = child.kill();
                         } else {
-                            app.state::<Backend>().0.lock().unwrap().replace(child);
+                            app.state::<LocalAgentProcess>().0.lock().unwrap().replace(child);
                             tauri::async_runtime::spawn(async move {
                                 while let Some(event) = rx.recv().await {
                                     if let CommandEvent::Terminated(_) = event {
@@ -332,9 +332,9 @@ pub fn run() {
                             });
                         }
                     }
-                    Err(e) => eprintln!("[agentmate] backend spawn failed: {e}"),
+                    Err(e) => eprintln!("[agentmate] Local Agent spawn failed: {e}"),
                 },
-                Err(e) => eprintln!("[agentmate] backend sidecar missing: {e}"),
+                Err(e) => eprintln!("[agentmate] Local Agent sidecar missing: {e}"),
             }
 
             // ---- system tray ----
@@ -379,9 +379,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building AgentMate")
         .run(|app, event| {
-            // Kill the backend on a real quit (tray → 退出 → app.exit).
+            // Kill the Local Agent on a real quit (tray → 退出 → app.exit).
             if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-                if let Some(child) = app.state::<Backend>().0.lock().unwrap().take() {
+                if let Some(child) = app.state::<LocalAgentProcess>().0.lock().unwrap().take() {
                     let _ = child.kill();
                 }
             }

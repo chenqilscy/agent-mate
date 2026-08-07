@@ -37,7 +37,7 @@ class ProductBrandContractTest(unittest.TestCase):
     def test_technical_identifiers_are_agentmate_only(self) -> None:
         tauri = json.loads(read("src-tauri/tauri.conf.json"))
         self.assertEqual("com.agentmate.app", tauri["identifier"])
-        self.assertEqual(["binaries/agentmate-backend"], tauri["bundle"]["externalBin"])
+        self.assertEqual(["binaries/agentmate-local-agent"], tauri["bundle"]["externalBin"])
         config = read("backend/config.py")
         self.assertIn('base / "AgentMate"', config)
         self.assertIn('os.getenv("AGENTMATE_DB"', config)

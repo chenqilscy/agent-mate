@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $resolvedInstallDir = [System.IO.Path]::GetFullPath($InstallDir)
 $requiredFiles = @(
     'agentmate.exe',
-    'agentmate-backend.exe',
+    'agentmate-local-agent.exe',
     'WebView2Loader.dll'
 )
 
@@ -100,7 +100,7 @@ if ($LaunchSmoke) {
         throw 'AgentMate did not create a visible window within 45 seconds'
     }
     if ($null -eq $health) {
-        throw 'AgentMate backend did not become healthy within 45 seconds'
+        throw 'AgentMate Local Agent did not become healthy within 45 seconds'
     }
 
     $listener = Get-NetTCPConnection -LocalPort 8101 -State Listen -ErrorAction Stop |
@@ -109,14 +109,14 @@ if ($LaunchSmoke) {
     if ($null -eq $listener) {
         throw 'AgentMate health endpoint responded but no local :8101 listener was found'
     }
-    $backend = Get-Process -Id $listener.OwningProcess -ErrorAction Stop
+    $localAgent = Get-Process -Id $listener.OwningProcess -ErrorAction Stop
 
     $result.launch = [ordered]@{
         app_pid = $app.Id
         window_handle = $app.MainWindowHandle
         window_title = $app.MainWindowTitle
-        backend_pid = $backend.Id
-        backend_process = $backend.ProcessName
+        local_agent_pid = $localAgent.Id
+        local_agent_process = $localAgent.ProcessName
         health = $health
     }
 }

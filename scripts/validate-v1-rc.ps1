@@ -95,13 +95,13 @@ try {
     Invoke-NativeStep "Console production build" {
         & $node $vite build --config vite.console.config.ts
     }
-    Invoke-NativeStep "Backend regression" {
+    Invoke-NativeStep "Local Agent regression" {
         & $python -m unittest @backendRegressionTests
     }
     Invoke-NativeStep "Server unit and contract tests" {
         & $python -m unittest @serverTests
     }
-    Invoke-NativeStep "Isolated Server-Backend HTTP integration" {
+    Invoke-NativeStep "Isolated Server-Local Agent HTTP integration" {
         & $python -m unittest @integrationTests
     }
     Invoke-NativeStep "Tracked Python compilation" {

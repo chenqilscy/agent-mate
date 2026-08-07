@@ -35,7 +35,7 @@ Server 不能执行用户本地任务，不能读取工作区或会话正文，�
                                 │ guarded REST
                                 │ login / pull / proxy / outbox push / relay lease+ack
 ┌───────────────────────────────┴────────────────────────────────────────┐
-│ AgentMate App backend :8101                                            │
+│ AgentMate Local Agent :8101                                           │
 │ 本地 SQLite · agent runtime · MCP · credentials · workspace             │
 │ durable job worker · automation/outbox/relay poll · health snapshot     │
 │                                ▲                                       │
@@ -57,14 +57,14 @@ Server 不能执行用户本地任务，不能读取工作区或会话正文，�
   已登录用户须显式绑定，邮箱相同不自动合并，最后一种登录方式不能被解除。
 - SSO provider 配置与一次性 signup invite 由 Console 平台设置管理；provider secret 只写不回显，
   以独立主密钥 AES-GCM 加密落库，启停/Client ID/密钥轮换写入脱敏不可变审计。
-- App backend 代理登录/注册并缓存已验证的 Server 身份；前端仍只与 App backend 通信。
+- Local Agent 代理登录/注册并缓存已验证的 Server 身份；前端仍只与 Local Agent 通信。
 - Server 管理组织、项目、成员、Owner/Admin/Member/Viewer 角色与邀请。
 - App 镜像 server-origin 项目与成员，并在本地路由执行同样的角色门禁；Viewer 只读。
 
 ### 3.2 协作数据
 
 Server 已提供工作项、里程碑、活动、评论、@提及、在线状态、通知和团队时间线 API。App 对
-server-origin 协作实体通过本地 backend 代理；Server 不可达时按各实体契约读取镜像或受控回退。
+server-origin 协作实体通过 Local Agent 代理；Server 不可达时按各实体契约读取镜像或受控回退。
 
 会话完成后，App 可把 `title/summary/ext_id/actor/project/time` 等最小元数据写入本地 outbox，后台以
 用户 Server token 补推。时间线上报默认关闭；消息正文、工具参数、文件内容和 secret 不进入 payload。
@@ -129,7 +129,7 @@ Server snapshot 并原子替换本机 `catalog_downlink` 的 Server scope，未�
 | 账号、组织、server-origin 项目、成员/角色、邀请 | Server | Server → App 镜像 |
 | SSO provider 配置、外部身份、注册邀请 | Server | Console 管理；App 只代理登录/绑定流程 |
 | service identity、relay event、设备租约与确认 | Server | 外部系统 → Server → 指定 App 设备 |
-| 工作项、里程碑、评论、presence、通知 | Server | App backend 代理，必要时本地镜像 |
+| 工作项、里程碑、评论、presence、通知 | Server | Local Agent 代理，必要时本地镜像 |
 | AgentMate 专家/团队/Skill 定义及连接器公开元数据/推荐位 | Server | Server → App 条件全量快照 pull |
 | MCP 连接器本机启动定义 | App 随版本交付的可信注册表 | Server 只能声明兼容目标；完全匹配后由 App 本地定义执行 |
 | 内置工具定义与运营目录 | Server `tool_catalog`；native 由 App 签名实现，shell 由 Server 下发 | Console 管策略/跨平台脚本；App 校验镜像并执行裁决 |
@@ -138,12 +138,12 @@ Server snapshot 并原子替换本机 `catalog_downlink` 的 Server scope，未�
 | 本机安装 Skill 与自造专家 | App 本地 | 不同步；可上报非敏感能力元数据的目标尚未落地 |
 | 会话、消息、trace、工具参数 | App 本地 | 不上云；只可上报最小时间线元数据 |
 | workspace 文件 | App 本地 | 不自动同步；仅用户显式 `knowledge_add` 的目标文件可进入项目中央知识库 |
-| LLM/连接器 secret | App 本地 backend | 永不上云、永不进前端 |
+| LLM/连接器 secret | Local Agent | 永不上云、永不进前端 |
 | 组织模型策略 | Server | Server → App 非敏感镜像；App 在每次 Run 前最终裁决 |
-| 用户模型策略、Provider health、用量与成本 | App 本地 backend | 不上云；按 owner 统计并执行 |
+| 用户模型策略、Provider health、用量与成本 | Local Agent | 不上云；按 owner 统计并执行 |
 
 配置也按同一归属治理：平台级中央 WeKnora 与协作策略由 Console 写入 Server；设备级 Langfuse、ASR、
-Server 连接和时间线上报由 App 设置中心写入本地 backend。数据库值优先于环境变量，清除页面覆盖后回退
+Server 连接和时间线上报由 App 设置中心写入 Local Agent。数据库值优先于环境变量，清除页面覆盖后回退
 环境变量；密钥只写不回显并记录脱敏审计。数据库路径、监听端口、密码学启动材料和发布版本仍为
 deployment-only，不能通过通用设置 API 伪装成热更新。
 
@@ -153,14 +153,14 @@ deployment-only，不能通过通用设置 API 伪装成热更新。
 
 ### 5.1 下行
 
-- 登录后或用户显式刷新时，App backend 拉取项目/成员与目录。
+- 登录后或用户显式刷新时，Local Agent 拉取项目/成员与目录。
 - 目录使用 revision 条件请求；发生变化时下发完整快照并原子替换，不传增量 patch。
 - server-origin 协作实体通常采用“Server 读取 → 本地镜像 → 返回”；网络失败时读取最后镜像。
 - 从未成功连接 Server 的 App 才使用随版本打包的 builtin 作为首次兜底。
 
 ### 5.2 上行
 
-- 工作项等 Server 权威实体由 App backend 代理写入 Server，成功后刷新镜像。
+- 工作项等 Server 权威实体由 Local Agent 代理写入 Server，成功后刷新镜像。
 - 会话执行产出只上报可配置的时间线元数据；先写本地 outbox，再由调度器重试。
 - 写 Server 失败不能伪装为已经完成同步；是否允许离线本地写由具体实体契约决定。
 
@@ -285,8 +285,8 @@ Console 管账号、组织、项目协作和 AgentMate 自有目录。Skill 定�
 
 - Server 位于 `server/`，可单独启动在 `127.0.0.1:8100`；当前存储为 SQLite。
 - Console 静态资源由 Server 同源托管并调用 `/api/*`。
-- App backend 位于 `backend/`，默认 `127.0.0.1:8101`；开发前端为 `:8102`。
-- Server 入口是 `server/main.py`；App backend 入口是 `backend/main.py`。后台 worker/scheduler 由 App backend
+- Local Agent 实现源码暂位于兼容目录 `backend/`，默认 `127.0.0.1:8101`；开发 App UI 为 `:8102`。
+- Server 入口是 `server/main.py`；Local Agent 兼容入口是 `backend/main.py`。后台 worker/scheduler 由 Local Agent
   生命周期启动，不是另一个需要单独部署的守护进程。
 - App 与 Server 各自维护 `schema_migrations(scope,version,name,applied_at)`；升级按版本顺序单事务执行，
   只有成功才登记，失败回滚并在下次启动重试。新 schema 变更不得继续追加匿名兼容 DDL。

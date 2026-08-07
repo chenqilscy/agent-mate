@@ -17,7 +17,7 @@ AgentMate Console 是 Server 同源托管的 Web 管理界面。
 工程上遵守以下边界：
 
 1. 流式回复来自真实 LLM，状态写入 SQLite，轨迹来自真实工具事件；不以静态剧本伪装执行。
-2. LLM key 与连接器 secret 只存 App backend 的 `.env` 或按 owner 存本机 DB，不进前端、
+2. LLM key 与连接器 secret 只存 Local Agent 的 `.env` 或按 owner 存本机 DB，不进前端、
    Server、工作区文件或普通子进程环境。
 3. 工作区文件、会话正文和工具参数默认只留本机；Server 仅接收被允许的协作元数据。
 4. UI 沿用 `src/styles/tokens.css` 与 `src/styles/app.css` 的全局 class/token；暗色主题由
@@ -35,7 +35,7 @@ AgentMate App（用户本机）
 │ React 19 + Vite + TypeScript + Zustand                           │
 │              │ REST + SSE                                       │
 │              ▼                                                   │
-│ FastAPI backend :8101                                            │
+│ Local Agent :8101                                                │
 │ agent 工具循环 · MCP · SQLite · workspace/projects/<id>/         │
 │              │ 可选、guarded、失败回退本地                        │
 └──────────────┼───────────────────────────────────────────────────┘
@@ -45,11 +45,11 @@ AgentMate Server :8100
                │
                └── AgentMate Console（同源 Web 管理界面）
 
-开发期前端 :8102 ── /api 代理 ──▶ backend :8101
+开发期 App UI :8102 ── /api 代理 ──▶ Local Agent :8101
 ```
 
 - `AGENTMATE_SERVER_URL` 为空时是纯本地模式；Server 不可达时，网络调用返回受控失败并保留本地能力。
-- 前端只访问本地 backend。登录 Server 时，App backend 代理登录并缓存 Server 身份；浏览器不直接
+- 前端只访问本机 Local Agent。登录 Server 时，Local Agent 代理登录并缓存 Server 身份；浏览器不直接
   依赖 Server 地址。
 - Server 不是远程执行器，不读取用户工作区，也不持有 LLM/连接器凭据。
 - 第三方 SkillHub 是 App 本地访问的市场：搜索、排行、安装、Key 和技能包不进入 Server。
@@ -90,22 +90,22 @@ Console 全站已按 [WB-236](issues/archive/2026/WB-200-299.md#wb-236) 迁移�
 
 ## 4. App 前端
 
-前端是本地 backend 的状态投影，不自行制造业务真相：
+前端是 Local Agent 的状态投影，不自行制造业务真相：
 
-- `chatStore` 消费 SSE 并持久化会话投影；停止、提问恢复、轨迹与 token 用量都来自后端事件。
-- `projectStore` / `workItemStore` 管理项目工作台；server-origin 项目的协作实体通过本地 backend
+- `chatStore` 消费 SSE 并持久化会话投影；停止、提问恢复、轨迹与 token 用量都来自 Local Agent 事件。
+- `projectStore` / `workItemStore` 管理项目工作台；server-origin 项目的协作实体通过 Local Agent
   代理到 Server。
 - `ideaStore` 管理“想法收集箱”：首页快速捕捉、消息收取和项目动态共用本机 `ideas` /
   `idea_relations`，不新增顶级页面；正文与关联不进入 Server。想法只有在用户显式确认后，才复用
   既有链路沉淀为项目任务、决策或 `MEMORY.md`，Agent 加工结果也必须由用户手动应用。
 - `catalogStore` 合并 AgentMate 目录下行与 App 本地市场数据，但不接收第三方 SkillHub 镜像。
-- `skillStore` 展示磁盘上真实安装的 Skill，安装、编辑、启停和卸载均经 App backend。
+- `skillStore` 展示磁盘上真实安装的 Skill，安装、编辑、启停和卸载均经 Local Agent。
 - `loadoutStore` 将会话级专家、Skill 与连接器选择传给 runtime；ask 模式不挂工具。
 - `src/platform/index.ts` 隔离 Web 与 Tauri API，业务组件不直接依赖原生壳。
 
 Markdown 输出按 `marked → highlight.js → DOMPurify` 处理。任何新增富文本入口都必须沿用同一消毒链路。
 
-## 5. App backend 与 Agent runtime
+## 5. Local Agent 与 Agent runtime
 
 `backend/agent/runtime.py` 的 `run_chat` 是异步生成器。一次执行的核心流程为：
 
@@ -135,7 +135,7 @@ MCP 连接器工具属于动态外部能力，不混入内置工具目录，由 
 安全边界：
 
 - 文件工具使用 `backend/agent/sandbox.py`，路径必须位于当前项目工作区。
-- `run_command` 固定工作目录、限时、剔除密钥并受安全策略与审计约束，但它仍以后端 OS 权限运行，
+- `run_command` 固定工作目录、限时、剔除密钥并受安全策略与审计约束，但它仍以 Local Agent OS 权限运行，
   不能宣称为完整虚拟机级沙箱。
 - Viewer 只读；会话、文件、项目和 Server 协作路由按 owner/成员角色检查。
 - `ask_user` 在进程内用 `asyncio.Event` 挂起，并由 `/api/chat/{id}/answer` 在原 SSE 执行上恢复。
@@ -207,7 +207,7 @@ release、stable/beta、稳定设备灰度、暂停/回滚、受控 HTTPS endpoi
 前置：Node.js 20+、pnpm、Python 3.11+。
 
 ```powershell
-# App backend
+# Local Agent（实现源码暂位于 backend/）
 Set-Location backend
 python -m venv .venv
 ./.venv/Scripts/pip.exe install -r requirements.txt
