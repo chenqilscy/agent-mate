@@ -7,7 +7,7 @@
 
 - 活动状态 `open` / `in-progress` / `deferred`：每个问题一个 `WB-<编号>-<slug>.md` 文件。
 - 终态 `fixed` / `wontfix`：运行 `python scripts/archive_issues.py --apply` 后进入 [`archive/`](archive/README.md)。
-- 编号全局递增且不复用；当前最大编号是 `WB-431`，可用 `python scripts/archive_issues.py --next-id` 查询。
+- 编号全局递增且不复用；当前最大编号是 `WB-432`，可用 `python scripts/archive_issues.py --next-id` 查询。
 - 活动文件 frontmatter 是权威状态；下表是活动状态镜像。
 
 ## 活动台账
@@ -22,6 +22,7 @@
 | [WB-420](WB-420-workbuddy-reference-and-design-docs.md) | ✅ | P3 | docs | 补充 WorkBuddy 参考解读与 AgentMate 设计系统文档资料 |
 | [WB-423](WB-423-first-registration-admin-by-default.md) | ✅ | P2 | backend | 首个注册用户应自动成为平台管理员 |
 | [WB-430](WB-430-app-console-visual-alignment.md) | 🟡 | P2 | ui | AgentMate App 与 Console 的视觉系统和工作台细节不一致 |
+| [WB-432](WB-432-server-durable-business-plane.md) | ⬜ | P1 | backend | Server 补齐持久业务模型与统一 API |
 
 ## 已关闭归档
 
