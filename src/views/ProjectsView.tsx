@@ -46,7 +46,6 @@ export function ProjectsView() {
   const serverLinked = useServerStore((s) => s.linked)
   const serverAuthState = useServerStore((s) => s.authState)
   const onlineValidationTtl = useServerStore((s) => s.onlineValidationTtl)
-  const offlineGraceRemaining = useServerStore((s) => s.offlineGraceRemaining)
   const serverChecked = useServerStore((s) => s.checked)
   const refreshServer = useServerStore((s) => s.refreshStatus)
 
@@ -80,14 +79,13 @@ export function ProjectsView() {
     return project.name.toLowerCase().includes(normalizedQuery)
   })
 
-  const syncProjects = async () => {
+  const refreshProjects = async () => {
     if (syncing) return
     setSyncing(true)
     try {
-      const result = await api.serverPull()
       await load()
       await loadPortfolio()
-      toast(`同步完成 · ${result.synced} 个团队项目`)
+      toast('项目已从 Server 刷新')
     } catch {
       toast('同步失败，请检查 Server 连接')
     } finally {
@@ -96,16 +94,16 @@ export function ProjectsView() {
   }
 
   const serverContext = !serverChecked
-    ? { title: '正在确认账号与项目同步状态', detail: 'AgentMate 账号统一由 Server 提供。', tone: 'checking' }
+    ? { title: '正在确认 Server 连接', detail: '项目和协作数据直接从 Server 读取。', tone: 'checking' }
     : serverLinked
       ? serverEnabled && serverAuthState === 'online'
-        ? { title: `已登录 Server 账号 · ${serverLinked.name}`, detail: `在线身份每 ${onlineValidationTtl} 秒内重新校验；团队项目由 Console/Server 管理。`, tone: 'linked' }
+        ? { title: `已登录 Server 账号 · ${serverLinked.name}`, detail: `在线身份每 ${onlineValidationTtl} 秒内重新校验；当前视图直接来自 Server。`, tone: 'linked' }
         : serverAuthState === 'offline_grace'
-          ? { title: `Server 离线宽限 · ${serverLinked.name}`, detail: `中心当前不可达，本机身份缓存还可使用约 ${Math.ceil(offlineGraceRemaining / 60)} 分钟；恢复连接后会立即重验。`, tone: 'attention' }
-        : { title: `已登录 Server 账号 · ${serverLinked.name}`, detail: '当前缺少 Server 地址，账号身份来自本地验证缓存；配置后可恢复团队项目同步。', tone: 'attention' }
+          ? { title: `Server 离线只读 · ${serverLinked.name}`, detail: `中心当前不可达，只能查看带时间戳的缓存；任何修改都会失败。`, tone: 'attention' }
+        : { title: `已登录 Server 账号 · ${serverLinked.name}`, detail: '当前无法连接 Server；本机不会接管业务写入。', tone: 'attention' }
       : !serverEnabled
-        ? { title: 'AgentMate Server 尚未配置', detail: '当前是匿名访客，不是本地账号；配置 Server 后才能登录并同步团队项目。', tone: 'attention' }
-        : { title: '尚未登录 AgentMate Server', detail: 'AgentMate 用户统一来自 Server；登录后可同步 Console 项目、成员与计划。', tone: 'attention' }
+        ? { title: 'AgentMate Server 尚未配置', detail: '配置 Server 后才能登录和使用业务工作台；Local Agent 不创建本地业务账号。', tone: 'attention' }
+        : { title: '尚未登录 AgentMate Server', detail: '登录后可直接读取 Console 中的项目、会话与计划。', tone: 'attention' }
 
   return (
     <section className="view active" data-view="projects">
@@ -136,7 +134,7 @@ export function ProjectsView() {
           </div>
           {serverChecked && (
             <div className="projects-context-actions">
-              {serverLinked && serverEnabled && <WbButton className="btn-ghost" disabled={syncing} onClick={syncProjects}>{syncing ? '同步中…' : '同步项目'}</WbButton>}
+              {serverLinked && serverEnabled && <WbButton className="btn-ghost" disabled={syncing} onClick={refreshProjects}>{syncing ? '刷新中…' : '刷新项目'}</WbButton>}
               <WbButton
                 className="btn-line"
                 onClick={() => {

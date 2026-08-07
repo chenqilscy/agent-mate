@@ -26,6 +26,7 @@ export type LocalAgentStatus = {
   service: 'local-agent-core'
   protocol_version: number
   server_configured: boolean
+  server_api_url: string
   transport: {
     identities: number
     leases: { total: number; active: number }

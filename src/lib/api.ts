@@ -1,14 +1,14 @@
-// Thin REST client. All calls go to the local backend (via Vite's /api proxy in
-// dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
+// Compatibility facade over two explicit channels: durable business/auth data
+// goes straight to AgentMate Server, while device credentials, files and agent
+// execution stay on the loopback Local Agent. Provider API keys never enter UI state.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, ProjectMember, RunStatus, SessionInfo, SharedPmPreferences, SharedPmPreferencesPatch, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, RunStatus, SessionInfo, SharedPmPreferences, SharedPmPreferencesPatch, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
+import { LOCAL_API_BASE, channelSnapshot, localExecutionSession, serverGet, serverGetAll, serverSend } from './channels'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
 // backend directly (CORS on the backend allows the tauri origin).
-const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-export const API_BASE =
-  import.meta.env.VITE_API_BASE ?? (isTauri ? 'http://127.0.0.1:8101/api' : '/api')
+export const API_BASE = LOCAL_API_BASE
 
 // Server-issued Bearer token for AgentMate accounts. Stored in localStorage so
 // it survives reloads and is readable by both api.ts and the SSE reader. No
@@ -39,6 +39,59 @@ export interface AuthResult {
   token: string
   expires_at: number
   user: { id: string; name: string; role: string; plan: string }
+}
+
+async function serverAutomationSessions(automationId?: string): Promise<SessionInfo[]> {
+  const [runResult, sessionResult] = await Promise.all([
+    serverGetAll<AgentRun>('/runs', 'runs'),
+    serverGetAll<SessionInfo>('/sessions', 'sessions'),
+  ])
+  const bySession = new Map<string, AgentRun>()
+  for (const run of runResult) {
+    const linkedId = String(run.request_snapshot?.automation_id || '')
+    if (!linkedId || (automationId && linkedId !== automationId)) continue
+    const previous = bySession.get(run.session_id)
+    if (!previous || (run.updated_at || 0) >= (previous.updated_at || 0)) {
+      bySession.set(run.session_id, run)
+    }
+  }
+  return sessionResult.flatMap((session) => {
+    const run = bySession.get(session.id)
+    if (!run) return []
+    const runStatus = run.status === 'completed' ? 'ok'
+      : run.status === 'failed' || run.status === 'cancelled' ? 'error'
+        : 'running'
+    return [{ ...session, run_status: runStatus, run_kind: 'test' as const }]
+  })
+}
+
+type ServerAccount = {
+  id: string
+  name: string
+  plan?: string
+  is_platform_admin?: boolean
+}
+
+type ServerAccountPayload = { account?: ServerAccount; user?: ServerAccount }
+
+function serverAccount(value: ServerAccountPayload): ServerAccount {
+  const account = value.account ?? value.user
+  if (!account?.id) throw new Error('AgentMate Server 返回了无效账号信息')
+  return account
+}
+
+function authResult(value: { token: string; expires_at: number } & ServerAccountPayload): AuthResult {
+  const account = serverAccount(value)
+  return {
+    token: value.token,
+    expires_at: value.expires_at,
+    user: {
+      id: account.id,
+      name: account.name,
+      role: account.is_platform_admin ? 'admin' : 'user',
+      plan: account.plan || 'free',
+    },
+  }
 }
 
 export interface SsoProvider { id: 'google' | 'wechat' | 'telegram'; label: string }
@@ -88,7 +141,20 @@ async function readSkillResponse<T>(response: Response, fallback: string): Promi
 }
 
 export const api = {
-  me: () => get<Me>('/me'),
+  me: async () => {
+    const account = serverAccount(await serverGet<ServerAccountPayload>('/me', { cache: false }))
+    return {
+      id: account.id,
+      name: account.name,
+      authenticated: true,
+      role: account.is_platform_admin ? 'admin' : 'user',
+      plan: account.plan || 'free',
+      // Runtime credentials are device-local and are intentionally not inferred
+      // from the Server account response.
+      llm_configured: false,
+      model: '',
+    } satisfies Me
+  },
   opsSummary: (days = 7) => get<OpsSummary>(`/ops/summary?days=${days}`),
   backgroundHealth: () => get<BackgroundHealth>('/ops/background-health'),
 
@@ -180,19 +246,24 @@ export const api = {
   securityAudit: () => get<{ items: AuditEntry[] }>('/security/audit'),
   clearAudit: () => send<{ ok: boolean; removed: number }>('POST', '/security/audit/clear'),
 
-  register: (name: string, password: string) =>
-    send<AuthResult>('POST', '/auth/register', { name, password }),
-  login: (name: string, password: string) =>
-    send<AuthResult>('POST', '/auth/login', { name, password }),
-  ssoProviders: () => get<{ providers: SsoProvider[] }>('/auth/sso/providers'),
-  authCapabilities: () => get<{ password_registration: boolean; registration_policy: string; min_password_length: number; bootstrap_available: boolean }>('/auth/capabilities'),
+  register: async (name: string, password: string) =>
+    authResult(await serverSend<{ token: string; expires_at: number } & ServerAccountPayload>('POST', '/auth/register', { name, password })),
+  login: async (name: string, password: string) =>
+    authResult(await serverSend<{ token: string; expires_at: number } & ServerAccountPayload>('POST', '/auth/login', { name, password })),
+  ssoProviders: () => serverGet<{ providers: SsoProvider[] }>('/auth/sso/providers', { cache: false }),
+  authCapabilities: () => serverGet<{ password_registration: boolean; registration_policy: string; min_password_length: number; bootstrap_available: boolean }>('/auth/capabilities', { cache: false }),
   ssoStart: (provider: string, invite_code = '') =>
-    send<SsoStartResult>('POST', '/auth/sso/start', { provider, invite_code }),
-  ssoPoll: (attempt_id: string, attempt_token: string) =>
-    send<({ status: 'pending' | 'error'; error_code?: string } | ({ status: 'completed' } & AuthResult))>(
-      'POST', '/auth/sso/poll', { attempt_id, attempt_token },
-    ),
-  logout: () => send<{ ok: boolean }>('POST', '/auth/logout'),
+    serverSend<SsoStartResult>('POST', '/auth/sso/start', { provider, invite_code }),
+  ssoPoll: async (attempt_id: string, attempt_token: string) => {
+    const result = await serverSend<(
+      { status: 'pending' | 'error'; error_code?: string }
+      | ({ status: 'completed'; token: string; expires_at: number } & ServerAccountPayload)
+    )>('POST', '/auth/sso/poll', { attempt_id, attempt_token })
+    return result.status === 'completed'
+      ? { status: 'completed' as const, ...authResult(result) }
+      : result
+  },
+  logout: () => serverSend<{ ok: boolean }>('POST', '/auth/logout'),
 
   // 厂商预置 + 自定义兜底（WB-128）。providers 供配置弹窗分组；models 是 picker 扁平可选列表。
   models: () => get<ModelsResponse>('/models'),
@@ -229,74 +300,91 @@ export const api = {
   deleteCustomModel: (id: string) => send<{ ok: boolean }>('DELETE', `/models/custom/${id}`),
 
   // 橱窗目录（WB-060）：原 data/catalog.ts 静态商品卡，现由后端供给。按 export 名分组的对象。
-  getCatalog: () => get<Record<string, unknown>>('/catalog'),
+  getCatalog: async () => {
+    const { items } = await serverGet<{ items: Array<{ category: string; data: unknown }> }>('/catalog')
+    const grouped: Record<string, unknown[]> = {}
+    for (const item of items) {
+      if (!grouped[item.category]) grouped[item.category] = []
+      grouped[item.category].push(item.data)
+    }
+    return grouped as Record<string, unknown>
+  },
   inspirationFavorites: () => get<{ ids: string[] }>('/catalog/inspiration-favorites'),
   setInspirationFavorite: (templateId: string, favorite: boolean) =>
     send<{ ids: string[] }>('PUT', `/catalog/inspiration-favorites/${encodeURIComponent(templateId)}`, { favorite }),
 
-  // 触发本地 backend 从 Server 下行 pull（项目/成员/目录镜像，WB-062/066/070）。
-  // 未接 Server → 后端无害返回 {server:false}；用于登录后刷新 AgentMate 自有目录与协作数据。
-  serverPull: () => send<{
-    server: boolean
-    synced: number
-    projects: string[]
-    conflicts?: unknown[]
-    flushed?: number
-    catalog?: number
-  }>('POST', '/server/pull'),
-
-  // 前端接 Server 协作（WB-067 Slice 2）：都经本地 backend 代理转发到 Server；未接 Server → {server:false}/空。
-  serverStatus: () => get<{
-    enabled: boolean
-    console_url: string
-    linked: { account_id: string; name: string } | null
-    auth_state: 'unconfigured' | 'disconnected' | 'online' | 'offline_grace' | 'offline_expired' | 'revoked'
-    online_validation_ttl_seconds: number
-    offline_grace_seconds: number
-    offline_grace_remaining_seconds: number
-  }>('/server/status'),
-  serverLogin: (name: string, password: string, register = false) =>
-    send<{ token: string; account: { id: string; name: string; is_platform_admin?: boolean } }>('POST', '/server/login', { name, password, register }),
-  serverImport: () => send<{ server: boolean; imported: number; skipped: number }>('POST', '/server/import'),
-  serverComments: (pid: string) =>
-    get<{ server: boolean; comments: { id: string; author_name: string; body: string; created_at: number }[] }>(`/server/projects/${pid}/comments`),
+  // Server collaboration reads/writes are direct. These compatibility method
+  // names remain temporarily so view components can migrate independently.
+  serverComments: async (pid: string) => ({
+    server: true,
+    ...(await serverGet<{ comments: { id: string; author_name: string; body: string; created_at: number }[] }>(`/projects/${pid}/comments`)),
+  }),
   serverPostComment: (pid: string, body: string) =>
-    send<{ id: string; mentioned?: number }>('POST', `/server/projects/${pid}/comments`, { body }),
-  serverItemComments: (pid: string, wid: string) =>
-    get<{ server: boolean; comments: { id: string; author_name: string; body: string; created_at: number }[] }>(`/server/projects/${pid}/work-items/${wid}/comments`),
+    serverSend<{ id: string; mentioned?: number }>('POST', `/projects/${pid}/comments`, { body }),
+  serverItemComments: async (pid: string, wid: string) => ({
+    server: true,
+    ...(await serverGet<{ comments: { id: string; author_name: string; body: string; created_at: number }[] }>(`/projects/${pid}/work-items/${wid}/comments`)),
+  }),
   serverPostItemComment: (pid: string, wid: string, body: string) =>
-    send<{ id: string; mentioned?: number }>('POST', `/server/projects/${pid}/work-items/${wid}/comments`, { body }),
-  serverPresence: (pid: string) =>
-    get<{ server: boolean; presence: { account_id: string; name: string; role: string; online: boolean; last_seen: number }[] }>(`/server/projects/${pid}/presence`),
-  serverTimeline: (pid: string) =>
-    get<{ server: boolean; reachable: boolean; stale: boolean; events: import('./types').ServerTimelineEvent[] }>(`/server/projects/${pid}/timeline`),
-  serverProjectActivity: (pid: string) =>
-    get<{ server: boolean; activity: { id: string; actor: string; kind: string; detail: string; created_at: number }[] }>(`/server/projects/${pid}/activity`),
-  serverProjectCustomFields: (pid: string) =>
-    get<{ server: boolean; fields: import('./types').ServerProjectField[] }>(`/server/projects/${pid}/custom-fields`),
-  serverCreateProjectCustomField: (pid: string, body: Omit<import('./types').ServerProjectField, 'id'>) =>
-    send<{ server: boolean; field: import('./types').ServerProjectField }>('POST', `/server/projects/${pid}/custom-fields`, body),
-  serverUpdateProjectCustomField: (pid: string, fieldId: string, body: Partial<Omit<import('./types').ServerProjectField, 'id'>>) =>
-    send<{ server: boolean; field: import('./types').ServerProjectField }>('PATCH', `/server/projects/${pid}/custom-fields/${fieldId}`, body),
-  serverDeleteProjectCustomField: (pid: string, fieldId: string) =>
-    send<{ server: boolean; ok: boolean }>('DELETE', `/server/projects/${pid}/custom-fields/${fieldId}`),
-  serverProjectSprints: (pid: string) =>
-    get<{ server: boolean; sprints: import('./types').ServerProjectSprint[] }>(`/server/projects/${pid}/sprints`),
-  serverCreateProjectSprint: (pid: string, body: Omit<import('./types').ServerProjectSprint, 'id'> & { milestone_id?: string }) =>
-    send<{ server: boolean; sprint: import('./types').ServerProjectSprint }>('POST', `/server/projects/${pid}/sprints`, body),
-  serverUpdateProjectSprint: (pid: string, sprintId: string, body: Partial<Omit<import('./types').ServerProjectSprint, 'id'> & { milestone_id?: string }>) =>
-    send<{ server: boolean; sprint: import('./types').ServerProjectSprint }>('PATCH', `/server/projects/${pid}/sprints/${sprintId}`, body),
-  serverDeleteProjectSprint: (pid: string, sprintId: string) =>
-    send<{ server: boolean; ok: boolean }>('DELETE', `/server/projects/${pid}/sprints/${sprintId}`),
-  serverProjectPmPreferences: (pid: string) =>
-    get<{ server: boolean; preferences: SharedPmPreferences }>(`/server/projects/${pid}/pm-preferences`),
-  serverUpdateProjectPmPreferences: (pid: string, patch: SharedPmPreferencesPatch) =>
-    send<{ server: boolean; preferences: SharedPmPreferences }>('PUT', `/server/projects/${pid}/pm-preferences`, patch),
-  serverSyncConflicts: (pid: string) =>
-    get<{ count: number; conflicts: { entity_type: string; entity_id: string; reason: string; detected_at: number }[] }>(`/server/projects/${pid}/sync-conflicts`),
-  serverNotifications: () =>
-    get<{ server: boolean; notifications: { id: string; title: string; body: string; created_at: number; read: number }[]; unread: number }>('/server/notifications'),
-  serverMarkNotifs: (ids?: string[]) => send<{ ok: boolean }>('POST', '/server/notifications/read', ids ? { ids } : {}),
+    serverSend<{ id: string; mentioned?: number }>('POST', `/projects/${pid}/work-items/${wid}/comments`, { body }),
+  serverPresence: async (pid: string) => ({
+    server: true,
+    ...(await serverGet<{ presence: { account_id: string; name: string; role: string; online: boolean; last_seen: number }[] }>(`/projects/${pid}/presence`)),
+  }),
+  serverTimeline: async (pid: string) => {
+    const result = await serverGet<{ events: import('./types').ServerTimelineEvent[] }>(`/projects/${pid}/timeline`)
+    const stale = channelSnapshot().server.state === 'cached'
+    return { server: true, reachable: !stale, stale, ...result }
+  },
+  serverProjectActivity: async (pid: string) => ({
+    server: true,
+    ...(await serverGet<{ activity: { id: string; actor: string; kind: string; detail: string; created_at: number }[] }>(`/projects/${pid}/activity`)),
+  }),
+  serverProjectCustomFields: async (pid: string) => ({
+    server: true,
+    ...(await serverGet<{ fields: import('./types').ServerProjectField[] }>(`/projects/${pid}/custom-fields`)),
+  }),
+  serverCreateProjectCustomField: async (pid: string, body: Omit<import('./types').ServerProjectField, 'id'>) => ({
+    server: true,
+    field: await serverSend<import('./types').ServerProjectField>('POST', `/projects/${pid}/custom-fields`, body),
+  }),
+  serverUpdateProjectCustomField: async (pid: string, fieldId: string, body: Partial<Omit<import('./types').ServerProjectField, 'id'>>) => ({
+    server: true,
+    field: await serverSend<import('./types').ServerProjectField>('PATCH', `/projects/${pid}/custom-fields/${fieldId}`, body),
+  }),
+  serverDeleteProjectCustomField: async (pid: string, fieldId: string) => ({
+    server: true,
+    ...(await serverSend<{ ok: boolean }>('DELETE', `/projects/${pid}/custom-fields/${fieldId}`)),
+  }),
+  serverProjectSprints: async (pid: string) => ({
+    server: true,
+    ...(await serverGet<{ sprints: import('./types').ServerProjectSprint[] }>(`/projects/${pid}/sprints`)),
+  }),
+  serverCreateProjectSprint: async (pid: string, body: Omit<import('./types').ServerProjectSprint, 'id'> & { milestone_id?: string }) => ({
+    server: true,
+    sprint: await serverSend<import('./types').ServerProjectSprint>('POST', `/projects/${pid}/sprints`, body),
+  }),
+  serverUpdateProjectSprint: async (pid: string, sprintId: string, body: Partial<Omit<import('./types').ServerProjectSprint, 'id'> & { milestone_id?: string }>) => ({
+    server: true,
+    sprint: await serverSend<import('./types').ServerProjectSprint>('PATCH', `/projects/${pid}/sprints/${sprintId}`, body),
+  }),
+  serverDeleteProjectSprint: async (pid: string, sprintId: string) => ({
+    server: true,
+    ...(await serverSend<{ ok: boolean }>('DELETE', `/projects/${pid}/sprints/${sprintId}`)),
+  }),
+  serverProjectPmPreferences: async (pid: string) => ({
+    server: true,
+    preferences: await serverGet<SharedPmPreferences>(`/projects/${pid}/pm-preferences`),
+  }),
+  serverUpdateProjectPmPreferences: async (pid: string, patch: SharedPmPreferencesPatch) => ({
+    server: true,
+    preferences: await serverSend<SharedPmPreferences>('PUT', `/projects/${pid}/pm-preferences`, patch),
+  }),
+  serverNotifications: async () => ({
+    server: true,
+    ...(await serverGet<{ notifications: { id: string; title: string; body: string; created_at: number; read: number }[]; unread: number }>('/notifications')),
+  }),
+  serverMarkNotifs: (ids?: string[]) => serverSend<{ ok: boolean }>('POST', '/notifications/read', ids ? { ids } : {}),
 
   // 助理外部渠道 · Telegram（WB-072）。状态 + 真实会话历史；say = 从 App 驱动同一助手
   // （与 Telegram 共用同一助理会话）。渠道是本机 local-first 特性，不携带项目/登录作用域。
@@ -318,25 +406,69 @@ export const api = {
   unbindAssistantChannel: (id: string, cid: string) =>
     send<AssistantChannel>('POST', `/assistants/${id}/channels/${cid}/unbind`),
 
-  listSessions: (space?: string) =>
-    get<{ sessions: SessionInfo[] }>(`/sessions${space ? `?space=${encodeURIComponent(space)}` : ''}`),
+  listSessions: async (space?: string) => {
+    const sessions = await serverGetAll<SessionInfo>('/sessions', 'sessions')
+    return { sessions: space ? sessions.filter((session) => session.space === space) : sessions }
+  },
 
-  getMessages: (id: string) =>
-    get<{ session: SessionInfo; messages: RawMessage[] }>(`/sessions/${id}/messages`),
+  getMessages: async (id: string) => {
+    const [session, result] = await Promise.all([
+      serverGet<SessionInfo>(`/sessions/${id}`),
+      serverGetAll<RawMessage & { actor_id?: string }>(`/sessions/${id}/messages`, 'messages', 500),
+    ])
+    return {
+      session,
+      messages: result.map((message) => ({
+        ...message,
+        actor: message.actor || message.actor_id || message.role,
+        usage: message.usage || null,
+      })),
+    }
+  },
 
   listRuns: (filters?: { sessionId?: string; projectId?: string; workItemId?: string }) => {
     const query = new URLSearchParams()
     if (filters?.sessionId) query.set('session_id', filters.sessionId)
     if (filters?.projectId) query.set('project_id', filters.projectId)
     if (filters?.workItemId) query.set('work_item_id', filters.workItemId)
-    return get<{ runs: AgentRun[] }>(`/runs${query.size ? `?${query}` : ''}`)
+    return serverGetAll<AgentRun>(`/runs${query.size ? `?${query}` : ''}`, 'runs')
+      .then((runs) => ({ runs }))
   },
-  getRun: (id: string) => get<AgentRun>(`/runs/${id}`),
-  listRunArtifacts: (id: string) => get<{ artifacts: ArtifactManifest[] }>(`/runs/${id}/artifacts`),
-  reviewArtifact: (id: string, status: 'accepted' | 'rejected' | 'pending') =>
-    send<ArtifactManifest>('POST', `/artifacts/${id}/review`, { status }),
-  retryRun: (id: string, idempotencyKey?: string) =>
-    send<{ run: AgentRun; created: boolean }>('POST', `/runs/${id}/retry`, { idempotency_key: idempotencyKey }),
+  getRun: (id: string) => serverGet<AgentRun>(`/runs/${id}`),
+  listRunArtifacts: async (id: string) => {
+    const assets = await serverGetAll<ArtifactManifest & { object_ref?: string }>(`/assets?run_id=${encodeURIComponent(id)}`, 'assets')
+    return {
+      artifacts: assets.map((asset) => ({
+        ...asset,
+        path: asset.path || asset.object_ref || '',
+        acceptance_status: asset.acceptance_status || 'pending',
+      })),
+    }
+  },
+  reviewArtifact: async (id: string, status: 'accepted' | 'rejected' | 'pending') => {
+    const current = await serverGet<ArtifactManifest & { version: number }>(`/assets/${id}`, { cache: false })
+    return serverSend<ArtifactManifest>('PATCH', `/assets/${id}`, {
+      expected_version: current.version,
+      acceptance_status: status,
+      accepted_at: status === 'accepted' ? Date.now() / 1000 : null,
+    })
+  },
+  retryRun: async (id: string, idempotencyKey?: string) => {
+    const current = await serverGet<AgentRun>(`/runs/${id}`, { cache: false })
+    const result = await serverSend<{ run: AgentRun; duplicate: boolean }>('POST', '/runs', {
+      session_id: current.session_id,
+      work_item_id: current.work_item_id || null,
+      mode: current.mode,
+      workspace: current.workspace,
+      retry_of: id,
+      model_ref: current.model_ref || null,
+      model_id: current.model_id || null,
+      model_snapshot: current.model_snapshot || {},
+      permission_snapshot: current.permission_snapshot || {},
+      request_snapshot: {},
+    }, { headers: { 'Idempotency-Key': idempotencyKey || `retry:${crypto.randomUUID()}` } })
+    return { run: result.run, created: !result.duplicate }
+  },
   promoteRunPlanItem: (runId: string, itemId: string) =>
     send<{ run: AgentRun; work_item: WorkItem; created: boolean }>(
       'POST', `/runs/${runId}/plan/${itemId}/promote`,
@@ -351,17 +483,35 @@ export const api = {
   cancelOrchestration: (id: string) =>
     send<{ cancelled: boolean; orchestration: Orchestration }>('POST', `/orchestrations/${id}/cancel`),
 
-  renameSession: (id: string, title: string) =>
-    send<{ ok: boolean }>('PATCH', `/sessions/${id}`, { title }),
+  renameSession: async (id: string, title: string) => {
+    const current = await serverGet<SessionInfo & { version: number }>(`/sessions/${id}`, { cache: false })
+    await serverSend<SessionInfo>('PATCH', `/sessions/${id}`, { title, expected_version: current.version })
+    return { ok: true }
+  },
 
-  deleteSession: (id: string) => send<{ ok: boolean }>('DELETE', `/sessions/${id}`),
+  deleteSession: async (id: string) => {
+    const current = await serverGet<SessionInfo & { version: number }>(`/sessions/${id}`, { cache: false })
+    return serverSend<{ ok: boolean }>('DELETE', `/sessions/${id}?expected_version=${current.version}`)
+  },
 
-  stopChat: (id: string) => send<{ stopped: boolean }>('POST', `/chat/${id}/stop`),
+  stopChat: (id: string) => {
+    const localId = localExecutionSession(id)
+    return localId
+      ? send<{ stopped: boolean }>('POST', `/chat/${localId}/stop`)
+      : Promise.resolve({ stopped: false })
+  },
 
-  answer: (id: string, answers: string[]) =>
-    send<{ ok: boolean }>('POST', `/chat/${id}/answer`, { answers }),
+  answer: (id: string, answers: string[]) => {
+    const localId = localExecutionSession(id)
+    return localId
+      ? send<{ ok: boolean }>('POST', `/chat/${localId}/answer`, { answers })
+      : Promise.reject(new Error('Local Agent execution session is unavailable'))
+  },
 
-  listProjects: () => get<{ projects: ProjectInfo[] }>('/projects'),
+  listProjects: async () => {
+    const result = await serverGet<{ projects: ProjectInfo[] }>('/projects')
+    return { projects: result.projects.map((project) => ({ ...project, origin: 'server' as const })) }
+  },
 
   createProject: (body: {
     name: string
@@ -370,9 +520,20 @@ export const api = {
     experts: string[]
     skills: string[]
     knowledge_ids: string[]
-  }) => send<ProjectInfo>('POST', '/projects', body),
+  }) => {
+    if (body.knowledge_ids.length) {
+      return Promise.reject(new Error('项目知识库绑定必须由 Server/Console 管理'))
+    }
+    return serverSend<ProjectInfo>('POST', '/projects', {
+      name: body.name,
+      instruction: body.instruction,
+      connectors: body.connectors,
+      experts: body.experts,
+      skills: body.skills,
+    }).then((project) => ({ ...project, origin: 'server' as const }))
+  },
 
-  getProject: (id: string) => get<ProjectInfo>(`/projects/${id}`),
+  getProject: (id: string) => serverGet<ProjectInfo>(`/projects/${id}`).then((project) => ({ ...project, origin: 'server' as const })),
 
   // Custom experts (我的专家 · WB-049).
   listExperts: () => get<{ experts: CustomExpert[] }>('/experts'),
@@ -469,27 +630,39 @@ export const api = {
     ),
   revealSkill: (key: string) => send<{ ok: boolean }>('POST', `/skills/${encodeURIComponent(key)}/reveal`),
 
-  updateProject: (id: string, patch: Partial<Pick<ProjectInfo, 'name' | 'instruction' | 'connectors' | 'experts' | 'skills' | 'knowledge_ids'>>) =>
-    send<ProjectInfo>('PATCH', `/projects/${id}`, patch),
+  updateProject: (id: string, patch: Partial<Pick<ProjectInfo, 'name' | 'instruction' | 'connectors' | 'experts' | 'skills' | 'knowledge_ids'>>) => {
+    if (patch.knowledge_ids !== undefined) {
+      return Promise.reject(new Error('项目知识库绑定必须由 Server/Console 管理'))
+    }
+    return serverSend<ProjectInfo>('PATCH', `/projects/${id}`, patch)
+  },
 
   projectSessions: (id: string) =>
-    get<{ sessions: SessionInfo[] }>(`/projects/${id}/sessions`),
+    serverGetAll<SessionInfo>(`/sessions?project_id=${encodeURIComponent(id)}`, 'sessions')
+      .then((sessions) => ({ sessions })),
 
   // Project members / roles (M7 C2).
-  listMembers: (id: string) => get<{ members: ProjectMember[] }>(`/projects/${id}/members`),
-  addMember: (id: string, name: string, role: string) =>
-    send<{ members: ProjectMember[] }>('POST', `/projects/${id}/members`, { name, role }),
-  updateMemberRole: (id: string, userId: string, role: string) =>
-    send<{ members: ProjectMember[] }>('PATCH', `/projects/${id}/members/${userId}`, { role }),
+  listMembers: async (id: string) => {
+    const result = await serverGet<{ members: Array<{ account_id: string; name: string; role: string; is_owner?: boolean }> }>(`/projects/${id}/members`)
+    return { members: result.members.map((member) => ({ ...member, user_id: member.account_id, is_owner: member.is_owner || false })) }
+  },
+  addMember: async (id: string, name: string, role: string) => {
+    await serverSend('POST', `/projects/${id}/members`, { name, role })
+    return api.listMembers(id)
+  },
+  updateMemberRole: async (id: string, userId: string, role: string) => {
+    await serverSend('PATCH', `/projects/${id}/members/${userId}`, { role })
+    return api.listMembers(id)
+  },
   removeMember: (id: string, userId: string) =>
-    send<{ ok: boolean }>('DELETE', `/projects/${id}/members/${userId}`),
+    serverSend<{ ok: boolean }>('DELETE', `/projects/${id}/members/${userId}`),
 
   // Message center (M7 C4).
-  listNotifications: () => get<{ notifications: AppNotification[]; unread: number }>('/notifications'),
+  listNotifications: () => serverGet<{ notifications: AppNotification[]; unread: number }>('/notifications'),
   markNotificationsRead: (ids?: string[]) =>
-    send<{ ok: boolean; unread: number }>('POST', '/notifications/read', ids ? { ids } : {}),
+    serverSend<{ ok: boolean; unread: number }>('POST', '/notifications/read', ids ? { ids } : {}),
 
-  listWorkItems: (project: string) => get<{ items: WorkItem[] }>(`/work-items?project=${project}`),
+  listWorkItems: (project: string) => serverGet<{ items: WorkItem[] }>(`/projects/${project}/work-items`),
 
   createWorkItem: (body: {
     project_id: string; title: string; status?: WorkStatus
@@ -497,17 +670,38 @@ export const api = {
     priority?: WorkPriority; start_date?: string | null; labels?: string[]
     parent_id?: string; milestone_id?: string; estimate_h?: number; spent_h?: number
     custom_fields?: Record<string, string | number | boolean>; dependency_ids?: string[]; sprint_id?: string
-  }) => send<WorkItem>('POST', '/work-items', body),
+  }) => {
+    if (body.attachments?.length) {
+      return Promise.reject(new Error('任务附件必须先上传为 Server 资产'))
+    }
+    const { project_id, ...values } = body
+    return serverSend<WorkItem>('POST', `/projects/${project_id}/work-items`, {
+      ...values,
+      due_date: values.due_date || '',
+      start_date: values.start_date || '',
+      attachments: undefined,
+    })
+  },
 
-  updateWorkItem: (id: string, patch: {
+  updateWorkItem: (projectId: string, id: string, patch: {
     status?: WorkStatus; title?: string
     description?: string; due_date?: string | null; attachments?: WorkAttachment[]
     priority?: WorkPriority; start_date?: string | null; labels?: string[]
     parent_id?: string; milestone_id?: string; estimate_h?: number; spent_h?: number
     custom_fields?: Record<string, string | number | boolean>; dependency_ids?: string[]; sprint_id?: string
-  }) => send<WorkItem>('PATCH', `/work-items/${id}`, patch),
+  }) => {
+    if (patch.attachments?.length) {
+      return Promise.reject(new Error('任务附件必须先上传为 Server 资产'))
+    }
+    return serverSend<WorkItem>('PATCH', `/projects/${projectId}/work-items/${id}`, {
+      ...patch,
+      due_date: patch.due_date === null ? '' : patch.due_date,
+      start_date: patch.start_date === null ? '' : patch.start_date,
+      attachments: undefined,
+    })
+  },
 
-  deleteWorkItem: (id: string) => send<{ ok: boolean }>('DELETE', `/work-items/${id}`),
+  deleteWorkItem: (projectId: string, id: string) => serverSend<{ ok: boolean }>('DELETE', `/projects/${projectId}/work-items/${id}`),
 
   getWorkItemDelivery: (id: string) => get<WorkItemDelivery>(`/work-items/${id}/delivery`),
   executeWorkItem: (id: string, idempotencyKey: string, model?: string | null) =>
@@ -518,38 +712,55 @@ export const api = {
     send<{ ok: boolean; work_item: WorkItem; run: AgentRun }>('POST', `/work-items/${id}/accept`, { run_id: runId }),
 
   // 里程碑（WB-108）：server-origin 项目走 Server 权威 + 本地镜像，离线回退本地。
-  listMilestones: (project: string) => get<{ milestones: Milestone[] }>(`/milestones?project=${project}`),
-  createMilestone: (body: { project_id: string; name: string; description?: string; due_date?: string | null; status?: 'open' | 'closed' }) =>
-    send<Milestone>('POST', '/milestones', body),
-  updateMilestone: (id: string, patch: { name?: string; description?: string; due_date?: string | null; status?: 'open' | 'closed'; sort?: number }) =>
-    send<Milestone>('PATCH', `/milestones/${id}`, patch),
-  deleteMilestone: (id: string) => send<{ ok: boolean }>('DELETE', `/milestones/${id}`),
+  listMilestones: (project: string) => serverGet<{ milestones: Milestone[] }>(`/projects/${project}/milestones`),
+  createMilestone: (body: { project_id: string; name: string; description?: string; due_date?: string | null; status?: 'open' | 'closed' }) => {
+    const { project_id, ...values } = body
+    return serverSend<Milestone>('POST', `/projects/${project_id}/milestones`, {
+      ...values, due_date: values.due_date || '',
+    })
+  },
+  updateMilestone: (projectId: string, id: string, patch: { name?: string; description?: string; due_date?: string | null; status?: 'open' | 'closed'; sort?: number }) =>
+    serverSend<Milestone>('PATCH', `/projects/${projectId}/milestones/${id}`, patch),
+  deleteMilestone: (projectId: string, id: string) => serverSend<{ ok: boolean }>('DELETE', `/projects/${projectId}/milestones/${id}`),
 
   listProjectGovernance: (project: string) =>
-    get<{ records: ProjectGovernanceRecord[] }>(`/governance?project=${encodeURIComponent(project)}`),
+    serverGet<{ records: ProjectGovernanceRecord[] }>(`/projects/${encodeURIComponent(project)}/governance`),
   createProjectGovernance: (body: Partial<ProjectGovernanceRecord> & Pick<ProjectGovernanceRecord, 'project_id' | 'record_type' | 'title'>) =>
-    send<ProjectGovernanceRecord>('POST', '/governance', body),
-  updateProjectGovernance: (id: string, patch: Partial<ProjectGovernanceRecord>) =>
-    send<ProjectGovernanceRecord>('PATCH', `/governance/${id}`, patch),
-  deleteProjectGovernance: (id: string) => send<{ ok: boolean }>('DELETE', `/governance/${id}`),
-  projectHealth: (project: string) => get<ProjectHealth>(`/project-health?project=${encodeURIComponent(project)}`),
-  projectHealthPortfolio: () => get<ProjectHealthPortfolio>('/project-health/portfolio'),
-  projectHealthEvents: (project: string) => get<{ events: ProjectHealthTransition[]; source: string; stale: boolean }>(`/project-health/events?project=${encodeURIComponent(project)}`),
+    serverSend<ProjectGovernanceRecord>('POST', `/projects/${body.project_id}/governance`, body),
+  updateProjectGovernance: (projectId: string, id: string, patch: Partial<ProjectGovernanceRecord>) =>
+    serverSend<ProjectGovernanceRecord>('PATCH', `/projects/${projectId}/governance/${id}`, patch),
+  deleteProjectGovernance: (projectId: string, id: string) => serverSend<{ ok: boolean }>('DELETE', `/projects/${projectId}/governance/${id}`),
+  projectHealth: (project: string) => serverGet<ProjectHealth>(`/projects/${encodeURIComponent(project)}/health`),
+  projectHealthPortfolio: () => serverGet<ProjectHealthPortfolio>('/project-health'),
+  projectHealthEvents: (project: string) => serverGet<{ events: ProjectHealthTransition[]; source: string; stale: boolean }>(`/projects/${encodeURIComponent(project)}/health-events`),
 
-  listAutomations: () => get<{ automations: Automation[] }>('/automations'),
+  listAutomations: async () => {
+    const result = await serverGet<{ automations: Array<Automation & { model_ref?: string | null }> }>('/automations')
+    return { automations: result.automations.map((item) => ({ ...item, model: item.model_ref || null })) }
+  },
 
-  createAutomation: (body: CreateAutomationInput) =>
-    send<Automation>('POST', '/automations', body),
+  createAutomation: async (body: CreateAutomationInput) => {
+    const { automation } = await serverSend<{ automation: Automation & { model_ref?: string | null } }>('POST', '/automations', {
+      ...body, model_ref: body.model || null, model: undefined,
+    })
+    return { ...automation, model: automation.model_ref || null }
+  },
 
-  updateAutomation: (id: string, patch: Partial<CreateAutomationInput>) =>
-    send<Automation>('PATCH', `/automations/${id}`, patch),
+  updateAutomation: async (id: string, patch: Partial<CreateAutomationInput> & {
+    last_run_at?: number; last_session_id?: string | null; last_status?: Automation['last_status']
+  }) => {
+    const current = await serverGet<Automation & { version: number }>(`/automations/${id}`, { cache: false })
+    const updated = await serverSend<Automation & { model_ref?: string | null }>('PATCH', `/automations/${id}`, {
+      ...patch, model_ref: patch.model ?? undefined, model: undefined,
+      expected_version: current.version,
+    })
+    return { ...updated, model: updated.model_ref || null }
+  },
 
-  deleteAutomation: (id: string) => send<{ ok: boolean }>('DELETE', `/automations/${id}`),
-
-  runAutomation: (id: string, idempotencyKey?: string) =>
-    send<{ ok: boolean; session_id: string | null; fire_id: string | null; status: string | null }>(
-      'POST', `/automations/${id}/run`, idempotencyKey ? { idempotency_key: idempotencyKey } : {},
-    ),
+  deleteAutomation: async (id: string) => {
+    const current = await serverGet<Automation & { version: number }>(`/automations/${id}`, { cache: false })
+    return serverSend<{ ok: boolean }>('DELETE', `/automations/${id}?expected_version=${current.version}`)
+  },
 
   listAutomationFires: (status = 'dead_letter') =>
     get<{ fires: AutomationFire[] }>(`/automation-fires?status=${encodeURIComponent(status)}`),
@@ -560,8 +771,7 @@ export const api = {
   ignoreAutomationFire: (id: string) =>
     send<{ ok: boolean; fire: AutomationFire }>('POST', `/automation-fires/${id}/ignore`, {}),
 
-  listAutomationRuns: (id: string) =>
-    get<{ runs: SessionInfo[] }>(`/automations/${id}/runs`),
+  listAutomationRuns: async (id: string) => ({ runs: await serverAutomationSessions(id) }),
 
   getAutomationWebhook: (id: string) =>
     get<AutomationWebhookConfig>(`/automations/${id}/webhook`),
@@ -575,8 +785,7 @@ export const api = {
   deleteAutomationWebhook: (id: string) =>
     send<{ ok: boolean }>('DELETE', `/automations/${id}/webhook`),
 
-  listAllAutomationRuns: () =>
-    get<{ runs: SessionInfo[] }>('/automation-runs'),
+  listAllAutomationRuns: async () => ({ runs: await serverAutomationSessions() }),
 
   filesTree: (opts?: { project?: string; session?: string }) => {
     const q = opts?.project ? `?project=${opts.project}` : opts?.session ? `?session=${opts.session}` : ''

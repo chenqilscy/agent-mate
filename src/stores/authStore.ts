@@ -4,6 +4,7 @@
 // re-fetches under the new identity.
 import { create } from 'zustand'
 import { api, TOKEN_KEY } from '../lib/api'
+import { ChannelUnavailableError } from '../lib/channels'
 import type { Me } from '../lib/types'
 
 interface AuthState {
@@ -25,8 +26,12 @@ export const useAuthStore = create<AuthState>((set) => ({
       const me = await api.me()
       if (!me.authenticated) localStorage.removeItem(TOKEN_KEY)
       set({ me, loggedIn: me.authenticated })
-    } catch {
-      // Backend not up yet — leave null; the UI degrades gracefully.
+    } catch (error) {
+      if (error instanceof ChannelUnavailableError && [401, 403].includes(error.status || 0)) {
+        localStorage.removeItem(TOKEN_KEY)
+        set({ me: null, loggedIn: false })
+      }
+      // Network outage keeps the signed-in flag and cached business view.
     }
   },
 

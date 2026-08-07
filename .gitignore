@@ -18,6 +18,9 @@ docs/local-test-accounts.md
 backend/agentmate.db
 backend/agentmate.db-shm
 backend/agentmate.db-wal
+backend/agentmate-local-agent.db
+backend/agentmate-local-agent.db-shm
+backend/agentmate-local-agent.db-wal
 backend/workspace/
 !backend/workspace/.gitkeep
 # 浏览器登录态/cookie（WB-244）：DB 同级、后端专用，绝不进 agent workspace 或版本库。

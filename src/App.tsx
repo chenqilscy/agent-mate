@@ -13,6 +13,8 @@ import { useSystemSettingsStore } from './stores/systemSettingsStore'
 import { useSkillStore } from './stores/skillStore'
 import { PageContainer, ProLayout } from '@ant-design/pro-components'
 import { Spin } from 'antd'
+import { ConnectivityBanner } from './components/layout/ConnectivityBanner'
+import { useConnectivityStore } from './stores/connectivityStore'
 
 const HomeView = lazy(() => import('./views/HomeView').then((module) => ({ default: module.HomeView })))
 const ChatView = lazy(() => import('./views/ChatView').then((module) => ({ default: module.ChatView })))
@@ -92,6 +94,10 @@ export function App() {
   const setNavOpen = useUIStore((s) => s.setNavOpen)
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
+
+  useEffect(() => {
+    return useConnectivityStore.getState().start()
+  }, [])
 
   useEffect(() => {
     // Bootstrap: who am I, what models exist, what tasks are in the sidebar.
@@ -174,6 +180,7 @@ export function App() {
           {/* Scrim behind the off-canvas sidebar (≤900px); inert at wide widths. */}
           <div className="nav-scrim" aria-hidden="true" onClick={() => setNavOpen(false)} />
           <main className="main" id="main">
+            <ConnectivityBanner />
             <MainView />
           </main>
         </div>

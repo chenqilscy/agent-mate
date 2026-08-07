@@ -6,9 +6,12 @@
 // AbortController lets the Composer's stop button cancel the request client-side
 // (the /stop endpoint stops it server-side too).
 
-import { API_BASE, authHeaders } from './api'
+import { API_BASE, authHeaders, type RawMessage } from './api'
 import { SSE_EVENT_TYPES } from './types'
-import type { Orchestration, SSEEvent } from './types'
+import type { AgentRun, Orchestration, SSEEvent, SessionInfo, TraceItem } from './types'
+import {
+  localExecutionSession, rememberLocalExecutionSession, serverGet, serverGetAll, serverSend,
+} from './channels'
 
 export interface ChatStreamOptions {
   text: string
@@ -27,6 +30,7 @@ export interface ChatStreamOptions {
   refs?: { name: string; content: string; kind?: 'file' | 'todo'; itemId?: string }[]
   idempotencyKey?: string
   retryOf?: string
+  automationId?: string
   signal?: AbortSignal
   onEvent: (ev: SSEEvent) => void
 }
@@ -35,17 +39,68 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
   const decoder = new TextDecoder()
   let buffer = ''
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let serverTurn: Awaited<ReturnType<typeof prepareServerTurn>> | null = null
+  let assistantContent = ''
+  let assistantTrace: TraceItem[] = []
+  let assistantUsage: { prompt: number; completion: number } | null = null
+  let assistantError = ''
+  let localDone = false
+
+  const onLocalEvent = (event: SSEEvent) => {
+    if (!serverTurn) return
+    if (event.type === 'session') {
+      rememberLocalExecutionSession(serverTurn.session.id, event.data.id)
+      return
+    }
+    if (event.type === 'run') {
+      opts.onEvent({
+        type: 'run',
+        data: { run: serverTurn.run, user_message_id: serverTurn.userMessage.id },
+      })
+      return
+    }
+    if (event.type === 'text') assistantContent += event.data.md
+    else if (event.type === 'think') assistantTrace.push({ kind: 'think', text: event.data.text })
+    else if (event.type === 'step') assistantTrace.push({ kind: 'step', tool: event.data.tool, label: event.data.label })
+    else if (event.type === 'file_read') assistantTrace.push({ kind: 'file_read', path: event.data.path, range: event.data.range })
+    else if (event.type === 'diff') assistantTrace.push({ kind: 'diff', ...event.data })
+    else if (event.type === 'todo') assistantTrace.push({ kind: 'todo', text: event.data.text })
+    else if (event.type === 'plan_snapshot' || event.type === 'plan_patch') {
+      assistantTrace = [
+        ...assistantTrace.filter((item) => !['todo', 'plan_snapshot', 'plan_patch'].includes(item.kind)),
+        { kind: event.type, version: event.data.version, items: event.data.items, project_id: event.data.project_id },
+      ]
+    } else if (event.type === 'qa_summary') assistantTrace.push({ kind: 'qa', qa: event.data.qa })
+    else if (event.type === 'context_degraded') assistantTrace.push({ kind: 'context_degraded', ...event.data })
+    else if (event.type === 'artifact') assistantTrace.push({ kind: 'artifact', artifact: event.data })
+    else if (event.type === 'usage') {
+      assistantUsage = {
+        prompt: Number(event.data.detail.prompt_tokens || event.data.used || 0),
+        completion: Number(event.data.detail.completion_tokens || 0),
+      }
+    } else if (event.type === 'error') assistantError = event.data.message
+    else if (event.type === 'done') {
+      localDone = true
+      return
+    }
+    opts.onEvent(event)
+  }
 
   // The whole request lives in the try: a failed fetch (backend down / network
   // error) must surface as error+done to the caller, not reject out of streamChat
   // and become an unhandled rejection with the bot bubble stuck 'running' (WB-001).
   try {
+    serverTurn = await prepareServerTurn(opts)
+    opts.onEvent({
+      type: 'session',
+      data: { id: serverTurn.session.id, title: serverTurn.session.title },
+    })
     const resp = await fetch(`${API_BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({
         text: opts.text,
-        session_id: opts.sessionId,
+        session_id: localExecutionSession(serverTurn.session.id),
         title: opts.title,
         space: opts.space,
         model: opts.model,
@@ -59,7 +114,10 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
         knowledge_ids: opts.knowledgeIds,
         refs: opts.refs,
         idempotency_key: opts.idempotencyKey,
-        retry_of: opts.retryOf,
+        // retryOf is a Server Run id and must never be passed into the local
+        // compatibility database as if it were a local Run foreign key.
+        retry_of: undefined,
+        history: serverTurn.history.slice(-200).map((message) => ({ role: message.role, content: message.content })),
       }),
       signal: opts.signal,
     })
@@ -82,7 +140,7 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
       while ((idx = buffer.indexOf('\n\n')) !== -1) {
         const frame = buffer.slice(0, idx)
         buffer = buffer.slice(idx + 2)
-        dispatchFrame(frame, opts.onEvent)
+        dispatchFrame(frame, onLocalEvent)
       }
     }
 
@@ -90,16 +148,129 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
     // final frame the server didn't terminate with a blank line (WB-020) — else a
     // last `done` frame is dropped and the bubble stays 'running'.
     buffer += decoder.decode()
-    if (buffer.trim()) dispatchFrame(buffer, opts.onEvent)
+    if (buffer.trim()) dispatchFrame(buffer, onLocalEvent)
+    if (!localDone) throw new Error('Local Agent 执行流意外断开')
+    const message = await finalizeServerTurn(
+      serverTurn, assistantContent, assistantTrace, assistantUsage, assistantError,
+    )
+    opts.onEvent({ type: 'done', data: { message_id: message.id } })
   } catch (e) {
     // AbortError is an expected outcome of the stop button — the caller's stop()
     // already finalised the bubble, so stay silent (and keep one-shot refs).
     if ((e as Error).name !== 'AbortError') {
+      if (serverTurn) {
+        try {
+          await failServerTurn(serverTurn.run.id, e instanceof Error ? e.message : String(e))
+        } catch {
+          // The original failure remains the one shown to the user.
+        }
+      }
       opts.onEvent({ type: 'error', data: { message: String(e) } })
       opts.onEvent({ type: 'done', data: {} })
+    } else if (serverTurn) {
+      void cancelServerTurn(serverTurn.run.id)
     }
   } finally {
     reader?.releaseLock?.()
+  }
+}
+
+function requestKey(prefix: string): string {
+  return `${prefix}:${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}:${Math.random()}`}`
+}
+
+async function prepareServerTurn(opts: ChatStreamOptions): Promise<{
+  session: SessionInfo & { version: number }
+  history: RawMessage[]
+  userMessage: RawMessage
+  run: AgentRun & { version: number }
+}> {
+  let session: SessionInfo & { version: number }
+  if (opts.sessionId) {
+    session = await serverGet<SessionInfo & { version: number }>(`/sessions/${opts.sessionId}`, { cache: false })
+  } else {
+    const result = await serverSend<{ session: SessionInfo & { version: number } }>('POST', '/sessions', {
+      title: (opts.title || opts.text).slice(0, 500),
+      project_id: opts.projectId || null,
+      space: opts.space || null,
+      kind: opts.projectId ? 'projexec' : 'chat',
+    }, { headers: { 'Idempotency-Key': requestKey('session') } })
+    session = result.session
+  }
+
+  const history = await serverGetAll<RawMessage>(
+    `/sessions/${session.id}/messages`, 'messages', 500, { cache: false },
+  )
+  const messageResult = await serverSend<{ message: RawMessage }>(
+    'POST', `/sessions/${session.id}/messages`,
+    { role: 'user', content: opts.text },
+    { headers: { 'Idempotency-Key': requestKey('message') } },
+  )
+  const mode = opts.ask ? 'ask' : opts.plan ? 'plan' : 'exec'
+  const runResult = await serverSend<{ run: AgentRun & { version: number } }>('POST', '/runs', {
+    session_id: session.id,
+    mode,
+    workspace: opts.projectId ? `project:${opts.projectId}` : 'default',
+    retry_of: opts.retryOf || null,
+    model_ref: opts.model || null,
+    required_capabilities: mode === 'ask' ? ['llm.chat'] : ['llm.chat', 'agent.tools'],
+    request_snapshot: {
+      automation_id: opts.automationId || null,
+      loadout: {
+        experts: opts.experts || [], skills: opts.skills || [],
+        skill_bundles: opts.skillBundles || [], connectors: opts.connectors || [],
+        knowledge_ids: opts.knowledgeIds || [],
+      },
+      refs: (opts.refs || []).map((item) => ({ name: item.name, kind: item.kind || 'file', item_id: item.itemId || null })),
+    },
+  }, { headers: { 'Idempotency-Key': opts.idempotencyKey || requestKey('run') } })
+  return { session, history, userMessage: messageResult.message, run: runResult.run }
+}
+
+async function latestRun(runId: string): Promise<AgentRun & { version: number }> {
+  return serverGet<AgentRun & { version: number }>(`/runs/${runId}`, { cache: false })
+}
+
+async function patchRun(runId: string, patch: Record<string, unknown>): Promise<void> {
+  const current = await latestRun(runId)
+  await serverSend('PATCH', `/runs/${runId}`, { ...patch, expected_version: current.version })
+}
+
+async function finalizeServerTurn(
+  turn: Awaited<ReturnType<typeof prepareServerTurn>>,
+  content: string,
+  trace: TraceItem[],
+  usage: { prompt: number; completion: number } | null,
+  error: string,
+): Promise<RawMessage> {
+  await patchRun(turn.run.id, {
+    status: error ? 'failed' : 'completed',
+    error_code: error ? 'local_execution_failed' : null,
+    error_message: error || null,
+    prompt_tokens: usage?.prompt || 0,
+    completion_tokens: usage?.completion || 0,
+    ended_at: Date.now() / 1000,
+  })
+  const result = await serverSend<{ message: RawMessage }>(
+    'POST', `/sessions/${turn.session.id}/messages`,
+    { role: 'assistant', content, run_id: turn.run.id, trace, usage, error: error || null },
+    { headers: { 'Idempotency-Key': requestKey('assistant-message') } },
+  )
+  return result.message
+}
+
+async function failServerTurn(runId: string, message: string): Promise<void> {
+  await patchRun(runId, {
+    status: 'failed', error_code: 'desktop_execution_bridge_failed',
+    error_message: message.slice(0, 20_000), ended_at: Date.now() / 1000,
+  })
+}
+
+async function cancelServerTurn(runId: string): Promise<void> {
+  try {
+    await serverSend('POST', `/runs/${runId}/cancel`)
+  } catch {
+    await patchRun(runId, { status: 'cancelled', ended_at: Date.now() / 1000 })
   }
 }
 

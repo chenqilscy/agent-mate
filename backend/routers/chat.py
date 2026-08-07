@@ -1,15 +1,18 @@
 """Chat — the M1 core. POST /api/chat returns a real SSE stream from the LLM."""
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 import server_sync
+import server_client
 from agent import events, runtime
 from auth.deps import current_user
 from storage import db
-from storage.models import Role
+from storage.models import Message, Project, Role, User
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -40,6 +43,10 @@ class ChatBody(BaseModel):
     # the original Run without persisting or executing the turn twice (WB-242).
     idempotency_key: str | None = Field(default=None, max_length=200)
     retry_of: str | None = None
+    # Server-authoritative history snapshot for a Desktop that has no local
+    # execution-session cache (new/reinstalled device). It is context input only;
+    # the local compatibility adapter never becomes the durable message source.
+    history: list[dict[str, str]] = Field(default=[], max_length=200)
 
 
 SSE_HEADERS = {
@@ -48,6 +55,28 @@ SSE_HEADERS = {
     # Defeat proxy buffering so each event flushes immediately.
     "X-Accel-Buffering": "no",
 }
+
+
+async def _load_server_project(user: User, project_id: str) -> Project:
+    """Resolve project execution context without writing a local business mirror."""
+    token = db.get_server_identity(user.id) or ""
+    remote = await asyncio.to_thread(server_client.get_project, token, project_id)
+    if remote is None:
+        raise HTTPException(503, "Server project is unavailable to Local Agent")
+    if str(remote.get("role") or "").lower() == "viewer":
+        raise HTTPException(403, "只读成员不能在此项目中执行")
+    return Project(
+        id=str(remote["id"]), name=str(remote.get("name") or ""),
+        owner_id=str(remote.get("owner_id") or user.id),
+        instruction=str(remote.get("instruction") or ""),
+        connectors=[str(value) for value in remote.get("connectors") or []],
+        experts=[str(value) for value in remote.get("experts") or []],
+        skills=[str(value) for value in remote.get("skills") or []],
+        knowledge_ids=[str(value) for value in remote.get("knowledge_ids") or []],
+        created_at=float(remote.get("created_at") or 0),
+        updated_at=float(remote.get("updated_at") or 0),
+        origin="server", org_id=str(remote.get("org_id") or "") or None,
+    )
 
 
 @router.post("/chat")
@@ -59,6 +88,7 @@ async def chat(body: ChatBody):
     user = current_user()
 
     retry_run = None
+    project_override: Project | None = None
     existing_run = (
         db.get_run_by_idempotency(user.id, body.idempotency_key)
         if body.idempotency_key and body.idempotency_key.strip() else None
@@ -98,8 +128,8 @@ async def chat(body: ChatBody):
         if body.project_id:
             role = db.project_access_role(body.project_id, user.id)
             if role is None:
-                raise HTTPException(404, "project not found")
-            if role == Role.VIEWER:
+                project_override = await _load_server_project(user, body.project_id)
+            elif role == Role.VIEWER:
                 raise HTTPException(403, "只读成员不能在此项目中执行")
         title = (body.title or text)[:26]
         session = db.create_session(
@@ -110,6 +140,12 @@ async def chat(body: ChatBody):
             project_id=body.project_id,
         )
 
+    # A mapped local execution session survives across turns, while the durable
+    # project remains Server-only. Re-resolve its transient context on every turn
+    # instead of depending on the retired local project mirror.
+    if session.project_id and project_override is None and db.get_project(session.project_id) is None:
+        project_override = await _load_server_project(user, session.project_id)
+
     # A todo ref is a request to link this execution to a real WorkItem. Validate
     # before opening the SSE response so a forged/stale item id cannot crash the
     # generator or attach a Run across project boundaries (WB-242).
@@ -118,7 +154,16 @@ async def chat(body: ChatBody):
             continue
         item = db.get_work_item(str(ref["itemId"]))
         if not item or not session.project_id or item.project_id != session.project_id:
-            raise HTTPException(400, "invalid work item reference")
+            if not project_override or not session.project_id:
+                raise HTTPException(400, "invalid work item reference")
+            token = db.get_server_identity(user.id) or ""
+            remote_items = await asyncio.to_thread(
+                server_client.list_work_items, token, session.project_id,
+            )
+            if remote_items is None:
+                raise HTTPException(503, "Server work items are unavailable to Local Agent")
+            if not any(str(candidate.get("id")) == str(ref["itemId"]) for candidate in remote_items):
+                raise HTTPException(400, "invalid work item reference")
 
     async def event_stream():
         # First frame tells the client which session this stream belongs to
@@ -133,6 +178,16 @@ async def chat(body: ChatBody):
             refs=body.refs,
             idempotency_key=body.idempotency_key,
             retry_of=body.retry_of,
+            history_override=[
+                Message(
+                    id=f"server-history-{index}", session_id=session.id,
+                    role=str(item.get("role") or ""), content=str(item.get("content") or "")[:1_000_000],
+                    actor=str(item.get("role") or "server"),
+                )
+                for index, item in enumerate(body.history)
+                if item.get("role") in {"user", "assistant"} and item.get("content")
+            ],
+            project_override=project_override,
         ):
             yield chunk
         # WB-062 Phase 3: 项目会话完成 → 入 outbox 回传团队时间线（guarded：仅 Server 镜像项目 +

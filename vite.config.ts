@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Local-first: the frontend (browser at :8102) talks to the local backend (:8101).
-// We proxy /api so the browser sees a same-origin URL and SSE streams flow through untouched.
+// Browser development keeps the two production channels distinct: /server-api
+// is durable business state, while /api is the local execution compatibility
+// adapter that will disappear with the legacy business backend.
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -18,6 +19,11 @@ export default defineConfig({
             proxyRes.headers['cache-control'] = 'no-cache'
           })
         },
+      },
+      '/server-api': {
+        target: 'http://localhost:8100',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/server-api/, '/api'),
       },
     },
   },

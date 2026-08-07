@@ -220,6 +220,7 @@ export interface AgentRun {
   model_ref?: string | null
   model_id?: string | null
   model_snapshot?: Record<string, unknown>
+  request_snapshot?: Record<string, unknown>
   estimated_cost?: number | null
   cost_currency?: string | null
   plan: RunPlanItem[]
@@ -378,6 +379,7 @@ export interface SessionInfo {
   updated_at?: number
   owner_id?: string
   owner_name?: string // who ran it (M7 C3 activity feed)
+  version?: number // Server optimistic-concurrency token
   read_only?: boolean // true when the caller is a viewer, not the session's owner (M7 C3)
   // Per-run outcome for automation runs (WB-043); null for ordinary sessions.
   run_status?: 'running' | 'ok' | 'error' | null
@@ -778,6 +780,7 @@ export interface Automation {
   preauthorized_permissions: string[]
   next_run_label: string
   last_run_label: string
+  version?: number // Server optimistic-concurrency token
 }
 
 export interface CreateAutomationInput {

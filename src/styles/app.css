@@ -86,6 +86,8 @@
 
 /* ---- Main ---- */
 .main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-page); position: relative; }
+.channel-status { flex: 0 0 auto; min-height: 34px; padding: 7px 16px; border-bottom: 1px solid var(--color-warning); background: var(--color-warning-soft); color: var(--color-warning-text); font-size: 12px; font-weight: 600; line-height: 20px; text-align: center; }
+@media (max-width: 900px) { .channel-status { padding: 7px 48px; text-align: left; } }
 .view { display: none; flex: 1; min-height: 0; flex-direction: column; }
 .view.active { display: flex; }
 .page-scroll { flex: 1; overflow-y: auto; padding: 22px 28px 40px; }

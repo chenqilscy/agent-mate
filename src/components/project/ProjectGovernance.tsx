@@ -53,13 +53,13 @@ export function ProjectGovernance({ projectId, canWrite }: { projectId: string; 
     try { values = await form.validateFields() } catch { return }
     setSaving(true)
     try {
-      if (editing) await api.updateProjectGovernance(editing.id, values)
+      if (editing) await api.updateProjectGovernance(projectId, editing.id, values)
       else await api.createProjectGovernance({ ...values, project_id: projectId })
       setOpen(false); form.resetFields(); await load(); toast(editing ? '治理记录已更新' : '治理记录已创建')
     } catch { toast('保存失败，请检查字段或网络连接') } finally { setSaving(false) }
   }
   const remove = async (id: string) => {
-    try { await api.deleteProjectGovernance(id); await load(); toast('治理记录已删除') }
+    try { await api.deleteProjectGovernance(projectId, id); await load(); toast('治理记录已删除') }
     catch { toast('删除失败，请重试') }
   }
 

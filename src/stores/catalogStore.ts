@@ -64,23 +64,20 @@ export const useCatalogStore = create<CatalogState>((set) => ({
   },
 }))
 
-// 登录态下周期触发本地 backend → Server 条件 pull。Server revision 未变化时不会重写本地目录。
-const SERVER_PULL_INTERVAL = 5 * 60 * 1000
-let serverPulling = false
-let lastServerPull = 0
-async function syncFromServer(force = false): Promise<void> {
-  if (serverPulling || (!force && Date.now() - lastServerPull < SERVER_PULL_INTERVAL)) return
+// 登录态下周期直读 Server 目录；失败时 server client 返回带时间戳只读缓存。
+const SERVER_REFRESH_INTERVAL = 5 * 60 * 1000
+let serverRefreshing = false
+let lastServerRefresh = 0
+async function refreshFromServer(force = false): Promise<void> {
+  if (serverRefreshing || (!force && Date.now() - lastServerRefresh < SERVER_REFRESH_INTERVAL)) return
   if (!localStorage.getItem(TOKEN_KEY)) return // 未登录 → 无 Server token，跳过
-  serverPulling = true
+  serverRefreshing = true
   try {
-    const r = await api.serverPull()
-    lastServerPull = Date.now()
-    if (r.server) {
-      await useCatalogStore.getState().load()
-      await useSkillStore.getState().load(true)
-    }
+    await useCatalogStore.getState().load()
+    lastServerRefresh = Date.now()
+    await useSkillStore.getState().load(true)
   } catch { /* 未接 Server / 不可达：保留 last-known-good */ }
-  finally { serverPulling = false }
+  finally { serverRefreshing = false }
 }
 
 // 第三方市场始终从本地 App 后端直读真实 SkillHub 排行，与 Server 登录/同步状态无关（WB-215）。
@@ -111,10 +108,10 @@ export function useCatalog(): Catalog {
 // Server 下行与第三方市场并行、互不覆盖；市场只走本地 App（WB-215）。
 void (async () => {
   await useCatalogStore.getState().load()
-  await Promise.all([syncFromServer(), loadSkillMarketplace()])
+  await Promise.all([refreshFromServer(), loadSkillMarketplace()])
 })()
 
-window.setInterval(() => { void syncFromServer() }, SERVER_PULL_INTERVAL)
+window.setInterval(() => { void refreshFromServer() }, SERVER_REFRESH_INTERVAL)
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') void syncFromServer()
+  if (document.visibilityState === 'visible') void refreshFromServer()
 })

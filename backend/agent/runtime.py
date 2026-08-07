@@ -61,7 +61,7 @@ from agent.tools import (
 from config import settings
 import server_client
 from storage import db, model_governance, provider_seed
-from storage.models import Session, User
+from storage.models import Message, Project, Session, User
 
 
 class RuntimeBudgetExceeded(RuntimeError):
@@ -398,6 +398,8 @@ async def run_chat(
     max_output_tokens: int = 0,
     execution_source: str = "interactive",
     preauthorized_permissions: list[str] | None = None,
+    history_override: list[Message] | None = None,
+    project_override: Project | None = None,
 ) -> AsyncIterator[str]:
     """Trace one user turn, delegating the unchanged SSE loop to the inner runner."""
     # Server-authoritative mode contract (WB-272): old/direct clients may still
@@ -426,6 +428,8 @@ async def run_chat(
             max_output_tokens=max_output_tokens,
             execution_source=execution_source,
             preauthorized_permissions=preauthorized_permissions,
+            history_override=history_override,
+            project_override=project_override,
             chat_trace=chat_trace,
         ):
             yield chunk
@@ -465,6 +469,8 @@ async def _run_chat_inner(
     max_output_tokens: int = 0,
     execution_source: str = "interactive",
     preauthorized_permissions: list[str] | None = None,
+    history_override: list[Message] | None = None,
+    project_override: Project | None = None,
     chat_trace: telemetry.Observation,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
@@ -523,7 +529,7 @@ async def _run_chat_inner(
     proj_experts, proj_skills, proj_connectors, proj_knowledge = [], [], [], []
     project = None
     if session.project_id:
-        project = db.get_project(session.project_id)
+        project = project_override or db.get_project(session.project_id)
         if project:
             if project.instruction.strip():
                 context_layers.add(
@@ -836,7 +842,7 @@ async def _run_chat_inner(
 
     # Snapshot before persisting this turn: current user text is appended separately,
     # so it cannot be summarized or duplicated in the same request (WB-325).
-    history_messages = db.list_messages(session_id)
+    history_messages = history_override if history_override is not None else db.list_messages(session_id)
     work_item_id = next(
         (str(ref.get("itemId")) for ref in (refs or []) if ref.get("kind") == "todo" and ref.get("itemId")),
         None,

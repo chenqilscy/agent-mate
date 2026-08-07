@@ -374,9 +374,7 @@ export function ProjectHomeView() {
       setTimeline(r.events)
       setTimelineStale(r.server && !r.reachable)
     }).catch(() => { setTimelineStale(active?.origin === 'server') })
-    void loadWork(pid).then(() => api.serverSyncConflicts(pid)).then(({ count }) => {
-      setProject((current) => current ? { ...current, sync_conflicts: count } : current)
-    }).catch(() => {})
+    void loadWork(pid)
     void loadBindings()
   }, [pid, active?.origin, setActive, loadWork, loadBindings])
 
@@ -555,7 +553,6 @@ export function ProjectHomeView() {
           <Breadcrumb items={[{ title: <span {...clickable} onClick={() => setView('projects')}>项目</span> }, { title: project.name }]} />
           <Tag className={`project-source ${project.origin === 'server' ? 'is-server' : ''}`}>{project.origin === 'server' ? '团队项目 · Console' : '本机项目'}</Tag>
           {isShared && <Tag className="pj-rolebadge">协作 · {ROLE_LABEL[project.role!] || project.role}</Tag>}
-          {!!project.sync_conflicts && <Tooltip title="本地离线改动与 Server 镜像存在分叉，已保留本地版本，请在恢复连接后核对。"><Tag color="warning">同步冲突 {project.sync_conflicts}</Tag></Tooltip>}
           {timelineStale && <Tooltip title="Server 当前不可达；动态展示本机最后一次成功回读的缓存（如有）。"><Tag>动态缓存</Tag></Tooltip>}
         </div>
         <div style={{ marginLeft: 'auto' }}>

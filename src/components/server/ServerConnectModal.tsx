@@ -1,6 +1,6 @@
 import { WbButton, WbInput } from '../ui/Primitives'
 // 连接 Server 弹窗（WB-067 Slice 2）：登录/注册到中心服务，之后以 Server 账号身份协作。
-// 已连接则展示账号 + 导入本地项目到 Server + 团队通知 + 断开。
+// 已连接则展示账号 + 团队通知 + 断开。项目由 Server 直接提供，已无本地导入入口。
 // 视觉零重设计：复用 LoginModal / MessageCenter 的 .np-* / .msg-* / .btn-* 类，暗色天然继承；
 // 错误走 toast（与 LoginModal 一致），不新增共享 CSS。
 import { useEffect, useState } from 'react'
@@ -13,7 +13,7 @@ import { clickable } from '../../lib/a11y'
 type Notif = { id: string; title: string; body: string; created_at: number; read: number }
 
 export function ServerConnectModal({ onClose }: { onClose: () => void }) {
-  const { linked, authState, onlineValidationTtl, offlineGraceRemaining, connect, disconnect } = useServerStore()
+  const { linked, authState, onlineValidationTtl, connect, disconnect } = useServerStore()
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
@@ -48,13 +48,6 @@ export function ServerConnectModal({ onClose }: { onClose: () => void }) {
 
   const onKey = (e: { key: string }) => { if (e.key === 'Enter') void submit() }
 
-  const doImport = async () => {
-    try {
-      const r = await api.serverImport()
-      toast(`已导入 ${r.imported} 个本地项目到 Server（跳过 ${r.skipped}）`)
-    } catch { toast('导入失败') }
-  }
-
   const markRead = async () => {
     try { await api.serverMarkNotifs(); setNotifs((ns) => ns.map((n) => ({ ...n, read: 1 }))) } catch { /* ignore */ }
   }
@@ -68,12 +61,12 @@ export function ServerConnectModal({ onClose }: { onClose: () => void }) {
           <>
             <div className="np-body">
               <div className="np-lbl">已连接为 {linked.name}</div>
-              <div className="auth-switch">项目 / 成员 / 评论 / 在线状态经中心 Server 协作。</div>
+              <div className="auth-switch">项目 / 会话 / Run / 成员 / 评论直接读写中心 Server。</div>
               <div className="auth-switch">
                 {authState === 'online'
                   ? `身份在线，安全状态最多 ${onlineValidationTtl} 秒内重新校验。`
                   : authState === 'offline_grace'
-                    ? `Server 不可达，正在使用离线宽限（剩余约 ${Math.ceil(offlineGraceRemaining / 60)} 分钟）。暂停或撤销可能要到恢复联网后才生效。`
+                    ? 'Server 不可达，当前只读显示最近缓存；修改会明确失败。'
                     : 'Server 身份当前未在线验证，请重新连接。'}
               </div>
               <div className="np-lbl">团队通知</div>
@@ -94,7 +87,6 @@ export function ServerConnectModal({ onClose }: { onClose: () => void }) {
             </div>
             <div className="np-foot">
               <WbButton className="btn-ghost" onClick={markRead}>标记已读</WbButton>
-              <WbButton className="btn-ghost" onClick={doImport}>导入本地项目</WbButton>
               <WbButton className="btn-ghost danger-b" onClick={() => { disconnect(); toast('已断开 Server'); onClose() }}>断开</WbButton>
             </div>
           </>

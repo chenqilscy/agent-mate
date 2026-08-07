@@ -133,7 +133,8 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
   update: async (id, patch) => {
     const pid = get().projectId
     try {
-      const wi = await api.updateWorkItem(id, patch)
+      if (!pid) return
+      const wi = await api.updateWorkItem(pid, id, patch)
       if (get().projectId === pid) set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
     } catch {
       toast('保存失败，请重试')
@@ -154,7 +155,8 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
     const prev = get().items.find((i) => i.id === id)?.status
     set({ items: get().items.map((i) => (i.id === id ? { ...i, status } : i)) })
     try {
-      const wi = await api.updateWorkItem(id, { status })
+      if (!pid) throw new Error('project not selected')
+      const wi = await api.updateWorkItem(pid, id, { status })
       if (get().projectId === pid) set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
     } catch {
       if (get().projectId === pid && prev) {
@@ -167,7 +169,8 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
   rename: async (id, title) => {
     const pid = get().projectId
     try {
-      const wi = await api.updateWorkItem(id, { title })
+      if (!pid) return
+      const wi = await api.updateWorkItem(pid, id, { title })
       if (get().projectId === pid) set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
     } catch {
       toast('重命名失败，请重试')
@@ -179,7 +182,8 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
     const prev = get().items
     set({ items: get().items.filter((i) => i.id !== id) })
     try {
-      await api.deleteWorkItem(id)
+      if (!pid) throw new Error('project not selected')
+      await api.deleteWorkItem(pid, id)
     } catch {
       // 删除失败 → 恢复，别让下次 reload 卡片「诈尸」还无提示（WB-159）。
       if (get().projectId === pid) set({ items: prev })

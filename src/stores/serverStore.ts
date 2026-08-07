@@ -1,11 +1,9 @@
-// serverStore — 前端接 AgentMate Server 的连接态（WB-067 Slice 2）。
-//
-// 「连接 Server」= 用 Server 账号登录：本地 backend 代理到 Server 拿 token，存为 app 自己的 token
-// （与 WB-070 syncFromServer 一致——app token 即 Server token，本地 auth 桥认它）。之后评论/在线/通知
-// 都经本地 backend 代理转发到 Server。Server 是唯一账号源；未接 Server 时仅保留匿名访客的本机能力。
+// Server account and connectivity facade. Business requests go directly to the
+// Server client; Local Agent is never used as a general authenticated proxy.
 import { create } from 'zustand'
 import { api } from '../lib/api'
 import { TOKEN_KEY } from '../lib/api'
+import { channelSnapshot, probeServer, serverApiBase } from '../lib/channels'
 
 interface ServerState {
   enabled: boolean // 本地 backend 是否已配 AGENTMATE_SERVER_URL
@@ -30,29 +28,51 @@ export const useServerStore = create<ServerState>((set) => ({
   checked: false,
   refreshStatus: async () => {
     try {
-      const s = await api.serverStatus()
+      await probeServer()
+      const base = await serverApiBase()
+      let me = null
+      if (localStorage.getItem(TOKEN_KEY)) {
+        try {
+          me = await api.me()
+        } catch {
+          // A token from the retired local account authority is not a Server
+          // identity. Drop it instead of reporting the Server as unconfigured.
+          localStorage.removeItem(TOKEN_KEY)
+        }
+      }
       set({
-        enabled: s.enabled,
-        consoleUrl: s.console_url || '',
-        linked: s.linked,
-        authState: s.auth_state,
-        onlineValidationTtl: s.online_validation_ttl_seconds,
-        offlineGraceRemaining: s.offline_grace_remaining_seconds,
+        enabled: true,
+        consoleUrl: base.replace(/\/api$/, '/console'),
+        linked: me ? { account_id: me.id, name: me.name } : null,
+        authState: me ? 'online' : 'disconnected',
+        onlineValidationTtl: 30,
+        offlineGraceRemaining: 0,
         checked: true,
       })
     } catch {
-      set({ checked: true }) // 后端未连：保留访客态，不推断出本地账号
+      const linked = localStorage.getItem(TOKEN_KEY) ? useServerStore.getState().linked : null
+      let configured = false
+      let consoleUrl = ''
+      try {
+        const base = await serverApiBase()
+        configured = true
+        consoleUrl = base.replace(/\/api$/, '/console')
+      } catch { /* Desktop Local Agent has no Server origin configured. */ }
+      set({
+        checked: true,
+        enabled: configured,
+        consoleUrl,
+        authState: linked && channelSnapshot().server.state === 'cached' ? 'offline_grace' : 'disconnected',
+      })
     }
   },
   connect: async (name, password, register) => {
-    const r = await api.serverLogin(name.trim(), password, register) // 401/不可达 → 抛错，调用方显示
+    const r = register ? await api.register(name.trim(), password) : await api.login(name.trim(), password)
     localStorage.setItem(TOKEN_KEY, r.token) // 以 Server 账号身份操作
-    try { await api.serverPull() } catch { /* 拉镜像失败不阻断 */ }
-    // 换了身份 token（后端据此识别用户）→ reload，让 projects/sessions/notifications 等 per-user
-    // store 在新身份下重新拉取，否则残留旧（本地）身份的陈旧数据（对齐 authStore.login/logout，WB-159）。
     window.location.reload()
   },
   disconnect: () => {
+    void api.logout().catch(() => {})
     localStorage.removeItem(TOKEN_KEY)
     set({ linked: null, authState: 'disconnected', offlineGraceRemaining: 0 })
     window.location.reload()

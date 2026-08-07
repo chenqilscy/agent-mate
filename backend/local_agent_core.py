@@ -72,6 +72,10 @@ def _status() -> dict[str, Any]:
         "service": "local-agent-core",
         "protocol_version": run_transport.PROTOCOL_VERSION,
         "server_configured": settings.server_enabled,
+        # Non-secret bootstrap metadata for Desktop's direct business channel.
+        # The webview receives no IPC token and cannot turn this status command
+        # into a generic privileged loopback proxy.
+        "server_api_url": settings.AGENTMATE_SERVER_URL,
         "transport": snapshot,
         "workers": worker_health.snapshot(),
     }
