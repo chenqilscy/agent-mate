@@ -56,6 +56,7 @@ function initialTheme(): Theme {
 
 function applyTheme(t: Theme) {
   document.body.classList.toggle('dark', t === 'dark')
+  document.documentElement.style.colorScheme = t
 }
 
 const startTheme = initialTheme()

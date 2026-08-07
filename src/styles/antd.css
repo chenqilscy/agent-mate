@@ -93,7 +93,7 @@
 
 body.dark .agentmate-ant-message .ant-message-notice-content {
   color: var(--text);
-  background: #2a2f36;
+  background: var(--bg-elevated);
 }
 
 /* Ant Design 6.5 deprecates List. Keep its established class contract with

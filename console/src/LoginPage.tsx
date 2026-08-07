@@ -1,15 +1,17 @@
-import { LockOutlined, UserOutlined } from "@ant-design/icons";
+import { LockOutlined, MoonOutlined, SunOutlined, UserOutlined } from "@ant-design/icons";
 import { LoginForm, ProFormText } from "@ant-design/pro-components";
 import { Alert, Button, Card, Divider, Input, Segmented, Space, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { consoleApi, setToken } from "./api";
-import type { Account } from "./types";
+import type { Account, ThemeMode } from "./types";
 
 interface LoginPageProps {
   onAuthenticated: (account: Account) => void;
+  themeMode: ThemeMode;
+  onToggleTheme: () => void;
 }
 
-export default function LoginPage({ onAuthenticated }: LoginPageProps) {
+export default function LoginPage({ onAuthenticated, themeMode, onToggleTheme }: LoginPageProps) {
   const [mode, setMode] = useState<"login" | "register" | "bootstrap">("login");
   const [error, setError] = useState("");
   const [providers, setProviders] = useState<{ id: string; label: string }[]>([]);
@@ -83,6 +85,14 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
 
   return (
     <main className="login-shell">
+      <Button
+        className="login-theme-toggle"
+        icon={themeMode === "dark" ? <SunOutlined /> : <MoonOutlined />}
+        aria-label={themeMode === "dark" ? "切换浅色主题" : "切换深色主题"}
+        onClick={onToggleTheme}
+      >
+        {themeMode === "dark" ? "浅色" : "深色"}
+      </Button>
       <section className="login-brand">
         <div className="brand-mark brand-mark-large">C</div>
         <Typography.Title level={1}>AgentMate Console</Typography.Title>

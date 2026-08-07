@@ -32,7 +32,7 @@
   --neutral-50:  #F4F6F8;
   --neutral-100: #E6E9EF;
   --neutral-200: #D0D5DD;
-  --neutral-300: #98A2B3;
+  --neutral-300: #667085;
   --neutral-500: #667085;
   --neutral-700: #1D2939;
   --neutral-900: #101828;
@@ -96,7 +96,11 @@
 
   /* -- Semantic Colors -- */
   --color-error:   #E5484D;
+  --color-error-soft: #FDECEC;
+  --color-error-text: #C83B3F;
   --color-warning: #F59E0B;
+  --color-warning-soft: #FFF4E5;
+  --color-warning-text: #C77700;
   --color-info:    #3B82F6;
   --color-success: #16B37A;
 
@@ -130,7 +134,7 @@ body.dark {
   --neutral-50:  #0F1420;
   --neutral-100: #2A3348;
   --neutral-200: #344058;
-  --neutral-300: #667085;
+  --neutral-300: #7D899F;
   --neutral-500: #93A0B8;
   --neutral-700: #F2F4F7;
   --neutral-900: #FFFFFF;
@@ -161,7 +165,11 @@ body.dark {
 
   /* Semantic — slightly adjust for dark contrast */
   --color-error:   #EF7074;
+  --color-error-soft: #3A2326;
+  --color-error-text: #F98A8E;
   --color-warning: #F9B83A;
+  --color-warning-soft: #3A2E17;
+  --color-warning-text: #E7A33E;
   --color-info:    #6098F8;
 
   /* hljs dark palette */
@@ -204,7 +212,7 @@ body {
    dark tone different from the auto-flipping --bg-surface token.
    This is drastically reduced from the 55-line block in v1. */
 body.dark .sc-top { background: linear-gradient(135deg, #20362C, #1E2A36); }
-body.dark .mrow .off { background: #3A2326; color: #F98A8E; }
+body.dark .mrow .off { background: var(--color-error-soft); color: var(--color-error-text); }
 body.dark .pe-badge { background: transparent; }
 body.dark .ctool.model .mk { background: var(--brand-50); }
 body.dark .bell-dot { border-color: var(--neutral-50); }
@@ -212,7 +220,7 @@ body.dark .ov-art:hover { box-shadow: none; }
 body.dark .fart .fi { background: var(--neutral-50); }
 body.dark .selcard.sel { background: var(--brand-50); }
 body.dark .upd, body.dark .upd-x, body.dark .upd .log { background: var(--bg-surface); }
-body.dark .np-modal, body.dark .btn-ghost, body.dark .np-tplbtn, body.dark .selcard { background: #1F242A; }
+body.dark .np-modal, body.dark .btn-ghost, body.dark .np-tplbtn, body.dark .selcard { background: var(--bg-elevated); }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 9px; height: 9px; }

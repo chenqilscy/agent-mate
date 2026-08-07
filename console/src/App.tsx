@@ -2,6 +2,7 @@ import {
   App as AntApp, Avatar, Badge, Button, ConfigProvider, Dropdown, Result, Space, Spin,
   Switch, Tag, Tooltip, theme,
 } from "antd";
+import { uiPalette, uiThemeColorToken } from "../../src/theme/palette";
 import { UI_CONTROL_FONT_WEIGHT, uiTypographyToken } from "../../src/theme/typography";
 import {
   AppstoreOutlined, BellOutlined, BookOutlined, DashboardOutlined, LogoutOutlined,
@@ -9,7 +10,7 @@ import {
   TeamOutlined, ToolOutlined, UserOutlined,
 } from "@ant-design/icons";
 import { ProLayout } from "@ant-design/pro-components";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { ApiError, consoleApi, getToken, setToken } from "./api";
 import LoginPage from "./LoginPage";
 import { navigate, usePathname } from "./router";
@@ -141,7 +142,7 @@ function ConsoleContent({ account, mode, onToggleTheme, onLogout }: { account: A
         <Tooltip title={mode === "dark" ? "切换浅色主题" : "切换深色主题"} key="theme"><Switch aria-label="切换主题" checked={mode === "dark"} checkedChildren={<MoonOutlined />} unCheckedChildren={<SunOutlined />} onChange={onToggleTheme} /></Tooltip>,
         <Tooltip title="通知" key="notifications"><Badge count={unread} size="small"><Button type="text" icon={<BellOutlined />} aria-label="通知" onClick={() => navigate("/notifications")} /></Badge></Tooltip>,
       ]}
-      token={{ header: { colorBgHeader: mode === "dark" ? "#151b2a" : "#ffffff" }, sider: { colorMenuBackground: mode === "dark" ? "#111827" : "#ffffff" } }}
+      token={{ header: { colorBgHeader: uiPalette[mode].header }, sider: { colorMenuBackground: uiPalette[mode].sidebar } }}
     >
       <Suspense fallback={<div className="page-loading"><Spin size="large" description="页面加载中…" /></div>}><CurrentPage account={account} pathname={pathname} onUnreadChange={setUnread} /></Suspense>
     </ProLayout>
@@ -152,15 +153,23 @@ export default function ConsoleApp() {
   const [account, setAccount] = useState<Account | null>(null);
   const [booting, setBooting] = useState(true);
   const [mode, setMode] = useState<ThemeMode>(() => localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark");
-  useEffect(() => { document.body.classList.toggle("dark", mode === "dark"); document.documentElement.style.colorScheme = mode; localStorage.setItem(THEME_KEY, mode); }, [mode]);
+  useLayoutEffect(() => { document.body.classList.toggle("dark", mode === "dark"); document.documentElement.style.colorScheme = mode; localStorage.setItem(THEME_KEY, mode); }, [mode]);
   useEffect(() => { let active = true; async function boot() { if (!getToken()) { setBooting(false); return; } try { const response = await consoleApi.me(); if (active) setAccount(response.account); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) setToken(""); } finally { if (active) setBooting(false); } } void boot(); return () => { active = false; }; }, []);
   const themeConfig = useMemo(() => ({
     algorithm: mode === "dark" ? theme.darkAlgorithm : theme.defaultAlgorithm,
-    token: { colorPrimary: "#16b37a", borderRadius: 8, ...uiTypographyToken },
+    token: { colorPrimary: "#16b37a", borderRadius: 8, controlHeight: 32, ...uiTypographyToken, ...uiThemeColorToken(mode) },
     components: {
       Button: { fontWeight: UI_CONTROL_FONT_WEIGHT },
+      Card: { paddingLG: 16 },
+      Layout: {
+        bodyBg: uiPalette[mode].page,
+        headerBg: uiPalette[mode].header,
+        siderBg: uiPalette[mode].sidebar,
+      },
+      Modal: { borderRadiusLG: 10 },
     },
   }), [mode]);
   async function logout() { try { await consoleApi.logout(); } catch { /* browser token removal is authoritative */ } setToken(""); setAccount(null); navigate("/", true); }
-  return <ConfigProvider componentSize="small" theme={themeConfig}><AntApp>{booting ? <div className="boot-screen"><Spin size="large" description="正在连接 AgentMate Server…" /></div> : account ? <ConsoleContent account={account} mode={mode} onToggleTheme={() => setMode((current) => current === "dark" ? "light" : "dark")} onLogout={() => void logout()} /> : <LoginPage onAuthenticated={setAccount} />}</AntApp></ConfigProvider>;
+  const toggleTheme = () => setMode((current) => current === "dark" ? "light" : "dark");
+  return <ConfigProvider componentSize="small" theme={themeConfig}><AntApp>{booting ? <div className="boot-screen"><Spin size="large" description="正在连接 AgentMate Server…" /></div> : account ? <ConsoleContent account={account} mode={mode} onToggleTheme={toggleTheme} onLogout={() => void logout()} /> : <LoginPage onAuthenticated={setAccount} themeMode={mode} onToggleTheme={toggleTheme} />}</AntApp></ConfigProvider>;
 }

@@ -8,8 +8,12 @@ origin: 既有实现
 files:
   - src/styles/tokens.css:109
   - src/styles/app.css:88
+  - src/styles/antd.css:96
   - src/components/ui/AppThemeProvider.tsx:7
   - src/views/HomeView.tsx:133
+  - console/src/App.tsx:157
+  - console/src/styles.css:1
+  - vite.console.config.ts:14
 created: 2026-08-07
 ---
 
@@ -48,3 +52,15 @@ P2。功能可用，但首页是用户最常进入的工作入口；不稳定的
 - `npx tsc --noEmit`、`npx vite build`（6101 modules）与 `python scripts/archive_issues.py --check` 通过。
 - 真实浏览器 1280×720 读取：侧栏 216px、主画布 1064px、项目配置默认位于画布外、想法/健康/输入框圆角均为 8px；配置抽屉可打开及从内部关闭。
 - 明亮主题的页面/侧栏/卡片为 `#F4F6F8` / `#FFFFFF` / `#FFFFFF`，深色主题恢复为测试前状态；900px 和 390×844 均无横向溢出，移动端 320px 配置抽屉可打开关闭；浏览器 warning/error 为 0。
+
+## 双系统双主题 CSS 审查（2026-08-07）
+- 用户补充要求对 AgentMate App 与 Console 的浅色/深色 CSS 做整体审查，不以项目详情单页验收替代全局主题一致性。
+- 静态核实发现 Console 虽定义了 `--console-*` 双主题变量，但 `ConfigProvider` 仍只设置品牌色和圆角；Ant Design/Pro Components 的页面、卡片、弹层与边框继续使用算法默认色，未与 Console 自己的 `#F4F6F8/#FFFFFF` 和 `#0F1420/#161C2B` 契约绑定。
+- App 仍有上一套暗色表面 `#1F242A/#2A2F36` 残留在按钮、弹窗和消息桥接层，并有少数浅色 hover/error 背景未通过 token 或 `body.dark` 覆盖，切到深色时会出现亮块或表面层级漂移。
+- 本轮验收增加：两端 Ant Design 主题 token 与 CSS 变量逐项一致；App 不再出现已确认的浅色表面泄漏；App 与 Console 的首页/项目或登录页在浅色和深色下均检查计算样式、文字对比、横向溢出和浏览器 warning/error。
+- 已新增 `src/theme/palette.ts` 作为 App/Console 共用的 Ant Design 表面契约，统一 page/container/elevated/header/sidebar/text/border；两端继续各自保留 CSS 变量，但组件库不再回落到算法默认黑灰。
+- App 已移除按钮、弹窗、消息、原生 select、hover、禁用态中的旧暗色/浅色表面残留；错误与警告组件改用双主题语义 token。浅色三级文字由 `#98A2B3` 调整为 `#667085`，深色由 `#667085` 调整为 `#7D899F`，在对应面板上的对比分别提升到约 4.97:1 和 4.82:1。
+- Console 登录页新增可见的浅色/深色切换入口；主题 class 与原生 `color-scheme` 在绘制前同步，未登录用户也能选择主题。
+- 构建验证：`npx tsc --noEmit`、`npx vite build`（6102 modules）、`pnpm build:console`（5964 modules）和 issue archive 一致性检查通过。
+- 真实浏览器计算样式：深色两端 page/panel/border 均为 `#0F1420/#161C2B/#2A3348`；浅色均为 `#F4F6F8/#FFFFFF/#E6E9EF`，正文为 `#1D2939`。App 与 Console 均完成真实主题切换、恢复深色，并在桌面和 390px 验证无横向溢出；浏览器 warning/error 为 0。
+- Console 生产构建复核同时修正 `manualChunks` 对标准 `@ant-design/pro-components` 路径匹配失效的问题，避免主题产物重新出现 Pro Components 跨 chunk 循环执行顺序警告。
