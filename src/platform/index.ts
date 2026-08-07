@@ -32,8 +32,35 @@ export type LocalAgentStatus = {
     leases: { total: number; active: number }
     wal: { count: number; bytes: number; oldest_at: number }
     errors: Array<{ run_id: string; error: string }>
+    working_copies: Partial<Record<'local-only' | 'uploading' | 'committed', number>>
   }
   workers: unknown
+}
+
+export type LocalAgentWorkingCopy = {
+  id: string
+  owner_id: string
+  asset_id: string
+  project_id: string
+  run_id: string
+  relative_path: string
+  source_kind: 'workspace' | 'external'
+  state: 'local-only' | 'uploading' | 'committed'
+  size: number
+  sha256: string
+  upload_id: string
+  object_version_id: string
+}
+
+export type CommitAssetOptions = {
+  ownerId: string
+  localPath: string
+  projectId?: string
+  sessionId?: string
+  runId?: string
+  kind?: string
+  external?: boolean
+  explicitExternalUpload?: boolean
 }
 
 export interface Platform {
@@ -58,6 +85,8 @@ export interface Platform {
   checkForUpdates(options: UpdateOptions): Promise<UpdateResult>
   localAgent: {
     status(): Promise<LocalAgentStatus | null>
+    commitAsset(options: CommitAssetOptions): Promise<LocalAgentWorkingCopy | null>
+    downloadAsset(assetId: string, options: { ownerId: string; relativePath: string; projectId?: string }): Promise<LocalAgentWorkingCopy | null>
   }
   isDesktop: boolean
 }
@@ -79,7 +108,7 @@ const webPlatform: Platform = {
   globalShortcut: { register() {}, unregister() {} },
   fileDialog: { async openDirectory() { return null } },
   async checkForUpdates() { return { status: 'unsupported' } },
-  localAgent: { async status() { return null } },
+  localAgent: { async status() { return null }, async commitAsset() { return null }, async downloadAsset() { return null } },
   isDesktop: false,
 }
 
@@ -109,6 +138,34 @@ const tauriPlatform: Platform = {
     async status() {
       const { invoke } = await import('@tauri-apps/api/core')
       return invoke<LocalAgentStatus>('local_agent_status')
+    },
+    async commitAsset(options) {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const result = await invoke<{ working_copy: LocalAgentWorkingCopy }>('local_agent_commit_asset', {
+        body: {
+          owner_id: options.ownerId,
+          local_path: options.localPath,
+          project_id: options.projectId ?? '',
+          session_id: options.sessionId ?? '',
+          run_id: options.runId ?? '',
+          kind: options.kind ?? 'asset',
+          external: Boolean(options.external),
+          explicit_external_upload: Boolean(options.explicitExternalUpload),
+        },
+      })
+      return result.working_copy
+    },
+    async downloadAsset(assetId, options) {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const result = await invoke<{ working_copy: LocalAgentWorkingCopy }>('local_agent_download_asset', {
+        assetId,
+        body: {
+          owner_id: options.ownerId,
+          relative_path: options.relativePath,
+          project_id: options.projectId ?? '',
+        },
+      })
+      return result.working_copy
     },
   },
   isDesktop: true,

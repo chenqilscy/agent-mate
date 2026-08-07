@@ -144,6 +144,7 @@ export type ProjectWorkspaceTab =
   | "iterations"
   | "governance"
   | "knowledge"
+  | "assets"
   | "collab"
   | "config";
 interface QuickPlanDraft {
@@ -1706,6 +1707,7 @@ export function ProjectWorkspaceActions({
     activeTab === "sprints" ||
     activeTab === "iterations" ||
     activeTab === "governance"
+    || activeTab === "assets"
   )
     return null;
   return (

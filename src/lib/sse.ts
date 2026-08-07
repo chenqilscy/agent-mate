@@ -12,6 +12,8 @@ import type { AgentRun, Orchestration, SSEEvent, SessionInfo, TraceItem } from '
 import {
   localExecutionSession, rememberLocalExecutionSession, serverGet, serverGetAll, serverSend,
 } from './channels'
+import { platform } from '../platform'
+import { useAuthStore } from '../stores/authStore'
 
 export interface ChatStreamOptions {
   text: string
@@ -150,6 +152,7 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
     buffer += decoder.decode()
     if (buffer.trim()) dispatchFrame(buffer, onLocalEvent)
     if (!localDone) throw new Error('Local Agent 执行流意外断开')
+    await commitRunArtifacts(serverTurn, assistantTrace)
     const message = await finalizeServerTurn(
       serverTurn, assistantContent, assistantTrace, assistantUsage, assistantError,
     )
@@ -172,6 +175,33 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
     }
   } finally {
     reader?.releaseLock?.()
+  }
+}
+
+async function commitRunArtifacts(
+  turn: Awaited<ReturnType<typeof prepareServerTurn>>,
+  trace: TraceItem[],
+): Promise<void> {
+  if (!platform.isDesktop) return
+  const ownerId = useAuthStore.getState().me?.id
+  if (!ownerId) return
+  const paths = new Set<string>()
+  for (const item of trace) {
+    if (item.kind !== 'artifact' || !item.artifact.path || paths.has(item.artifact.path)) continue
+    paths.add(item.artifact.path)
+    try {
+      await platform.localAgent.commitAsset({
+        ownerId,
+        localPath: item.artifact.path,
+        projectId: turn.run.project_id || undefined,
+        sessionId: turn.session.id,
+        runId: turn.run.id,
+        kind: 'artifact',
+      })
+    } catch {
+      // The Core persisted local-only/uploading state before returning. A Server
+      // outage must not invalidate an otherwise successful local Run.
+    }
   }
 }
 

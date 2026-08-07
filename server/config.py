@@ -18,6 +18,27 @@ class Settings:
     DB_PATH: Path = Path(os.getenv("AGENTMATE_SERVER_DB", str(SERVER_DIR / "server.db")))
     # 知识库文档字节的落盘根（WB-171）；AGENTMATE_SERVER_STORAGE 覆盖（隔离测试 / 第二实例）。已 .gitignore。
     STORAGE_DIR: Path = Path(os.getenv("AGENTMATE_SERVER_STORAGE", str(SERVER_DIR / "storage")))
+    # WB-436: immutable Asset objects are kept separately from the legacy
+    # knowledge-document storage above. The filesystem provider is the
+    # self-hosted default; deployments can mount this path on object storage.
+    OBJECT_STORAGE_DIR: Path = Path(
+        os.getenv("AGENTMATE_OBJECT_STORAGE_ROOT", str(SERVER_DIR / "object-storage"))
+    )
+    ASSET_UPLOAD_PART_BYTES: int = max(
+        256 * 1024, int(os.getenv("AGENTMATE_ASSET_UPLOAD_PART_BYTES", str(4 * 1024 * 1024)))
+    )
+    ASSET_UPLOAD_TTL_SECONDS: int = max(
+        60, int(os.getenv("AGENTMATE_ASSET_UPLOAD_TTL_SECONDS", "86400"))
+    )
+    ASSET_DOWNLOAD_GRANT_TTL_SECONDS: int = max(
+        10, int(os.getenv("AGENTMATE_ASSET_DOWNLOAD_GRANT_TTL_SECONDS", "120"))
+    )
+    ASSET_RETENTION_SECONDS: int = max(
+        0, int(os.getenv("AGENTMATE_ASSET_RETENTION_SECONDS", "2592000"))
+    )
+    ASSET_CLEANUP_INTERVAL_SECONDS: int = max(
+        60, int(os.getenv("AGENTMATE_ASSET_CLEANUP_INTERVAL_SECONDS", "3600"))
+    )
     HOST: str = os.getenv("AGENTMATE_SERVER_HOST", "127.0.0.1")
     PORT: int = int(os.getenv("AGENTMATE_SERVER_PORT", "8100"))
     ENVIRONMENT: str = os.getenv("AGENTMATE_ENVIRONMENT", "development").strip().lower()

@@ -853,6 +853,8 @@ def create_asset(
     body: AssetCreate, account: Account = CurrentAccount,
     idempotency_key: str = Header(default="", alias="Idempotency-Key"),
 ) -> dict:
+    if body.storage_state != "pending" or body.object_ref:
+        raise HTTPException(400, "asset object state is managed by the upload protocol")
     project_id = body.project_id
     session = None
     run = None
@@ -892,6 +894,8 @@ def get_asset(asset_id: str, account: Account = CurrentAccount) -> dict:
 @router.patch("/assets/{asset_id}")
 def update_asset(asset_id: str, body: AssetPatch, account: Account = CurrentAccount) -> dict:
     item = _record("business_assets", asset_id, account, write=True)
+    if body.storage_state is not None or body.object_ref is not None:
+        raise HTTPException(400, "asset object state is managed by the upload protocol")
     patch = body.model_dump(exclude={"expected_version"}, exclude_none=True)
     try:
         return store.update_record(

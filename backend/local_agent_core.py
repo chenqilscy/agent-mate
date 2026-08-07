@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
+import mimetypes
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, HTTPException
@@ -15,6 +19,7 @@ import local_agent_store
 import run_transport
 import server_client
 from agent import worker_health
+from agent import sandbox
 from config import settings
 
 
@@ -184,6 +189,230 @@ def renew_run(run_id: str, body: RunControl) -> dict[str, Any]:
 @router.post("/runs/flush")
 def flush_runs(body: IdentityRemove) -> dict[str, Any]:
     return run_transport.flush_wal(body.owner_id, _device_token(body.owner_id))
+
+
+# ---- WB-436 Asset working copies ------------------------------------------
+
+def _identity(owner_id: str) -> str:
+    token = local_agent_store.get_server_identity(owner_id)
+    if not token:
+        raise HTTPException(401, "No valid Server identity is bound to this Local Agent")
+    return token
+
+
+def _server_failure(exc: Exception) -> None:
+    if isinstance(exc, server_client.ServerRejected):
+        raise HTTPException(exc.status_code, exc.detail) from exc
+    raise exc
+
+
+def _hash_file(path: Path) -> tuple[int, str]:
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+            size += len(chunk)
+    return size, digest.hexdigest()
+
+
+def _workspace_path(project_id: str, relative_path: str) -> Path:
+    root = sandbox.project_root(project_id or None)
+    try:
+        return sandbox.resolve_in_sandbox(relative_path, root)
+    except sandbox.SandboxError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+class AssetCommitBody(BaseModel):
+    owner_id: str = Field(min_length=8, max_length=200)
+    project_id: str = Field(default="", max_length=200)
+    session_id: str = Field(default="", max_length=200)
+    run_id: str = Field(default="", max_length=200)
+    local_path: str = Field(min_length=1, max_length=4096)
+    kind: str = Field(default="asset", max_length=80)
+    external: bool = False
+    explicit_external_upload: bool = False
+
+
+@router.post("/assets/commit")
+def commit_asset(body: AssetCommitBody) -> dict[str, Any]:
+    if body.external:
+        if not body.explicit_external_upload:
+            raise HTTPException(409, "external files require explicit upload consent")
+        supplied_path = Path(body.local_path).expanduser()
+        if not supplied_path.is_absolute():
+            raise HTTPException(400, "external file path must be absolute")
+        path = supplied_path.resolve()
+        source_kind = "external"
+        local_key = str(path)
+    else:
+        path = _workspace_path(body.project_id, body.local_path)
+        source_kind = "workspace"
+        local_key = sandbox.relpath(path, sandbox.project_root(body.project_id or None))
+    if not path.is_file():
+        raise HTTPException(404, "local working-copy file not found")
+    size, sha256 = _hash_file(path)
+    prior = next(
+        (
+            item for item in local_agent_store.list_working_copies(body.owner_id)
+            if item["source_kind"] == source_kind and item["relative_path"] == local_key
+            and item["sha256"] == sha256 and int(item["size"]) == size
+        ),
+        None,
+    )
+    copy = local_agent_store.upsert_working_copy(
+        owner_id=body.owner_id, relative_path=local_key, source_kind=source_kind,
+        project_id=body.project_id, run_id=body.run_id, asset_id=str((prior or {}).get("asset_id") or ""),
+        state="local-only", size=size, sha256=sha256,
+        upload_id=str((prior or {}).get("upload_id") or ""),
+        object_version_id=str((prior or {}).get("object_version_id") or ""),
+    )
+    if prior and prior["state"] == "committed" and prior.get("object_version_id"):
+        return {"working_copy": copy, "duplicate": True}
+
+    token = _identity(body.owner_id)
+    asset_id = str(copy.get("asset_id") or "")
+    try:
+        if not asset_id:
+            created = server_client.create_server_asset(
+                token,
+                {
+                    "project_id": body.project_id or None,
+                    "session_id": body.session_id or None,
+                    "run_id": body.run_id or None,
+                    "kind": body.kind,
+                    "name": path.name,
+                    "mime_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+                    "size": size,
+                    "sha256": sha256,
+                    "source_tool": "local-agent.explicit-upload" if body.external else "local-agent.workspace-commit",
+                },
+                f"working-copy:{copy['id']}:{sha256}",
+            )
+            if not created:
+                raise HTTPException(503, "AgentMate Server is unavailable; working copy remains local-only")
+            asset_id = str(created["asset"]["id"])
+        started = server_client.begin_asset_upload(token, asset_id, size, sha256)
+        if not started:
+            local_agent_store.upsert_working_copy(
+                owner_id=body.owner_id, relative_path=local_key, source_kind=source_kind,
+                project_id=body.project_id, run_id=body.run_id, asset_id=asset_id,
+                state="uploading", size=size, sha256=sha256,
+            )
+            raise HTTPException(503, "AgentMate Server is unavailable; upload can be resumed")
+        upload = started["upload"]
+        upload_id = str(upload["id"])
+        copy = local_agent_store.upsert_working_copy(
+            owner_id=body.owner_id, relative_path=local_key, source_kind=source_kind,
+            project_id=body.project_id, run_id=body.run_id, asset_id=asset_id,
+            state="uploading", size=size, sha256=sha256, upload_id=upload_id,
+            object_version_id=str(upload.get("object_version_id") or ""),
+        )
+        if upload["state"] != "committed":
+            status = server_client.asset_upload_status(token, upload_id) if upload.get("resumed") else started
+            if not status:
+                raise HTTPException(503, "AgentMate Server is unavailable; upload can be resumed")
+            received = {
+                int(part["part_number"])
+                for part in status.get("upload", {}).get("parts", [])
+            }
+            part_size = int(upload["part_size"])
+            with path.open("rb") as source:
+                part_number = 0
+                while chunk := source.read(part_size):
+                    if part_number not in received:
+                        part_hash = hashlib.sha256(chunk).hexdigest()
+                        if not server_client.upload_asset_part(
+                            token, upload_id, part_number, chunk, part_hash,
+                        ):
+                            raise HTTPException(503, "AgentMate Server is unavailable; upload can be resumed")
+                    part_number += 1
+            completed = server_client.complete_asset_upload(token, upload_id)
+            if not completed:
+                raise HTTPException(503, "AgentMate Server is unavailable; upload can be resumed")
+            object_version = completed["object_version"]
+        else:
+            object_version = {"id": upload["object_version_id"]}
+        copy = local_agent_store.upsert_working_copy(
+            owner_id=body.owner_id, relative_path=local_key, source_kind=source_kind,
+            project_id=body.project_id, run_id=body.run_id, asset_id=asset_id,
+            state="committed", size=size, sha256=sha256, upload_id=upload_id,
+            object_version_id=str(object_version["id"]),
+        )
+        return {"working_copy": copy, "duplicate": bool(upload.get("deduplicated"))}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _server_failure(exc)
+        raise
+
+
+class AssetDownloadBody(BaseModel):
+    owner_id: str = Field(min_length=8, max_length=200)
+    project_id: str = Field(default="", max_length=200)
+    relative_path: str = Field(min_length=1, max_length=4096)
+
+
+@router.post("/assets/{asset_id}/download")
+def download_asset(asset_id: str, body: AssetDownloadBody) -> dict[str, Any]:
+    token = _identity(body.owner_id)
+    target = _workspace_path(body.project_id, body.relative_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.name}.agentmate-download")
+    try:
+        grant = server_client.create_asset_download_grant(token, asset_id)
+        if not grant:
+            raise HTTPException(503, "AgentMate Server is unavailable")
+        headers = server_client.download_asset_to_file(token, asset_id, str(grant["token"]), temporary)
+        if not headers:
+            raise HTTPException(503, "AgentMate Server is unavailable")
+        size, sha256 = _hash_file(temporary)
+        version = grant["object_version"]
+        if size != int(version["size"]) or sha256 != str(version["sha256"]):
+            temporary.unlink(missing_ok=True)
+            raise HTTPException(409, "downloaded object failed size or sha256 verification")
+        os.replace(temporary, target)
+        copy = local_agent_store.upsert_working_copy(
+            owner_id=body.owner_id,
+            relative_path=sandbox.relpath(target, sandbox.project_root(body.project_id or None)),
+            source_kind="workspace", project_id=body.project_id, asset_id=asset_id,
+            state="committed", size=size, sha256=sha256,
+            object_version_id=str(version["id"]),
+        )
+        return {"working_copy": copy}
+    except HTTPException:
+        temporary.unlink(missing_ok=True)
+        raise
+    except Exception as exc:
+        temporary.unlink(missing_ok=True)
+        _server_failure(exc)
+        raise
+
+
+@router.get("/assets/working-copies")
+def working_copies(owner_id: str) -> dict[str, Any]:
+    _identity(owner_id)
+    return {"working_copies": local_agent_store.list_working_copies(owner_id)}
+
+
+@router.delete("/assets/working-copies/{copy_id}")
+def cleanup_working_copy(copy_id: str, owner_id: str, delete_file: bool = False) -> dict[str, Any]:
+    copy = local_agent_store.get_working_copy(copy_id, owner_id)
+    if not copy:
+        raise HTTPException(404, "working copy not found")
+    if copy["source_kind"] == "external" and delete_file:
+        raise HTTPException(409, "Local Agent never deletes an external original")
+    deleted = False
+    if delete_file:
+        path = _workspace_path(str(copy["project_id"]), str(copy["relative_path"]))
+        if path.is_file():
+            path.unlink()
+            deleted = True
+    local_agent_store.delete_working_copy(
+        copy_id, owner_id, action="working-copy.cleanup.file" if deleted else "working-copy.cleanup.metadata",
+    )
+    return {"cleaned": True, "file_deleted": deleted}
 
 
 async def _transport_loop() -> None:

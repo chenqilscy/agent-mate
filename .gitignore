@@ -29,6 +29,7 @@ backend/.browser-profiles/
 backend/models/
 # 知识库文档字节落盘（WB-171，用户上传的团队资料，不入库）
 server/storage/
+server/object-storage/
 
 # editor / os
 .DS_Store

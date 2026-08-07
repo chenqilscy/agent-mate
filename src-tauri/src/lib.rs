@@ -83,29 +83,86 @@ use uuid::Uuid;
 #[tauri::command]
 async fn local_agent_status(state: State<'_, LocalAgentIpc>) -> Result<serde_json::Value, String> {
     let token = state.token.clone();
-    tauri::async_runtime::spawn_blocking(move || read_local_agent_status(&token))
-        .await
-        .map_err(|error| error.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        call_local_agent_json("GET", "/api/local-agent/status", &token, None)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
-fn read_local_agent_status(token: &str) -> Result<serde_json::Value, String> {
+#[tauri::command]
+async fn local_agent_commit_asset(
+    state: State<'_, LocalAgentIpc>,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let token = state.token.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        call_local_agent_json("POST", "/api/local-agent/assets/commit", &token, Some(body))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn local_agent_download_asset(
+    state: State<'_, LocalAgentIpc>,
+    asset_id: String,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    if asset_id.is_empty()
+        || asset_id.len() > 200
+        || !asset_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._:-".contains(c))
+    {
+        return Err("invalid asset id".into());
+    }
+    let token = state.token.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        call_local_agent_json(
+            "POST",
+            &format!("/api/local-agent/assets/{asset_id}/download"),
+            &token,
+            Some(body),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn call_local_agent_json(
+    method: &str,
+    path: &str,
+    token: &str,
+    body: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
     let address: SocketAddr = "127.0.0.1:8101"
         .parse()
         .map_err(|error: std::net::AddrParseError| error.to_string())?;
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(3))
         .map_err(|error| error.to_string())?;
     stream
-        .set_read_timeout(Some(Duration::from_secs(3)))
+        .set_read_timeout(Some(Duration::from_secs(300)))
         .map_err(|error| error.to_string())?;
     stream
-        .set_write_timeout(Some(Duration::from_secs(3)))
+        .set_write_timeout(Some(Duration::from_secs(10)))
         .map_err(|error| error.to_string())?;
+    let payload = body
+        .map(|value| serde_json::to_vec(&value).map_err(|error| error.to_string()))
+        .transpose()?
+        .unwrap_or_default();
     let request = format!(
-        "GET /api/local-agent/status HTTP/1.1\r\nHost: 127.0.0.1:8101\r\nConnection: close\r\nX-AgentMate-IPC-Token: {token}\r\n\r\n"
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:8101\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-AgentMate-IPC-Token: {token}\r\n\r\n",
+        payload.len()
     );
     stream
         .write_all(request.as_bytes())
         .map_err(|error| error.to_string())?;
+    if !payload.is_empty() {
+        stream
+            .write_all(&payload)
+            .map_err(|error| error.to_string())?;
+    }
     let mut response = Vec::new();
     stream
         .read_to_end(&mut response)
@@ -116,10 +173,21 @@ fn read_local_agent_status(token: &str) -> Result<serde_json::Value, String> {
         .ok_or_else(|| "Local Agent returned an invalid HTTP response".to_string())?;
     let headers = std::str::from_utf8(&response[..split]).map_err(|error| error.to_string())?;
     let status = headers.lines().next().unwrap_or_default();
+    let response_body = &response[split + 4..];
     if !status.starts_with("HTTP/1.1 200 ") {
-        return Err(format!("Local Agent returned {status}"));
+        let detail = serde_json::from_slice::<serde_json::Value>(response_body)
+            .ok()
+            .and_then(|value| value.get("detail").cloned())
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| value.to_string())
+            })
+            .unwrap_or_else(|| status.to_string());
+        return Err(detail);
     }
-    serde_json::from_slice(&response[split + 4..]).map_err(|error| error.to_string())
+    serde_json::from_slice(response_body).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -234,7 +302,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             check_desktop_update,
-            local_agent_status
+            local_agent_status,
+            local_agent_commit_asset,
+            local_agent_download_asset
         ])
         .setup(|app| {
             // ---- backend sidecar: spawn + drain its output ----

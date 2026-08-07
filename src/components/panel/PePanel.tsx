@@ -9,6 +9,9 @@ import { Popover } from '../ui/Popover'
 import { WbButton } from '../ui/Primitives'
 import { clickable } from '../../lib/a11y'
 import { IcPanel } from '../../lib/icons'
+import { platform } from '../../platform'
+import { useAuthStore } from '../../stores/authStore'
+import { toast } from '../../stores/toastStore'
 
 // Project task workbench. The overview mirrors WorkBuddy's task-progress/product
 // navigator while every row still comes from persisted Run Plan / Artifact / diff
@@ -16,7 +19,7 @@ import { IcPanel } from '../../lib/icons'
 type Tab = 'prod' | 'files' | 'diff'
 
 interface Diff { op: string; file: string; add: number; del: number }
-interface Artifact { path: string; openPath: string; name: string; meta: string; primary: boolean }
+interface Artifact { path: string; openPath: string; name: string; meta: string; primary: boolean; assetId?: string; remote?: boolean }
 interface ProgressItem {
   key: string
   title: string
@@ -97,6 +100,8 @@ function manifestArtifacts(items: ArtifactManifest[]): Artifact[] {
       name: item.name,
       meta: `${item.is_primary ? '主产物 · ' : ''}${verified} · ${accepted}`,
       primary: item.is_primary,
+      assetId: item.id,
+      remote: item.path.startsWith('object://'),
     }
   })
 }
@@ -141,6 +146,8 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
   const setPanel = useUIStore((state) => state.setOv)
   const toggleExpand = useUIStore((state) => state.toggleExpand)
   const activeId = useChatStore((state) => state.activeId)
+  const activeProjectId = useChatStore((state) => state.activeProjectId)
+  const ownerId = useAuthStore((state) => state.me?.id)
   const scope = activeId ? { session: activeId } : undefined
 
   const diffs = allDiffs(messages)
@@ -158,6 +165,27 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
       ? tracedArtifacts(messages, run.id)
       : run ? [] : tracedArtifacts(messages)
   const progress = taskProgress(messages)
+
+  const openProduct = async (product: Artifact) => {
+    if (!product.remote || !product.assetId) {
+      openFile(product.openPath)
+      return
+    }
+    if (!platform.isDesktop || !ownerId) {
+      toast('该产物在 Server，请使用桌面端下载 working copy')
+      return
+    }
+    const safeName = product.name.replace(/[\\/]/g, '_')
+    const relativePath = `.agentmate/assets/${product.assetId}/${safeName}`
+    try {
+      await platform.localAgent.downloadAsset(product.assetId, {
+        ownerId, relativePath, projectId: activeProjectId || undefined,
+      })
+      openFile(relativePath)
+    } catch {
+      toast('Server 产物下载或哈希校验失败')
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -186,7 +214,8 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
     ) return
     autoFocusedRun.current = run.id
     setTab('prod')
-    openFile((products.find((item) => item.primary) ?? products[0]).openPath)
+    const product = products.find((item) => item.primary) ?? products[0]
+    if (!product.remote) openFile(product.openPath)
   }, [manifest?.runId, openFile, panelOpen, products, run, viewerPath])
 
   const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
@@ -253,7 +282,7 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
             {productOpen && (
               <div className="pe-product-list">
                 {products.length ? products.map((product) => (
-                  <div className={`pe-product-item ${viewerPath === product.openPath ? 'active' : ''}`.trim()} key={product.path} {...clickable} onClick={() => { openFile(product.openPath); setTab('prod'); setOverviewOpen(false) }}>
+                  <div className={`pe-product-item ${viewerPath === product.openPath ? 'active' : ''}`.trim()} key={product.path} {...clickable} onClick={() => { void openProduct(product); setTab('prod'); setOverviewOpen(false) }}>
                     <span className="pe-product-badge">{badge(product.name)}</span>
                     <span title={product.name}>{product.name}</span>
                   </div>
@@ -277,7 +306,7 @@ export function PePanel({ messages }: { messages: ChatMessage[] }) {
           products.length ? (
             <div className="pe-artifacts">
               {products.map((product) => (
-                <div className="ov-art" key={product.path} {...clickable} onClick={() => openFile(product.openPath)}>
+                <div className="ov-art" key={product.path} {...clickable} onClick={() => void openProduct(product)}>
                   <span className="oa-ic">{badge(product.name)}</span>
                   <div className="pe-artifact-copy"><div className="oa-n">{product.name}</div><div className="oa-m">{product.meta}</div></div>
                 </div>

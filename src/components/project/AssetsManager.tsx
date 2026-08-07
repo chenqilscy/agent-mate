@@ -7,6 +7,8 @@ import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
 import { Breadcrumb, Dropdown, Empty, Input, Progress, Table } from 'antd'
 import { clickable } from '../../lib/a11y'
+import { platform } from '../../platform'
+import { useAuthStore } from '../../stores/authStore'
 
 // 资产 = the project's cloud drive (§11 阶段 C): a real file manager over the
 // project workspace — upload / download / rename / delete / new folder + quota.
@@ -48,6 +50,7 @@ function entriesAt(entries: FileEntry[], cwd: string): FileEntry[] {
 }
 
 export function AssetsManager({ scope, canWrite = true }: { scope: FileScope; canWrite?: boolean }) {
+  const ownerId = useAuthStore((s) => s.me?.id)
   const viewerPath = useUIStore((s) => s.viewerPath)
   const openFile = useUIStore((s) => s.openFile)
   const closeFile = useUIStore((s) => s.closeFile)
@@ -71,10 +74,32 @@ export function AssetsManager({ scope, canWrite = true }: { scope: FileScope; ca
 
   const onUpload = async (files: FileList | null) => {
     if (!files || !files.length) return
+    let committed = 0
+    let localSaved = 0
+    let serverPending = 0
     for (const f of Array.from(files)) {
-      await api.uploadFile(inPath(f.name), f, scope).catch(() => toast('上传失败 · ' + f.name))
+      const localPath = inPath(f.name)
+      try {
+        await api.uploadFile(localPath, f, scope)
+        localSaved += 1
+        if (platform.isDesktop && ownerId) {
+          try {
+            const copy = await platform.localAgent.commitAsset({
+              ownerId, localPath, projectId: scope.project, kind: 'asset',
+            })
+            if (copy?.state === 'committed') committed += 1
+            else serverPending += 1
+          } catch {
+            serverPending += 1
+          }
+        }
+      } catch {
+        toast('本地保存失败 · ' + f.name)
+      }
     }
-    toast(`已上传 ${files.length} 个文件`)
+    toast(platform.isDesktop
+      ? `已保存 ${localSaved} 个本地副本 · ${committed} 个已提交 Server${serverPending ? ` · ${serverPending} 个待续传` : ''}`
+      : `已保存 ${localSaved} 个本地文件`)
     reload()
   }
 

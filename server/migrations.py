@@ -265,6 +265,12 @@ def assert_server_schema(conn: sqlite3.Connection) -> None:
         "business_channels": {"assistant_id", "public_config", "credential_ref", "version"},
         "business_automations": {"owner_id", "project_id", "version", "client_request_id"},
         "business_assets": {"owner_id", "project_id", "object_ref", "storage_state", "version"},
+        "asset_object_versions": {"asset_id", "version_number", "storage_key", "sha256", "size"},
+        "asset_uploads": {"asset_id", "expected_sha256", "expected_size", "state", "expires_at"},
+        "asset_upload_parts": {"upload_id", "part_number", "sha256", "size"},
+        "asset_download_grants": {
+            "token_hash", "asset_id", "object_version_id", "expires_at", "used_at",
+        },
         "business_audit": {"actor_id", "entity_type", "entity_id", "created_at"},
         "agent_devices": {"owner_id", "public_key", "capabilities", "status", "revoked_at"},
         "device_challenges": {"device_id", "nonce", "expires_at", "used_at"},
@@ -594,6 +600,83 @@ def migrate_durable_business_plane(conn: sqlite3.Connection) -> None:
     # ``executescript`` commits implicitly and would escape run_migrations'
     # BEGIN IMMEDIATE transaction. These statements contain no trigger bodies,
     # so executing them individually preserves an atomic schema migration.
+    for statement in schema.split(";"):
+        if statement.strip():
+            conn.execute(statement)
+
+
+def migrate_asset_object_storage(conn: sqlite3.Connection) -> None:
+    """Add resumable immutable Asset objects without turning Server into a workspace mirror."""
+    schema = """
+        CREATE TABLE IF NOT EXISTS asset_object_versions (
+            id TEXT PRIMARY KEY,
+            asset_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            version_number INTEGER NOT NULL,
+            storage_key TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            sha256 TEXT NOT NULL,
+            retained_until REAL NOT NULL,
+            created_at REAL NOT NULL,
+            deleted_at REAL NOT NULL DEFAULT 0,
+            FOREIGN KEY(asset_id) REFERENCES business_assets(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_id) REFERENCES accounts(id) ON DELETE CASCADE,
+            UNIQUE(asset_id,version_number)
+        );
+        CREATE INDEX IF NOT EXISTS idx_asset_versions_asset
+            ON asset_object_versions(asset_id,version_number DESC);
+        CREATE INDEX IF NOT EXISTS idx_asset_versions_dedupe
+            ON asset_object_versions(owner_id,sha256,size,deleted_at);
+
+        CREATE TABLE IF NOT EXISTS asset_uploads (
+            id TEXT PRIMARY KEY,
+            asset_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            project_id TEXT,
+            expected_size INTEGER NOT NULL,
+            expected_sha256 TEXT NOT NULL,
+            part_size INTEGER NOT NULL,
+            state TEXT NOT NULL DEFAULT 'uploading',
+            object_version_id TEXT,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            completed_at REAL,
+            FOREIGN KEY(asset_id) REFERENCES business_assets(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_id) REFERENCES accounts(id) ON DELETE CASCADE,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY(object_version_id) REFERENCES asset_object_versions(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_asset_uploads_resume
+            ON asset_uploads(owner_id,asset_id,state,updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_asset_uploads_expiry
+            ON asset_uploads(state,expires_at);
+
+        CREATE TABLE IF NOT EXISTS asset_upload_parts (
+            upload_id TEXT NOT NULL,
+            part_number INTEGER NOT NULL,
+            size INTEGER NOT NULL,
+            sha256 TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            PRIMARY KEY(upload_id,part_number),
+            FOREIGN KEY(upload_id) REFERENCES asset_uploads(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS asset_download_grants (
+            token_hash TEXT PRIMARY KEY,
+            asset_id TEXT NOT NULL,
+            object_version_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            expires_at REAL NOT NULL,
+            used_at REAL NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            FOREIGN KEY(asset_id) REFERENCES business_assets(id) ON DELETE CASCADE,
+            FOREIGN KEY(object_version_id) REFERENCES asset_object_versions(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_asset_download_grants_expiry
+            ON asset_download_grants(expires_at,used_at);
+    """
     for statement in schema.split(";"):
         if statement.strip():
             conn.execute(statement)

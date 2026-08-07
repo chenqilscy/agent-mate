@@ -10,6 +10,7 @@ HTTP 错误，只有网络异常/5xx 才按不可达处理。这些是复用共�
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
@@ -18,6 +19,7 @@ from config import settings
 
 _TIMEOUT = 5.0
 _KNOWLEDGE_TIMEOUT = 120.0
+_ASSET_TIMEOUT = 120.0
 _client_lock = threading.Lock()
 _http_client: httpx.Client | None = None
 
@@ -236,6 +238,117 @@ def _delete(path: str, token: str, *, strict: bool = False) -> bool:
         raise
     except Exception:  # noqa: BLE001
         return False
+
+
+# ---- WB-436 immutable Asset object channel ---------------------------------
+
+def create_server_asset(token: str, body: dict[str, Any], request_key: str) -> Optional[dict[str, Any]]:
+    if not token or not settings.AGENTMATE_SERVER_URL:
+        return None
+    try:
+        response = _client().post(
+            f"{settings.AGENTMATE_SERVER_URL}/api/assets",
+            headers={"Authorization": f"Bearer {token}", "Idempotency-Key": request_key},
+            json=body, timeout=_TIMEOUT,
+        )
+        if response.status_code != 200:
+            _raise_rejection(response, True)
+            return None
+        payload = response.json()
+        return payload if isinstance(payload, dict) else None
+    except ServerRejected:
+        raise
+    except Exception:  # noqa: BLE001 - caller keeps the working copy retryable
+        return None
+
+
+def begin_asset_upload(token: str, asset_id: str, size: int, sha256: str) -> Optional[dict[str, Any]]:
+    result = _post(
+        "/api/assets/uploads", token,
+        {"asset_id": asset_id, "size": size, "sha256": sha256}, strict=True,
+    )
+    return result if isinstance(result, dict) else None
+
+
+def asset_upload_status(token: str, upload_id: str) -> Optional[dict[str, Any]]:
+    result = _get(f"/api/assets/uploads/{upload_id}", token, strict=True)
+    return result if isinstance(result, dict) else None
+
+
+def upload_asset_part(
+    token: str, upload_id: str, part_number: int, data: bytes, sha256: str,
+) -> Optional[dict[str, Any]]:
+    if not token or not settings.AGENTMATE_SERVER_URL:
+        return None
+    try:
+        response = _client().put(
+            f"{settings.AGENTMATE_SERVER_URL}/api/assets/uploads/{upload_id}/parts/{part_number}",
+            headers={"Authorization": f"Bearer {token}", "X-Part-SHA256": sha256},
+            content=data, timeout=_ASSET_TIMEOUT,
+        )
+        if response.status_code != 200:
+            _raise_rejection(response, True)
+            return None
+        payload = response.json()
+        return payload if isinstance(payload, dict) else None
+    except ServerRejected:
+        raise
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def complete_asset_upload(token: str, upload_id: str) -> Optional[dict[str, Any]]:
+    result = _post(f"/api/assets/uploads/{upload_id}/complete", token, {}, strict=True)
+    return result if isinstance(result, dict) else None
+
+
+def create_asset_download_grant(token: str, asset_id: str) -> Optional[dict[str, Any]]:
+    result = _post(f"/api/assets/{asset_id}/download-grant", token, {}, strict=True)
+    return result if isinstance(result, dict) else None
+
+
+def download_asset_bytes(token: str, asset_id: str, grant: str) -> Optional[tuple[bytes, dict[str, str]]]:
+    if not token or not settings.AGENTMATE_SERVER_URL:
+        return None
+    try:
+        response = _client().get(
+            f"{settings.AGENTMATE_SERVER_URL}/api/assets/{asset_id}/content",
+            headers={"X-Asset-Token": grant}, timeout=_ASSET_TIMEOUT,
+        )
+        if response.status_code != 200:
+            _raise_rejection(response, True)
+            return None
+        return response.content, {key.lower(): value for key, value in response.headers.items()}
+    except ServerRejected:
+        raise
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def download_asset_to_file(
+    token: str, asset_id: str, grant: str, target: Path,
+) -> Optional[dict[str, str]]:
+    """Stream a granted object to a caller-owned temporary file."""
+    if not token or not settings.AGENTMATE_SERVER_URL:
+        return None
+    try:
+        with _client().stream(
+            "GET", f"{settings.AGENTMATE_SERVER_URL}/api/assets/{asset_id}/content",
+            headers={"X-Asset-Token": grant}, timeout=_ASSET_TIMEOUT,
+        ) as response:
+            if response.status_code != 200:
+                response.read()
+                _raise_rejection(response, True)
+                return None
+            with target.open("wb") as output:
+                for chunk in response.iter_bytes():
+                    output.write(chunk)
+            return {key.lower(): value for key, value in response.headers.items()}
+    except ServerRejected:
+        raise
+    except Exception:  # noqa: BLE001
+        target.unlink(missing_ok=True)
+        return None
 
 
 # ---- 前端接 Server 的代理（WB-067）：本地 backend 转发 Server 协作/登录，前端只连本地 ----

@@ -27,9 +27,10 @@ _CONSOLE_NEXT = _CONSOLE_DIST / "index.html"
 
 import db  # noqa: E402
 import relay_store  # noqa: E402
+import asset_object_store  # noqa: E402
 import sso_store  # noqa: E402
 from config import settings  # noqa: E402
-from routers import accounts, auth, business, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, relay, run_protocol, sso, timeline, work_items  # noqa: E402
+from routers import accounts, assets, auth, business, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, relay, run_protocol, sso, timeline, work_items  # noqa: E402
 
 db.init_db()
 sso_store.migrate_plaintext_provider_secrets()
@@ -39,6 +40,15 @@ async def _relay_retention_loop() -> None:
     while True:
         await asyncio.sleep(settings.RELAY_CLEANUP_INTERVAL_SECONDS)
         await _run_relay_retention_once()
+
+
+async def _asset_cleanup_loop() -> None:
+    while True:
+        await asyncio.sleep(settings.ASSET_CLEANUP_INTERVAL_SECONDS)
+        try:
+            await asyncio.to_thread(asset_object_store.cleanup_expired)
+        except Exception:  # noqa: BLE001 - recurring cleanup must survive one bad cycle
+            logging.getLogger("agentmate.asset_cleanup").exception("asset cleanup failed")
 
 
 async def _run_relay_retention_once() -> bool:
@@ -54,12 +64,15 @@ async def _run_relay_retention_once() -> bool:
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     await asyncio.to_thread(relay_store.cleanup_terminal_events)
+    await asyncio.to_thread(asset_object_store.cleanup_expired)
     cleanup_task = asyncio.create_task(_relay_retention_loop())
+    asset_cleanup_task = asyncio.create_task(_asset_cleanup_loop())
     try:
         yield
     finally:
         cleanup_task.cancel()
-        await asyncio.gather(cleanup_task, return_exceptions=True)
+        asset_cleanup_task.cancel()
+        await asyncio.gather(cleanup_task, asset_cleanup_task, return_exceptions=True)
 
 
 app = FastAPI(title="AgentMate Server API", version="1.0.0", lifespan=_lifespan)
@@ -97,6 +110,8 @@ app.include_router(sso.router)
 app.include_router(accounts.router)
 app.include_router(orgs.router)
 app.include_router(projects.router)
+# Static upload/grant routes precede the generic /assets/{asset_id} metadata route.
+app.include_router(assets.router)
 app.include_router(business.router)
 app.include_router(run_protocol.router)
 app.include_router(invites.router)

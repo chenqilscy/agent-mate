@@ -206,6 +206,26 @@ export interface Project {
   archived_at: number;
 }
 
+export interface AssetRecord {
+  id: string;
+  owner_id: string;
+  project_id?: string | null;
+  session_id?: string | null;
+  run_id?: string | null;
+  kind: string;
+  name: string;
+  mime_type: string;
+  size: number;
+  sha256: string;
+  storage_state: "pending" | "uploading" | "committed" | string;
+  object_ref: string;
+  validation_status: string;
+  acceptance_status: string;
+  version: number;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface Organization {
   id: string;
   name: string;

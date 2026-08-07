@@ -1,5 +1,6 @@
 import type {
   Account,
+  AssetRecord,
   Activity,
   AuthResponse,
   CatalogData,
@@ -701,6 +702,34 @@ export const consoleApi = {
     apiRequest<{ items: KnowledgeBase[]; configured: boolean }>(
       "GET",
       `/projects/${encodeURIComponent(id)}/knowledge-bases`,
+    ),
+  projectAssets: (id: string) =>
+    apiRequest<{ assets: AssetRecord[]; next_cursor: string }>(
+      "GET",
+      `/assets?project_id=${encodeURIComponent(id)}&limit=200`,
+    ),
+  downloadAsset: async (asset: AssetRecord): Promise<void> => {
+    const grant = await apiRequest<{ token: string }>(
+      "POST",
+      `/assets/${encodeURIComponent(asset.id)}/download-grant`,
+      {},
+    );
+    const response = await fetch(
+      `/api/assets/${encodeURIComponent(asset.id)}/content`,
+      { headers: { "X-Asset-Token": grant.token } },
+    );
+    if (!response.ok) throw new ApiError(`HTTP ${response.status}`, response.status);
+    const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = asset.name;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  },
+  deleteAsset: (asset: AssetRecord) =>
+    apiRequest<{ ok: boolean }>(
+      "DELETE",
+      `/assets/${encodeURIComponent(asset.id)}?expected_version=${asset.version}`,
     ),
   createKnowledgeBase: (
     id: string,

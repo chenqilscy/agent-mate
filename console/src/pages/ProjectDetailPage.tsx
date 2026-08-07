@@ -52,6 +52,7 @@ import { navigate } from "../router";
 import type {
   CatalogData,
   CatalogItem,
+  AssetRecord,
   CommentRecord,
   KnowledgeBase,
   KnowledgeDocument,
@@ -77,6 +78,7 @@ const PROJECT_TABS: readonly ProjectWorkspaceTab[] = [
   "iterations",
   "governance",
   "knowledge",
+  "assets",
   "collab",
   "config",
 ];
@@ -87,6 +89,7 @@ type ProjectWorkspaceSection =
   | "team"
   | "governance"
   | "knowledge"
+  | "assets"
   | "config";
 const PROJECT_SECTION_BY_TAB: Record<
   ProjectWorkspaceTab,
@@ -103,6 +106,7 @@ const PROJECT_SECTION_BY_TAB: Record<
   iterations: "planning",
   governance: "governance",
   knowledge: "knowledge",
+  assets: "assets",
   collab: "team",
   config: "config",
 };
@@ -116,6 +120,7 @@ const PROJECT_SECTION_DEFAULT: Record<
   team: "workload",
   governance: "governance",
   knowledge: "knowledge",
+  assets: "assets",
   config: "config",
 };
 
@@ -214,6 +219,8 @@ export default function ProjectDetailPage({
         return project ? <ProjectGovernance project={project} /> : null;
       case "knowledge":
         return project ? <KnowledgeTab project={project} /> : null;
+      case "assets":
+        return project ? <AssetsTab project={project} /> : null;
       case "collab":
         return project ? <CollaborationTab project={project} /> : null;
       case "config":
@@ -337,6 +344,13 @@ export default function ProjectDetailPage({
                 ]),
               },
               {
+                key: "assets",
+                label: "资产",
+                children: renderProjectSection([
+                  { key: "assets", label: "Server 资产" },
+                ]),
+              },
+              {
                 key: "config",
                 label: "设置",
                 children: renderProjectSection([
@@ -350,6 +364,148 @@ export default function ProjectDetailPage({
         !loading && <Empty description="项目不存在或无权访问" />
       )}
     </PageContainer>
+  );
+}
+
+function formatAssetSize(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024)
+    return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function AssetsTab({ project }: { project: Project }) {
+  const { message } = App.useApp();
+  const [items, setItems] = useState<AssetRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await consoleApi.projectAssets(project.id);
+      setItems(result.assets || []);
+    } catch (reason) {
+      message.error(errorText(reason, "Server 资产加载失败"));
+    } finally {
+      setLoading(false);
+    }
+  }, [message, project.id]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const columns: ProColumns<AssetRecord>[] = [
+    {
+      title: "资产",
+      dataIndex: "name",
+      render: (_value, item) => (
+        <Space>
+          <FileTextOutlined />
+          <div>
+            <Typography.Text strong>{item.name}</Typography.Text>
+            <div>
+              <Typography.Text type="secondary">
+                {item.mime_type} · {formatAssetSize(item.size)}
+              </Typography.Text>
+            </div>
+          </div>
+        </Space>
+      ),
+    },
+    {
+      title: "存储",
+      dataIndex: "storage_state",
+      width: 130,
+      render: (_value, item) =>
+        item.storage_state === "committed" ? (
+          <Tag color="green">Server 已提交</Tag>
+        ) : item.storage_state === "uploading" ? (
+          <Tag color="processing">上传中</Tag>
+        ) : (
+          <Tag>仅元数据</Tag>
+        ),
+    },
+    {
+      title: "完整性",
+      dataIndex: "validation_status",
+      width: 130,
+      render: (_value, item) =>
+        item.validation_status === "verified" ? (
+          <Tag color="blue">哈希已核验</Tag>
+        ) : (
+          <Tag color="orange">待核验</Tag>
+        ),
+    },
+    {
+      title: "SHA-256",
+      dataIndex: "sha256",
+      width: 150,
+      render: (value) => (
+        <Typography.Text code copyable={{ text: String(value || "") }}>
+          {String(value || "").slice(0, 12) || "-"}
+        </Typography.Text>
+      ),
+    },
+    {
+      title: "更新时间",
+      dataIndex: "updated_at",
+      width: 180,
+      render: (value) =>
+        value ? new Date(Number(value) * 1000).toLocaleString("zh-CN") : "-",
+    },
+    {
+      title: "操作",
+      valueType: "option",
+      width: 150,
+      render: (_value, item) => [
+        <Button
+          key="download"
+          type="link"
+          size="small"
+          disabled={item.storage_state !== "committed"}
+          onClick={async () => {
+            try {
+              await consoleApi.downloadAsset(item);
+            } catch (reason) {
+              message.error(errorText(reason, "资产下载失败"));
+            }
+          }}
+        >
+          下载
+        </Button>,
+        canWrite(project) ? (
+          <Popconfirm
+            key="delete"
+            title="删除 Server 资产引用？"
+            description="不会删除任何设备上的外部原文件。"
+            onConfirm={async () => {
+              try {
+                await consoleApi.deleteAsset(item);
+                message.success("Server 资产引用已删除");
+                await load();
+              } catch (reason) {
+                message.error(errorText(reason, "资产删除失败"));
+              }
+            }}
+          >
+            <Button type="link" danger size="small">
+              删除
+            </Button>
+          </Popconfirm>
+        ) : null,
+      ],
+    },
+  ];
+  return (
+    <ProTable<AssetRecord>
+      rowKey="id"
+      columns={columns}
+      dataSource={items}
+      loading={loading}
+      search={false}
+      options={{ reload: () => void load(), density: true }}
+      pagination={{ pageSize: 20 }}
+      locale={{ emptyText: "暂无已提交的 Server 资产" }}
+    />
   );
 }
 

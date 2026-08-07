@@ -63,6 +63,7 @@ class LocalAgentCoreBoundaryTest(unittest.TestCase):
         self.assertEqual({
             "local_agent_schema", "device_settings", "device_secrets",
             "server_identities", "run_transport_leases", "run_event_wal",
+            "asset_working_copies", "asset_working_copy_audit",
         }, tables)
         self.assertEqual("127.0.0.1", local_agent_core.bind_host())
 

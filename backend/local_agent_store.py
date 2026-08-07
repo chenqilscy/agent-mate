@@ -1,8 +1,8 @@
-"""Minimal durable storage owned by Local Agent Core (WB-434).
+"""Minimal durable storage owned by Local Agent Core (WB-434/WB-436).
 
 This database is intentionally not a business mirror. It contains only device
 identity material, Server session bindings, active lease metadata and the
-unacknowledged Run event WAL.
+unacknowledged Run event WAL and device-local Asset working-copy state.
 """
 from __future__ import annotations
 
@@ -118,6 +118,35 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_run_event_wal_flush
             ON run_event_wal(owner_id,run_id,lease_epoch,sequence);
+
+        CREATE TABLE IF NOT EXISTS asset_working_copies (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            asset_id TEXT NOT NULL DEFAULT '',
+            project_id TEXT NOT NULL DEFAULT '',
+            run_id TEXT NOT NULL DEFAULT '',
+            relative_path TEXT NOT NULL,
+            source_kind TEXT NOT NULL DEFAULT 'workspace',
+            state TEXT NOT NULL DEFAULT 'local-only',
+            size INTEGER NOT NULL DEFAULT 0,
+            sha256 TEXT NOT NULL DEFAULT '',
+            upload_id TEXT NOT NULL DEFAULT '',
+            object_version_id TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            UNIQUE(owner_id,source_kind,relative_path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_asset_working_copies_owner_state
+            ON asset_working_copies(owner_id,state,updated_at DESC);
+        CREATE TABLE IF NOT EXISTS asset_working_copy_audit (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            working_copy_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            details TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            FOREIGN KEY(working_copy_id) REFERENCES asset_working_copies(id) ON DELETE CASCADE
+        );
         """
     )
     conn.commit()
@@ -230,6 +259,12 @@ def status_snapshot() -> dict:
     identities = int(conn.execute(
         "SELECT COUNT(*) FROM server_identities WHERE expires_at>?", (time.time(),),
     ).fetchone()[0])
+    working_copies = {
+        str(row["state"]): int(row["count"])
+        for row in conn.execute(
+            "SELECT state,COUNT(*) AS count FROM asset_working_copies GROUP BY state"
+        ).fetchall()
+    }
     return {
         "identities": identities,
         "leases": {"total": int(leases["count"] or 0), "active": int(leases["active"] or 0)},
@@ -238,4 +273,84 @@ def status_snapshot() -> dict:
             "oldest_at": float(wal["oldest"] or 0),
         },
         "errors": [{"run_id": str(row["run_id"]), "error": str(row["last_error"])} for row in errors],
+        "working_copies": working_copies,
     }
+
+
+def upsert_working_copy(
+    *, owner_id: str, relative_path: str, source_kind: str, project_id: str = "",
+    run_id: str = "", asset_id: str = "", state: str = "local-only", size: int = 0,
+    sha256: str = "", upload_id: str = "", object_version_id: str = "",
+) -> dict:
+    """Persist only local path/state; the path is never sent to Server."""
+    init_db()
+    if state not in {"local-only", "uploading", "committed"}:
+        raise ValueError("invalid working-copy state")
+    if source_kind not in {"workspace", "external"}:
+        raise ValueError("invalid working-copy source")
+    conn = get_conn()
+    now = time.time()
+    row = conn.execute(
+        "SELECT id FROM asset_working_copies WHERE owner_id=? AND source_kind=? AND relative_path=?",
+        (owner_id, source_kind, relative_path),
+    ).fetchone()
+    copy_id = str(row["id"]) if row else secrets.token_hex(16)
+    conn.execute(
+        "INSERT INTO asset_working_copies "
+        "(id,owner_id,asset_id,project_id,run_id,relative_path,source_kind,state,size,sha256,"
+        "upload_id,object_version_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(owner_id,source_kind,relative_path) DO UPDATE SET "
+        "asset_id=excluded.asset_id,project_id=excluded.project_id,run_id=excluded.run_id,"
+        "state=excluded.state,size=excluded.size,sha256=excluded.sha256,upload_id=excluded.upload_id,"
+        "object_version_id=excluded.object_version_id,updated_at=excluded.updated_at",
+        (
+            copy_id, owner_id, asset_id, project_id, run_id, relative_path, source_kind, state,
+            size, sha256, upload_id, object_version_id, now, now,
+        ),
+    )
+    conn.execute(
+        "INSERT INTO asset_working_copy_audit(id,owner_id,working_copy_id,action,details,created_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (secrets.token_hex(16), owner_id, copy_id, f"state.{state}", "{}", now),
+    )
+    conn.commit()
+    return dict(conn.execute("SELECT * FROM asset_working_copies WHERE id=?", (copy_id,)).fetchone())
+
+
+def get_working_copy(copy_id: str, owner_id: str) -> Optional[dict]:
+    init_db()
+    row = get_conn().execute(
+        "SELECT * FROM asset_working_copies WHERE id=? AND owner_id=?", (copy_id, owner_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_working_copies(owner_id: str) -> list[dict]:
+    init_db()
+    rows = get_conn().execute(
+        "SELECT * FROM asset_working_copies WHERE owner_id=? ORDER BY updated_at DESC", (owner_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def delete_working_copy(copy_id: str, owner_id: str, *, action: str) -> bool:
+    init_db()
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id FROM asset_working_copies WHERE id=? AND owner_id=?", (copy_id, owner_id),
+    ).fetchone()
+    if not row:
+        return False
+    now = time.time()
+    conn.execute(
+        "INSERT INTO asset_working_copy_audit(id,owner_id,working_copy_id,action,details,created_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (secrets.token_hex(16), owner_id, copy_id, action, "{}", now),
+    )
+    # Keep the audit trail and tombstone the local state instead of cascading it.
+    conn.execute(
+        "UPDATE asset_working_copies SET state='local-only',asset_id='',upload_id='',"
+        "object_version_id='',updated_at=? WHERE id=?", (now, copy_id),
+    )
+    conn.commit()
+    return True
