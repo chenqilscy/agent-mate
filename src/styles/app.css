@@ -1368,6 +1368,19 @@ body.dark .ph-illus { filter: brightness(.72) saturate(.78); }
 .pj-syncbar-copy span, .pj-syncbar-copy small { color: var(--text-2); font-size: 11.5px; line-height: 1.5; }
 .pj-syncbar-copy small { color: var(--brand-600); font-weight: 600; }
 .pj-syncbar-action { flex: 0 0 auto; height: 30px; white-space: nowrap; }
+.pj-data-panel { display: grid; gap: 12px; padding: 16px 24px 24px; min-width: 0; }
+.pj-data-panel > .ant-alert { border: 1px solid var(--border); background: var(--brand-soft2); }
+.pj-data-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+.pj-data-card { min-width: 0; border: 1px solid var(--border); background: var(--card); }
+.pj-data-card > .ant-pro-card-body { display: grid; gap: 8px; padding: 14px; }
+.pj-data-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.pj-data-head b { color: var(--text); font-size: 13px; }
+.pj-data-head .ant-tag { margin-inline-end: auto; }
+.pj-data-head .ant-btn { height: 26px; padding-inline: 7px; font-size: 11px; }
+.pj-data-row { display: grid; gap: 3px; min-width: 0; padding: 8px 0; border-top: 1px solid var(--border-2); }
+.pj-data-name { color: var(--text); font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-data-meta, .pj-data-summary, .pj-data-empty { color: var(--text-3); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.pj-data-empty { padding: 8px 0 2px; }
 .pjh-tabs { display: flex; gap: 22px; padding: 0 24px; border-bottom: 1px solid var(--border-2); flex-shrink: 0; }
 .pjh-tab { padding: 13px 2px; font-size: 14px; font-weight: 600; color: var(--text-3); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .pjh-tab.active { color: var(--text); border-bottom-color: var(--ink); }
@@ -1497,6 +1510,8 @@ body.dark .pj-kcol-h .plus:hover { background: #2A3036; }
 @media (max-width: 700px) {
   .pj-syncbar { align-items: flex-start; flex-direction: column; gap: 9px; margin-inline: 14px; }
   .pj-syncbar-action { width: 100%; }
+  .pj-data-panel { padding: 14px; }
+  .pj-data-grid { grid-template-columns: minmax(0, 1fr); }
   .wb-new-todo { width: 96vw; }
   .wb-new-todo .np-foot { gap: 7px; padding-inline: 14px; }
   .pj-plan-head { margin-top: -2px; }

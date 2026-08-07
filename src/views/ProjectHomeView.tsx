@@ -26,8 +26,11 @@ import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
 import { ProjectIdeaPanel } from '../components/ideas/IdeaInbox'
 
-type Tab = '动态' | '计划' | '任务' | '治理' | '资产' | '讨论'
-const PROJECT_TABS: Tab[] = ['动态', '计划', '任务', '治理', '资产', '讨论']
+type Tab = '动态' | '计划' | '任务' | '治理' | '资产' | '讨论' | '项目数据'
+const PROJECT_TABS: Tab[] = ['动态', '计划', '任务', '治理', '资产', '讨论', '项目数据']
+type ServerProjectField = { id: string; name: string; field_type: string; options: string[]; required: boolean }
+type ServerProjectSprint = { id: string; name: string; goal: string; start_date: string; end_date: string; status: string }
+type ServerProjectActivity = { id: string; actor: string; kind: string; detail: string; created_at: number }
 type ServerProjectMetadata = {
   fields: number
   sprints: number
@@ -35,6 +38,9 @@ type ServerProjectMetadata = {
   savedViews: number
   reachable: boolean
   preferences: SharedPmPreferences | null
+  fieldsData: ServerProjectField[]
+  sprintsData: ServerProjectSprint[]
+  activityData: ServerProjectActivity[]
 }
 
 function initialProjectTab(): Tab {
@@ -103,6 +109,60 @@ function ProjectHealthPanel({ health, onOpenGovernance }: { health: ProjectHealt
         {(health.summary.open_risks || health.summary.pending_decisions) > 0 && <WbButton className="btn-ghost pj-health-link" onClick={onOpenGovernance}>查看治理台账</WbButton>}
       </Space>
     </ProCard>
+  )
+}
+
+function ServerProjectDataPanel({ metadata, onOpenConsole }: { metadata: ServerProjectMetadata | null; onOpenConsole: () => void }) {
+  if (!metadata) return <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="正在读取 Server 项目数据…" />
+  const fieldType: Record<string, string> = { text: '文本', number: '数字', date: '日期', select: '单选', boolean: '布尔' }
+  const sprintStatus: Record<string, string> = { planned: '计划中', active: '进行中', closed: '已结束' }
+  const prefs = metadata.preferences
+  return (
+    <div className="pj-data-panel">
+      <Alert
+        showIcon
+        type={metadata.reachable ? 'info' : 'warning'}
+        title={metadata.reachable ? '数据来自 Server 权威项目接口' : 'Server 部分数据暂不可达，当前仅展示已读到的内容'}
+        description="App 可查看项目事实；字段、Sprint 和 Console 专属配置的编辑入口仍在同一项目的 Console。"
+      />
+      <div className="pj-data-grid">
+        <ProCard className="pj-data-card" styles={{ body: { display: 'contents' } }}>
+          <div className="pj-data-head"><b>自定义字段</b><Tag>{metadata.fieldsData.length}</Tag><WbButton className="btn-ghost" onClick={onOpenConsole}>在 Console 管理</WbButton></div>
+          {metadata.fieldsData.length ? metadata.fieldsData.map((field) => (
+            <div className="pj-data-row" key={field.id}>
+              <span className="pj-data-name">{field.name}</span>
+              <span className="pj-data-meta">{fieldType[field.field_type] || field.field_type}{field.required ? ' · 必填' : ''}{field.options.length ? ` · ${field.options.length} 个选项` : ''}</span>
+            </div>
+          )) : <div className="pj-data-empty">Server 尚未配置自定义字段</div>}
+        </ProCard>
+
+        <ProCard className="pj-data-card" styles={{ body: { display: 'contents' } }}>
+          <div className="pj-data-head"><b>Sprint / 迭代</b><Tag>{metadata.sprintsData.length}</Tag><WbButton className="btn-ghost" onClick={onOpenConsole}>在 Console 管理</WbButton></div>
+          {metadata.sprintsData.length ? metadata.sprintsData.map((sprint) => (
+            <div className="pj-data-row" key={sprint.id}>
+              <span className="pj-data-name">{sprint.name}</span>
+              <span className="pj-data-meta">{sprintStatus[sprint.status] || sprint.status} · {sprint.start_date} → {sprint.end_date}{sprint.goal ? ` · ${sprint.goal}` : ''}</span>
+            </div>
+          )) : <div className="pj-data-empty">Server 尚未配置 Sprint</div>}
+        </ProCard>
+
+        <ProCard className="pj-data-card" styles={{ body: { display: 'contents' } }}>
+          <div className="pj-data-head"><b>共享工作台偏好</b><Tag>{(prefs?.templates.length ?? 0) + (prefs?.views.length ?? 0)}</Tag><WbButton className="btn-ghost" onClick={onOpenConsole}>在 Console 管理</WbButton></div>
+          <div className="pj-data-summary">模板 {prefs?.templates.length ?? 0} · 保存视图 {prefs?.views.length ?? 0} · WIP 限制 {Object.keys(prefs?.wip ?? {}).length}</div>
+          <div className="pj-data-empty">App 看板会直接使用这些 Server 偏好；本机项目不会读取这组数据。</div>
+        </ProCard>
+
+        <ProCard className="pj-data-card" styles={{ body: { display: 'contents' } }}>
+          <div className="pj-data-head"><b>最近项目活动</b><Tag>{metadata.activityData.length}</Tag></div>
+          {metadata.activityData.length ? metadata.activityData.slice(0, 8).map((event) => (
+            <div className="pj-data-row" key={event.id}>
+              <span className="pj-data-name">{event.actor || '成员'} · {event.kind}</span>
+              <span className="pj-data-meta">{event.detail || '项目活动'} · {relativeTime(event.created_at)}</span>
+            </div>
+          )) : <div className="pj-data-empty">Server 尚无项目活动</div>}
+        </ProCard>
+      </div>
+    </div>
   )
 }
 
@@ -213,6 +273,9 @@ export function ProjectHomeView() {
         savedViews: savedViews ?? 0,
         reachable: values.every((value) => value !== null),
         preferences: preferences.status === 'fulfilled' ? preferences.value.preferences : null,
+        fieldsData: fields.status === 'fulfilled' ? fields.value.fields : [],
+        sprintsData: sprints.status === 'fulfilled' ? sprints.value.sprints : [],
+        activityData: activity.status === 'fulfilled' ? activity.value.activity : [],
       })
     })
     return () => { alive = false }
@@ -421,6 +484,18 @@ export function ProjectHomeView() {
             {tab === '资产' && <AssetsManager scope={{ project: project.id }} canWrite={canWrite} />}
 
             {tab === '讨论' && <ServerCommentsPanel projectId={project.id} canWrite={canWrite} />}
+
+            {tab === '项目数据' && project.origin === 'server' && <ServerProjectDataPanel metadata={serverMetadata} onOpenConsole={openConsoleProject} />}
+            {tab === '项目数据' && project.origin !== 'server' && (
+              <div className="pj-data-panel">
+                <Alert
+                  type="info"
+                  showIcon
+                  message="本机项目不接入 Server 项目数据"
+                  description="本机项目的模板、保存视图与 WIP 设置保存在当前设备；连接到 Console 的项目才会显示字段、Sprint 与项目活动。"
+                />
+              </div>
+            )}
           </div>
 
           <div className="chat-foot">

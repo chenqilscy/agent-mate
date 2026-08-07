@@ -57,3 +57,11 @@ P1。项目是 App 与 Console 的核心共享对象；能力缺失会让跨端�
 - 已使用真实 `admin` 团队账号和远端项目 `buddy` 验收：App 项目页实时展示 `Sprint 2 · 活动 7`，计划页真实加载任务；代理 PM 偏好读取 `templates=0/views=0/wip={}`，无副本数据。通过本地代理执行同值 WIP PUT 后，Server 回读仍为 `{}`。
 - 已验证：`npx tsc --noEmit`、`npx vite build`、`pnpm build:console`、后端 `py_compile` 通过；App 项目页在真实登录态下可读回 Server 数据。由于真实项目当前无模板/保存视图，未通过创建持久测试数据来污染项目，模板/视图的完整写回还需在用户确认可接受的测试数据后继续验收。
 - 本 issue 继续保持 `in-progress`：自定义字段/Sprint 原生编辑入口、Console 侧完整双端回读、Viewer/Member 权限矩阵及断网回归尚未全部完成。
+
+## 处理记录（2026-08-07，第三阶段）
+
+- App 项目工作台新增“项目数据”页签，直接展示同一 Server 项目的自定义字段、Sprint、共享工作台偏好与最近活动；接口未返回时显示读取中、空态或部分数据提示，不生成模拟数据。
+- 每个数据卡提供回到同一项目 Console 的管理入口，并明确 App 负责查看项目事实，字段、Sprint 与 Console 专属配置仍由 Console 管理；本机项目显示独立说明空态，避免出现空白页。
+- 使用真实 `admin` 账号打开 `buddy` 项目进行浏览器验收：页面显示 Server 权威接口、Sprint-0815 与 Sprint-0830、最近项目活动 7 条，自定义字段 0、共享工作台偏好 0，与 Server 数据一致。
+- 验证：`npx tsc --noEmit`、`npx vite build`、`git diff --check` 已通过；浏览器真实 DOM 已读回项目数据，390px 窄屏 `scrollWidth=390` 且无浏览器 error 日志。
+- 本 issue 继续保持 `in-progress`：自定义字段与 Sprint 的原生编辑 API、完整权限回归、离线/Server 不可达回归仍未完成，暂不关闭。
