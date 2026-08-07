@@ -97,10 +97,13 @@ export interface RunPlanEvent {
   project_id?: string | null
 }
 export interface TextEvent { md: string }
-export interface AskUserEvent { questions: AskQuestion[] }
+export interface AskUserEvent { questions: AskQuestion[]; question_event_id?: string }
 export interface QaSummaryEvent { qa: QaPair[] }
 export interface ContextDegradedEvent { reason: string; excerpt_messages: number; retry_on_next_turn: true }
-export type RunStatus = 'draft' | 'planning' | 'waiting_approval' | 'running' | 'paused' | 'failed' | 'completed' | 'accepted' | 'cancelled'
+export type RunStatus =
+  | 'draft' | 'planning' | 'waiting_approval' | 'paused' | 'accepted'
+  | 'queued' | 'leased' | 'running' | 'waiting_user' | 'recoverable'
+  | 'completed' | 'succeeded' | 'failed' | 'cancelled'
 export interface ArtifactEvent {
   id?: string
   run_id?: string

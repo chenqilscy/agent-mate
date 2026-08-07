@@ -216,9 +216,23 @@ def cancel_run(run_id: str, account: Account = CurrentAccount) -> dict:
         raise
 
 
+@router.get("/runs/{run_id}/events")
+def run_events(
+    run_id: str, after_sequence: int = 0, limit: int = 500,
+    account: Account = CurrentAccount,
+) -> dict:
+    run = _authorized_run(run_id, account, write=False)
+    return {
+        "run": run,
+        "events": store.list_events(
+            run_id=run_id, after_sequence=max(0, after_sequence), limit=max(1, min(1000, limit)),
+        ),
+    }
+
+
 class AskUserAnswer(BaseModel):
     question_event_id: str = Field(min_length=8, max_length=200)
-    answer: str = Field(min_length=1, max_length=20000)
+    answers: list[str] = Field(min_length=1, max_length=20)
 
 
 @router.post("/runs/{run_id}/answer")
@@ -229,7 +243,7 @@ def answer_user(run_id: str, body: AskUserAnswer, account: Account = CurrentAcco
     try:
         return {"command": store.answer_user(
             run_id=run_id, owner_id=account.id,
-            question_event_id=body.question_event_id, answer=body.answer,
+            question_event_id=body.question_event_id, answers=body.answers,
         )}
     except Exception as exc:
         _protocol_error(exc)

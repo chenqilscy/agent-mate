@@ -243,6 +243,134 @@ def create_record(
         raise
 
 
+def create_turn(
+    *,
+    actor_id: str,
+    owner_id: str,
+    project_id: str | None,
+    session_id: str | None,
+    session_title: str,
+    session_kind: str,
+    session_space: str | None,
+    user_text: str,
+    run_fields: dict[str, Any],
+    client_request_id: str,
+    request_hash: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
+    """Atomically create the Session/UserMessage/Run execution turn.
+
+    A Desktop crash between three independent HTTP calls must never leave a
+    message without a Run (or a queued Run without its input).  The Run's
+    client_request_id is the turn idempotency key; retries return the exact
+    committed graph.
+    """
+    conn = db.get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT * FROM business_runs WHERE owner_id=? AND client_request_id=?",
+            (owner_id, client_request_id),
+        ).fetchone()
+        if existing is not None:
+            if str(existing["request_hash"]) != request_hash:
+                raise IdempotencyConflict("idempotency key payload mismatch")
+            session = conn.execute(
+                "SELECT * FROM business_sessions WHERE id=? AND deleted_at=0",
+                (existing["session_id"],),
+            ).fetchone()
+            message = conn.execute(
+                "SELECT * FROM business_messages WHERE run_id=? AND role='user' ORDER BY sequence LIMIT 1",
+                (existing["id"],),
+            ).fetchone()
+            if session is None or message is None:
+                raise RuntimeError("committed turn graph is incomplete")
+            conn.commit()
+            return (
+                decode_row(session) or {}, decode_row(message) or {},
+                decode_row(existing) or {}, True,
+            )
+
+        now = time.time()
+        sid = session_id
+        if sid:
+            session = conn.execute(
+                "SELECT * FROM business_sessions WHERE id=? AND deleted_at=0", (sid,),
+            ).fetchone()
+            if session is None:
+                raise KeyError(sid)
+        else:
+            sid = db.new_uuid()
+            conn.execute(
+                "INSERT INTO business_sessions "
+                "(id,owner_id,project_id,title,kind,status,space,client_request_id,request_hash,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,'running',?,?,?,?,?)",
+                (
+                    sid, owner_id, project_id, session_title, session_kind, session_space,
+                    f"{client_request_id}:session", request_hash, now, now,
+                ),
+            )
+            _audit(
+                conn, actor_id=actor_id, owner_id=owner_id, project_id=project_id,
+                action="create", entity_type="session", entity_id=sid,
+                details={"turn_id": client_request_id},
+            )
+            session = conn.execute("SELECT * FROM business_sessions WHERE id=?", (sid,)).fetchone()
+
+        rid = db.new_uuid()
+        values = dict(run_fields)
+        values.update({
+            "id": rid, "session_id": sid, "owner_id": owner_id,
+            "project_id": project_id, "status": "queued",
+            "client_request_id": client_request_id, "request_hash": request_hash,
+            "created_at": now, "updated_at": now,
+        })
+        encoded = {
+            key: _json(value) if key in _JSON_COLUMNS and value is not None else value
+            for key, value in values.items()
+        }
+        names = list(encoded)
+        conn.execute(
+            f"INSERT INTO business_runs ({','.join(names)}) VALUES ({','.join('?' for _ in names)})",
+            tuple(encoded[name] for name in names),
+        )
+        _audit(
+            conn, actor_id=actor_id, owner_id=owner_id, project_id=project_id,
+            action="create", entity_type="run", entity_id=rid,
+            details={"turn_id": client_request_id},
+        )
+
+        sequence = int(conn.execute(
+            "SELECT COALESCE(MAX(sequence),0)+1 FROM business_messages WHERE session_id=?", (sid,),
+        ).fetchone()[0])
+        mid = db.new_uuid()
+        conn.execute(
+            "INSERT INTO business_messages "
+            "(id,session_id,owner_id,run_id,role,content,actor_id,trace,sequence,client_request_id,request_hash,created_at) "
+            "VALUES (?,?,?,?,?,?,?,'[]',?,?,?,?)",
+            (
+                mid, sid, owner_id, rid, "user", user_text, actor_id, sequence,
+                f"{client_request_id}:message", request_hash, now,
+            ),
+        )
+        _audit(
+            conn, actor_id=actor_id, owner_id=owner_id, project_id=project_id,
+            action="create", entity_type="message", entity_id=mid,
+            details={"turn_id": client_request_id, "run_id": rid},
+        )
+        conn.execute(
+            "UPDATE business_sessions SET status='running',updated_at=?,version=version+1 WHERE id=?",
+            (now, sid),
+        )
+        session = conn.execute("SELECT * FROM business_sessions WHERE id=?", (sid,)).fetchone()
+        message = conn.execute("SELECT * FROM business_messages WHERE id=?", (mid,)).fetchone()
+        run = conn.execute("SELECT * FROM business_runs WHERE id=?", (rid,)).fetchone()
+        conn.commit()
+        return decode_row(session) or {}, decode_row(message) or {}, decode_row(run) or {}, False
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def update_record(
     table: str,
     record_id: str,

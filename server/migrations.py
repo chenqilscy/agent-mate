@@ -812,3 +812,44 @@ def migrate_device_run_protocol(conn: sqlite3.Connection) -> None:
     for statement in schema.split(";"):
         if statement.strip():
             conn.execute(statement)
+
+
+def migrate_server_automation_fires(conn: sqlite3.Connection) -> None:
+    """Move automation attempt, retry, and dead-letter authority to Server."""
+    schema = """
+        CREATE TABLE IF NOT EXISTS business_automation_fires (
+            id TEXT PRIMARY KEY,
+            automation_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            fire_key TEXT NOT NULL,
+            trigger_kind TEXT NOT NULL,
+            planned_at REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'queued',
+            attempt INTEGER NOT NULL DEFAULT 0,
+            max_attempts INTEGER NOT NULL DEFAULT 3,
+            session_id TEXT,
+            run_id TEXT,
+            retry_of_run_id TEXT,
+            error_code TEXT NOT NULL DEFAULT '',
+            error_message TEXT NOT NULL DEFAULT '',
+            prompt_tokens INTEGER NOT NULL DEFAULT 0,
+            completion_tokens INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at REAL,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            finished_at REAL NOT NULL DEFAULT 0,
+            UNIQUE(automation_id,fire_key),
+            FOREIGN KEY(automation_id) REFERENCES business_automations(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_id) REFERENCES accounts(id) ON DELETE CASCADE,
+            FOREIGN KEY(session_id) REFERENCES business_sessions(id) ON DELETE SET NULL,
+            FOREIGN KEY(run_id) REFERENCES business_runs(id) ON DELETE SET NULL,
+            FOREIGN KEY(retry_of_run_id) REFERENCES business_runs(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_business_automation_fires_due
+            ON business_automation_fires(status,next_attempt_at);
+        CREATE INDEX IF NOT EXISTS idx_business_automation_fires_owner
+            ON business_automation_fires(owner_id,created_at DESC);
+    """
+    for statement in schema.split(";"):
+        if statement.strip():
+            conn.execute(statement)

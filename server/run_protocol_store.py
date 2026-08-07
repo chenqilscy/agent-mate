@@ -429,6 +429,145 @@ def pending_commands(
     return _pending_commands(conn, run_id)
 
 
+def list_events(*, run_id: str, after_sequence: int = 0, limit: int = 500) -> list[dict[str, Any]]:
+    rows = db.get_conn().execute(
+        "SELECT event_id,sequence,event_type,occurred_at,payload,device_id,lease_epoch "
+        "FROM run_events WHERE run_id=? AND sequence>? ORDER BY lease_epoch,sequence LIMIT ?",
+        (run_id, max(0, after_sequence), max(1, min(1000, limit))),
+    ).fetchall()
+    return [{
+        "event_id": str(item["event_id"]), "sequence": int(item["sequence"]),
+        "type": str(item["event_type"]), "occurred_at": float(item["occurred_at"]),
+        "payload": _decode_json(item["payload"], {}), "device_id": str(item["device_id"]),
+        "lease_epoch": int(item["lease_epoch"]),
+    } for item in rows]
+
+
+def _trace_item(event_type: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+    kind = event_type.removeprefix("ui.")
+    if kind == "think":
+        return {"kind": "think", "text": str(payload.get("text") or "")}
+    if kind == "step":
+        return {"kind": "step", "tool": str(payload.get("tool") or ""), "label": str(payload.get("label") or "")}
+    if kind == "file_read":
+        return {"kind": "file_read", "path": str(payload.get("path") or ""), "range": str(payload.get("range") or "")}
+    if kind == "diff":
+        return {
+            "kind": "diff", "op": str(payload.get("op") or ""), "file": str(payload.get("file") or ""),
+            "add": int(payload.get("add") or 0), "del": int(payload.get("del") or 0),
+        }
+    if kind == "todo":
+        return {"kind": "todo", "text": str(payload.get("text") or "")}
+    if kind in {"plan_snapshot", "plan_patch"}:
+        return {
+            "kind": kind, "version": int(payload.get("version") or 0),
+            "items": payload.get("items") if isinstance(payload.get("items"), list) else [],
+            "project_id": payload.get("project_id"),
+        }
+    if kind == "qa_summary":
+        return {"kind": "qa", "qa": payload.get("qa") if isinstance(payload.get("qa"), list) else []}
+    if kind == "context_degraded":
+        return {
+            "kind": "context_degraded", "reason": str(payload.get("reason") or ""),
+            "excerpt_messages": int(payload.get("excerpt_messages") or 0), "retry_on_next_turn": True,
+        }
+    if kind == "artifact":
+        return {"kind": "artifact", "artifact": payload}
+    return None
+
+
+def _commit_terminal_output(
+    conn: sqlite3.Connection, *, run_id: str, event: dict[str, Any], failed: bool, now: float,
+) -> dict[str, Any]:
+    run = conn.execute("SELECT * FROM business_runs WHERE id=?", (run_id,)).fetchone()
+    if run is None:
+        raise KeyError(run_id)
+    owner_id = str(run["owner_id"])
+    session_id = str(run["session_id"])
+    content: list[str] = []
+    trace: list[dict[str, Any]] = []
+    usage: dict[str, Any] | None = None
+    stream_error = ""
+    rows = conn.execute(
+        "SELECT event_type,payload FROM run_events WHERE run_id=? ORDER BY lease_epoch,sequence", (run_id,),
+    ).fetchall()
+    for item in rows:
+        event_type = str(item["event_type"])
+        payload = _decode_json(item["payload"], {})
+        if event_type == "ui.text":
+            content.append(str(payload.get("md") or ""))
+        elif event_type == "ui.usage":
+            detail = payload.get("detail") if isinstance(payload.get("detail"), dict) else {}
+            usage = {
+                "prompt": int(detail.get("prompt_tokens") or payload.get("used") or 0),
+                "completion": int(detail.get("completion_tokens") or 0),
+            }
+        elif event_type == "ui.error":
+            stream_error = str(payload.get("message") or "")[:20000]
+        else:
+            trace_item = _trace_item(event_type, payload)
+            if trace_item is not None:
+                if trace_item["kind"] in {"plan_snapshot", "plan_patch"}:
+                    trace = [item for item in trace if item.get("kind") not in {"todo", "plan_snapshot", "plan_patch"}]
+                if len(trace) < 10000:
+                    trace.append(trace_item)
+
+    terminal_error = str(event["payload"].get("error_message") or stream_error)[:20000]
+    existing = conn.execute(
+        "SELECT * FROM business_messages WHERE run_id=? AND role='assistant' ORDER BY sequence LIMIT 1", (run_id,),
+    ).fetchone()
+    if existing is None:
+        sequence = int(conn.execute(
+            "SELECT COALESCE(MAX(sequence),0)+1 FROM business_messages WHERE session_id=?", (session_id,),
+        ).fetchone()[0])
+        message_id = db.new_uuid()
+        conn.execute(
+            "INSERT INTO business_messages "
+            "(id,session_id,owner_id,run_id,role,content,actor_id,trace,usage,error,sequence,client_request_id,request_hash,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                message_id, session_id, owner_id, run_id, "assistant", "".join(content), "assistant",
+                _json(trace), _json(usage) if usage is not None else None,
+                terminal_error or None, sequence, f"run-terminal:{run_id}", str(event["event_id"]), now,
+            ),
+        )
+        business_store._audit(
+            conn, actor_id=str(run["owner_id"]), owner_id=owner_id,
+            project_id=str(run["project_id"]) if run["project_id"] else None,
+            action="create", entity_type="message", entity_id=message_id,
+            details={"run_id": run_id, "source": "device_terminal_event"},
+        )
+    else:
+        message_id = str(existing["id"])
+    conn.execute(
+        "UPDATE business_sessions SET status=?,updated_at=?,version=version+1 WHERE id=?",
+        ("error" if failed else "done", now, session_id),
+    )
+    snapshot = _decode_json(run["request_snapshot"], {})
+    automation_id = str(snapshot.get("automation_id") or "") if isinstance(snapshot, dict) else ""
+    if automation_id:
+        conn.execute(
+            "UPDATE business_automations SET last_run_at=?,last_session_id=?,last_status=?,"
+            "updated_at=?,version=version+1 WHERE id=? AND owner_id=? AND deleted_at=0",
+            (now, session_id, "error" if failed else "ok", now, automation_id, owner_id),
+        )
+        # Import lazily to keep the protocol store independent at module load.
+        import automation_scheduler
+        automation_scheduler.finish_run(
+            conn, run_id=run_id, owner_id=owner_id, failed=failed,
+            error_code=str(event["payload"].get("error_code") or ("run_failed" if failed else "")),
+            error_message=terminal_error,
+            prompt_tokens=int((usage or {}).get("prompt") or 0),
+            completion_tokens=int((usage or {}).get("completion") or 0), now=now,
+        )
+    return {
+        "message_id": message_id,
+        "prompt_tokens": int((usage or {}).get("prompt") or 0),
+        "completion_tokens": int((usage or {}).get("completion") or 0),
+        "error_message": terminal_error,
+    }
+
+
 def _apply_event(conn: sqlite3.Connection, row: sqlite3.Row, event: dict[str, Any], now: float) -> bool:
     event_type = str(event["type"])
     run_id = str(row["run_id"])
@@ -442,17 +581,27 @@ def _apply_event(conn: sqlite3.Connection, row: sqlite3.Row, event: dict[str, An
     elif event_type == "run.checkpoint":
         fields.update(checkpoint=_json(payload))
     elif event_type == "run.completed":
-        fields.update(status="completed", ended_at=event["occurred_at"], error_code="", error_message="")
+        output = _commit_terminal_output(conn, run_id=run_id, event=event, failed=False, now=now)
+        fields.update(
+            status="completed", ended_at=event["occurred_at"], error_code="", error_message="",
+            prompt_tokens=output["prompt_tokens"], completion_tokens=output["completion_tokens"],
+        )
         terminal = True
     elif event_type == "run.failed":
+        output = _commit_terminal_output(conn, run_id=run_id, event=event, failed=True, now=now)
         fields.update(
             status="failed", ended_at=event["occurred_at"],
             error_code=str(payload.get("error_code") or "run_failed")[:200],
-            error_message=str(payload.get("error_message") or "")[:20000],
+            error_message=output["error_message"],
+            prompt_tokens=output["prompt_tokens"], completion_tokens=output["completion_tokens"],
         )
         terminal = True
     elif event_type in {"run.cancelled", "run.cancel_ack"}:
-        fields.update(status="cancelled", ended_at=event["occurred_at"])
+        output = _commit_terminal_output(conn, run_id=run_id, event=event, failed=True, now=now)
+        fields.update(
+            status="cancelled", ended_at=event["occurred_at"],
+            prompt_tokens=output["prompt_tokens"], completion_tokens=output["completion_tokens"],
+        )
         terminal = True
         conn.execute(
             "UPDATE run_commands SET status='acknowledged',acknowledged_at=? "
@@ -576,7 +725,9 @@ def request_cancel(*, run_id: str, owner_id: str) -> dict[str, Any]:
         raise
 
 
-def answer_user(*, run_id: str, owner_id: str, question_event_id: str, answer: str) -> dict[str, Any]:
+def answer_user(
+    *, run_id: str, owner_id: str, question_event_id: str, answers: list[str],
+) -> dict[str, Any]:
     now = time.time()
     conn = db.get_conn()
     try:
@@ -598,7 +749,10 @@ def answer_user(*, run_id: str, owner_id: str, question_event_id: str, answer: s
             "INSERT INTO run_commands (id,run_id,owner_id,command_type,version,payload,created_at) "
             "VALUES (?,?,?,?,?,?,?)",
             (command_id, run_id, owner_id, "ask_user_answer", version,
-             _json({"question_event_id": question_event_id, "answer": answer}), now),
+             _json({
+                 "question_event_id": question_event_id,
+                 "answers": [str(answer)[:20000] for answer in answers[:20]],
+             }), now),
         )
         conn.commit()
         return {"id": command_id, "version": version, "status": "pending"}

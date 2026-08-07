@@ -9,14 +9,15 @@ import { toast } from '../stores/toastStore'
 import { useCatalog } from '../stores/catalogStore'
 import { Popover } from '../components/ui/Popover'
 import { PermPopover } from '../components/composer/PermPopover'
-import { api } from '../lib/api'
-import type { OpsRecentArtifact, OpsSummary, SessionInfo } from '../lib/types'
-import { Empty, Segmented, Spin, Statistic } from 'antd'
+import type { SessionInfo } from '../lib/types'
+import { Empty, Segmented, Statistic } from 'antd'
 import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
-import { HomeIdeaInbox } from '../components/ideas/IdeaInbox'
 import type { ViewId } from '../lib/types'
+import { useAuthStore } from '../stores/authStore'
+import { useConnectivityStore } from '../stores/connectivityStore'
+import { LoginModal } from '../components/auth/LoginModal'
 
 const SCENES: [string, string, string][] = [
   ['day', '🔥', '日常办公'],
@@ -25,10 +26,10 @@ const SCENES: [string, string, string][] = [
 ]
 
 const MORE_SHORTCUTS: [ViewId, string, string, string][] = [
-  ['assistant', '🧑‍💼', '助理管理', '管理可复用的工作助理'],
-  ['experts', '🧠', '专家能力', '按场景组合专家与团队'],
-  ['skills', '✨', '技能', '安装并使用真实技能'],
-  ['connectors', '🔗', '连接器', '连接本地与第三方服务'],
+  ['skills', '✨', '已安装技能', '管理这台设备可执行的技能'],
+  ['connectors', '🔗', '本机连接器', '配置仅保存在本机的连接凭据'],
+  ['myfiles', '📁', '本机文件', '查看 Local Agent 工作区文件'],
+  ['projects', '☁️', '项目上下文', '从 Server 选择任务执行上下文'],
 ]
 
 function runState(session: SessionInfo): { label: string; tone: string } {
@@ -46,6 +47,10 @@ export function HomeView() {
   const loadSessions = useChatStore((s) => s.loadSessions)
   const send = useChatStore((s) => s.send)
   const setView = useUIStore((s) => s.setView)
+  const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
+  const loggedIn = useAuthStore((s) => s.loggedIn)
+  const localAgent = useConnectivityStore((s) => s.localAgent)
+  const localAgentChecked = useConnectivityStore((s) => s.localAgentChecked)
   const { QUICK } = useCatalog()
   const [moreOpen, setMoreOpen] = useState(false)
   const moreAnchor = useRef<HTMLElement | null>(null)
@@ -54,8 +59,7 @@ export function HomeView() {
   const loadProjects = useProjectStore((s) => s.load)
   const setActiveProject = useProjectStore((s) => s.setActive)
   const perm = useSettingsStore((s) => s.perm)
-  const [ops, setOps] = useState<OpsSummary | null>(null)
-  const [opsLoading, setOpsLoading] = useState(true)
+  const [loginOpen, setLoginOpen] = useState(false)
 
   // 首页新任务的目标空间（null = 默认空间，不绑定任何项目）与两个 tray popover。
   const [selProject, setSelProject] = useState<string | null>(null)
@@ -76,25 +80,14 @@ export function HomeView() {
     )
   }, [sessions])
 
-  useEffect(() => {
-    let cancelled = false
-    const load = () => {
-      void api.opsSummary().then((summary) => {
-        if (!cancelled) setOps(summary)
-      }).catch(() => {}).finally(() => {
-        if (!cancelled) setOpsLoading(false)
-      })
-    }
-    load()
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') load()
-    }, 15_000)
-    return () => { cancelled = true; window.clearInterval(timer) }
-  }, [])
-
   const selName = selProject ? projects.find((p) => p.id === selProject)?.name : null
 
   const launch = (text: string) => {
+    if (!loggedIn) {
+      setLoginOpen(true)
+      toast('请先登录 Server，Local Agent 才能领取任务')
+      return
+    }
     const title = text.length > 26 ? text.slice(0, 26) + '…' : text
     if (selProject && selName) startProject(selProject, title)
     else startDraft(title)
@@ -114,15 +107,11 @@ export function HomeView() {
     })
   }
 
-  const openArtifact = (artifact: OpsRecentArtifact) => openRun({
-    id: artifact.session_id,
-    title: artifact.session_title,
-    kind: artifact.project_id ? 'projexec' : 'chat',
-    status: 'done',
-    project_id: artifact.project_id,
-  })
-
   const attentionRuns = [...activeRuns, ...recentFailures.filter((failed) => !activeRuns.some((run) => run.id === failed.id))].slice(0, 4)
+  const sevenDaysAgo = Date.now() / 1000 - 7 * 86400
+  const recentRuns = sessions.filter((session) => (session.updated_at ?? session.created_at ?? 0) >= sevenDaysAgo)
+  const completedRuns = sessions.filter((session) => session.status === 'done').slice(0, 4)
+  const failedRuns = recentRuns.filter((session) => session.run_status === 'error').length
 
   const openMore = (event: MouseEvent<HTMLDivElement>) => {
     moreAnchor.current = event.currentTarget
@@ -131,16 +120,16 @@ export function HomeView() {
 
   return (
     <section className="view active" data-view="home">
-      <div className="reward" {...clickable} onClick={() => toast('打开成长计划')}>
-        <span className="ri">🚀</span>做任务赢积分好礼
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M9 6l6 6-6 6" /></svg>
+      <div className="reward" role="status">
+        <span className="ri">{localAgent ? '●' : '○'}</span>
+        {localAgentChecked ? (localAgent ? `Local Agent 在线 · ${localAgent.transport.identities} 个 Server 身份 · WAL ${localAgent.transport.wal.count}` : 'Local Agent 离线，本机执行暂不可用') : '正在检查 Local Agent…'}
       </div>
       <div className="home-wrap">
         <div className="home-inner">
           <div className="home-command">
             <h1 className="hero-title">
               AgentMate<br />
-              <span className="g">你的职场超能力</span>
+              <span className="g">你的本机 AI 执行工作台</span>
             </h1>
             <Segmented
               className="scenes"
@@ -186,6 +175,15 @@ export function HomeView() {
             </Popover>
 
             <div className="comp-zone">
+              {!loggedIn && (
+                <div className="projects-context is-attention">
+                  <div className="projects-context-copy">
+                    <b>登录 Server 后开始本机执行</b>
+                    <span>Server 保存任务和 Run；Local Agent 使用这台设备的模型、技能、凭据和工作区执行。</span>
+                  </div>
+                  <WbButton className="btn-line" onClick={() => setLoginOpen(true)}>登录 Server</WbButton>
+                </div>
+              )}
               <svg className="mascot2" viewBox="0 0 100 100" aria-hidden="true">
                 <circle cx="79" cy="13" r="9" fill="#16B37A" />
                 <path d="M75 13l3 3 5-5" stroke="#fff" strokeWidth="2.2" fill="none" strokeLinecap="round" />
@@ -238,23 +236,21 @@ export function HomeView() {
             </div>
           </div>
 
-          <HomeIdeaInbox projects={projects} />
-
           <ProCard className="home-console" aria-label="任务进展" styles={{ body: { display: 'contents' } }}>
             <div className="home-console-head">
               <div>
-                <b>任务进展</b>
-                <span>{ops ? `近 ${ops.window_days} 天 · ${ops.runs.tool_calls} 次工具调用 · ${Math.round(ops.runs.avg_duration_sec)} 秒平均耗时` : '从真实 Run、Artifact 与协作记录汇总'}</span>
+                <b>Local Agent 工作台</b>
+                <span>Server Run 状态 · 本机事件 WAL 与 working copy</span>
               </div>
-              <WbButton className="home-console-action" onClick={() => setView('projects')}>查看项目</WbButton>
+              <WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'runtime')}>本机运行设置</WbButton>
             </div>
             <div className="home-metrics">
-              <ProCard className="home-metric"><Statistic value={ops?.runs.success_rate ?? 0} suffix="%" title="Run 成功率" /></ProCard>
-              <ProCard className="home-metric"><Statistic value={ops?.runs.attention_sessions ?? activeRuns.length} title="执行中 / 等待处理" /></ProCard>
-              <ProCard className="home-metric danger"><Statistic value={ops?.runs.failed ?? 0} title="Run 失败" /></ProCard>
-              <ProCard className="home-metric"><Statistic value={ops?.artifacts.pending_review ?? 0} title="待验收产物" /></ProCard>
-              <ProCard className={`home-metric ${(ops?.projects.overdue ?? 0) > 0 ? 'danger' : ''}`}><Statistic value={ops?.projects.overdue ?? 0} title="逾期工作项" /></ProCard>
-              <ProCard className={`home-metric ${(ops?.assistants.channels_attention ?? 0) > 0 ? 'danger' : ''}`}><Statistic value={ops?.assistants.channels_attention ?? 0} title="助理渠道异常" /></ProCard>
+              <ProCard className="home-metric"><Statistic value={recentRuns.length} title="近 7 天 Server Run" /></ProCard>
+              <ProCard className="home-metric"><Statistic value={activeRuns.length} title="执行中 / 等待处理" /></ProCard>
+              <ProCard className="home-metric danger"><Statistic value={failedRuns} title="Run 失败" /></ProCard>
+              <ProCard className="home-metric"><Statistic value={localAgent?.transport.identities ?? 0} title="已绑定 Server 身份" /></ProCard>
+              <ProCard className={`home-metric ${(localAgent?.transport.wal.count ?? 0) > 0 ? 'danger' : ''}`}><Statistic value={localAgent?.transport.wal.count ?? 0} title="等待 Server ACK" /></ProCard>
+              <ProCard className="home-metric"><Statistic value={Object.values(localAgent?.transport.working_copies ?? {}).reduce((sum, value) => sum + (value ?? 0), 0)} title="本机工作副本" /></ProCard>
             </div>
             <div className="home-console-grid">
               <div className="home-run-group">
@@ -274,22 +270,23 @@ export function HomeView() {
                 }} /> : <Empty className="home-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有需要关注的任务" />}
               </div>
               <div className="home-run-group">
-                <h2>最近交付</h2>
-                {opsLoading ? <Spin className="home-empty" description="正在汇总真实 Artifact…" /> : (ops?.recent_artifacts.length ?? 0) > 0 ? <List dataSource={ops?.recent_artifacts ?? []} renderItem={(artifact) => <List.Item className="home-run-item">
-                  <WbButton className="home-run" onClick={() => void openArtifact(artifact)}>
-                    <span className="home-file-icon">📄</span>
+                <h2>最近完成</h2>
+                {completedRuns.length > 0 ? <List dataSource={completedRuns} renderItem={(session) => <List.Item className="home-run-item">
+                  <WbButton className="home-run" onClick={() => void openRun(session)}>
+                    <span className="home-file-icon">✓</span>
                     <span className="home-run-body">
-                      <b>{artifact.session_title}</b>
-                      <small>{artifact.name} · {artifact.acceptance_status === 'pending' ? '待验收' : artifact.acceptance_status === 'accepted' ? '已验收' : '已驳回'}</small>
+                      <b>{session.title}</b>
+                      <small>{session.kind === 'automation' ? '自动化 Run' : '本机 Run'} · {session.ago ?? '最近完成'}</small>
                     </span>
                     <span className="home-run-arrow">›</span>
                   </WbButton>
-                </List.Item>} /> : <Empty className="home-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="最近完成的会话还没有产生文件交付" />}
+                </List.Item>} /> : <Empty className="home-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有已完成的 Server Run" />}
               </div>
             </div>
           </ProCard>
         </div>
       </div>
+      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
     </section>
   )
 }

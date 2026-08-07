@@ -123,6 +123,17 @@ def verify_token(token: str) -> Optional[dict[str, Any]]:
     return account if status == "valid" else None
 
 
+def get_business_session(token: str, session_id: str) -> Optional[dict[str, Any]]:
+    result = _get(f"/api/sessions/{session_id}", token, strict=True)
+    return result if isinstance(result, dict) else None
+
+
+def get_business_messages(token: str, session_id: str) -> Optional[list[dict[str, Any]]]:
+    result = _get(f"/api/sessions/{session_id}/messages?limit=500", token, strict=True)
+    items = result.get("messages") if isinstance(result, dict) else None
+    return items if isinstance(items, list) else None
+
+
 def _post(path: str, token: str, body: Optional[dict] = None, *, strict: bool = False) -> Optional[Any]:
     """POST Server JSON; background calls stay guarded, strict user writes preserve 4xx."""
     if not settings.AGENTMATE_SERVER_URL:

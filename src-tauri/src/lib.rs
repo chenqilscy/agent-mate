@@ -91,6 +91,48 @@ async fn local_agent_status(state: State<'_, LocalAgentIpc>) -> Result<serde_jso
 }
 
 #[tauri::command]
+async fn local_agent_bind_identity(
+    state: State<'_, LocalAgentIpc>,
+    owner_id: String,
+    server_token: String,
+) -> Result<serde_json::Value, String> {
+    let token = state.token.clone();
+    let body = serde_json::json!({"owner_id": owner_id, "server_token": server_token});
+    tauri::async_runtime::spawn_blocking(move || {
+        call_local_agent_json("PUT", "/api/local-agent/identity", &token, Some(body))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn local_agent_remove_identity(
+    state: State<'_, LocalAgentIpc>,
+    owner_id: String,
+) -> Result<serde_json::Value, String> {
+    let token = state.token.clone();
+    let body = serde_json::json!({"owner_id": owner_id});
+    tauri::async_runtime::spawn_blocking(move || {
+        call_local_agent_json("DELETE", "/api/local-agent/identity", &token, Some(body))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn local_agent_stage_run_input(
+    state: State<'_, LocalAgentIpc>,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let token = state.token.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        call_local_agent_json("PUT", "/api/local-agent/run-inputs", &token, Some(body))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn local_agent_commit_asset(
     state: State<'_, LocalAgentIpc>,
     body: serde_json::Value,
@@ -303,6 +345,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             check_desktop_update,
             local_agent_status,
+            local_agent_bind_identity,
+            local_agent_remove_identity,
+            local_agent_stage_run_input,
             local_agent_commit_asset,
             local_agent_download_asset
         ])

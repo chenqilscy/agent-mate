@@ -26,12 +26,16 @@ export function DeviceRuntimeSettings() {
   const [values, setValues] = useState<Values>({})
   const [busy, setBusy] = useState(false)
   const [testing, setTesting] = useState('')
+  const [loadError, setLoadError] = useState('')
 
   const load = async () => {
     try {
       const next = await api.runtimeSettings()
-      setData(next); setValues(initialValues(next))
-    } catch { toast('加载运行设置失败') }
+      setData(next); setValues(initialValues(next)); setLoadError('')
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : '加载运行设置失败')
+      toast('加载运行设置失败')
+    }
   }
   useEffect(() => { void load() }, [])
 
@@ -94,10 +98,23 @@ export function DeviceRuntimeSettings() {
     </Card>
   )
 
-  if (!data) return <div className="set-body"><div className="set-ptitle">运行服务</div><div className="set-pdesc">加载中…</div></div>
+  if (!data) return (
+    <div className="set-body">
+      <div className="set-ptitle">本机运行环境</div>
+      {loadError ? (
+        <Alert
+          type="warning"
+          showIcon
+          title="无法读取 Local Agent 设置"
+          description={loadError}
+          action={<WbButton className="btn-line" onClick={() => void load()}>重试</WbButton>}
+        />
+      ) : <div className="set-pdesc">正在读取 Local Agent…</div>}
+    </div>
+  )
   return (
     <div className="set-body">
-      <div className="set-ptitle">运行服务</div>
+      <div className="set-ptitle">本机运行环境</div>
       <div className="set-pdesc">这些设置对当前设备生效，保存后无需修改 .env 或重启。密钥只保存在本机后端且不会回显。</div>
       {section('可观测性 · Langfuse', 'observability', '启用“采集对话正文”会把提示词、回复及工具正文发送到配置的 Langfuse，请确认符合隐私要求。')}
       {section('本地语音识别', 'voice')}

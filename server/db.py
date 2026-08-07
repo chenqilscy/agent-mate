@@ -29,6 +29,7 @@ from migrations import (
     migrate_durable_business_plane,
     migrate_asset_object_storage,
     migrate_device_run_protocol,
+    migrate_server_automation_fires,
     migrate_relay_retention,
     migrate_single_active_sprint,
     migrate_work_item_acceptance_idempotency,
@@ -723,6 +724,7 @@ def init_db() -> None:
         Migration(10, "durable-business-plane", migrate_durable_business_plane),
         Migration(11, "device-run-protocol", migrate_device_run_protocol),
         Migration(12, "asset-object-storage", migrate_asset_object_storage),
+        Migration(14, "server-automation-fires", migrate_server_automation_fires),
     ))
     assert_server_schema(conn)
     # 新 App 版本可补充真实实现，但绝不覆盖 Console 已管理的运营字段。

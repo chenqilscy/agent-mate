@@ -59,7 +59,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from agent import background_worker, scheduler, skills as agent_skills, telemetry
+from agent import background_worker, scheduler, server_run_worker, skills as agent_skills, telemetry
 from auth.middleware import AuthMiddleware
 from channels import manager as channel_manager
 from config import FROZEN, settings
@@ -97,8 +97,17 @@ async def _lifespan(_app: FastAPI):
     cleanup: list[tuple[str, Callable[[], Awaitable[None]]]] = []
     try:
         _startup()
-        scheduler.start()
-        cleanup.append(("automation scheduler", scheduler.stop))
+        if settings.server_enabled:
+            run_worker_task = asyncio.create_task(server_run_worker.run_forever())
+
+            async def stop_run_worker() -> None:
+                run_worker_task.cancel()
+                await asyncio.gather(run_worker_task, return_exceptions=True)
+
+            cleanup.append(("Server Run worker", stop_run_worker))
+        else:
+            scheduler.start()
+            cleanup.append(("automation scheduler", scheduler.stop))
         cleanup.append(("background worker", background_worker.stop))
         await background_worker.start()
         cleanup.append(("channel manager", channel_manager.stop))

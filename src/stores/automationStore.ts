@@ -1,7 +1,6 @@
 // automationStore — scheduled / triggered agent runs (capability build, B).
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import { streamChat } from '../lib/sse'
 import type { Automation, CreateAutomationInput } from '../lib/types'
 
 interface AutomationState {
@@ -59,37 +58,9 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
   },
 
   runNow: async (id) => {
-    const automation = get().items.find((item) => item.id === id)
-    if (!automation) throw new Error('automation not found')
-    return new Promise<string | null>((resolve, reject) => {
-      let sessionId: string | null = null
-      let failure = ''
-      void streamChat({
-        text: automation.prompt,
-        title: automation.name,
-        projectId: automation.project_id || undefined,
-        model: automation.model || undefined,
-        automationId: automation.id,
-        idempotencyKey: `automation:${automation.id}:${crypto.randomUUID()}`,
-        onEvent: (event) => {
-          if (event.type === 'session' && !sessionId) {
-            sessionId = event.data.id
-            resolve(sessionId)
-            void api.updateAutomation(id, {
-              last_run_at: Date.now() / 1000, last_session_id: sessionId, last_status: 'running',
-            }).then(() => get().load())
-          } else if (event.type === 'error') {
-            failure = event.data.message
-          } else if (event.type === 'done') {
-            if (!sessionId) reject(new Error(failure || 'Local Agent execution did not start'))
-            void api.updateAutomation(id, {
-              last_run_at: Date.now() / 1000,
-              last_session_id: sessionId,
-              last_status: failure ? 'error' : 'ok',
-            }).then(() => get().load())
-          }
-        },
-      })
-    })
+    if (!get().items.some((item) => item.id === id)) throw new Error('automation not found')
+    const result = await api.runAutomation(id)
+    await get().load()
+    return result.session.id
   },
 }))

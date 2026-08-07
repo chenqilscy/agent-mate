@@ -3,7 +3,7 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
 import { TOKEN_KEY } from '../lib/api'
-import { channelSnapshot, probeServer, serverApiBase } from '../lib/channels'
+import { ChannelUnavailableError, channelSnapshot, probeServer, serverApiBase } from '../lib/channels'
 
 interface ServerState {
   enabled: boolean // 本地 backend 是否已配 AGENTMATE_SERVER_URL
@@ -34,15 +34,17 @@ export const useServerStore = create<ServerState>((set) => ({
       if (localStorage.getItem(TOKEN_KEY)) {
         try {
           me = await api.me()
-        } catch {
-          // A token from the retired local account authority is not a Server
-          // identity. Drop it instead of reporting the Server as unconfigured.
-          localStorage.removeItem(TOKEN_KEY)
+        } catch (error) {
+          if (error instanceof ChannelUnavailableError && [401, 403].includes(error.status || 0)) {
+            localStorage.removeItem(TOKEN_KEY)
+          } else {
+            throw error
+          }
         }
       }
       set({
         enabled: true,
-        consoleUrl: base.replace(/\/api$/, '/console'),
+        consoleUrl: base.replace(/\/api$/, '/'),
         linked: me ? { account_id: me.id, name: me.name } : null,
         authState: me ? 'online' : 'disconnected',
         onlineValidationTtl: 30,
@@ -56,7 +58,7 @@ export const useServerStore = create<ServerState>((set) => ({
       try {
         const base = await serverApiBase()
         configured = true
-        consoleUrl = base.replace(/\/api$/, '/console')
+        consoleUrl = base.replace(/\/api$/, '/')
       } catch { /* Desktop Local Agent has no Server origin configured. */ }
       set({
         checked: true,

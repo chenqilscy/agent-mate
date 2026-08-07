@@ -8,12 +8,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 import business_store as store
+import automation_scheduler
 import db
 from auth import CurrentAccount
 from models import Account, Role, can_manage, can_write
@@ -307,6 +309,27 @@ class RunCreate(BaseModel):
     max_recoveries: int = Field(default=3, ge=0, le=20)
 
 
+class TurnCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=200_000)
+    session_id: str | None = None
+    title: str = Field(default="对话", min_length=1, max_length=500)
+    project_id: str | None = None
+    space: str | None = Field(default=None, max_length=120)
+    kind: str = "chat"
+    work_item_id: str | None = None
+    mode: str = "exec"
+    workspace: str = Field(default="default", max_length=500)
+    retry_of: str | None = None
+    model_ref: str | None = Field(default=None, max_length=200)
+    model_id: str | None = Field(default=None, max_length=200)
+    model_snapshot: dict[str, Any] = Field(default_factory=dict)
+    permission_snapshot: dict[str, Any] = Field(default_factory=dict)
+    target_device_id: str = Field(default="", max_length=200)
+    required_capabilities: list[str] = Field(default_factory=list, max_length=100)
+    request_snapshot: dict[str, Any] = Field(default_factory=dict)
+    max_recoveries: int = Field(default=3, ge=0, le=20)
+
+
 class RunPatch(BaseModel):
     expected_version: int = Field(ge=1)
     status: str | None = None
@@ -390,6 +413,72 @@ def create_run(
     return {"run": item, "duplicate": duplicate}
 
 
+@router.post("/turns")
+def create_turn(
+    body: TurnCreate, account: Account = CurrentAccount,
+    idempotency_key: str = Header(default="", alias="Idempotency-Key"),
+) -> dict:
+    """Commit user input and its queued Run as one Server transaction."""
+    key = _request_key(idempotency_key)
+    if not key:
+        raise HTTPException(400, "Idempotency-Key is required")
+    if body.kind not in _SESSION_KINDS:
+        raise HTTPException(400, "unsupported session kind")
+    if body.mode not in _RUN_MODES:
+        raise HTTPException(400, "unsupported run mode")
+    if len(set(body.required_capabilities)) != len(body.required_capabilities) or any(
+        not item or len(item) > 200 for item in body.required_capabilities
+    ):
+        raise HTTPException(400, "required_capabilities must contain unique non-empty values")
+    if _contains_secret_key(body.request_snapshot):
+        raise HTTPException(400, "request_snapshot must not contain credentials or secrets")
+    if len(json.dumps(body.request_snapshot, ensure_ascii=False).encode("utf-8")) > 256 * 1024:
+        raise HTTPException(413, "request_snapshot exceeds size limit")
+
+    project_id = body.project_id
+    if body.session_id:
+        session = _record("business_sessions", body.session_id, account, write=True)
+        session_project = session.get("project_id")
+        if project_id and project_id != session_project:
+            raise HTTPException(400, "project_id does not match session")
+        project_id = str(session_project) if session_project else None
+    elif project_id:
+        _project_role(project_id, account, write=True)
+    if body.retry_of:
+        retry = _record("business_runs", body.retry_of, account)
+        if body.session_id and retry["session_id"] != body.session_id:
+            raise HTTPException(400, "retry_of does not belong to session")
+    if body.target_device_id:
+        target = db.get_conn().execute(
+            "SELECT owner_id,status FROM agent_devices WHERE id=?", (body.target_device_id,),
+        ).fetchone()
+        if target is None or str(target["owner_id"]) != account.id or str(target["status"]) != "active":
+            raise HTTPException(400, "target device is not an active device owned by this account")
+
+    try:
+        session, message, run, duplicate = store.create_turn(
+            actor_id=account.id, owner_id=account.id, project_id=project_id,
+            session_id=body.session_id, session_title=body.title.strip(),
+            session_kind=body.kind, session_space=body.space,
+            user_text=body.text.strip(), client_request_id=key, request_hash=_payload_hash(body),
+            run_fields={
+                "work_item_id": body.work_item_id, "mode": body.mode,
+                "workspace": body.workspace, "retry_of": body.retry_of,
+                "model_ref": body.model_ref, "model_id": body.model_id,
+                "model_snapshot": body.model_snapshot,
+                "permission_snapshot": body.permission_snapshot,
+                "target_device_id": body.target_device_id,
+                "required_capabilities": body.required_capabilities,
+                "request_snapshot": body.request_snapshot,
+                "max_recoveries": body.max_recoveries,
+            },
+        )
+    except Exception as exc:
+        _mutation_error(exc)
+        raise
+    return {"session": session, "user_message": message, "run": run, "duplicate": duplicate}
+
+
 @router.get("/runs/{run_id}")
 def get_run(run_id: str, account: Account = CurrentAccount) -> dict:
     return _record("business_runs", run_id, account)
@@ -399,6 +488,13 @@ def get_run(run_id: str, account: Account = CurrentAccount) -> dict:
 def update_run(run_id: str, body: RunPatch, account: Account = CurrentAccount) -> dict:
     item = _record("business_runs", run_id, account, write=True)
     patch = body.model_dump(exclude={"expected_version"}, exclude_none=True)
+    protected = {
+        "status", "checkpoint", "error_code", "error_message", "prompt_tokens",
+        "cached_prompt_tokens", "completion_tokens", "tool_calls", "estimated_cost",
+        "cost_currency", "started_at", "ended_at",
+    }
+    if protected & patch.keys():
+        raise HTTPException(403, "Run lifecycle is committed only by the Local Agent event protocol")
     if patch.get("status") not in _RUN_STATUSES | {None}:
         raise HTTPException(400, "unsupported run status")
     try:
@@ -718,6 +814,10 @@ class AutomationPatch(BaseModel):
     preauthorized_permissions: list[str] | None = Field(default=None, max_length=100)
 
 
+class AutomationFireReplay(BaseModel):
+    idempotency_key: str = Field(default="", max_length=120)
+
+
 @router.get("/automations")
 def list_automations(
     project_id: str | None = None, limit: int = Query(50, ge=1, le=200), cursor: str = "",
@@ -743,6 +843,11 @@ def create_automation(
     if body.project_id:
         _project_role(body.project_id, account, write=True, manage=True)
     project_id = values.pop("project_id")
+    values["next_run_at"] = (
+        automation_scheduler.next_run_at(
+            body.trigger_kind, body.interval_min, body.at_time, time.time(),
+        ) if body.enabled else None
+    )
     key = _request_key(idempotency_key)
     try:
         item, duplicate = store.create_record(
@@ -769,12 +874,17 @@ def update_automation(
     if item.get("project_id"):
         _project_role(item["project_id"], account, write=True, manage=True)
     patch = body.model_dump(exclude={"expected_version"}, exclude_none=True)
+    if {"next_run_at", "last_run_at", "last_session_id", "last_status"} & patch.keys():
+        raise HTTPException(403, "automation runtime state is Server-owned")
     merged = {**item, **patch}
     _validate_automation(merged)
-    if patch.get("last_session_id"):
-        session = _record("business_sessions", patch["last_session_id"], account)
-        if session.get("project_id") != item.get("project_id"):
-            raise HTTPException(400, "last_session_id scope mismatch")
+    if {"enabled", "trigger_kind", "interval_min", "at_time"} & patch.keys():
+        patch["next_run_at"] = (
+            automation_scheduler.next_run_at(
+                str(merged["trigger_kind"]), int(merged["interval_min"]),
+                str(merged["at_time"]), time.time(),
+            ) if bool(merged["enabled"]) else None
+        )
     try:
         return store.update_record(
             "business_automations", automation_id, entity_type="automation", actor_id=account.id,
@@ -801,6 +911,84 @@ def delete_automation(
     except Exception as exc:
         _mutation_error(exc)
     return {"ok": True}
+
+
+@router.post("/automations/{automation_id}/run")
+def run_automation_now(automation_id: str, account: Account = CurrentAccount) -> dict:
+    item = _record("business_automations", automation_id, account, write=True)
+    if item.get("project_id"):
+        _project_role(item["project_id"], account, write=True)
+    if item["owner_id"] != account.id:
+        raise HTTPException(403, "only the automation owner can start it")
+    try:
+        return automation_scheduler.enqueue_automation(
+            item, fire_key=f"manual:{db.new_uuid()}", planned_at=time.time(),
+        )
+    except Exception as exc:
+        _mutation_error(exc)
+        raise
+
+
+@router.get("/automation-fires")
+def list_automation_fires(
+    status: str = "", automation_id: str = "", account: Account = CurrentAccount,
+) -> dict:
+    statuses = [item.strip() for item in status.split(",") if item.strip()]
+    clauses = ["owner_id=?"]
+    params: list[Any] = [account.id]
+    if statuses:
+        clauses.append(f"status IN ({','.join('?' for _ in statuses)})")
+        params.extend(statuses)
+    if automation_id:
+        clauses.append("automation_id=?")
+        params.append(automation_id)
+    rows = db.get_conn().execute(
+        "SELECT * FROM business_automation_fires WHERE " + " AND ".join(clauses)
+        + " ORDER BY created_at DESC,id DESC LIMIT 500",
+        tuple(params),
+    ).fetchall()
+    return {"fires": [dict(row) for row in rows]}
+
+
+@router.post("/automation-fires/{fire_id}/replay")
+def replay_automation_fire(
+    fire_id: str, body: AutomationFireReplay, account: Account = CurrentAccount,
+) -> dict:
+    row = db.get_conn().execute(
+        "SELECT * FROM business_automation_fires WHERE id=? AND owner_id=?", (fire_id, account.id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "automation fire not found")
+    fire = dict(row)
+    if fire["status"] not in {"dead_letter", "ignored"}:
+        raise HTTPException(409, "only dead-letter or ignored fires can be replayed")
+    automation = _record("business_automations", str(fire["automation_id"]), account, write=True)
+    replay_key = body.idempotency_key.strip() or db.new_uuid()
+    result = automation_scheduler.enqueue_automation(
+        automation, fire_key=f"replay:{fire_id}:{replay_key}", planned_at=time.time(),
+    )
+    return {"ok": True, **result}
+
+
+@router.post("/automation-fires/{fire_id}/ignore")
+def ignore_automation_fire(fire_id: str, account: Account = CurrentAccount) -> dict:
+    conn = db.get_conn()
+    row = conn.execute(
+        "SELECT * FROM business_automation_fires WHERE id=? AND owner_id=?", (fire_id, account.id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "automation fire not found")
+    if str(row["status"]) not in {"dead_letter", "retry_wait"}:
+        raise HTTPException(409, "only retrying or dead-letter fires can be ignored")
+    now = time.time()
+    conn.execute(
+        "UPDATE business_automation_fires SET status='ignored',next_attempt_at=NULL,updated_at=?,finished_at=? WHERE id=?",
+        (now, now, fire_id),
+    )
+    conn.commit()
+    return {"ok": True, "fire": dict(conn.execute(
+        "SELECT * FROM business_automation_fires WHERE id=?", (fire_id,),
+    ).fetchone())}
 
 
 class AssetCreate(BaseModel):

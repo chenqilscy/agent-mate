@@ -38,7 +38,7 @@ interface ChatState {
   streaming: boolean
   abort: AbortController | null
   // ask_user: questions awaiting the user's answer (null = none pending).
-  pending: { questions: AskQuestion[] } | null
+  pending: { questions: AskQuestion[]; questionEventId: string; runId: string } | null
   // project scope: when set, a new session is created under this project.
   activeProjectId: string | null
   // M7 C3: viewing a teammate's project session is read-only (you can't drive it).
@@ -162,6 +162,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     let errored = false
     let doneOk = false
     let streamSessionId = get().activeId
+    let streamRunId = ''
 
     const onEvent = (ev: SSEEvent) => {
       // Drop frames from a superseded stream: after stop()/openSession the active
@@ -182,6 +183,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
           break
         case 'run':
+          streamRunId = ev.data.run.id
           if (ev.data.user_message_id) {
             set((s) => ({
               messages: s.messages.map((m) => (
@@ -246,7 +248,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }))
           break
         case 'ask_user':
-          set({ pending: { questions: ev.data.questions } })
+          if (ev.data.question_event_id && streamRunId) {
+            set({
+              pending: {
+                questions: ev.data.questions,
+                questionEventId: ev.data.question_event_id,
+                runId: streamRunId,
+              },
+            })
+          }
           break
         case 'qa_summary':
           set({ pending: null })
@@ -349,20 +359,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Submit ask_user answers — POSTs to /answer, which wakes the suspended agent
   // on the still-open SSE stream (the qa_summary event will confirm).
   answer: (answers) => {
-    const { activeId, pending } = get()
-    if (!activeId || !pending) return
+    const { pending } = get()
+    if (!pending) return
     set({ pending: null })
     // 提交失败 → 还原问题卡，否则卡片消失但后端 agent 仍挂在 asyncio.Event 上等答，流挂死（WB-159）。
-    api.answer(activeId, answers).catch(() => {
+    api.answerRun(pending.runId, pending.questionEventId, answers).catch(() => {
       set({ pending })
       toast('提交回答失败，请重试')
     })
   },
 
   stop: () => {
-    const { abort, activeId } = get()
+    const { abort, messages } = get()
     abort?.abort()
-    if (activeId) api.stopChat(activeId).catch(() => {})
+    const runId = [...messages].reverse().find((message) => message.status === 'running')?.runId
+    if (runId) api.stopRun(runId).catch(() => {})
     // abort() makes the SSE reader throw AbortError, which is swallowed and never
     // dispatches `done` — so finalise the in-flight bubble here, else it stays a
     // zombie 'running' spinner with no actions until the session is reopened (WB-001).

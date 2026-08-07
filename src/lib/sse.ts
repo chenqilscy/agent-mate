@@ -1,17 +1,10 @@
-// SSE-over-POST reader.
-//
-// /api/chat is a POST that returns text/event-stream, so the browser's
-// EventSource (GET-only) can't consume it. We read the fetch body stream and
-// parse `event:`/`data:` frames ourselves, dispatching typed events. An
-// AbortController lets the Composer's stop button cancel the request client-side
-// (the /stop endpoint stops it server-side too).
+// Server-owned Run event reader. The App commits one atomic Turn, then follows
+// events that the Local Agent durably delivered through its WAL/ACK transport.
 
-import { API_BASE, authHeaders, type RawMessage } from './api'
+import { authHeaders, type RawMessage } from './api'
 import { SSE_EVENT_TYPES } from './types'
 import type { AgentRun, Orchestration, SSEEvent, SessionInfo, TraceItem } from './types'
-import {
-  localExecutionSession, rememberLocalExecutionSession, serverGet, serverGetAll, serverSend,
-} from './channels'
+import { LOCAL_API_BASE, serverGet, serverGetAll, serverSend } from './channels'
 import { platform } from '../platform'
 import { useAuthStore } from '../stores/authStore'
 
@@ -38,31 +31,12 @@ export interface ChatStreamOptions {
 }
 
 export async function streamChat(opts: ChatStreamOptions): Promise<void> {
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   let serverTurn: Awaited<ReturnType<typeof prepareServerTurn>> | null = null
-  let assistantContent = ''
   let assistantTrace: TraceItem[] = []
-  let assistantUsage: { prompt: number; completion: number } | null = null
-  let assistantError = ''
-  let localDone = false
+  const seenEvents = new Set<string>()
 
-  const onLocalEvent = (event: SSEEvent) => {
-    if (!serverTurn) return
-    if (event.type === 'session') {
-      rememberLocalExecutionSession(serverTurn.session.id, event.data.id)
-      return
-    }
-    if (event.type === 'run') {
-      opts.onEvent({
-        type: 'run',
-        data: { run: serverTurn.run, user_message_id: serverTurn.userMessage.id },
-      })
-      return
-    }
-    if (event.type === 'text') assistantContent += event.data.md
-    else if (event.type === 'think') assistantTrace.push({ kind: 'think', text: event.data.text })
+  const onRunEvent = (event: SSEEvent) => {
+    if (event.type === 'think') assistantTrace.push({ kind: 'think', text: event.data.text })
     else if (event.type === 'step') assistantTrace.push({ kind: 'step', tool: event.data.tool, label: event.data.label })
     else if (event.type === 'file_read') assistantTrace.push({ kind: 'file_read', path: event.data.path, range: event.data.range })
     else if (event.type === 'diff') assistantTrace.push({ kind: 'diff', ...event.data })
@@ -75,16 +49,6 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
     } else if (event.type === 'qa_summary') assistantTrace.push({ kind: 'qa', qa: event.data.qa })
     else if (event.type === 'context_degraded') assistantTrace.push({ kind: 'context_degraded', ...event.data })
     else if (event.type === 'artifact') assistantTrace.push({ kind: 'artifact', artifact: event.data })
-    else if (event.type === 'usage') {
-      assistantUsage = {
-        prompt: Number(event.data.detail.prompt_tokens || event.data.used || 0),
-        completion: Number(event.data.detail.completion_tokens || 0),
-      }
-    } else if (event.type === 'error') assistantError = event.data.message
-    else if (event.type === 'done') {
-      localDone = true
-      return
-    }
     opts.onEvent(event)
   }
 
@@ -97,85 +61,61 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
       type: 'session',
       data: { id: serverTurn.session.id, title: serverTurn.session.title },
     })
-    const resp = await fetch(`${API_BASE}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({
-        text: opts.text,
-        session_id: localExecutionSession(serverTurn.session.id),
-        title: opts.title,
-        space: opts.space,
-        model: opts.model,
-        plan: opts.plan,
-        ask: opts.ask,
-        project_id: opts.projectId,
-        experts: opts.experts,
-        skills: opts.skills,
-        skill_bundles: opts.skillBundles,
-        connectors: opts.connectors,
-        knowledge_ids: opts.knowledgeIds,
-        refs: opts.refs,
-        idempotency_key: opts.idempotencyKey,
-        // retryOf is a Server Run id and must never be passed into the local
-        // compatibility database as if it were a local Run foreign key.
-        retry_of: undefined,
-        history: serverTurn.history.slice(-200).map((message) => ({ role: message.role, content: message.content })),
-      }),
-      signal: opts.signal,
+    opts.onEvent({
+      type: 'run',
+      data: { run: serverTurn.run, user_message_id: serverTurn.userMessage.id },
     })
-
-    if (!resp.ok || !resp.body) {
-      const detail = await resp.text().catch(() => '')
-      opts.onEvent({ type: 'error', data: { message: `HTTP ${resp.status} ${detail}` } })
-      opts.onEvent({ type: 'done', data: {} })
-      return
-    }
-
-    reader = resp.body.getReader()
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-
-      // SSE frames are separated by a blank line.
-      let idx: number
-      while ((idx = buffer.indexOf('\n\n')) !== -1) {
-        const frame = buffer.slice(0, idx)
-        buffer = buffer.slice(idx + 2)
-        dispatchFrame(frame, onLocalEvent)
+    let terminal = false
+    while (!terminal) {
+      if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+      const result = await serverGet<{
+        run: AgentRun
+        events: Array<{ event_id: string; type: string; payload: Record<string, unknown> }>
+      }>(`/runs/${serverTurn.run.id}/events?limit=1000`, { cache: false })
+      for (const event of result.events) {
+        if (seenEvents.has(event.event_id)) continue
+        seenEvents.add(event.event_id)
+        if (event.type.startsWith('ui.')) {
+          const checked = checkedSSEEvent(event.type.slice(3), event.payload)
+          if (checked) onRunEvent(checked)
+        } else if (event.type === 'run.waiting_user') {
+          const checked = checkedSSEEvent('ask_user', {
+            ...event.payload, question_event_id: event.event_id,
+          })
+          if (checked) onRunEvent(checked)
+        }
       }
+      terminal = ['completed', 'succeeded', 'failed', 'cancelled'].includes(result.run.status)
+      if (!terminal) await abortableDelay(350, opts.signal)
     }
-
-    // Stream closed cleanly. Flush any trailing multibyte bytes, then dispatch a
-    // final frame the server didn't terminate with a blank line (WB-020) — else a
-    // last `done` frame is dropped and the bubble stays 'running'.
-    buffer += decoder.decode()
-    if (buffer.trim()) dispatchFrame(buffer, onLocalEvent)
-    if (!localDone) throw new Error('Local Agent 执行流意外断开')
     await commitRunArtifacts(serverTurn, assistantTrace)
-    const message = await finalizeServerTurn(
-      serverTurn, assistantContent, assistantTrace, assistantUsage, assistantError,
+    const messages = await serverGetAll<RawMessage>(
+      `/sessions/${serverTurn.session.id}/messages`, 'messages', 500, { cache: false },
     )
-    opts.onEvent({ type: 'done', data: { message_id: message.id } })
+    const message = [...messages].reverse().find(
+      (item) => item.run_id === serverTurn!.run.id && item.role === 'assistant',
+    )
+    opts.onEvent({ type: 'done', data: { message_id: message?.id } })
   } catch (e) {
     // AbortError is an expected outcome of the stop button — the caller's stop()
     // already finalised the bubble, so stay silent (and keep one-shot refs).
     if ((e as Error).name !== 'AbortError') {
-      if (serverTurn) {
-        try {
-          await failServerTurn(serverTurn.run.id, e instanceof Error ? e.message : String(e))
-        } catch {
-          // The original failure remains the one shown to the user.
-        }
-      }
       opts.onEvent({ type: 'error', data: { message: String(e) } })
       opts.onEvent({ type: 'done', data: {} })
     } else if (serverTurn) {
       void cancelServerTurn(serverTurn.run.id)
     }
-  } finally {
-    reader?.releaseLock?.()
   }
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(resolve, ms)
+    signal?.addEventListener('abort', () => {
+      window.clearTimeout(timer)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }, { once: true })
+  })
 }
 
 async function commitRunArtifacts(
@@ -209,41 +149,57 @@ function requestKey(prefix: string): string {
   return `${prefix}:${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}:${Math.random()}`}`
 }
 
+async function stageLocalRunInput(
+  requestKeyValue: string,
+  refs: NonNullable<ChatStreamOptions['refs']>,
+): Promise<string> {
+  if (!refs.length) return ''
+  const ownerId = useAuthStore.getState().me?.id
+  if (!ownerId) throw new Error('Local Agent 尚未绑定 Server 身份')
+  const payload = refs.map((item) => ({
+    name: item.name, content: item.content,
+    kind: item.kind || 'file', itemId: item.itemId || null,
+  }))
+  if (platform.isDesktop) {
+    const deviceId = await platform.localAgent.stageRunInput(ownerId, requestKeyValue, payload)
+    if (!deviceId) throw new Error('Local Agent 无法暂存本机输入')
+    return deviceId
+  }
+  const response = await fetch(`${LOCAL_API_BASE}/local-run-inputs`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ request_key: requestKeyValue, refs: payload }),
+  })
+  if (!response.ok) throw new Error(`Local Agent 无法暂存本机输入（HTTP ${response.status}）`)
+  const result = await response.json() as { device_id?: string }
+  if (!result.device_id) throw new Error('Local Agent 未返回设备身份')
+  return result.device_id
+}
+
 async function prepareServerTurn(opts: ChatStreamOptions): Promise<{
   session: SessionInfo & { version: number }
-  history: RawMessage[]
   userMessage: RawMessage
   run: AgentRun & { version: number }
 }> {
-  let session: SessionInfo & { version: number }
-  if (opts.sessionId) {
-    session = await serverGet<SessionInfo & { version: number }>(`/sessions/${opts.sessionId}`, { cache: false })
-  } else {
-    const result = await serverSend<{ session: SessionInfo & { version: number } }>('POST', '/sessions', {
-      title: (opts.title || opts.text).slice(0, 500),
-      project_id: opts.projectId || null,
-      space: opts.space || null,
-      kind: opts.projectId ? 'projexec' : 'chat',
-    }, { headers: { 'Idempotency-Key': requestKey('session') } })
-    session = result.session
-  }
-
-  const history = await serverGetAll<RawMessage>(
-    `/sessions/${session.id}/messages`, 'messages', 500, { cache: false },
-  )
-  const messageResult = await serverSend<{ message: RawMessage }>(
-    'POST', `/sessions/${session.id}/messages`,
-    { role: 'user', content: opts.text },
-    { headers: { 'Idempotency-Key': requestKey('message') } },
-  )
   const mode = opts.ask ? 'ask' : opts.plan ? 'plan' : 'exec'
-  const runResult = await serverSend<{ run: AgentRun & { version: number } }>('POST', '/runs', {
-    session_id: session.id,
+  const turnKey = opts.idempotencyKey || requestKey('run')
+  const targetDeviceId = await stageLocalRunInput(turnKey, opts.refs || [])
+  const turn = await serverSend<{
+    session: SessionInfo & { version: number }
+    user_message: RawMessage
+    run: AgentRun & { version: number }
+  }>('POST', '/turns', {
+    text: opts.text,
+    session_id: opts.sessionId || null,
+    title: (opts.title || opts.text).slice(0, 500),
+    project_id: opts.projectId || null,
+    space: opts.space || null,
+    kind: opts.projectId ? 'projexec' : 'chat',
     mode,
     workspace: opts.projectId ? `project:${opts.projectId}` : 'default',
     retry_of: opts.retryOf || null,
     model_ref: opts.model || null,
-    required_capabilities: mode === 'ask' ? ['llm.chat'] : ['llm.chat', 'agent.tools'],
+    target_device_id: targetDeviceId,
+    required_capabilities: ['run_events_v1', 'llm.chat', ...(mode === 'ask' ? [] : ['agent.tools'])],
     request_snapshot: {
       automation_id: opts.automationId || null,
       loadout: {
@@ -251,57 +207,18 @@ async function prepareServerTurn(opts: ChatStreamOptions): Promise<{
         skill_bundles: opts.skillBundles || [], connectors: opts.connectors || [],
         knowledge_ids: opts.knowledgeIds || [],
       },
-      refs: (opts.refs || []).map((item) => ({ name: item.name, kind: item.kind || 'file', item_id: item.itemId || null })),
+      refs: (opts.refs || []).map((item) => ({
+        name: item.name,
+        kind: item.kind || 'file', itemId: item.itemId || null,
+      })),
+      local_input_key: targetDeviceId ? turnKey : null,
     },
-  }, { headers: { 'Idempotency-Key': opts.idempotencyKey || requestKey('run') } })
-  return { session, history, userMessage: messageResult.message, run: runResult.run }
-}
-
-async function latestRun(runId: string): Promise<AgentRun & { version: number }> {
-  return serverGet<AgentRun & { version: number }>(`/runs/${runId}`, { cache: false })
-}
-
-async function patchRun(runId: string, patch: Record<string, unknown>): Promise<void> {
-  const current = await latestRun(runId)
-  await serverSend('PATCH', `/runs/${runId}`, { ...patch, expected_version: current.version })
-}
-
-async function finalizeServerTurn(
-  turn: Awaited<ReturnType<typeof prepareServerTurn>>,
-  content: string,
-  trace: TraceItem[],
-  usage: { prompt: number; completion: number } | null,
-  error: string,
-): Promise<RawMessage> {
-  await patchRun(turn.run.id, {
-    status: error ? 'failed' : 'completed',
-    error_code: error ? 'local_execution_failed' : null,
-    error_message: error || null,
-    prompt_tokens: usage?.prompt || 0,
-    completion_tokens: usage?.completion || 0,
-    ended_at: Date.now() / 1000,
-  })
-  const result = await serverSend<{ message: RawMessage }>(
-    'POST', `/sessions/${turn.session.id}/messages`,
-    { role: 'assistant', content, run_id: turn.run.id, trace, usage, error: error || null },
-    { headers: { 'Idempotency-Key': requestKey('assistant-message') } },
-  )
-  return result.message
-}
-
-async function failServerTurn(runId: string, message: string): Promise<void> {
-  await patchRun(runId, {
-    status: 'failed', error_code: 'desktop_execution_bridge_failed',
-    error_message: message.slice(0, 20_000), ended_at: Date.now() / 1000,
-  })
+  }, { headers: { 'Idempotency-Key': turnKey } })
+  return { session: turn.session, userMessage: turn.user_message, run: turn.run }
 }
 
 async function cancelServerTurn(runId: string): Promise<void> {
-  try {
-    await serverSend('POST', `/runs/${runId}/cancel`)
-  } catch {
-    await patchRun(runId, { status: 'cancelled', ended_at: Date.now() / 1000 })
-  }
+  await serverSend('POST', `/runs/${runId}/cancel`)
 }
 
 function dispatchFrame(frame: string, onEvent: (ev: SSEEvent) => void): void {

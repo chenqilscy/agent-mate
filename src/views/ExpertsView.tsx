@@ -554,6 +554,17 @@ function ConnectorsPane() {
 
   return (
     <div className="cap-pane show">
+      {CONNECTOR_RECOMMENDATIONS.length === 0 && (
+        <Empty
+          className="auto-empty"
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="当前设备还没有可用连接器。连接器凭据只保存在 Local Agent，不在 Server Console 中保存。"
+        >
+          <WbButton className="btn-dark" onClick={() => useUIStore.getState().setSettingsOpen(true, 'runtime')}>
+            打开本机运行设置
+          </WbButton>
+        </Empty>
+      )}
       <div className="card-grid g2" style={{ marginTop: 6 }}>
         {CONNECTOR_RECOMMENDATIONS.map((connector) => {
           const { icon: ic, name: n, description: d, status } = connector
@@ -652,7 +663,6 @@ function MyExpertsPane({ onBack }: { onBack: () => void }) {
 }
 
 const TABS: { id: CapabilityKind; label: string; icon: ReactNode }[] = [
-  { id: 'experts', label: '专家', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></svg> },
   { id: 'skills', label: '技能', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg> },
   { id: 'connectors', label: '连接器', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 15l6-6M8 8L6 10a4 4 0 006 6l2-2M16 16l2-2a4 4 0 00-6-6l-2 2" /></svg> },
 ]

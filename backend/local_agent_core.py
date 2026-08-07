@@ -20,6 +20,7 @@ import run_transport
 import server_client
 from agent import worker_health
 from agent import sandbox
+from agent import server_run_worker
 from config import settings
 
 
@@ -125,6 +126,29 @@ class IdentityRemove(BaseModel):
 def remove_identity(body: IdentityRemove) -> dict[str, Any]:
     local_agent_store.clear_server_identity(body.owner_id)
     return {"removed": True, "owner_id": body.owner_id}
+
+
+class RunInputStage(BaseModel):
+    owner_id: str = Field(min_length=8, max_length=200)
+    request_key: str = Field(min_length=8, max_length=200, pattern=r"^[A-Za-z0-9._:-]+$")
+    refs: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+
+
+@router.put("/run-inputs")
+def stage_run_input(body: RunInputStage) -> dict[str, Any]:
+    user_token = local_agent_store.get_server_identity(body.owner_id)
+    if not user_token:
+        raise HTTPException(401, "No valid Server identity is bound to this Local Agent")
+    if not run_transport.ensure_device(body.owner_id, user_token):
+        raise HTTPException(503, "Local Agent device registration is unavailable")
+    try:
+        local_agent_store.stage_run_input(body.owner_id, body.request_key, {"refs": body.refs})
+    except ValueError as exc:
+        raise HTTPException(413, str(exc)) from exc
+    return {
+        "staged": True, "request_key": body.request_key,
+        "device_id": run_transport.device_id(body.owner_id),
+    }
 
 
 class ClaimBody(BaseModel):
@@ -430,7 +454,7 @@ async def _transport_loop() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     local_agent_store.init_db()
-    task = asyncio.create_task(_transport_loop())
+    task = asyncio.create_task(server_run_worker.run_forever())
     try:
         yield
     finally:

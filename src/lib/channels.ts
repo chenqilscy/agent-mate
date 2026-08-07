@@ -233,13 +233,6 @@ export async function serverSend<T>(
 }
 
 export async function refreshLocalAgentStatus(): Promise<LocalAgentStatus | null> {
-  if (!platform.isDesktop) {
-    snapshot.localAgentChecked = true
-    snapshot.localAgent = null
-    snapshot.localAgentError = ''
-    publish()
-    return null
-  }
   try {
     const status = await platform.localAgent.status()
     snapshot.localAgent = status

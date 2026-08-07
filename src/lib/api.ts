@@ -3,7 +3,7 @@
 // execution stay on the loopback Local Agent. Provider API keys never enter UI state.
 
 import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, RunStatus, SessionInfo, SharedPmPreferences, SharedPmPreferencesPatch, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
-import { LOCAL_API_BASE, channelSnapshot, localExecutionSession, serverGet, serverGetAll, serverSend } from './channels'
+import { LOCAL_API_BASE, channelSnapshot, serverGet, serverGetAll, serverSend } from './channels'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -412,16 +412,22 @@ export const api = {
   },
 
   getMessages: async (id: string) => {
-    const [session, result] = await Promise.all([
+    const [session, result, runs] = await Promise.all([
       serverGet<SessionInfo>(`/sessions/${id}`),
       serverGetAll<RawMessage & { actor_id?: string }>(`/sessions/${id}/messages`, 'messages', 500),
+      serverGetAll<AgentRun>(`/runs?session_id=${encodeURIComponent(id)}`, 'runs'),
     ])
+    const runById = new Map(runs.map((run) => [run.id, run]))
     return {
       session,
       messages: result.map((message) => ({
         ...message,
         actor: message.actor || message.actor_id || message.role,
         usage: message.usage || null,
+        run_status: message.run_id ? runById.get(message.run_id)?.status : undefined,
+        run_plan: message.run_id ? runById.get(message.run_id)?.plan : undefined,
+        run_plan_version: message.run_id ? runById.get(message.run_id)?.plan_version : undefined,
+        run_project_id: message.run_id ? runById.get(message.run_id)?.project_id : undefined,
       })),
     }
   },
@@ -494,19 +500,13 @@ export const api = {
     return serverSend<{ ok: boolean }>('DELETE', `/sessions/${id}?expected_version=${current.version}`)
   },
 
-  stopChat: (id: string) => {
-    const localId = localExecutionSession(id)
-    return localId
-      ? send<{ stopped: boolean }>('POST', `/chat/${localId}/stop`)
-      : Promise.resolve({ stopped: false })
-  },
+  stopRun: (runId: string) => serverSend<{ run: AgentRun }>('POST', `/runs/${runId}/cancel`),
 
-  answer: (id: string, answers: string[]) => {
-    const localId = localExecutionSession(id)
-    return localId
-      ? send<{ ok: boolean }>('POST', `/chat/${localId}/answer`, { answers })
-      : Promise.reject(new Error('Local Agent execution session is unavailable'))
-  },
+  answerRun: (runId: string, questionEventId: string, answers: string[]) =>
+    serverSend<{ command: { id: string } }>('POST', `/runs/${runId}/answer`, {
+      question_event_id: questionEventId,
+      answers,
+    }),
 
   listProjects: async () => {
     const result = await serverGet<{ projects: ProjectInfo[] }>('/projects')
@@ -769,14 +769,21 @@ export const api = {
     return serverSend<{ ok: boolean }>('DELETE', `/automations/${id}?expected_version=${current.version}`)
   },
 
+  runAutomation: (id: string) => serverSend<{
+    session: SessionInfo
+    user_message: RawMessage
+    run: AgentRun
+    duplicate: boolean
+  }>('POST', `/automations/${id}/run`),
+
   listAutomationFires: (status = 'dead_letter') =>
-    get<{ fires: AutomationFire[] }>(`/automation-fires?status=${encodeURIComponent(status)}`),
+    serverGet<{ fires: AutomationFire[] }>(`/automation-fires?status=${encodeURIComponent(status)}`),
 
   replayAutomationFire: (id: string, idempotencyKey: string) =>
-    send<{ ok: boolean; fire: AutomationFire }>('POST', `/automation-fires/${id}/replay`, { idempotency_key: idempotencyKey }),
+    serverSend<{ ok: boolean; fire: AutomationFire }>('POST', `/automation-fires/${id}/replay`, { idempotency_key: idempotencyKey }),
 
   ignoreAutomationFire: (id: string) =>
-    send<{ ok: boolean; fire: AutomationFire }>('POST', `/automation-fires/${id}/ignore`, {}),
+    serverSend<{ ok: boolean; fire: AutomationFire }>('POST', `/automation-fires/${id}/ignore`, {}),
 
   listAutomationRuns: async (id: string) => ({ runs: await serverAutomationSessions(id) }),
 

@@ -18,14 +18,11 @@ import { useConnectivityStore } from './stores/connectivityStore'
 
 const HomeView = lazy(() => import('./views/HomeView').then((module) => ({ default: module.HomeView })))
 const ChatView = lazy(() => import('./views/ChatView').then((module) => ({ default: module.ChatView })))
-const AssistantView = lazy(() => import('./views/AssistantView').then((module) => ({ default: module.AssistantView })))
-const ProjectsView = lazy(() => import('./views/ProjectsView').then((module) => ({ default: module.ProjectsView })))
-const ProjectHomeView = lazy(() => import('./views/ProjectHomeView').then((module) => ({ default: module.ProjectHomeView })))
+const WorkspaceContextsView = lazy(() => import('./views/WorkspaceContextsView').then((module) => ({ default: module.WorkspaceContextsView })))
+const ConsoleHandoffView = lazy(() => import('./views/ConsoleHandoffView').then((module) => ({ default: module.ConsoleHandoffView })))
 const ProjExecView = lazy(() => import('./views/ProjExecView').then((module) => ({ default: module.ProjExecView })))
-const ExpertsView = lazy(() => import('./views/ExpertsView').then((module) => ({ default: module.ExpertsView })))
 const SkillsView = lazy(() => import('./views/ExpertsView').then((module) => ({ default: module.SkillsView })))
 const ConnectorsView = lazy(() => import('./views/ExpertsView').then((module) => ({ default: module.ConnectorsView })))
-const AutomationView = lazy(() => import('./views/AutomationView').then((module) => ({ default: module.AutomationView })))
 const InspireView = lazy(() => import('./views/InspireView').then((module) => ({ default: module.InspireView })))
 const MyFilesView = lazy(() => import('./views/MyFilesView').then((module) => ({ default: module.MyFilesView })))
 const KdocsView = lazy(() => import('./views/KdocsView').then((module) => ({ default: module.KdocsView })))
@@ -42,19 +39,19 @@ function MainView() {
       content = <ChatView />
       break
     case 'assistant':
-      content = <AssistantView />
+      content = <ConsoleHandoffView />
       break
     case 'projects':
-      content = <ProjectsView />
+      content = <WorkspaceContextsView />
       break
     case 'project':
-      content = <ProjectHomeView />
+      content = <ConsoleHandoffView />
       break
     case 'projexec':
       content = <ProjExecView />
       break
     case 'experts':
-      content = <ExpertsView />
+      content = <ConsoleHandoffView />
       break
     case 'skills':
       content = <SkillsView />
@@ -63,7 +60,7 @@ function MainView() {
       content = <ConnectorsView />
       break
     case 'automation':
-      content = <AutomationView />
+      content = <ConsoleHandoffView />
       break
     case 'inspire':
       content = <InspireView />

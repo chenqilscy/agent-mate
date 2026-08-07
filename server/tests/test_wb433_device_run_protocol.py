@@ -265,6 +265,69 @@ class DeviceRunProtocolTest(unittest.TestCase):
         self.assertEqual(200, submitted.status_code, submitted.text)
         self.assertEqual("completed", self.client.get(f"/api/runs/{run_id}", headers=self.user_auth).json()["status"])
 
+    def test_atomic_turn_and_device_terminal_event_are_the_only_commit_path(self) -> None:
+        device_id, _private, auth, _challenge, _signature = self._register_device(
+            "turn", ["run_events_v1", "llm.chat"],
+        )
+        headers = {**self.user_auth, "Idempotency-Key": "wb441-turn-1"}
+        payload = {
+            "text": "由本机执行这个任务", "title": "Server owned turn",
+            "mode": "ask", "required_capabilities": ["run_events_v1", "llm.chat"],
+            "request_snapshot": {"loadout": {"skills": []}},
+        }
+        created = self.client.post("/api/turns", headers=headers, json=payload)
+        duplicate = self.client.post("/api/turns", headers=headers, json=payload)
+        self.assertEqual(200, created.status_code, created.text)
+        self.assertTrue(duplicate.json()["duplicate"])
+        self.assertEqual(created.json()["run"]["id"], duplicate.json()["run"]["id"])
+        run_id = created.json()["run"]["id"]
+        session_id = created.json()["session"]["id"]
+
+        forbidden = self.client.patch(
+            f"/api/runs/{run_id}", headers=self.user_auth,
+            json={"expected_version": created.json()["run"]["version"], "status": "completed"},
+        )
+        self.assertEqual(403, forbidden.status_code, forbidden.text)
+
+        lease = self.client.post(
+            "/api/agent/runs/lease", headers=auth, json={"lease_seconds": 30},
+        ).json()["lease"]
+        events = [
+            self._event(
+                run_id=run_id, device_id=device_id, epoch=lease["lease_epoch"], sequence=1,
+                event_type="run.started",
+            ),
+            self._event(
+                run_id=run_id, device_id=device_id, epoch=lease["lease_epoch"], sequence=2,
+                event_type="ui.text", payload={"md": "执行完成"},
+            ),
+            self._event(
+                run_id=run_id, device_id=device_id, epoch=lease["lease_epoch"], sequence=3,
+                event_type="ui.usage", payload={
+                    "pct": 1, "used": 12,
+                    "detail": {"prompt_tokens": 12, "completion_tokens": 4},
+                },
+            ),
+            self._event(
+                run_id=run_id, device_id=device_id, epoch=lease["lease_epoch"], sequence=4,
+                event_type="run.completed",
+            ),
+        ]
+        committed = self.client.post(
+            f"/api/agent/runs/{run_id}/leases/{lease['lease_id']}/events", headers=auth,
+            json={"lease_epoch": lease["lease_epoch"], "events": events},
+        )
+        self.assertEqual(200, committed.status_code, committed.text)
+        messages = self.client.get(
+            f"/api/sessions/{session_id}/messages", headers=self.user_auth,
+        ).json()["messages"]
+        self.assertEqual(["user", "assistant"], [item["role"] for item in messages])
+        self.assertEqual("执行完成", messages[-1]["content"])
+        self.assertEqual({"prompt": 12, "completion": 4}, messages[-1]["usage"])
+        observed = self.client.get(f"/api/runs/{run_id}/events", headers=self.user_auth)
+        self.assertEqual(200, observed.status_code, observed.text)
+        self.assertEqual(4, len(observed.json()["events"]))
+
 
 if __name__ == "__main__":
     unittest.main()

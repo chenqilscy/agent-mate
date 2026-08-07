@@ -6,6 +6,7 @@ unacknowledged Run event WAL and device-local Asset working-copy state.
 """
 from __future__ import annotations
 
+import json
 import secrets
 import sqlite3
 import threading
@@ -118,6 +119,16 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_run_event_wal_flush
             ON run_event_wal(owner_id,run_id,lease_epoch,sequence);
+
+        CREATE TABLE IF NOT EXISTS run_input_staging (
+            request_key TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            byte_size INTEGER NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_input_staging_owner
+            ON run_input_staging(owner_id,created_at);
 
         CREATE TABLE IF NOT EXISTS asset_working_copies (
             id TEXT PRIMARY KEY,
@@ -241,6 +252,44 @@ def clear_server_identity(owner_id: str) -> None:
     get_conn().commit()
 
 
+def stage_run_input(owner_id: str, request_key: str, payload: dict) -> None:
+    init_db()
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    size = len(raw.encode("utf-8"))
+    if size > 8 * 1024 * 1024:
+        raise ValueError("local Run input exceeds 8 MiB")
+    now = time.time()
+    conn = get_conn()
+    conn.execute("DELETE FROM run_input_staging WHERE created_at<?", (now - 24 * 60 * 60,))
+    conn.execute(
+        "INSERT INTO run_input_staging(request_key,owner_id,payload,byte_size,created_at) VALUES (?,?,?,?,?) "
+        "ON CONFLICT(request_key) DO UPDATE SET owner_id=excluded.owner_id,payload=excluded.payload,"
+        "byte_size=excluded.byte_size,created_at=excluded.created_at",
+        (request_key, owner_id, raw, size, now),
+    )
+    conn.commit()
+
+
+def take_run_input(owner_id: str, request_key: str) -> dict | None:
+    """Read staged input without consuming it.
+
+    A claimed Run can be recovered after a process crash.  Keeping the input
+    until the normal 24-hour cleanup window makes that recovery deterministic;
+    the opaque key remains owner-scoped and the payload never leaves this
+    Local Agent database.
+    """
+    init_db()
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT payload FROM run_input_staging WHERE request_key=? AND owner_id=?",
+        (request_key, owner_id),
+    ).fetchone()
+    if row is None:
+        return None
+    value = json.loads(str(row["payload"]))
+    return value if isinstance(value, dict) else None
+
+
 def status_snapshot() -> dict:
     init_db()
     conn = get_conn()
@@ -274,6 +323,7 @@ def status_snapshot() -> dict:
         },
         "errors": [{"run_id": str(row["run_id"]), "error": str(row["last_error"])} for row in errors],
         "working_copies": working_copies,
+        "staged_inputs": int(conn.execute("SELECT COUNT(*) FROM run_input_staging").fetchone()[0]),
     }
 
 

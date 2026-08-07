@@ -33,6 +33,7 @@ export type LocalAgentStatus = {
     wal: { count: number; bytes: number; oldest_at: number }
     errors: Array<{ run_id: string; error: string }>
     working_copies: Partial<Record<'local-only' | 'uploading' | 'committed', number>>
+    staged_inputs: number
   }
   workers: unknown
 }
@@ -85,6 +86,9 @@ export interface Platform {
   checkForUpdates(options: UpdateOptions): Promise<UpdateResult>
   localAgent: {
     status(): Promise<LocalAgentStatus | null>
+    bindIdentity(ownerId: string, serverToken: string): Promise<boolean>
+    removeIdentity(ownerId: string): Promise<boolean>
+    stageRunInput(ownerId: string, requestKey: string, refs: Array<Record<string, unknown>>): Promise<string>
     commitAsset(options: CommitAssetOptions): Promise<LocalAgentWorkingCopy | null>
     downloadAsset(assetId: string, options: { ownerId: string; relativePath: string; projectId?: string }): Promise<LocalAgentWorkingCopy | null>
   }
@@ -108,7 +112,18 @@ const webPlatform: Platform = {
   globalShortcut: { register() {}, unregister() {} },
   fileDialog: { async openDirectory() { return null } },
   async checkForUpdates() { return { status: 'unsupported' } },
-  localAgent: { async status() { return null }, async commitAsset() { return null }, async downloadAsset() { return null } },
+  localAgent: {
+    async status() {
+      const response = await fetch('/api/device-runtime-status')
+      if (!response.ok) throw new Error(`Local Agent status failed (${response.status})`)
+      return response.json() as Promise<LocalAgentStatus>
+    },
+    async bindIdentity() { return false },
+    async removeIdentity() { return false },
+    async stageRunInput() { return '' },
+    async commitAsset() { return null },
+    async downloadAsset() { return null },
+  },
   isDesktop: false,
 }
 
@@ -138,6 +153,23 @@ const tauriPlatform: Platform = {
     async status() {
       const { invoke } = await import('@tauri-apps/api/core')
       return invoke<LocalAgentStatus>('local_agent_status')
+    },
+    async bindIdentity(ownerId, serverToken) {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const result = await invoke<{ bound: boolean }>('local_agent_bind_identity', { ownerId, serverToken })
+      return result.bound
+    },
+    async removeIdentity(ownerId) {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const result = await invoke<{ removed: boolean }>('local_agent_remove_identity', { ownerId })
+      return result.removed
+    },
+    async stageRunInput(ownerId, requestKey, refs) {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const result = await invoke<{ staged: boolean; device_id: string }>('local_agent_stage_run_input', {
+        body: { owner_id: ownerId, request_key: requestKey, refs },
+      })
+      return result.staged ? result.device_id : ''
     },
     async commitAsset(options) {
       const { invoke } = await import('@tauri-apps/api/core')

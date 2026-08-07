@@ -89,15 +89,29 @@ Console 是 Server 同源托管的管理 UI，不是独立服务或第三套数�
 - Server deployment secret 的只写配置与轮换；
 - 业务资产和团队协作的 Web 管理入口。
 
-### 4.3 Desktop UI
+### 4.3 App UI（Local Agent 的桌面控制面）
 
-Desktop UI 是普通用户的工作台，负责：
+App UI 存在的意义不是复制 Console，而是让用户看见、控制并信任本机执行。它与 Local Agent Core 共同构成桌面端：Core 可以在 App 窗口关闭后继续工作，App UI 则是其交互和诊断界面。
 
-- 对话、项目、任务、资产和 Run 展示；
-- 发起 Run、回答 `ask_user`、暂停、继续、取消和验收；
-- 请求用户选择本机文件或授予本机权限；
-- 展示设备在线状态、能力缺口、WAL 积压和断线状态；
-- 管理设备级运行设置。
+App UI 负责：
+
+- 选择 Server 项目作为执行上下文，但不提供项目治理 CRUD；
+- 发起本机 Run，实时展示思考、工具、计划、产物与终态；
+- 回答 `ask_user`，执行暂停、继续、取消、权限确认和交付验收；
+- 选择本机文件，管理 working copy、下载目录和本机产物提交；
+- 管理本机模型凭据、已安装 Skill、本机 MCP/连接器和设备级运行设置；
+- 展示 Local Agent 在线状态、设备身份、能力缺口、WAL 积压、错误与恢复动作；
+- 在需要账号、组织、项目、成员、自动化或目录管理时打开 Server Console。
+
+Server Console 负责业务配置和治理；App UI 负责一次具体任务怎样在这台设备上安全执行。项目、自动化、助理、成员、目录发布、审计等管理页面不得在 App 中再维护一套同构信息架构。
+
+| 用户意图 | 唯一入口 |
+|---|---|
+| 管理账号、组织、项目、成员、助理、自动化、目录、审计 | Server Console |
+| 选择项目上下文并开始任务 | App UI |
+| 查看/控制当前设备执行、权限、WAL、working copy | App UI |
+| 配置仅存在于本机的模型密钥、Skill、MCP 和连接器凭据 | App UI |
+| 查看跨设备会话、Run 终态和团队业务记录 | Server；App UI 只呈现当前执行所需视图 |
 
 业务数据直接使用 Server API；文件选择、权限确认、设备设置等本机能力使用 Tauri IPC、Named Pipe 或仅绑定 loopback 的受保护 Local Agent API。不得继续以本地业务数据库作为 UI 数据源。
 

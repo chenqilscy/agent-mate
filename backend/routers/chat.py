@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 import server_sync
 import server_client
+import run_transport
 from agent import events, runtime
 from auth.deps import current_user
 from storage import db
@@ -47,6 +48,38 @@ class ChatBody(BaseModel):
     # execution-session cache (new/reinstalled device). It is context input only;
     # the local compatibility adapter never becomes the durable message source.
     history: list[dict[str, str]] = Field(default=[], max_length=200)
+
+
+class LocalRunInputBody(BaseModel):
+    request_key: str = Field(min_length=8, max_length=200, pattern=r"^[A-Za-z0-9._:-]+$")
+    refs: list[dict] = Field(default=[], max_length=50)
+
+
+@router.get("/device-runtime-status")
+def device_runtime_status() -> dict:
+    """Non-secret browser-dev view of the loopback Local Agent status."""
+    import local_agent_core
+
+    return local_agent_core._status()
+
+
+@router.put("/local-run-inputs")
+def stage_local_run_input(body: LocalRunInputBody) -> dict:
+    """Browser-dev bridge; AuthMiddleware binds and scopes the local input."""
+    import local_agent_store
+
+    user = current_user()
+    user_token = local_agent_store.get_server_identity(user.id)
+    if not user_token or not run_transport.ensure_device(user.id, user_token):
+        raise HTTPException(503, "Local Agent device registration is unavailable")
+    try:
+        local_agent_store.stage_run_input(user.id, body.request_key, {"refs": body.refs})
+    except ValueError as exc:
+        raise HTTPException(413, str(exc)) from exc
+    return {
+        "staged": True, "request_key": body.request_key,
+        "device_id": run_transport.device_id(user.id),
+    }
 
 
 SSE_HEADERS = {

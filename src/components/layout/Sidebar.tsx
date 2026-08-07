@@ -11,13 +11,14 @@ import type { ProjectInfo, SessionInfo, ViewId } from '../../lib/types'
 import { activate, clickable } from '../../lib/a11y'
 import { LoginModal } from '../auth/LoginModal'
 import { MessageCenter } from './MessageCenter'
-import { ServerConnectModal } from '../server/ServerConnectModal'
 import { SettingsModal } from '../settings/SettingsModal'
 import { useServerStore } from '../../stores/serverStore'
 import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
 import { Badge, Button, Collapse, Dropdown, Input, Menu, Tooltip } from 'antd'
 import { CompatList as List } from '../ui/CompatList'
 import type { InputRef } from 'antd'
+import { openServerConsole } from '../../lib/console'
+import { useConnectivityStore } from '../../stores/connectivityStore'
 
 type NavItem = { id: ViewId; label: string; icon: ReactNode; cls?: string }
 type NavGroup = { label: string; items: NavItem[] }
@@ -27,17 +28,14 @@ const NAV_GROUPS: NavGroup[] = [
     label: '工作',
     items: [
       { id: 'home', label: '新建任务', cls: 'new', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg> },
-      { id: 'assistant', label: '助理', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3a4 4 0 014 4c0 2-2 3-2 5h-4c0-2-2-3-2-5a4 4 0 014-4z" /><path d="M9 17h6M10 20h4" /></svg> },
-      { id: 'projects', label: '项目', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg> },
-      { id: 'automation', label: '自动化', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 8V4M12 8a4 4 0 100 8 4 4 0 000-8z" /><path d="M12 16v4" /></svg> },
+      { id: 'projects', label: '项目上下文', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg> },
     ],
   },
   {
-    label: '能力',
+    label: '本机能力',
     items: [
-      { id: 'experts', label: '专家', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></svg> },
-      { id: 'skills', label: '技能', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg> },
-      { id: 'connectors', label: '连接器', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 15l6-6M8 8L6 10a4 4 0 006 6l2-2M16 16l2-2a4 4 0 00-6-6l-2 2" /></svg> },
+      { id: 'skills', label: '已安装技能', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg> },
+      { id: 'connectors', label: '本机连接器', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 15l6-6M8 8L6 10a4 4 0 006 6l2-2M16 16l2-2a4 4 0 00-6-6l-2 2" /></svg> },
     ],
   },
 ]
@@ -68,7 +66,8 @@ export function Sidebar() {
   const serverLinked = useServerStore((s) => s.linked)
   const serverChecked = useServerStore((s) => s.checked)
   const refreshServer = useServerStore((s) => s.refreshStatus)
-  const [serverOpen, setServerOpen] = useState(false)
+  const localAgent = useConnectivityStore((s) => s.localAgent)
+  const localAgentChecked = useConnectivityStore((s) => s.localAgentChecked)
   const [loginOpen, setLoginOpen] = useState(false)
   const unread = useNotificationStore((s) => s.unread)
   const loadNotifs = useNotificationStore((s) => s.load)
@@ -165,7 +164,8 @@ export function Sidebar() {
 
   const openProject = (p: ProjectInfo) => {
     setActiveProject(p)
-    setView('project', { projectId: p.id })
+    useChatStore.getState().startProject(p.id, p.name)
+    setView('projexec', { projectId: p.id })
   }
 
   return (
@@ -226,6 +226,13 @@ export function Sidebar() {
             children: group.items.map((item) => ({ key: item.id, icon: <span className="n-ic">{item.icon}</span>, label: item.label, className: `nav-item ${item.cls ?? ''}`.trim() })),
           }))}
         />
+        <section className="nav-group" aria-label="Server 管理">
+          <div className="nav-group-label">Server</div>
+          <Button type="text" className="nav-item" onClick={() => void openServerConsole()}>
+            <span className="n-ic">☁️</span>
+            打开 Console<span className="sub">管理</span>
+          </Button>
+        </section>
         {/* Wrap the trigger + flyout so the menu anchors to the button (WB-042),
             instead of the old hard-coded left:250px; bottom:118px that flung it
             to the sidebar's bottom-right corner. */}
@@ -292,14 +299,18 @@ export function Sidebar() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></svg>
             {loggedIn ? (me?.plan ?? '体验版') : '未登录 Server'}{loggedIn && <span className="up">升级</span>}
           </div>
+          <div className="pf-row">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="8" /><path d="M8 12h8M12 8v8" /></svg>
+            {localAgentChecked ? (localAgent ? `Local Agent 在线 · WAL ${localAgent.transport.wal.count}` : 'Local Agent 离线') : '正在检查 Local Agent'}
+          </div>
           <div className="pf-div" />
           <div className="pf-row" {...clickable} onClick={() => { setSettingsOpen(true, 'account'); setProfileOpen(false) }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18" /></svg>设置中心
           </div>
           {loggedIn && serverEnabled && (
-            <div className="pf-row" {...clickable} onClick={() => { setProfileOpen(false); setServerOpen(true) }}>
+            <div className="pf-row" {...clickable} onClick={() => { setProfileOpen(false); void openServerConsole() }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 17H7A5 5 0 017 7h2M15 7h2a5 5 0 010 10h-2M8 12h8" /></svg>
-              {serverLinked ? `已连接 AgentMate Server · ${serverLinked.name}` : '连接 AgentMate Server'}
+              {serverLinked ? `打开 Server Console · ${serverLinked.name}` : '打开 Server Console'}
             </div>
           )}
           <div className="pf-div" />
@@ -317,7 +328,6 @@ export function Sidebar() {
 
       {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
       {msgOpen && <MessageCenter onClose={() => setMsgOpen(false)} />}
-      {serverOpen && <ServerConnectModal onClose={() => { setServerOpen(false); void refreshServer() }} />}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </aside>
   )

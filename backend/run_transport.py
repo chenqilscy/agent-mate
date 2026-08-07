@@ -100,7 +100,9 @@ def _public_capabilities() -> dict[str, Any]:
         "arch": platform.machine().lower(),
         "tool_contract_version": settings.TOOL_CONTRACT_VERSION,
         "supported_tools": contracts,
-        "capabilities": ["run_events_v1", "local_workspace", "ask_user"],
+        "capabilities": [
+            "run_events_v1", "local_workspace", "ask_user", "llm.chat", "agent.tools",
+        ],
     }
 
 

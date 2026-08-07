@@ -4,8 +4,22 @@
 // re-fetches under the new identity.
 import { create } from 'zustand'
 import { api, TOKEN_KEY } from '../lib/api'
-import { ChannelUnavailableError } from '../lib/channels'
+import { ChannelUnavailableError, LOCAL_API_BASE } from '../lib/channels'
 import type { Me } from '../lib/types'
+import { platform } from '../platform'
+
+async function bindLocalAgent(ownerId: string, token: string): Promise<void> {
+  if (platform.isDesktop) {
+    await platform.localAgent.bindIdentity(ownerId, token)
+    return
+  }
+  // Browser development has no native IPC bridge. A normal authenticated local
+  // request lets AuthMiddleware validate the Server token and bind the same
+  // identity without exposing the protected Core IPC secret to JavaScript.
+  await fetch(`${LOCAL_API_BASE}/me`, { headers: { Authorization: `Bearer ${token}` } }).then((response) => {
+    if (!response.ok) throw new Error(`Local Agent identity bind failed (${response.status})`)
+  })
+}
 
 interface AuthState {
   me: Me | null
@@ -26,6 +40,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       const me = await api.me()
       if (!me.authenticated) localStorage.removeItem(TOKEN_KEY)
       set({ me, loggedIn: me.authenticated })
+      const token = localStorage.getItem(TOKEN_KEY)
+      if (me.authenticated && token) await bindLocalAgent(me.id, token)
     } catch (error) {
       if (error instanceof ChannelUnavailableError && [401, 403].includes(error.status || 0)) {
         localStorage.removeItem(TOKEN_KEY)
@@ -38,14 +54,16 @@ export const useAuthStore = create<AuthState>((set) => ({
   // login/register throw on failure (caller shows the error); on success they
   // persist the token and reload so all data re-fetches as the new user.
   login: async (name, password) => {
-    const { token } = await api.login(name, password)
+    const { token, user } = await api.login(name, password)
     localStorage.setItem(TOKEN_KEY, token)
+    await bindLocalAgent(user.id, token)
     window.location.reload()
   },
 
   register: async (name, password) => {
-    const { token } = await api.register(name, password)
+    const { token, user } = await api.register(name, password)
     localStorage.setItem(TOKEN_KEY, token)
+    await bindLocalAgent(user.id, token)
     window.location.reload()
   },
 
@@ -66,6 +84,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         if (result.status === 'error') throw new Error(result.error_code || 'sso_failed')
         if (result.status === 'completed') {
           localStorage.setItem(TOKEN_KEY, result.token)
+          await bindLocalAgent(result.user.id, result.token)
           popup.close()
           window.location.reload()
           return
@@ -78,6 +97,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
+    const ownerId = useAuthStore.getState().me?.id
+    if (ownerId && platform.isDesktop) await platform.localAgent.removeIdentity(ownerId).catch(() => false)
     await api.logout().catch(() => {})
     localStorage.removeItem(TOKEN_KEY)
     window.location.reload()

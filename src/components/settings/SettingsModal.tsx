@@ -15,6 +15,7 @@ import { AntModalBridge } from '../ui/AntModalBridge'
 import { App as AntApp, Card, Empty, Menu, Segmented, Select, Spin, Switch } from 'antd'
 import { DesktopUpdateSettings } from './DesktopUpdateSettings'
 import { DeviceRuntimeSettings } from './DeviceRuntimeSettings'
+import { openServerConsole } from '../../lib/console'
 
 
 type Tab = { id: SettingsTab; label: string; icon: ReactNode }
@@ -22,7 +23,7 @@ type TabGroup = { label: string; items: Tab[] }
 
 const TAB_GROUPS: TabGroup[] = [
   { label: '账户', items: [
-    { id: 'account', label: '账户管理', icon: <path d="M12 12a4 4 0 100-8 4 4 0 000 8zM4 21c0-4 4-6 8-6s8 2 8 6" /> },
+    { id: 'account', label: 'Server 账号', icon: <path d="M12 12a4 4 0 100-8 4 4 0 000 8zM4 21c0-4 4-6 8-6s8 2 8 6" /> },
   ] },
   { label: '应用设置', items: [
     { id: 'system', label: '通用设置', icon: <><circle cx="12" cy="12" r="3.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18" /></> },
@@ -33,7 +34,6 @@ const TAB_GROUPS: TabGroup[] = [
     { id: 'agent', label: '智能体设置', icon: <><rect x="5" y="7" width="14" height="11" rx="2" /><path d="M12 3v4M9 12h.01M15 12h.01M9 16h6" /></> },
     { id: 'runtime', label: '运行服务', icon: <><path d="M4 7h16M4 12h16M4 17h10" /><circle cx="18" cy="17" r="2" /></> },
     { id: 'model', label: '模型管理', icon: <><path d="M4 7h11M4 12h16M4 17h7" /><circle cx="18" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></> },
-    { id: 'assistant', label: '助理配置', icon: <><circle cx="12" cy="12" r="9" /><path d="M8 13q4 3 8 0M9 9h.01M15 9h.01" /></> },
     { id: 'memory', label: '记忆', icon: <><path d="M12 3a5 5 0 00-5 5v1a4 4 0 00-2 3.5A3.5 3.5 0 008 16v2a2 2 0 004 0" /><path d="M12 3a5 5 0 015 5v1a4 4 0 012 3.5A3.5 3.5 0 0116 16v2a2 2 0 01-4 0" /></> },
   ] },
   { label: '数据与安全', items: [
@@ -757,10 +757,13 @@ function SecurityPanel() {
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const tab = useUIStore((s) => s.settingsTab)
   const setTab = useUIStore((s) => s.setSettingsTab)
-  const setView = useUIStore((s) => s.setView)
   const me = useAuthStore((s) => s.me)
   const loggedIn = useAuthStore((s) => s.loggedIn)
   const logout = useAuthStore((s) => s.logout)
+
+  useEffect(() => {
+    if (tab === 'assistant') setTab('account')
+  }, [setTab, tab])
 
   return (
     <AntModalBridge onClose={onClose} zIndex={175}>
@@ -792,7 +795,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
             {tab === 'account' && (
               <div className="set-body">
-                <div className="set-ptitle">账户管理</div>
+                <div className="set-ptitle">Server 账号状态</div>
+                <div className="set-pdesc">账号、组织、成员与套餐由 Server Console 统一管理；App 只使用登录身份绑定这台 Local Agent。</div>
                 <Card className="set-card" variant="borderless">
                   <div className="set-row">
                     <span className="set-k">用户名</span>
@@ -812,6 +816,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   </div>
                 </Card>
                 <div className="set-actions">
+                  <WbButton className="btn-dark" onClick={() => void openServerConsole('/account')}>打开 Console</WbButton>
                   {loggedIn
                     ? <WbButton className="btn-ghost danger-b" onClick={() => { onClose(); void logout() }}>退出登录</WbButton>
                     : <span className="set-pdesc">当前是匿名访客，不是本地账号；AgentMate 账号统一由 Server 提供。</span>}
@@ -827,16 +832,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             )}
 
             {tab === 'personalize' && <PersonalizePanel />}
-
-            {tab === 'assistant' && (
-              <div className="set-body">
-                <div className="set-ptitle">助理设置</div>
-                <div className="set-pdesc">助理的名字、人格、模型、权限、绑定工作空间与外部渠道，在「助理」页逐个管理。</div>
-                <div className="set-actions">
-                  <WbButton className="btn-dark" onClick={() => { onClose(); setView('assistant') }}>前往助理管理</WbButton>
-                </div>
-              </div>
-            )}
 
             {tab === 'system' && <SystemPanel />}
 
