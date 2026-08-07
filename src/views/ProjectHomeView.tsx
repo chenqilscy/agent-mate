@@ -1,7 +1,7 @@
 import { WbButton, WbTextArea } from '../components/ui/Primitives'
 import { useCallback, useEffect, useState } from 'react'
 import { api, type Assistant } from '../lib/api'
-import type { Automation, ProjectHealth, ProjectInfo, ServerTimelineEvent, SessionInfo } from '../lib/types'
+import type { Automation, ProjectHealth, ProjectInfo, ServerTimelineEvent, SessionInfo, SharedPmPreferences } from '../lib/types'
 import { useProjectStore } from '../stores/projectStore'
 import { useChatStore } from '../stores/chatStore'
 import { useLoadoutStore } from '../stores/loadoutStore'
@@ -34,6 +34,7 @@ type ServerProjectMetadata = {
   activity: number
   savedViews: number
   reachable: boolean
+  preferences: SharedPmPreferences | null
 }
 
 function initialProjectTab(): Tab {
@@ -211,6 +212,7 @@ export function ProjectHomeView() {
         activity: activityCount ?? 0,
         savedViews: savedViews ?? 0,
         reachable: values.every((value) => value !== null),
+        preferences: preferences.status === 'fulfilled' ? preferences.value.preferences : null,
       })
     })
     return () => { alive = false }
@@ -412,7 +414,7 @@ export function ProjectHomeView() {
               </>
             )}
 
-            {tab === '计划' && <PlanWorkspace canWrite={canWrite} />}
+            {tab === '计划' && <PlanWorkspace canWrite={canWrite} canManage={canManage} sharedProject={project.origin === 'server'} sharedPmPreferences={serverMetadata?.preferences ?? null} />}
 
             {tab === '任务' && <TaskList canWrite={canWrite} />}
 

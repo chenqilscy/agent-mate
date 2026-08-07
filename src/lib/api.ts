@@ -1,7 +1,7 @@
 // Thin REST client. All calls go to the local backend (via Vite's /api proxy in
 // dev, or the Tauri sidecar in M5). The API key never lives here — it's backend-only.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, ProjectMember, RunStatus, SessionInfo, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, ProjectMember, RunStatus, SessionInfo, SharedPmPreferences, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -277,7 +277,9 @@ export const api = {
   serverProjectSprints: (pid: string) =>
     get<{ server: boolean; sprints: { id: string; name: string; goal: string; start_date: string; end_date: string; status: string }[] }>(`/server/projects/${pid}/sprints`),
   serverProjectPmPreferences: (pid: string) =>
-    get<{ server: boolean; preferences: { templates?: unknown[]; views?: unknown[]; wip?: Record<string, number> } }>(`/server/projects/${pid}/pm-preferences`),
+    get<{ server: boolean; preferences: SharedPmPreferences }>(`/server/projects/${pid}/pm-preferences`),
+  serverUpdateProjectPmPreferences: (pid: string, patch: Partial<SharedPmPreferences>) =>
+    send<{ server: boolean; preferences: SharedPmPreferences }>('PUT', `/server/projects/${pid}/pm-preferences`, patch),
   serverSyncConflicts: (pid: string) =>
     get<{ count: number; conflicts: { entity_type: string; entity_id: string; reason: string; detected_at: number }[] }>(`/server/projects/${pid}/sync-conflicts`),
   serverNotifications: () =>

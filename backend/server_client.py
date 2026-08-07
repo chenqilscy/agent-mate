@@ -141,6 +141,26 @@ def _post(path: str, token: str, body: Optional[dict] = None, *, strict: bool = 
         return None
 
 
+def _put(path: str, token: str, body: Optional[dict] = None, *, strict: bool = False) -> Optional[Any]:
+    """PUT Server JSON; strict user writes preserve authoritative 4xx."""
+    if not token or not settings.AGENTMATE_SERVER_URL:
+        return None
+    try:
+        r = _client().put(
+            f"{settings.AGENTMATE_SERVER_URL}{path}",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body or {}, timeout=_TIMEOUT,
+        )
+        if r.status_code != 200:
+            _raise_rejection(r, strict)
+            return None
+        return r.json()
+    except ServerRejected:
+        raise
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _patch(path: str, token: str, body: Optional[dict] = None, *, strict: bool = False) -> Optional[Any]:
     """PATCH Server JSON; strict user writes preserve authoritative 4xx."""
     if not token or not settings.AGENTMATE_SERVER_URL:
@@ -457,6 +477,12 @@ def list_project_sprints(token: str, project_id: str) -> Optional[list[dict[str,
 def get_project_pm_preferences(token: str, project_id: str) -> Optional[dict[str, Any]]:
     """读取 Server 共享的 PM 模板/保存视图/WIP 偏好。"""
     d = _get(f"/api/projects/{project_id}/pm-preferences", token, strict=True)
+    return d if isinstance(d, dict) else None
+
+
+def update_project_pm_preferences(token: str, project_id: str, patch: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Write shared PM templates/WIP/views through the Server authority."""
+    d = _put(f"/api/projects/{project_id}/pm-preferences", token, patch, strict=True)
     return d if isinstance(d, dict) else None
 
 

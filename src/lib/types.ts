@@ -798,6 +798,29 @@ export interface CreateAutomationInput {
   preauthorized_permissions?: string[]
 }
 
+export interface SharedPmTemplate {
+  id: string
+  name: string
+  values: Record<string, unknown>
+}
+
+export interface SharedPmView {
+  id: string
+  name: string
+  filters: {
+    group?: 'none' | 'assignee' | 'milestone'
+    assignee?: string
+    source?: string
+    search?: string
+  }
+}
+
+export interface SharedPmPreferences {
+  templates: SharedPmTemplate[]
+  views: SharedPmView[]
+  wip: Record<string, number>
+}
+
 export type IdeaStatus = 'inbox' | 'active' | 'settled' | 'archived'
 export type IdeaRelationType = 'related' | 'derived' | 'duplicate'
 export type IdeaSettlementType = 'work_item' | 'decision' | 'memory'

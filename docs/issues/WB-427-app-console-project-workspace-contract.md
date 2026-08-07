@@ -49,3 +49,11 @@ P1。项目是 App 与 Console 的核心共享对象；能力缺失会让跨端�
 - App 团队项目页已展示真实 Server 元数据计数，并提供同一项目 ID 的“在 Console 打开此项目”入口；移动端改为纵向布局，避免项目页横向溢出。
 - 当前仍保留 Console 专属的配置编辑闭环和 App 计划视图本地偏好，因此本 issue 暂不关闭；下一阶段需要把共享模板/WIP/保存视图和自定义字段/Sprint 编辑统一到 Server 写接口，并补齐 App 的原生页签或明确的 Console 管理边界。
 - 已验证：App `npx tsc --noEmit`、App `npx vite build`、Console `pnpm build:console`、后端 `py_compile` 均通过；浏览器 390px 深色/浅色首页“更多”菜单无横向溢出，键盘 Space 可打开。当前环境虽已配置 Server，但没有可用的已登录团队账号/项目，无法伪造真实团队项目双端回读验收，保留为下一阶段硬门槛。
+
+## 处理记录（2026-08-07，第二阶段）
+
+- 已定位并修正本机运行配置的实际连接错误：`backend/.env` 原先将 App Server 客户端指向远端 `:8101`，导致 App 把另一个 AgentMate 后端当成 Console/Server；现已改为远端 Console/Server `:8100`。该文件为本机忽略配置，不进入提交。
+- 已新增 `PUT /api/server/projects/{project_id}/pm-preferences` 代理及严格 Server 写入客户端；团队项目看板的模板、WIP 和保存视图现在从 Server 读取，写入也沿用 Server 的项目角色权限；本机项目仍使用原有 localStorage 离线路径。
+- 已使用真实 `admin` 团队账号和远端项目 `buddy` 验收：App 项目页实时展示 `Sprint 2 · 活动 7`，计划页真实加载任务；代理 PM 偏好读取 `templates=0/views=0/wip={}`，无副本数据。通过本地代理执行同值 WIP PUT 后，Server 回读仍为 `{}`。
+- 已验证：`npx tsc --noEmit`、`npx vite build`、`pnpm build:console`、后端 `py_compile` 通过；App 项目页在真实登录态下可读回 Server 数据。由于真实项目当前无模板/保存视图，未通过创建持久测试数据来污染项目，模板/视图的完整写回还需在用户确认可接受的测试数据后继续验收。
+- 本 issue 继续保持 `in-progress`：自定义字段/Sprint 原生编辑入口、Console 侧完整双端回读、Viewer/Member 权限矩阵及断网回归尚未全部完成。

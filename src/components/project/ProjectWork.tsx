@@ -5,7 +5,8 @@ import { useWorkItemStore } from '../../stores/workItemStore'
 import { useLoadoutStore } from '../../stores/loadoutStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
-import type { WorkAttachment, WorkItem, WorkItemDelivery, WorkPriority, WorkStatus } from '../../lib/types'
+import type { SharedPmPreferences, WorkAttachment, WorkItem, WorkItemDelivery, WorkPriority, WorkStatus } from '../../lib/types'
+import { useProjectStore } from '../../stores/projectStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
 import { App as AntApp, Empty, Input, Select, Table, Tag } from 'antd'
 import { ProCard } from '@ant-design/pro-components'
@@ -81,6 +82,28 @@ function getKViews(pid: string | null): KView[] {
 }
 function setKViews(pid: string, v: KView[]): void {
   try { localStorage.setItem(`pm.kview.${pid}`, JSON.stringify(v)) } catch { /* quota */ }
+}
+function sharedTemplates(preferences: SharedPmPreferences | null): WorkTemplate[] {
+  return (preferences?.templates ?? []).map((template) => {
+    const values = template.values || {}
+    const priority = String(values.priority || '') as WorkPriority
+    return {
+      name: template.name,
+      priority: PRIORITY_OPTS.some((item) => item.key === priority) ? priority : '',
+      labels: Array.isArray(values.labels) ? values.labels.map(String) : [],
+      milestone_id: String(values.milestone_id || ''),
+      description: String(values.description || ''),
+    }
+  })
+}
+function sharedViews(preferences: SharedPmPreferences | null): KView[] {
+  return (preferences?.views ?? []).map((view) => ({
+    name: view.name,
+    assignee: view.filters?.assignee || 'all',
+    source: view.filters?.source || 'all',
+    q: view.filters?.search || '',
+    group: view.filters?.group || 'none',
+  }))
 }
 function flattenFiles(entries: FileEntry[]): { name: string; path: string }[] {
   const out: { name: string; path: string }[] = []
@@ -320,6 +343,7 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
   const projectId = useWorkItemStore((s) => s.projectId)
   const update = useWorkItemStore((s) => s.update)
   const addRef = useLoadoutStore((s) => s.addRef)
+  const activeProject = useProjectStore((s) => s.active)
   const [editDesc, setEditDesc] = useState(false)
   const [descDraft, setDescDraft] = useState('')
   // 任务级评论（WB-118）：经 Server 代理，server-origin/已连 Server 项目可用。
@@ -368,8 +392,21 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
   }
   const addAttach = (a: WorkAttachment) => void update(item.id, { attachments: [...item.attachments, a] })
   const rmAttach = (i: number) => void update(item.id, { attachments: item.attachments.filter((_, j) => j !== i) })
-  const saveAsTemplate = () => {
+  const saveAsTemplate = async () => {
     if (!projectId || !item) return
+    if (activeProject?.id === projectId && activeProject.origin === 'server') {
+      try {
+        const current = await api.serverProjectPmPreferences(projectId)
+        const templates = [...(current.preferences.templates || []), {
+          id: crypto.randomUUID(),
+          name: item.title,
+          values: { priority: item.priority, labels: item.labels, milestone_id: item.milestone_id, description: item.description },
+        }]
+        await api.serverUpdateProjectPmPreferences(projectId, { templates })
+        toast(`已保存到团队模板「${item.title}」`)
+      } catch { toast('团队模板保存失败，请确认你有项目写入权限') }
+      return
+    }
     const t = getTpl(projectId)
     t.push({ name: item.title, priority: item.priority, labels: item.labels, milestone_id: item.milestone_id, description: item.description })
     setTpl(projectId, t)
@@ -676,7 +713,12 @@ function BatchMove({ disabled, onPick }: { disabled: boolean; onPick: (s: WorkSt
 // 计划: kanban with HTML5 drag-and-drop between columns (drop → PATCH status),
 // per-card detail modal, a full new-todo modal, a top toolbar (filter/batch/search)
 // and a placeholder 添加数据源 picker.
-export function KanbanBoard({ canWrite = true }: { canWrite?: boolean }) {
+export function KanbanBoard({ canWrite = true, canManage = true, sharedProject = false, sharedPmPreferences = null }: {
+  canWrite?: boolean
+  canManage?: boolean
+  sharedProject?: boolean
+  sharedPmPreferences?: SharedPmPreferences | null
+}) {
   const { message, modal } = AntApp.useApp()
   const items = useWorkItemStore((s) => s.items)
   const add = useWorkItemStore((s) => s.add)
@@ -685,7 +727,9 @@ export function KanbanBoard({ canWrite = true }: { canWrite?: boolean }) {
   const milestones = useWorkItemStore((s) => s.milestones)
   const projectId = useWorkItemStore((s) => s.projectId)
   const msName = useMemo(() => Object.fromEntries(milestones.map((m) => [m.id, m.name])), [milestones])
-  const templates = getTpl(projectId)
+  const [sharedPrefs, setSharedPrefs] = useState<SharedPmPreferences | null>(sharedPmPreferences)
+  useEffect(() => { setSharedPrefs(sharedPmPreferences) }, [sharedPmPreferences])
+  const templates = sharedProject ? sharedTemplates(sharedPrefs) : getTpl(projectId)
 
   const [detailId, setDetailId] = useState<string | null>(null)
   const [newIn, setNewIn] = useState<WorkStatus | null>(null)
@@ -701,12 +745,12 @@ export function KanbanBoard({ canWrite = true }: { canWrite?: boolean }) {
   // batch
   const [batch, setBatch] = useState(false)
   const [sel, setSel] = useState<Set<string>>(new Set())
-  // 看板增强（WB-123）：分组泳道 / WIP 编辑态 / 保存视图。tick 强制重渲染（WIP/视图写 localStorage 后）。
+  // 看板增强（WB-123）：分组泳道 / WIP 编辑态 / 保存视图。团队项目写回 Server，本机项目写 localStorage。
   const [group, setGroup] = useState<'none' | 'assignee' | 'milestone'>('none')
   const [wipEdit, setWipEdit] = useState(false)
   const [, setTick] = useState(0)
-  const wip = getWip(projectId)
-  const kviews = getKViews(projectId)
+  const wip = sharedProject ? (sharedPrefs?.wip ?? {}) : getWip(projectId)
+  const kviews = sharedProject ? sharedViews(sharedPrefs) : getKViews(projectId)
 
   const assigneeOpts = useMemo(() => {
     const m = new Map<string, string>()
@@ -744,7 +788,18 @@ export function KanbanBoard({ canWrite = true }: { canWrite?: boolean }) {
     const wi = await add({ title: t.name, priority: t.priority, labels: t.labels, milestone_id: t.milestone_id, description: t.description })
     if (wi) setDetailId(wi.id)
   }
-  const saveWip = (k: string, v: number) => { const w = getWip(projectId); if (v > 0) w[k] = v; else delete w[k]; if (projectId) setWip(projectId, w); setTick((t) => t + 1) }
+  const saveWip = (k: string, v: number) => {
+    if (sharedProject) {
+      if (!canManage || !projectId) return
+      const next = { ...(sharedPrefs?.wip ?? {}) }
+      if (v > 0) next[k] = v; else delete next[k]
+      void api.serverUpdateProjectPmPreferences(projectId, { wip: next })
+        .then((result) => { setSharedPrefs(result.preferences); setTick((t) => t + 1) })
+        .catch(() => toast('团队 WIP 仅管理员可修改，且必须在线保存'))
+      return
+    }
+    const w = getWip(projectId); if (v > 0) w[k] = v; else delete w[k]; if (projectId) setWip(projectId, w); setTick((t) => t + 1)
+  }
   const applyKView = (idx: string) => { const v = kviews[Number(idx)]; if (!v) return; setFAssignee(v.assignee); setFSource(v.source); setQ(v.q); setGroup((v.group as 'none' | 'assignee' | 'milestone') || 'none') }
   const saveKView = () => {
     if (!projectId) return
@@ -760,10 +815,26 @@ export function KanbanBoard({ canWrite = true }: { canWrite?: boolean }) {
           void message.warning('请输入视图名称')
           return Promise.reject(new Error('view name required'))
         }
-        const views = getKViews(projectId)
-        views.push({ name: trimmed, assignee: fAssignee, source: fSource, q, group })
-        setKViews(projectId, views)
-        setTick((t) => t + 1)
+        if (sharedProject) {
+          const views = [...(sharedPrefs?.views ?? []), {
+            id: crypto.randomUUID(),
+            name: trimmed,
+            filters: {
+              ...(group !== 'none' ? { group } : {}),
+              ...(fAssignee !== 'all' ? { assignee: fAssignee } : {}),
+              ...(fSource !== 'all' ? { source: fSource } : {}),
+              ...(q.trim() ? { search: q.trim() } : {}),
+            },
+          }]
+          void api.serverUpdateProjectPmPreferences(projectId, { views })
+            .then((result) => { setSharedPrefs(result.preferences); setTick((t) => t + 1) })
+            .catch(() => toast('团队视图保存失败，请确认你有项目写入权限'))
+        } else {
+          const views = getKViews(projectId)
+          views.push({ name: trimmed, assignee: fAssignee, source: fSource, q, group })
+          setKViews(projectId, views)
+          setTick((t) => t + 1)
+        }
       },
     })
   }
@@ -851,7 +922,7 @@ export function KanbanBoard({ canWrite = true }: { canWrite?: boolean }) {
         <FilterDropdown label={group === 'none' ? '不分组' : group === 'assignee' ? '按负责人' : '按里程碑'} options={[{ key: 'none', label: '不分组' }, { key: 'assignee', label: '按负责人' }, { key: 'milestone', label: '按里程碑' }]} onPick={(k) => setGroup(k as 'none' | 'assignee' | 'milestone')} />
         {kviews.length > 0 && <FilterDropdown label="📑 视图" options={kviews.map((v, i) => ({ key: String(i), label: v.name }))} onPick={applyKView} />}
         <WbButton className="btn-ghost" style={{ height: 34 }} onClick={saveKView}>保存视图</WbButton>
-        <WbButton className={`cap-act ${wipEdit ? 'on' : ''}`.trim()} onClick={() => setWipEdit((v) => !v)}>WIP</WbButton>
+        <WbButton className={`cap-act ${wipEdit ? 'on' : ''}`.trim()} disabled={sharedProject && !canManage} title={sharedProject && !canManage ? 'WIP 仅管理员可修改' : undefined} onClick={() => setWipEdit((v) => !v)}>WIP</WbButton>
         {canWrite && <WbButton className={`cap-act ${batch ? 'on' : ''}`.trim()} onClick={() => (batch ? exitBatch() : setBatch(true))}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" /></svg>
           批量操作
@@ -1186,7 +1257,12 @@ const PLAN_VIEWS: { key: PlanViewKey; label: string; icon: string }[] = [
   { key: 'workload', label: '负载', icon: '◫' },
 ]
 
-export function PlanWorkspace({ canWrite = true }: { canWrite?: boolean }) {
+export function PlanWorkspace({ canWrite = true, canManage = true, sharedProject = false, sharedPmPreferences = null }: {
+  canWrite?: boolean
+  canManage?: boolean
+  sharedProject?: boolean
+  sharedPmPreferences?: SharedPmPreferences | null
+}) {
   const projectId = useWorkItemStore((state) => state.projectId)
   const [view, setView] = useState<PlanViewKey>('kanban')
   const [newOpen, setNewOpen] = useState(false)
@@ -1220,7 +1296,7 @@ export function PlanWorkspace({ canWrite = true }: { canWrite?: boolean }) {
       </div>
       <div className="pj-plan-view" role="tabpanel">
         {view === 'table' && <TaskList canWrite={canWrite} />}
-        {view === 'kanban' && <KanbanBoard canWrite={canWrite} />}
+        {view === 'kanban' && <KanbanBoard canWrite={canWrite} canManage={canManage} sharedProject={sharedProject} sharedPmPreferences={sharedPmPreferences} />}
         {view === 'list' && <GroupedListView canWrite={canWrite} />}
         {view === 'gantt' && <GanttView canWrite={canWrite} />}
         {view === 'calendar' && <CalendarView canWrite={canWrite} />}

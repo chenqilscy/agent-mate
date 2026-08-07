@@ -271,6 +271,26 @@ def server_project_pm_preferences(project_id: str, authorization: str = Header(d
     return {"server": True, "preferences": preferences}
 
 
+class ServerPmPreferencesBody(BaseModel):
+    templates: list[dict] | None = None
+    views: list[dict] | None = None
+    wip: dict[str, int] | None = None
+
+
+@router.put("/server/projects/{project_id}/pm-preferences")
+def server_update_project_pm_preferences(project_id: str, body: ServerPmPreferencesBody,
+                                          authorization: str = Header(default="")) -> dict:
+    values = body.model_dump(exclude_unset=True)
+    if not values:
+        raise HTTPException(400, "PM preference patch is empty")
+    preferences = server_client.update_project_pm_preferences(
+        _server_project_read_token(project_id, authorization), project_id, values,
+    )
+    if preferences is None:
+        raise HTTPException(503, "Server 暂不可达，项目工作台偏好未保存")
+    return {"server": True, "preferences": preferences}
+
+
 @router.get("/server/projects/{project_id}/sync-conflicts")
 def server_sync_conflicts(project_id: str, authorization: str = Header(default="")) -> dict:
     """返回当前用户可访问项目的镜像分叉，供 UI/诊断明确展示而非静默覆盖。"""
