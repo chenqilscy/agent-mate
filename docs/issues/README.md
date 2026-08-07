@@ -21,7 +21,7 @@
 | [WB-419](WB-419-local-test-accounts-ignore.md) | ✅ | P3 | backend | 本地 Server 测试账号凭据文件应被忽略且不入库 |
 | [WB-420](WB-420-workbuddy-reference-and-design-docs.md) | ✅ | P3 | docs | 补充 WorkBuddy 参考解读与 AgentMate 设计系统文档资料 |
 | [WB-423](WB-423-first-registration-admin-by-default.md) | ✅ | P2 | backend | 首个注册用户应自动成为平台管理员 |
-| [WB-430](WB-430-app-console-visual-alignment.md) | 🟡 | P2 | ui | AgentMate 首页与 Console 的视觉层级和内容节奏不一致 |
+| [WB-430](WB-430-app-console-visual-alignment.md) | 🟡 | P2 | ui | AgentMate App 与 Console 的视觉系统和工作台细节不一致 |
 
 ## 已关闭归档
 

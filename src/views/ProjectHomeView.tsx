@@ -649,7 +649,10 @@ export function ProjectHomeView() {
 
         <div className={`pjcfg-scrim${configOpen ? ' open' : ''}`} aria-label="关闭项目配置" {...clickable} onClick={() => setConfigOpen(false)} />
         <ProCard className={`pjcfg${configOpen ? ' mobile-open' : ''}`} styles={{ body: { display: 'contents' } }}>
-          <h3>项目配置</h3>
+          <div className="pjcfg-title">
+            <h3>项目配置</h3>
+            <WbButton className="btn-ghost" aria-label="关闭项目配置" onClick={() => setConfigOpen(false)}>关闭</WbButton>
+          </div>
           <div className="pjcfg-sec">
             <div className="pjcfg-h">
               指令

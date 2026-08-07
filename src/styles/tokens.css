@@ -40,6 +40,8 @@
   /* -- Surface Tokens (replace --card, --chip, body bg) -- */
   --bg-surface:  var(--neutral-0);    /* cards, popovers, modals */
   --bg-page:     var(--neutral-50);   /* page background */
+  --bg-header:   var(--neutral-0);    /* application and workspace headers */
+  --bg-sidebar:  var(--neutral-0);    /* primary navigation */
   --bg-elevated: var(--neutral-0);    /* elevated surfaces (dropdowns) */
   --bg-chip:     #F2F4F7;            /* chips, tabs, hover */
   --bg-input:    var(--neutral-0);    /* input backgrounds */
@@ -138,6 +140,8 @@ body.dark {
      this re-declaration is what makes the dark surfaces actually auto-flip.) */
   --bg-surface:  var(--neutral-0);
   --bg-page:     var(--neutral-50);
+  --bg-header:   #151B2A;
+  --bg-sidebar:  #111827;
   --bg-elevated: #1B2334;
   --bg-chip:     #232C40;
   --bg-input:    #111827;
