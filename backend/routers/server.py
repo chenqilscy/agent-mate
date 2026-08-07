@@ -275,6 +275,8 @@ class ServerPmPreferencesBody(BaseModel):
     templates: list[dict] | None = None
     views: list[dict] | None = None
     wip: dict[str, int] | None = None
+    expected_shared_updated_at: float | None = None
+    expected_views_updated_at: float | None = None
 
 
 class ServerCustomFieldBody(BaseModel):

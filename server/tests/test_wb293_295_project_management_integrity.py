@@ -69,10 +69,54 @@ class ProjectManagementIntegrityTest(unittest.TestCase):
         self.assertEqual("Bug", owner_values["templates"][0]["name"])
         self.assertEqual([], owner_values["views"])
         self.assertEqual("Mine", member_values["views"][0]["name"])
+        with self.assertRaisesRegex(HTTPException, "Viewer is read-only"):
+            update_pm_preferences(
+                self.project.id,
+                PmPreferencesBody(templates=[PmTemplate(id="viewer", name="Blocked", values={})]),
+                self.viewer,
+            )
         with self.assertRaisesRegex(HTTPException, "requires Admin/Owner"):
             update_pm_preferences(self.project.id, PmPreferencesBody(wip={"doing": 2}), self.member)
         update_pm_preferences(self.project.id, PmPreferencesBody(wip={"doing": 2}), self.admin)
         self.assertEqual(2, get_pm_preferences(self.project.id, self.owner)["wip"]["doing"])
+
+    def test_pm_preference_revisions_reject_stale_cross_surface_snapshots_atomically(self) -> None:
+        initial = get_pm_preferences(self.project.id, self.member)
+        first = update_pm_preferences(
+            self.project.id,
+            PmPreferencesBody(
+                templates=[PmTemplate(id="tpl-app", name="App", values={"status": "review"})],
+                views=[PmView(id="view-app", name="App view", filters={"group": "assignee"})],
+                expected_shared_updated_at=initial["shared_updated_at"],
+                expected_views_updated_at=initial["views_updated_at"],
+            ),
+            self.member,
+        )
+        update_pm_preferences(
+            self.project.id,
+            PmPreferencesBody(
+                wip={"doing": 3},
+                expected_shared_updated_at=first["shared_updated_at"],
+            ),
+            self.admin,
+        )
+
+        with self.assertRaises(HTTPException) as stale:
+            update_pm_preferences(
+                self.project.id,
+                PmPreferencesBody(
+                    templates=[PmTemplate(id="tpl-stale", name="Stale", values={})],
+                    views=[PmView(id="view-stale", name="Stale view", filters={})],
+                    expected_shared_updated_at=first["shared_updated_at"],
+                    expected_views_updated_at=first["views_updated_at"],
+                ),
+                self.member,
+            )
+        self.assertEqual(409, stale.exception.status_code)
+        current = get_pm_preferences(self.project.id, self.member)
+        self.assertEqual(["tpl-app"], [item["id"] for item in current["templates"]])
+        self.assertEqual(["view-app"], [item["id"] for item in current["views"]])
+        self.assertEqual(3, current["wip"]["doing"])
 
     def test_task_values_are_rejected_instead_of_silently_rewritten(self) -> None:
         with self.assertRaisesRegex(HTTPException, "assignee must"):

@@ -30,11 +30,15 @@ type Tab = '动态' | '计划' | '任务' | '治理' | '资产' | '讨论' | '�
 const PROJECT_TABS: Tab[] = ['动态', '计划', '任务', '治理', '资产', '讨论', '项目数据']
 type ServerProjectActivity = { id: string; actor: string; kind: string; detail: string; created_at: number }
 type ServerProjectMetadata = {
-  fields: number
-  sprints: number
-  activity: number
-  savedViews: number
-  reachable: boolean
+  projectId: string
+  fields: number | null
+  sprints: number | null
+  activity: number | null
+  savedViews: number | null
+  fieldsReachable: boolean
+  sprintsReachable: boolean
+  activityReachable: boolean
+  preferencesReachable: boolean
   preferences: SharedPmPreferences | null
   fieldsData: ServerProjectField[]
   sprintsData: ServerProjectSprint[]
@@ -117,7 +121,8 @@ type SprintDraft = { id?: string; name: string; goal: string; start_date: string
 function dateAfter(days: number): string {
   const date = new Date()
   date.setDate(date.getDate() + days)
-  return date.toISOString().slice(0, 10)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 function ServerProjectDataPanel({
@@ -220,45 +225,48 @@ function ServerProjectDataPanel({
       setSaving(false)
     }
   }
-  const canEditServer = canEdit && metadata.reachable
+  const allReachable = metadata.fieldsReachable && metadata.sprintsReachable
+    && metadata.activityReachable && metadata.preferencesReachable
+  const canEditFields = canEdit && metadata.fieldsReachable
+  const canEditSprints = canEdit && metadata.sprintsReachable
   return (
     <div className="pj-data-panel">
       <Alert
         showIcon
-        type={metadata.reachable ? 'info' : 'warning'}
-        title={metadata.reachable ? '数据来自 Server 权威项目接口' : 'Server 部分数据暂不可达，当前仅展示已读到的内容'}
-        description={canEditServer ? 'App 可直接维护字段与 Sprint，写入沿用 Server 项目权限；Console 仍是完整项目配置入口。' : 'App 可查看项目事实；字段、Sprint 和 Console 专属配置的编辑入口仍在同一项目的 Console。'}
+        type={allReachable ? 'info' : 'warning'}
+        title={allReachable ? '数据来自 Server 权威项目接口' : 'Server 部分数据暂不可达，失败区域不会被当作空配置'}
+        description={canEdit ? 'App 可直接维护已成功加载的字段、Sprint 与工作台偏好；Console 仍是完整项目配置入口。' : '当前角色可查看项目事实，但不能修改项目数据。'}
       />
       <div className="pj-data-grid">
         <ProCard className="pj-data-card" styles={{ body: { display: 'contents' } }}>
-          <div className="pj-data-head"><b>自定义字段</b><Tag>{metadata.fieldsData.length}</Tag><Space size={4}><WbButton className="btn-ghost" onClick={() => canEditServer ? openField() : onOpenConsole()}>{canEditServer ? '新增字段' : '在 Console 管理'}</WbButton>{canEditServer && <WbButton className="btn-ghost" onClick={onOpenConsole}>Console</WbButton>}</Space></div>
-          {metadata.fieldsData.length ? metadata.fieldsData.map((field) => (
+          <div className="pj-data-head"><b>自定义字段</b><Tag>{metadata.fields ?? '—'}</Tag><Space size={4}><WbButton className="btn-ghost" onClick={() => canEditFields ? openField() : onOpenConsole()}>{canEditFields ? '新增字段' : '在 Console 管理'}</WbButton>{canEditFields && <WbButton className="btn-ghost" onClick={onOpenConsole}>Console</WbButton>}</Space></div>
+          {!metadata.fieldsReachable ? <div className="pj-data-empty">项目字段暂不可用，请恢复 Server 连接后重试</div> : metadata.fieldsData.length ? metadata.fieldsData.map((field) => (
             <div className="pj-data-row" key={field.id}>
-              <span className="pj-data-name">{field.name}{canEditServer && <span className="pj-data-inline-actions"><WbButton className="btn-ghost" onClick={() => openField(field)}>编辑</WbButton><WbButton className="btn-ghost danger" onClick={() => void removeField(field)} disabled={saving}>删除</WbButton></span>}</span>
+              <span className="pj-data-name">{field.name}{canEditFields && <span className="pj-data-inline-actions"><WbButton className="btn-ghost" onClick={() => openField(field)}>编辑</WbButton><WbButton className="btn-ghost danger" onClick={() => void removeField(field)} disabled={saving}>删除</WbButton></span>}</span>
               <span className="pj-data-meta">{fieldType[field.field_type] || field.field_type}{field.required ? ' · 必填' : ''}{field.options.length ? ` · ${field.options.length} 个选项` : ''}</span>
             </div>
           )) : <div className="pj-data-empty">Server 尚未配置自定义字段</div>}
         </ProCard>
 
         <ProCard className="pj-data-card" styles={{ body: { display: 'contents' } }}>
-          <div className="pj-data-head"><b>Sprint / 迭代</b><Tag>{metadata.sprintsData.length}</Tag><Space size={4}><WbButton className="btn-ghost" onClick={() => canEditServer ? openSprint() : onOpenConsole()}>{canEditServer ? '新增 Sprint' : '在 Console 管理'}</WbButton>{canEditServer && <WbButton className="btn-ghost" onClick={onOpenConsole}>Console</WbButton>}</Space></div>
-          {metadata.sprintsData.length ? metadata.sprintsData.map((sprint) => (
+          <div className="pj-data-head"><b>Sprint / 迭代</b><Tag>{metadata.sprints ?? '—'}</Tag><Space size={4}><WbButton className="btn-ghost" onClick={() => canEditSprints ? openSprint() : onOpenConsole()}>{canEditSprints ? '新增 Sprint' : '在 Console 管理'}</WbButton>{canEditSprints && <WbButton className="btn-ghost" onClick={onOpenConsole}>Console</WbButton>}</Space></div>
+          {!metadata.sprintsReachable ? <div className="pj-data-empty">项目 Sprint 暂不可用，请恢复 Server 连接后重试</div> : metadata.sprintsData.length ? metadata.sprintsData.map((sprint) => (
             <div className="pj-data-row" key={sprint.id}>
-              <span className="pj-data-name">{sprint.name}{canEditServer && <span className="pj-data-inline-actions"><WbButton className="btn-ghost" onClick={() => openSprint(sprint)}>编辑</WbButton><WbButton className="btn-ghost danger" onClick={() => void removeSprint(sprint)} disabled={saving}>删除</WbButton></span>}</span>
+              <span className="pj-data-name">{sprint.name}{canEditSprints && <span className="pj-data-inline-actions"><WbButton className="btn-ghost" onClick={() => openSprint(sprint)}>编辑</WbButton><WbButton className="btn-ghost danger" onClick={() => void removeSprint(sprint)} disabled={saving}>删除</WbButton></span>}</span>
               <span className="pj-data-meta">{sprintStatus[sprint.status] || sprint.status} · {sprint.start_date} → {sprint.end_date}{sprint.goal ? ` · ${sprint.goal}` : ''}</span>
             </div>
           )) : <div className="pj-data-empty">Server 尚未配置 Sprint</div>}
         </ProCard>
 
         <ProCard className="pj-data-card" styles={{ body: { display: 'contents' } }}>
-          <div className="pj-data-head"><b>共享工作台偏好</b><Tag>{(prefs?.templates.length ?? 0) + (prefs?.views.length ?? 0)}</Tag><WbButton className="btn-ghost" onClick={onOpenConsole}>在 Console 管理</WbButton></div>
-          <div className="pj-data-summary">模板 {prefs?.templates.length ?? 0} · 保存视图 {prefs?.views.length ?? 0} · WIP 限制 {Object.keys(prefs?.wip ?? {}).length}</div>
-          <div className="pj-data-empty">App 看板会直接使用这些 Server 偏好；本机项目不会读取这组数据。</div>
+          <div className="pj-data-head"><b>共享工作台偏好</b><Tag>{metadata.preferencesReachable ? (prefs?.templates.length ?? 0) + (prefs?.views.length ?? 0) : '—'}</Tag><WbButton className="btn-ghost" onClick={onOpenConsole}>在 Console 管理</WbButton></div>
+          {metadata.preferencesReachable ? <><div className="pj-data-summary">模板 {prefs?.templates.length ?? 0} · 保存视图 {prefs?.views.length ?? 0} · WIP 限制 {Object.keys(prefs?.wip ?? {}).length}</div>
+          <div className="pj-data-empty">App 看板会直接读写这些 Server 偏好；本机项目不会读取这组数据。</div></> : <div className="pj-data-empty">共享工作台偏好暂不可用，请恢复 Server 连接后重试</div>}
         </ProCard>
 
         <ProCard className="pj-data-card" styles={{ body: { display: 'contents' } }}>
-          <div className="pj-data-head"><b>最近项目活动</b><Tag>{metadata.activityData.length}</Tag></div>
-          {metadata.activityData.length ? metadata.activityData.slice(0, 8).map((event) => (
+          <div className="pj-data-head"><b>最近项目活动</b><Tag>{metadata.activity ?? '—'}</Tag></div>
+          {!metadata.activityReachable ? <div className="pj-data-empty">项目活动暂不可用，请恢复 Server 连接后重试</div> : metadata.activityData.length ? metadata.activityData.slice(0, 8).map((event) => (
             <div className="pj-data-row" key={event.id}>
               <span className="pj-data-name">{event.actor || '成员'} · {event.kind}</span>
               <span className="pj-data-meta">{event.detail || '项目活动'} · {relativeTime(event.created_at)}</span>
@@ -348,6 +356,7 @@ export function ProjectHomeView() {
 
   useEffect(() => {
     if (!pid) return
+    if (active?.id === pid) setProject(active)
     // Entering a project is a fresh execution context — drop any ad-hoc loadout the
     // previous chat picked from the ＋ menu, so it can't leak into this project's run
     // (WB-003). Reset happens on entry, before the user picks in the project composer,
@@ -376,6 +385,7 @@ export function ProjectHomeView() {
       setServerMetadata(null)
       return
     }
+    setServerMetadata(null)
     if (!serverChecked) void refreshServer()
     let alive = true
     void Promise.allSettled([
@@ -389,13 +399,16 @@ export function ProjectHomeView() {
       const sprintCount = sprints.status === 'fulfilled' ? sprints.value.sprints.length : null
       const activityCount = activity.status === 'fulfilled' ? activity.value.activity.length : null
       const savedViews = preferences.status === 'fulfilled' ? (preferences.value.preferences.views?.length ?? 0) : null
-      const values = [fieldCount, sprintCount, activityCount, savedViews]
       setServerMetadata({
-        fields: fieldCount ?? 0,
-        sprints: sprintCount ?? 0,
-        activity: activityCount ?? 0,
-        savedViews: savedViews ?? 0,
-        reachable: values.every((value) => value !== null),
+        projectId: pid,
+        fields: fieldCount,
+        sprints: sprintCount,
+        activity: activityCount,
+        savedViews,
+        fieldsReachable: fields.status === 'fulfilled',
+        sprintsReachable: sprints.status === 'fulfilled',
+        activityReachable: activity.status === 'fulfilled',
+        preferencesReachable: preferences.status === 'fulfilled',
         preferences: preferences.status === 'fulfilled' ? preferences.value.preferences : null,
         fieldsData: fields.status === 'fulfilled' ? fields.value.fields : [],
         sprintsData: sprints.status === 'fulfilled' ? sprints.value.sprints : [],
@@ -411,7 +424,9 @@ export function ProjectHomeView() {
     api.projectHealth(pid).then(setHealth).catch(() => setHealth(null))
   }, [pid, tab])
 
-  if (!project) return <section className="view active" data-view="project" />
+  if (!project || project.id !== pid) return <section className="view active" data-view="project" />
+
+  const currentServerMetadata = serverMetadata?.projectId === project.id ? serverMetadata : null
 
   const applyProject = (p: ProjectInfo) => { setProject(p); setActive(p); reloadProjects() }
   // The caller's role in this project (M7 C2) drives the badge + management access.
@@ -553,8 +568,8 @@ export function ProjectHomeView() {
         <div className="pj-syncbar" role="status">
           <div className="pj-syncbar-copy">
             <b>团队项目由 Server 统一管理</b>
-            <span>{serverMetadata?.reachable === false ? 'Server 暂不可达，以下为已读取的可用信息。' : '字段、Sprint 和活动来自 Server；共享模板、WIP 与保存视图请在 Console 管理。'}</span>
-            {serverMetadata && <small>自定义字段 {serverMetadata.fields} · Sprint {serverMetadata.sprints} · 活动 {serverMetadata.activity} · 保存视图 {serverMetadata.savedViews}</small>}
+            <span>{currentServerMetadata && (!currentServerMetadata.fieldsReachable || !currentServerMetadata.sprintsReachable || !currentServerMetadata.activityReachable || !currentServerMetadata.preferencesReachable) ? 'Server 部分数据暂不可达；失败区域会明确标记且禁止写入。' : 'App 可维护任务、字段、Sprint、共享模板、WIP 与个人保存视图；Console 提供完整项目配置。'}</span>
+            {currentServerMetadata && <small>自定义字段 {currentServerMetadata.fields ?? '—'} · Sprint {currentServerMetadata.sprints ?? '—'} · 活动 {currentServerMetadata.activity ?? '—'} · 保存视图 {currentServerMetadata.savedViews ?? '—'}</small>}
           </div>
           <WbButton className="btn-ghost pj-syncbar-action" onClick={openConsoleProject} disabled={!consoleUrl}>在 Console 打开此项目</WbButton>
         </div>
@@ -601,7 +616,7 @@ export function ProjectHomeView() {
               </>
             )}
 
-            {tab === '计划' && <PlanWorkspace canWrite={canWrite} canManage={canManage} sharedProject={project.origin === 'server'} sharedPmPreferences={serverMetadata?.preferences ?? null} />}
+            {tab === '计划' && <PlanWorkspace canWrite={canWrite} key={project.id} canManage={canManage} sharedProject={project.origin === 'server'} sharedPmPreferences={currentServerMetadata?.preferences ?? null} sharedPmPreferencesReady={currentServerMetadata?.preferencesReachable ?? false} />}
 
             {tab === '任务' && <TaskList canWrite={canWrite} />}
 
@@ -609,7 +624,7 @@ export function ProjectHomeView() {
 
             {tab === '讨论' && <ServerCommentsPanel projectId={project.id} canWrite={canWrite} />}
 
-            {tab === '项目数据' && project.origin === 'server' && <ServerProjectDataPanel metadata={serverMetadata} projectId={project.id} canEdit={canWrite} onRefresh={() => setServerMetadataRevision((value) => value + 1)} onOpenConsole={openConsoleProject} />}
+            {tab === '项目数据' && project.origin === 'server' && <ServerProjectDataPanel key={project.id} metadata={currentServerMetadata} projectId={project.id} canEdit={canWrite} onRefresh={() => setServerMetadataRevision((value) => value + 1)} onOpenConsole={openConsoleProject} />}
             {tab === '项目数据' && project.origin !== 'server' && (
               <div className="pj-data-panel">
                 <Alert

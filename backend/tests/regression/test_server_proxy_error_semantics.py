@@ -33,6 +33,7 @@ class ServerProxyErrorSemanticsTest(unittest.TestCase):
         cases = [
             ("get", server_client._get, ("/read", "token"), 403, "forbidden"),
             ("post", server_client._post, ("/create", "token", {}), 409, "archived"),
+            ("put", server_client._put, ("/replace", "token", {}), 409, "stale"),
             ("patch", server_client._patch, ("/update", "token", {}), 422, [{"msg": "invalid"}]),
             ("delete", server_client._delete, ("/delete", "token"), 404, "missing"),
         ]

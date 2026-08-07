@@ -132,6 +132,8 @@ class PmPreferencesBody(BaseModel):
     templates: list[PmTemplate] | None = Field(default=None, max_length=30)
     wip: dict[str, int] | None = None
     views: list[PmView] | None = Field(default=None, max_length=30)
+    expected_shared_updated_at: float | None = None
+    expected_views_updated_at: float | None = None
 
 
 @router.get("/projects/{project_id}/pm-preferences")
@@ -145,6 +147,10 @@ def update_pm_preferences(project_id: str, body: PmPreferencesBody,
                           account: Account = CurrentAccount) -> dict:
     role = _access(project_id, account, write=True)
     values = body.model_dump(exclude_unset=True)
+    expected_shared_updated_at = values.pop("expected_shared_updated_at", None)
+    expected_views_updated_at = values.pop("expected_views_updated_at", None)
+    if not values:
+        raise HTTPException(400, "PM preference patch is empty")
     if len(json.dumps(values, ensure_ascii=False)) > 200_000:
         raise HTTPException(413, "PM preferences are too large")
     if "templates" in values:
@@ -176,12 +182,17 @@ def update_pm_preferences(project_id: str, body: PmPreferencesBody,
         if any(not isinstance(limit, int) or isinstance(limit, bool) or limit < 0 or limit > 100000
                for limit in values["wip"].values()):
             raise HTTPException(400, "WIP limit must be an integer between 0 and 100000")
-    if "templates" in values:
-        db.save_project_pm_shared(project_id, account.id, templates=values["templates"])
-    if "wip" in values:
-        db.save_project_pm_shared(project_id, account.id, wip=values["wip"])
-    if "views" in values:
-        db.save_project_pm_views(project_id, account.id, values["views"])
+    saved = db.save_project_pm_preferences(
+        project_id,
+        account.id,
+        templates=values.get("templates") if "templates" in values else None,
+        wip=values.get("wip") if "wip" in values else None,
+        views=values.get("views") if "views" in values else None,
+        expected_shared_updated_at=expected_shared_updated_at,
+        expected_views_updated_at=expected_views_updated_at,
+    )
+    if not saved:
+        raise HTTPException(409, "PM preferences changed; refresh and retry")
     return db.get_project_pm_preferences(project_id, account.id)
 
 

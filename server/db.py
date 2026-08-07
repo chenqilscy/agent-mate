@@ -1727,31 +1727,83 @@ def get_project_pm_preferences(project_id: str, account_id: str) -> dict[str, An
     }
 
 
+def save_project_pm_preferences(
+    project_id: str, account_id: str, *, templates: Optional[list[dict]] = None,
+    wip: Optional[dict[str, int]] = None, views: Optional[list[dict]] = None,
+    expected_shared_updated_at: Optional[float] = None,
+    expected_views_updated_at: Optional[float] = None,
+) -> bool:
+    """Atomically update PM preferences when the caller's revisions are current."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        shared = conn.execute(
+            "SELECT templates,wip,updated_at FROM project_pm_settings WHERE project_id=?",
+            (project_id,),
+        ).fetchone()
+        personal = conn.execute(
+            "SELECT views,updated_at FROM project_pm_views WHERE project_id=? AND account_id=?",
+            (project_id, account_id),
+        ).fetchone()
+        shared_revision = float(shared["updated_at"] or 0) if shared else 0
+        views_revision = float(personal["updated_at"] or 0) if personal else 0
+        if expected_shared_updated_at is not None and shared_revision != expected_shared_updated_at:
+            conn.rollback()
+            return False
+        if expected_views_updated_at is not None and views_revision != expected_views_updated_at:
+            conn.rollback()
+            return False
+
+        def decoded(row: Optional[sqlite3.Row], key: str, fallback: Any) -> Any:
+            if not row:
+                return fallback
+            try:
+                return json.loads(row[key] or "")
+            except (json.JSONDecodeError, TypeError):
+                return fallback
+
+        if templates is not None or wip is not None:
+            next_templates = decoded(shared, "templates", []) if templates is None else templates
+            next_wip = decoded(shared, "wip", {}) if wip is None else wip
+            now = max(time.time(), shared_revision + 0.000001)
+            conn.execute(
+                "INSERT INTO project_pm_settings (project_id,templates,wip,updated_by,updated_at) VALUES (?,?,?,?,?) "
+                "ON CONFLICT(project_id) DO UPDATE SET templates=excluded.templates,wip=excluded.wip,"
+                "updated_by=excluded.updated_by,updated_at=excluded.updated_at",
+                (project_id, json.dumps(next_templates, ensure_ascii=False),
+                 json.dumps(next_wip, ensure_ascii=False), account_id, now),
+            )
+        if views is not None:
+            now = max(time.time(), views_revision + 0.000001)
+            conn.execute(
+                "INSERT INTO project_pm_views (project_id,account_id,views,updated_at) VALUES (?,?,?,?) "
+                "ON CONFLICT(project_id,account_id) DO UPDATE SET views=excluded.views,updated_at=excluded.updated_at",
+                (project_id, account_id, json.dumps(views, ensure_ascii=False), now),
+            )
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def save_project_pm_shared(
     project_id: str, account_id: str, *, templates: Optional[list[dict]] = None,
-    wip: Optional[dict[str, int]] = None,
-) -> None:
-    current = get_project_pm_preferences(project_id, account_id)
-    next_templates = current["templates"] if templates is None else templates
-    next_wip = current["wip"] if wip is None else wip
-    now = time.time()
-    get_conn().execute(
-        "INSERT INTO project_pm_settings (project_id,templates,wip,updated_by,updated_at) VALUES (?,?,?,?,?) "
-        "ON CONFLICT(project_id) DO UPDATE SET templates=excluded.templates,wip=excluded.wip,"
-        "updated_by=excluded.updated_by,updated_at=excluded.updated_at",
-        (project_id, json.dumps(next_templates, ensure_ascii=False), json.dumps(next_wip, ensure_ascii=False), account_id, now),
+    wip: Optional[dict[str, int]] = None, expected_updated_at: Optional[float] = None,
+) -> bool:
+    return save_project_pm_preferences(
+        project_id, account_id, templates=templates, wip=wip,
+        expected_shared_updated_at=expected_updated_at,
     )
-    get_conn().commit()
 
 
-def save_project_pm_views(project_id: str, account_id: str, views: list[dict]) -> None:
-    now = time.time()
-    get_conn().execute(
-        "INSERT INTO project_pm_views (project_id,account_id,views,updated_at) VALUES (?,?,?,?) "
-        "ON CONFLICT(project_id,account_id) DO UPDATE SET views=excluded.views,updated_at=excluded.updated_at",
-        (project_id, account_id, json.dumps(views, ensure_ascii=False), now),
+def save_project_pm_views(
+    project_id: str, account_id: str, views: list[dict],
+    expected_updated_at: Optional[float] = None,
+) -> bool:
+    return save_project_pm_preferences(
+        project_id, account_id, views=views, expected_views_updated_at=expected_updated_at,
     )
-    get_conn().commit()
 
 
 def add_project_member(project_id: str, account_id: str, role: Role) -> None:

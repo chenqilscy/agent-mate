@@ -46,6 +46,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { consoleApi } from "../../api";
@@ -261,6 +262,7 @@ export function ProjectWorkProvider({
     {},
   );
   const [savedViews, setSavedViews] = useState<SavedPlanView[]>([]);
+  const preferenceRevisions = useRef({ shared: 0, views: 0 });
   const [taskDirty, setTaskDirty] = useState(false);
   const [taskSaving, setTaskSaving] = useState(false);
   const [taskEditorStep, setTaskEditorStep] =
@@ -354,6 +356,10 @@ export function ProjectWorkProvider({
       setTemplates(preferenceResult.value.templates || []);
       setWip(preferenceResult.value.wip || {});
       setSavedViews(preferenceResult.value.views || []);
+      preferenceRevisions.current = {
+        shared: preferenceResult.value.shared_updated_at,
+        views: preferenceResult.value.views_updated_at,
+      };
     }
     const failed = results.filter(
       (result) => result.status === "rejected",
@@ -590,12 +596,26 @@ export function ProjectWorkProvider({
     views?: SavedPlanView[];
   }) {
     try {
-      const result = await consoleApi.updatePmPreferences(project.id, patch);
+      const result = await consoleApi.updatePmPreferences(project.id, {
+        ...patch,
+        ...((patch.templates || patch.wip)
+          ? { expected_shared_updated_at: preferenceRevisions.current.shared }
+          : {}),
+        ...(patch.views
+          ? { expected_views_updated_at: preferenceRevisions.current.views }
+          : {}),
+      });
       setTemplates(result.templates || []);
       setWip(result.wip || {});
       setSavedViews(result.views || []);
+      preferenceRevisions.current = {
+        shared: result.shared_updated_at,
+        views: result.views_updated_at,
+      };
     } catch (reason) {
-      message.error(errorText(reason, "计划配置保存失败"));
+      const stale = errorText(reason, "").includes("409");
+      if (stale) await reload();
+      message.error(stale ? "计划配置已在另一端更新，已刷新，请重试" : errorText(reason, "计划配置保存失败"));
       throw reason;
     }
   }

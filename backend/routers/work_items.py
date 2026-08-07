@@ -141,6 +141,7 @@ class CreateWorkItemBody(BaseModel):
     title: str
     status: str = "todo"
     source: str = "手动"
+    assignee: str = ""
     description: str = ""
     due_date: str | None = None
     attachments: list[dict] = []
@@ -312,7 +313,7 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
     if tok:
         created = server_client.create_work_item(
             tok, body.project_id,
-            {"title": title, "status": status, "source": body.source,
+            {"title": title, "status": status, "source": body.source, "assignee": body.assignee,
              "description": (body.description or "").strip(),
              "priority": priority, "due_date": body.due_date or "",
              "start_date": body.start_date or "", "labels": labels,
@@ -334,7 +335,8 @@ def create_item(body: CreateWorkItemBody, authorization: str = Header(default=""
     _sanitize_local_refs(body.project_id, None, local_values)
     observe_local_project_health(body.project_id, user.id, actor_name=user.name)
     wi = db.create_work_item(
-        project_id=body.project_id, owner_id=user.id, title=local_values["title"], status=status, source=body.source,
+        project_id=body.project_id, owner_id=user.id, title=local_values["title"], status=status,
+        source=body.source, assignee=body.assignee,
         description=(body.description or "").strip(), due_date=local_values["due_date"],
         attachments=_clean_attachments(body.attachments),
         priority=priority, start_date=local_values["start_date"], labels=local_values["labels"],

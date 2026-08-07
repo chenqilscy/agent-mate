@@ -1,7 +1,7 @@
 import { WbButton, WbInput, WbTextArea } from '../ui/Primitives'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, type FileEntry } from '../../lib/api'
-import { useWorkItemStore } from '../../stores/workItemStore'
+import { useWorkItemStore, type NewWorkItem } from '../../stores/workItemStore'
 import { useLoadoutStore } from '../../stores/loadoutStore'
 import { toast } from '../../stores/toastStore'
 import { Popover } from '../ui/Popover'
@@ -59,10 +59,42 @@ function fmtDate(ts?: number): string {
   return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 // 任务模板（WB-122，per-project localStorage，对齐 Console WB-114）。
-type WorkTemplate = { name: string; priority: WorkPriority; labels: string[]; milestone_id: string; description: string }
+type WorkTemplate = { name: string; values: Omit<NewWorkItem, 'title'> }
+function templateValues(raw: Record<string, unknown>): Omit<NewWorkItem, 'title'> {
+  const status = String(raw.status || '') as WorkStatus
+  const priority = String(raw.priority || '') as WorkPriority
+  const numberValue = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
+  return {
+    status: COLS.some((item) => item.key === status) ? status : 'todo',
+    source: String(raw.source || '手动'),
+    assignee: String(raw.assignee || ''),
+    description: String(raw.description || ''),
+    due_date: typeof raw.due_date === 'string' ? raw.due_date || null : null,
+    priority: PRIORITY_OPTS.some((item) => item.key === priority) ? priority : '',
+    start_date: typeof raw.start_date === 'string' ? raw.start_date || null : null,
+    labels: Array.isArray(raw.labels) ? raw.labels.map(String) : [],
+    parent_id: String(raw.parent_id || ''),
+    milestone_id: String(raw.milestone_id || ''),
+    estimate_h: numberValue(raw.estimate_h),
+    spent_h: numberValue(raw.spent_h),
+    custom_fields: raw.custom_fields && typeof raw.custom_fields === 'object' && !Array.isArray(raw.custom_fields)
+      ? raw.custom_fields as Record<string, string | number | boolean> : {},
+    dependency_ids: Array.isArray(raw.dependency_ids) ? raw.dependency_ids.map(String) : [],
+    sprint_id: String(raw.sprint_id || ''),
+  }
+}
+function workItemTemplateValues(item: WorkItem): Omit<NewWorkItem, 'title'> {
+  return templateValues(item as unknown as Record<string, unknown>)
+}
 function getTpl(pid: string | null): WorkTemplate[] {
   if (!pid) return []
-  try { return JSON.parse(localStorage.getItem(`pm.tpl.${pid}`) || '[]') || [] } catch { return [] }
+  try {
+    const rows = JSON.parse(localStorage.getItem(`pm.tpl.${pid}`) || '[]')
+    return Array.isArray(rows) ? rows.map((row) => ({
+      name: String(row?.name || ''),
+      values: templateValues((row?.values || row || {}) as Record<string, unknown>),
+    })).filter((row) => row.name) : []
+  } catch { return [] }
 }
 function setTpl(pid: string, t: WorkTemplate[]): void {
   try { localStorage.setItem(`pm.tpl.${pid}`, JSON.stringify(t)) } catch { /* quota */ }
@@ -84,17 +116,10 @@ function setKViews(pid: string, v: KView[]): void {
   try { localStorage.setItem(`pm.kview.${pid}`, JSON.stringify(v)) } catch { /* quota */ }
 }
 function sharedTemplates(preferences: SharedPmPreferences | null): WorkTemplate[] {
-  return (preferences?.templates ?? []).map((template) => {
-    const values = template.values || {}
-    const priority = String(values.priority || '') as WorkPriority
-    return {
-      name: template.name,
-      priority: PRIORITY_OPTS.some((item) => item.key === priority) ? priority : '',
-      labels: Array.isArray(values.labels) ? values.labels.map(String) : [],
-      milestone_id: String(values.milestone_id || ''),
-      description: String(values.description || ''),
-    }
-  })
+  return (preferences?.templates ?? []).map((template) => ({
+    name: template.name,
+    values: templateValues(template.values || {}),
+  }))
 }
 function sharedViews(preferences: SharedPmPreferences | null): KView[] {
   return (preferences?.views ?? []).map((view) => ({
@@ -400,15 +425,20 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
         const templates = [...(current.preferences.templates || []), {
           id: crypto.randomUUID(),
           name: item.title,
-          values: { priority: item.priority, labels: item.labels, milestone_id: item.milestone_id, description: item.description },
+          values: workItemTemplateValues(item),
         }]
-        await api.serverUpdateProjectPmPreferences(projectId, { templates })
+        await api.serverUpdateProjectPmPreferences(projectId, {
+          templates,
+          expected_shared_updated_at: current.preferences.shared_updated_at,
+        })
         toast(`已保存到团队模板「${item.title}」`)
-      } catch { toast('团队模板保存失败，请确认你有项目写入权限') }
+      } catch (error) {
+        toast(String((error as Error)?.message || '').includes('409') ? '团队模板已在另一端更新，请重试' : '团队模板保存失败，请确认你有项目写入权限')
+      }
       return
     }
     const t = getTpl(projectId)
-    t.push({ name: item.title, priority: item.priority, labels: item.labels, milestone_id: item.milestone_id, description: item.description })
+    t.push({ name: item.title, values: workItemTemplateValues(item) })
     setTpl(projectId, t)
     toast(`已存为模板「${item.title}」`)
   }
@@ -713,11 +743,12 @@ function BatchMove({ disabled, onPick }: { disabled: boolean; onPick: (s: WorkSt
 // 计划: kanban with HTML5 drag-and-drop between columns (drop → PATCH status),
 // per-card detail modal, a full new-todo modal, a top toolbar (filter/batch/search)
 // and a placeholder 添加数据源 picker.
-export function KanbanBoard({ canWrite = true, canManage = true, sharedProject = false, sharedPmPreferences = null }: {
+export function KanbanBoard({ canWrite = true, canManage = true, sharedProject = false, sharedPmPreferences = null, sharedPmPreferencesReady = true }: {
   canWrite?: boolean
   canManage?: boolean
   sharedProject?: boolean
   sharedPmPreferences?: SharedPmPreferences | null
+  sharedPmPreferencesReady?: boolean
 }) {
   const { message, modal } = AntApp.useApp()
   const items = useWorkItemStore((s) => s.items)
@@ -727,8 +758,23 @@ export function KanbanBoard({ canWrite = true, canManage = true, sharedProject =
   const milestones = useWorkItemStore((s) => s.milestones)
   const projectId = useWorkItemStore((s) => s.projectId)
   const msName = useMemo(() => Object.fromEntries(milestones.map((m) => [m.id, m.name])), [milestones])
+  const [, setTick] = useState(0)
   const [sharedPrefs, setSharedPrefs] = useState<SharedPmPreferences | null>(sharedPmPreferences)
-  useEffect(() => { setSharedPrefs(sharedPmPreferences) }, [sharedPmPreferences])
+  const sharedPrefsRef = useRef<SharedPmPreferences | null>(sharedPmPreferences)
+  useEffect(() => {
+    const next = sharedPmPreferencesReady ? sharedPmPreferences : null
+    sharedPrefsRef.current = next
+    setSharedPrefs(next)
+  }, [projectId, sharedPmPreferences, sharedPmPreferencesReady])
+  const applySharedPrefs = (next: SharedPmPreferences) => {
+    sharedPrefsRef.current = next
+    setSharedPrefs(next)
+    setTick((value) => value + 1)
+  }
+  const refreshSharedPrefs = () => {
+    if (!projectId) return Promise.resolve()
+    return api.serverProjectPmPreferences(projectId).then((result) => applySharedPrefs(result.preferences)).catch(() => {})
+  }
   const templates = sharedProject ? sharedTemplates(sharedPrefs) : getTpl(projectId)
 
   const [detailId, setDetailId] = useState<string | null>(null)
@@ -748,7 +794,6 @@ export function KanbanBoard({ canWrite = true, canManage = true, sharedProject =
   // 看板增强（WB-123）：分组泳道 / WIP 编辑态 / 保存视图。团队项目写回 Server，本机项目写 localStorage。
   const [group, setGroup] = useState<'none' | 'assignee' | 'milestone'>('none')
   const [wipEdit, setWipEdit] = useState(false)
-  const [, setTick] = useState(0)
   const wip = sharedProject ? (sharedPrefs?.wip ?? {}) : getWip(projectId)
   const kviews = sharedProject ? sharedViews(sharedPrefs) : getKViews(projectId)
 
@@ -785,17 +830,25 @@ export function KanbanBoard({ canWrite = true, canManage = true, sharedProject =
   const exitBatch = () => { setBatch(false); setSel(new Set()) }
   const newFromTpl = async (idx: string) => {
     const t = templates[Number(idx)]; if (!t) return
-    const wi = await add({ title: t.name, priority: t.priority, labels: t.labels, milestone_id: t.milestone_id, description: t.description })
+    const wi = await add({ title: t.name, ...t.values })
     if (wi) setDetailId(wi.id)
   }
   const saveWip = (k: string, v: number) => {
     if (sharedProject) {
       if (!canManage || !projectId) return
-      const next = { ...(sharedPrefs?.wip ?? {}) }
+      const current = sharedPrefsRef.current
+      if (!sharedPmPreferencesReady || !current) { toast('团队 WIP 暂不可用，请恢复 Server 连接后重试'); return }
+      const next = { ...current.wip }
       if (v > 0) next[k] = v; else delete next[k]
-      void api.serverUpdateProjectPmPreferences(projectId, { wip: next })
-        .then((result) => { setSharedPrefs(result.preferences); setTick((t) => t + 1) })
-        .catch(() => toast('团队 WIP 仅管理员可修改，且必须在线保存'))
+      void api.serverUpdateProjectPmPreferences(projectId, {
+        wip: next,
+        expected_shared_updated_at: current.shared_updated_at,
+      })
+        .then((result) => applySharedPrefs(result.preferences))
+        .catch((error) => {
+          void refreshSharedPrefs()
+          toast(String((error as Error)?.message || '').includes('409') ? '团队 WIP 已在另一端更新，请重试' : '团队 WIP 仅管理员可修改，且必须在线保存')
+        })
       return
     }
     const w = getWip(projectId); if (v > 0) w[k] = v; else delete w[k]; if (projectId) setWip(projectId, w); setTick((t) => t + 1)
@@ -816,7 +869,12 @@ export function KanbanBoard({ canWrite = true, canManage = true, sharedProject =
           return Promise.reject(new Error('view name required'))
         }
         if (sharedProject) {
-          const views = [...(sharedPrefs?.views ?? []), {
+          const current = sharedPrefsRef.current
+          if (!sharedPmPreferencesReady || !current) {
+            void message.warning('团队视图暂不可用，请恢复 Server 连接后重试')
+            return
+          }
+          const views = [...current.views, {
             id: crypto.randomUUID(),
             name: trimmed,
             filters: {
@@ -826,9 +884,15 @@ export function KanbanBoard({ canWrite = true, canManage = true, sharedProject =
               ...(q.trim() ? { search: q.trim() } : {}),
             },
           }]
-          void api.serverUpdateProjectPmPreferences(projectId, { views })
-            .then((result) => { setSharedPrefs(result.preferences); setTick((t) => t + 1) })
-            .catch(() => toast('团队视图保存失败，请确认你有项目写入权限'))
+          void api.serverUpdateProjectPmPreferences(projectId, {
+            views,
+            expected_views_updated_at: current.views_updated_at,
+          })
+            .then((result) => applySharedPrefs(result.preferences))
+            .catch((error) => {
+              void refreshSharedPrefs()
+              toast(String((error as Error)?.message || '').includes('409') ? '团队视图已在另一端更新，请重试' : '团队视图保存失败，请确认你有项目写入权限')
+            })
         } else {
           const views = getKViews(projectId)
           views.push({ name: trimmed, assignee: fAssignee, source: fSource, q, group })
@@ -861,7 +925,7 @@ export function KanbanBoard({ canWrite = true, canManage = true, sharedProject =
               {col.label}
               <span className="cnt" style={over ? { background: '#EF4444', color: '#fff' } : undefined}>{lim ? `${colItems.length}/${lim}` : colItems.length}</span>
               {wipEdit
-                ? <WbInput type="number" min={0} className="np-input" style={{ width: 46, height: 22, padding: '0 6px', marginLeft: 6, fontSize: 11 }} defaultValue={lim || ''} placeholder="∞" onBlur={(e) => saveWip(col.key, parseInt(e.target.value, 10) || 0)} />
+                ? <WbInput type="number" min={0} className="np-input" style={{ width: 46, height: 22, padding: '0 6px', marginLeft: 6, fontSize: 11 }} defaultValue={lim || ''} placeholder="∞" disabled={sharedProject && !sharedPmPreferencesReady} onBlur={(e) => saveWip(col.key, parseInt(e.target.value, 10) || 0)} />
                 : canWrite ? <span className="plus" {...clickable} onClick={() => { setQuickIn(col.key); setQuickDraft('') }}>＋</span> : null}
             </div>
             {quickIn === col.key && (
@@ -921,8 +985,8 @@ export function KanbanBoard({ canWrite = true, canManage = true, sharedProject =
         {canWrite && templates.length > 0 && <FilterDropdown label="🧩 从模板" options={templates.map((t, i) => ({ key: String(i), label: t.name }))} onPick={(k) => void newFromTpl(k)} />}
         <FilterDropdown label={group === 'none' ? '不分组' : group === 'assignee' ? '按负责人' : '按里程碑'} options={[{ key: 'none', label: '不分组' }, { key: 'assignee', label: '按负责人' }, { key: 'milestone', label: '按里程碑' }]} onPick={(k) => setGroup(k as 'none' | 'assignee' | 'milestone')} />
         {kviews.length > 0 && <FilterDropdown label="📑 视图" options={kviews.map((v, i) => ({ key: String(i), label: v.name }))} onPick={applyKView} />}
-        <WbButton className="btn-ghost" style={{ height: 34 }} onClick={saveKView}>保存视图</WbButton>
-        <WbButton className={`cap-act ${wipEdit ? 'on' : ''}`.trim()} disabled={sharedProject && !canManage} title={sharedProject && !canManage ? 'WIP 仅管理员可修改' : undefined} onClick={() => setWipEdit((v) => !v)}>WIP</WbButton>
+        <WbButton className="btn-ghost" style={{ height: 34 }} onClick={saveKView} disabled={!canWrite || (sharedProject && !sharedPmPreferencesReady)}>保存视图</WbButton>
+        <WbButton className={`cap-act ${wipEdit ? 'on' : ''}`.trim()} disabled={sharedProject && (!canManage || !sharedPmPreferencesReady)} title={sharedProject && !canManage ? 'WIP 仅管理员可修改' : sharedProject && !sharedPmPreferencesReady ? '团队 WIP 暂不可用' : undefined} onClick={() => setWipEdit((v) => !v)}>WIP</WbButton>
         {canWrite && <WbButton className={`cap-act ${batch ? 'on' : ''}`.trim()} onClick={() => (batch ? exitBatch() : setBatch(true))}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" /></svg>
           批量操作
@@ -1257,11 +1321,12 @@ const PLAN_VIEWS: { key: PlanViewKey; label: string; icon: string }[] = [
   { key: 'workload', label: '负载', icon: '◫' },
 ]
 
-export function PlanWorkspace({ canWrite = true, canManage = true, sharedProject = false, sharedPmPreferences = null }: {
+export function PlanWorkspace({ canWrite = true, canManage = true, sharedProject = false, sharedPmPreferences = null, sharedPmPreferencesReady = true }: {
   canWrite?: boolean
   canManage?: boolean
   sharedProject?: boolean
   sharedPmPreferences?: SharedPmPreferences | null
+  sharedPmPreferencesReady?: boolean
 }) {
   const projectId = useWorkItemStore((state) => state.projectId)
   const [view, setView] = useState<PlanViewKey>('kanban')
@@ -1296,7 +1361,7 @@ export function PlanWorkspace({ canWrite = true, canManage = true, sharedProject
       </div>
       <div className="pj-plan-view" role="tabpanel">
         {view === 'table' && <TaskList canWrite={canWrite} />}
-        {view === 'kanban' && <KanbanBoard canWrite={canWrite} canManage={canManage} sharedProject={sharedProject} sharedPmPreferences={sharedPmPreferences} />}
+        {view === 'kanban' && <KanbanBoard canWrite={canWrite} canManage={canManage} sharedProject={sharedProject} sharedPmPreferences={sharedPmPreferences} sharedPmPreferencesReady={sharedPmPreferencesReady} />}
         {view === 'list' && <GroupedListView canWrite={canWrite} />}
         {view === 'gantt' && <GanttView canWrite={canWrite} />}
         {view === 'calendar' && <CalendarView canWrite={canWrite} />}

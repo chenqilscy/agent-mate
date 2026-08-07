@@ -548,7 +548,10 @@ export const consoleApi = {
     ),
   updatePmPreferences: (
     id: string,
-    body: Partial<Pick<PmPreferences, "templates" | "wip" | "views">>,
+    body: Partial<Pick<PmPreferences, "templates" | "wip" | "views">> & {
+      expected_shared_updated_at?: number;
+      expected_views_updated_at?: number;
+    },
   ) =>
     apiRequest<PmPreferences>(
       "PUT",

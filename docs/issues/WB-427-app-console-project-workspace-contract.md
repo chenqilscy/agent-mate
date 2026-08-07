@@ -74,3 +74,13 @@ P1。项目是 App 与 Console 的核心共享对象；能力缺失会让跨端�
 - 失败语义回归：无效字段类型和反向日期 Sprint 请求均返回 400，未污染项目数据；Server PM 字段测试 4 项通过。
 - 验证：`npx tsc --noEmit`、`npx vite build`、后端 `py_compile`、`git diff --check` 已通过；最终页面回归未产生新的控制台错误。本轮早期异步 Form 警告已改为受控草稿表单并移除。
 - 本 issue 继续保持 `in-progress`：Viewer/Member 完整权限矩阵、Server 不可达的真实 UI 回归、Console 反向写入后刷新回读仍需补齐，暂不关闭。
+
+## 处理记录（2026-08-07，第五阶段：四阶段审查修复与后续验收）
+
+- 审查前四阶段提交后修复六类回归风险：Server 元数据按 `projectId` 隔离并在切换时立即清空；字段/Sprint/活动/偏好分别保留成功或失败状态，不再把 503 显示成“尚未配置”；同步栏文案改为 App 当前真实可维护边界；Sprint 默认日期改用本地日历日，避免东八区午夜被 UTC 转换到前一天。
+- 团队任务模板改为完整映射 Server 支持的 15 个任务字段（状态、来源、负责人、描述、日期、优先级、标签、父项、里程碑、工时、自定义字段、依赖和 Sprint）；App 本地模板兼容旧五字段结构，创建链路补齐负责人、来源和工时透传。
+- Server PM 偏好新增共享区和个人视图区的原子 revision/CAS；App 与 Console 写入都携带读取版本，过期快照返回 409、刷新后重试，避免两端 whole-section 快照相互覆盖。新增测试验证共享区冲突时个人视图也不会被部分写入。
+- 权限矩阵在隔离 Server 数据库验证：Member 可写团队模板/个人视图但不能改 WIP，Admin/Owner 可改 WIP，Viewer 写入返回 403；后端严格 PUT 代理保留 4xx。项目数据加载失败时 App 使用真实 HTTP 503 验收，四个区域均显示“暂不可用/—”，字段、Sprint、保存视图和 WIP 写入口失败关闭。
+- 使用真实 `admin` / `buddy` 项目完成双向回读：Console 临时写入保存视图后 App 显示“保存视图 1”；App 临时保存视图后 Console API 读回同名视图。两组验收数据均已删除，最终 App 回读恢复为保存视图 0、Sprint 2、活动 7、字段 0。明暗主题项目数据页均完成目视检查并恢复原深色设置。
+- 验证通过：App 与 Console `npx tsc --noEmit`、两端 `npx vite build`、后端/Server `py_compile`、WB-427/Server 代理/PM 权限与并发定向测试共 13 项、`git diff --check`。
+- 本 issue 继续保持 `in-progress`：本轮 Server/Console CAS 代码尚未部署到 App 当前连接的 `192.168.20.81:8100`，远端旧模型可能忽略 expected revision；需部署后在真实更新实例复验 409。当前仅有 Admin 凭据，Viewer/Member 已完成权威路由矩阵但仍缺真实账号 UI 复验，不能以 Admin 或临时造号替代。

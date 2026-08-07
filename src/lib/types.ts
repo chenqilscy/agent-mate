@@ -819,6 +819,13 @@ export interface SharedPmPreferences {
   templates: SharedPmTemplate[]
   views: SharedPmView[]
   wip: Record<string, number>
+  shared_updated_at: number
+  views_updated_at: number
+}
+
+export type SharedPmPreferencesPatch = Partial<Pick<SharedPmPreferences, 'templates' | 'views' | 'wip'>> & {
+  expected_shared_updated_at?: number
+  expected_views_updated_at?: number
 }
 
 export interface ServerProjectField {

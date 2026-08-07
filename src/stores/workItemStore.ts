@@ -7,6 +7,8 @@ import type { Milestone, WorkAttachment, WorkItem, WorkPriority, WorkStatus } fr
 export interface NewWorkItem {
   title: string
   status?: WorkStatus
+  source?: string
+  assignee?: string
   description?: string
   due_date?: string | null
   attachments?: WorkAttachment[]
@@ -15,6 +17,8 @@ export interface NewWorkItem {
   labels?: string[]
   parent_id?: string
   milestone_id?: string
+  estimate_h?: number
+  spent_h?: number
   custom_fields?: Record<string, string | number | boolean>
   dependency_ids?: string[]
   sprint_id?: string
@@ -100,6 +104,8 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
         project_id: pid,
         title: input.title.trim(),
         status: input.status,
+        source: input.source,
+        assignee: input.assignee,
         description: input.description,
         due_date: input.due_date,
         attachments: input.attachments,
@@ -108,6 +114,8 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
         labels: input.labels,
         parent_id: input.parent_id,
         milestone_id: input.milestone_id,
+        estimate_h: input.estimate_h,
+        spent_h: input.spent_h,
         custom_fields: input.custom_fields,
         dependency_ids: input.dependency_ids,
         sprint_id: input.sprint_id,
