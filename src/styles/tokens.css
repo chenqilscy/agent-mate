@@ -29,19 +29,19 @@
 
   /* -- Neutral Gray Scale -- */
   --neutral-0:   #FFFFFF;
-  --neutral-50:  #F8F9FA;
-  --neutral-100: #ECEEF1;
-  --neutral-200: #D5D9DE;
-  --neutral-300: #9AA0A6;
-  --neutral-500: #5B6169;
-  --neutral-700: #1F2329;
-  --neutral-900: #0D1117;
+  --neutral-50:  #F4F6F8;
+  --neutral-100: #E6E9EF;
+  --neutral-200: #D0D5DD;
+  --neutral-300: #98A2B3;
+  --neutral-500: #667085;
+  --neutral-700: #1D2939;
+  --neutral-900: #101828;
 
   /* -- Surface Tokens (replace --card, --chip, body bg) -- */
   --bg-surface:  var(--neutral-0);    /* cards, popovers, modals */
   --bg-page:     var(--neutral-50);   /* page background */
   --bg-elevated: var(--neutral-0);    /* elevated surfaces (dropdowns) */
-  --bg-chip:     #F4F5F7;            /* chips, tabs, hover */
+  --bg-chip:     #F2F4F7;            /* chips, tabs, hover */
   --bg-input:    var(--neutral-0);    /* input backgrounds */
   --bg-inverse:  #1F2329;            /* dark surfaces w/ white text (btn-dark, toasts) */
 
@@ -124,13 +124,13 @@ body.dark {
   --brand-soft2: #152A21;
 
   /* Neutral — flip the scale */
-  --neutral-0:   #0D1117;
-  --neutral-50:  #141A21;
-  --neutral-100: #1F2329;
-  --neutral-200: #2B3138;
-  --neutral-300: #5B6169;
-  --neutral-500: #9AA0A6;
-  --neutral-700: #ECEEF1;
+  --neutral-0:   #161C2B;
+  --neutral-50:  #0F1420;
+  --neutral-100: #2A3348;
+  --neutral-200: #344058;
+  --neutral-300: #667085;
+  --neutral-500: #93A0B8;
+  --neutral-700: #F2F4F7;
   --neutral-900: #FFFFFF;
 
   /* Surfaces — re-declared here so the var() refs resolve against the dark
@@ -138,11 +138,11 @@ body.dark {
      this re-declaration is what makes the dark surfaces actually auto-flip.) */
   --bg-surface:  var(--neutral-0);
   --bg-page:     var(--neutral-50);
-  --bg-elevated: var(--neutral-0);
-  --bg-chip:     #2A3036;
-  --bg-input:    var(--neutral-50);
-  --bg-inverse:  #2A3036;              /* stays dark in dark mode for inverse surfaces */
-  --border-2:    #2B3138;
+  --bg-elevated: #1B2334;
+  --bg-chip:     #232C40;
+  --bg-input:    #111827;
+  --bg-inverse:  #232C40;              /* stays dark in dark mode for inverse surfaces */
+  --border-2:    #232C40;
 
   /* Text/border aliases — re-declared so they flip with the theme */
   --text:    var(--neutral-700);
