@@ -1,6 +1,7 @@
 # AgentMate
 
-AgentMate is a real, runnable local-first AI work companion. It was initially informed by a high-fidelity
+AgentMate is a real, runnable AI work companion. The current build retains a local-first compatibility baseline while
+the product migrates to a Server-first collaboration platform with a Local Agent execution node. It was initially informed by a high-fidelity
 Tencent WorkBuddy reference prototype, now archived with official-source notes under
 [`docs/WorkBuddy/`](docs/WorkBuddy/), and has evolved into an independent product.
 
@@ -16,30 +17,31 @@ The working baseline includes:
 - projects, work items, automations, experts, Skills, MCP connectors, knowledge bases and model management;
 - multi-assistant support with real Telegram and email channels;
 - Tauri 2 shell, PyInstaller sidecar, tray and MSI/NSIS build scaffolding;
-- optional AgentMate Server control plane and its same-origin AgentMate Console.
+- AgentMate Server control plane and its same-origin AgentMate Console; the current build can still run without it during migration.
 
 The active issue ledger is [`docs/issues/`](docs/issues/README.md), with completed records compacted under its archive.
-The product/code roadmap is closed. Two release milestones remain deferred: formal production desktop-update deployment
-needs deployment-owned HTTPS infrastructure, protected signing material and a production rollout window; the V1
-controlled-user pilot needs a fixed beta build, 3–5 target users and five working days of real-use evidence.
+The Server-first migration is tracked by WB-431 and its child work packages. Two release milestones also remain deferred:
+formal production desktop-update deployment needs deployment-owned HTTPS infrastructure, protected signing material and
+a production rollout window; the V1 controlled-user pilot needs a fixed beta build, 3–5 target users and five working
+days of real-use evidence.
 
 ## Architecture
 
+Target architecture:
+
 ```text
-Tauri 2 or Browser (Vite :8102)
-              │ REST + SSE (/api in development)
-              ▼
-FastAPI App backend (:8101) ──▶ OpenAI-compatible LLM
-  agent runtime · MCP · SQLite · workspace/
-              │ optional AGENTMATE_SERVER_URL
-              ▼
-AgentMate Server (:8100) ──▶ same-origin AgentMate Console
-  accounts · orgs · projects · collaboration · AgentMate catalog
+AgentMate Server ──▶ API · Console · durable business data · object storage · Run scheduler
+       ▲                                      ▲
+       │ HTTPS / SSE                          │ outbound lease · event · ACK
+       │                                      │
+Desktop UI ── local IPC ──▶ Local Agent Core · Agent Runtime · MCP/tools
+                              local secrets · working copy · WAL · cache
 ```
 
-The App backend runs on the user's machine. It owns LLM/tool execution, credentials, installed Skills, sessions and
-workspace files. The optional Server owns shared control-plane data; it does not execute agents or receive secrets,
-workspace files or conversation bodies.
+Server is the sole authority for persistent business data. The Local Agent is the desktop UI plus a background execution
+service; it owns device-bound secrets, OS permissions, runtime processes, working copies, unacknowledged event WAL and
+disposable caches. The current `:8101` App backend still combines both responsibilities and remains a migration baseline,
+not the target boundary.
 
 Third-party SkillHub browsing and installation are performed directly by each App. Server may publish a recommendation
 pointer and display copy, but does not mirror the marketplace, store SkillHub keys or host third-party skill packages.
@@ -47,8 +49,9 @@ pointer and display copy, but does not mirror the marketplace, store SkillHub ke
 Detailed boundaries:
 
 - [current implementation](docs/agentmate-实现方案.md)
-- [App/Server data and sync rules](docs/agentmate-数据分层与同步规范.md)
-- [Server architecture and capability-release target](docs/agentmate-server-架构设计.md)
+- [Server-first target architecture](docs/agentmate-server-first-架构设计.md)
+- [data ownership and transport rules](docs/agentmate-数据分层与同步规范.md)
+- [implemented local-first Server baseline](docs/agentmate-server-架构设计.md)
 - [Console architecture](docs/agentmate-console-管理门户设计.md)
 - [desktop build and updater status](docs/desktop-build.md)
 
@@ -79,14 +82,15 @@ take effect without a service restart, and keep secrets write-only. Only deploym
 support environment variables use them as fallbacks.
 Database paths, bind ports, cryptographic bootstrap material and release versions remain deployment-only.
 
-### Optional Server and Console
+### Current development stack
 
 ```powershell
 ./run-stack.ps1
 ```
 
-This starts Server `:8100`, App backend `:8101` with `AGENTMATE_SERVER_URL`, and App frontend `:8102`. Remove the
-Server URL for pure-local operation; local execution remains available when Server is absent or unreachable.
+This starts Server `:8100`, the transitional App backend `:8101`, and App frontend `:8102`. Pure-local operation remains
+available only as a migration compatibility mode; the Server-first target requires Server for business reads and writes,
+while Local Agent execution can continue an already leased Run during a bounded outage.
 
 Reusable local Server test-account credentials, when provisioned, are recorded in
 `docs/local-test-accounts.md`. That file is intentionally ignored by Git because it contains login passwords; use it
@@ -130,4 +134,5 @@ One event type maps to one UI shape. The backend contract is defined in `backend
 - Workspace paths are resolved inside the active project/assistant sandbox.
 - `run_command` is constrained and audited but still runs with backend OS permissions; it is not a VM sandbox.
 - Server-origin resources enforce account/project roles; Viewer is read-only.
-- Server sync is guarded and local-first; network failure must not erase last-known-good local state.
+- During migration, legacy Server sync remains guarded; the target architecture replaces business mirrors with Server
+  authority and limits local persistence to secrets, working state, WAL and disposable caches.

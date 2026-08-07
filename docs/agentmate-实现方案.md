@@ -1,5 +1,9 @@
 # AgentMate 实现方案
 
+> 本文记录当前可运行的 local-first 兼容实现。2026-08-08 起，产品目标已调整为
+> [Server-first + Local Agent](agentmate-server-first-架构设计.md)；迁移完成前必须区分“当前实现”与“目标架构”，
+> 新业务实体不得继续增加本地权威和双向镜像。
+
 > 状态：当前实现基线，更新于 2026-08-07。
 > 历史里程碑、缺陷与验收记录见 [`issues/`](issues/README.md)。腾讯 WorkBuddy 只作为产品与视觉参考，资料集中在
 > [`WorkBuddy/`](WorkBuddy/README.md)。
