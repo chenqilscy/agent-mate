@@ -8,17 +8,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 import run_transport
+import local_agent_store as db
 from config import settings
-from storage import db
 
 
 class LocalRunTransportTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        self.old_path = settings.DB_PATH
+        self.old_path = settings.LOCAL_AGENT_DB_PATH
         self.old_cap = settings.RUN_EVENT_WAL_MAX_BYTES
         self._close()
-        settings.DB_PATH = Path(self.temp.name) / "app.db"
+        settings.LOCAL_AGENT_DB_PATH = Path(self.temp.name) / "local-agent.db"
         settings.RUN_EVENT_WAL_MAX_BYTES = 1024 * 1024
         db._local = threading.local()
         db.init_db()
@@ -31,7 +31,7 @@ class LocalRunTransportTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self._close()
-        settings.DB_PATH = self.old_path
+        settings.LOCAL_AGENT_DB_PATH = self.old_path
         settings.RUN_EVENT_WAL_MAX_BYTES = self.old_cap
         db._local = threading.local()
         self.temp.cleanup()

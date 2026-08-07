@@ -29,6 +29,19 @@ for _arg in sys.argv[1:]:
         run_mcp_server(_arg.split("=", 1)[1])
         raise SystemExit(0)
 
+# Tauri writes a per-launch IPC token through the sidecar stdin pipe. The
+# command line carries only this mode flag, never the credential itself.
+if "--ipc-token-stdin" in sys.argv[1:]:
+    import local_agent_ipc
+
+    _ipc_token = sys.stdin.readline(257).strip()
+    try:
+        local_agent_ipc.install_token(_ipc_token)
+    except ValueError as exc:
+        raise SystemExit(f"Local Agent IPC bootstrap failed: {exc}") from exc
+    finally:
+        _ipc_token = ""
+
 # Windows: force the Proactor event loop *at import time* so it also applies to
 # uvicorn's reload child (which imports this module, not the __main__ block).
 # The Selector loop uvicorn otherwise uses on Windows cannot spawn subprocesses,
@@ -51,11 +64,20 @@ from channels import manager as channel_manager
 from config import FROZEN, settings
 from routers import asr, auth, automations, catalog, channels, chat, data, device_settings, experts, files, governance, ideas, server, kdocs, knowledge, me, memory, milestones, models, notifications, ops, orchestrations, prefs, project_health, projects, runs, security, sessions, skills, work_items
 from storage import db, orchestration_store
+import local_agent_core
+import local_agent_store
 import server_client
 
 
 def _startup() -> None:
     db.init_db()
+    if settings.server_enabled:
+        local_agent_store.init_db()
+        # Temporary one-way compatibility bridge: WB-435 will bind the Server
+        # identity directly through Tauri IPC once UI business traffic leaves
+        # this legacy app. Core mode never opens the business database at all.
+        for owner_id, token in db.list_server_identities():
+            local_agent_store.set_server_identity(owner_id, token)
     recovered = db.recover_stale_runs()
     if recovered:
         logging.getLogger("agentmate.runs").warning(
@@ -189,6 +211,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Native-only control surface. Browser calls cannot obtain the per-launch token;
+# Tauri exposes only narrow commands rather than a generic authenticated proxy.
+app.add_middleware(local_agent_core.LocalAgentIpcMiddleware)
+
 
 @app.get("/api/health")
 def health() -> dict:
@@ -228,6 +254,7 @@ app.include_router(memory.router)
 app.include_router(ideas.router)
 app.include_router(data.router)
 app.include_router(security.router)
+app.include_router(local_agent_core.router)
 
 
 if __name__ == "__main__":
@@ -238,9 +265,16 @@ if __name__ == "__main__":
     # and a Selector loop can't spawn the MCP connector subprocesses. Running
     # in-process keeps the Proactor loop (and matches the project's hard-restart
     # workflow). Elsewhere reload is fine.
-    reload = sys.platform != "win32" and not FROZEN
+    core_mode = "--local-agent-core" in sys.argv[1:]
+    reload = sys.platform != "win32" and not FROZEN and not core_mode
     # Reload needs the "main:app" import string; without it (frozen bundle, or
     # Windows) pass the app object directly — a bundle can't re-import `main`
     # (it's __main__, not an importable module).
-    target = "main:app" if reload else app
-    uvicorn.run(target, host=settings.HOST, port=settings.PORT, reload=reload)
+    target = "main:app" if reload else (local_agent_core.app if core_mode else app)
+    # The Core is never allowed to honor a configurable LAN bind address.
+    host = (
+        local_agent_core.bind_host()
+        if (core_mode or "--ipc-token-stdin" in sys.argv[1:])
+        else settings.HOST
+    )
+    uvicorn.run(target, host=host, port=settings.PORT, reload=reload)

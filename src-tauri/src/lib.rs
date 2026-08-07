@@ -4,11 +4,12 @@
 // closed (X hides to tray; the tray's 退出 actually quits).
 use std::sync::Mutex;
 use std::time::Duration;
+use std::{io::Read, io::Write, net::SocketAddr, net::TcpStream};
 
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
@@ -16,6 +17,16 @@ use url::Url;
 
 /// Holds the backend sidecar child so we can terminate it on exit.
 struct Backend(Mutex<Option<CommandChild>>);
+
+/// The webview never receives this per-launch secret. Narrow native commands
+/// use it to call the protected loopback Local Agent API.
+struct LocalAgentIpc {
+    token: String,
+}
+
+fn new_ipc_token() -> String {
+    format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+}
 
 #[derive(Serialize)]
 struct DesktopUpdateResult {
@@ -47,7 +58,7 @@ fn update_endpoint(base: &str, channel: &str) -> Result<Url, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::update_endpoint;
+    use super::{new_ipc_token, update_endpoint};
 
     #[test]
     fn desktop_update_endpoint_requires_https_and_known_channel() {
@@ -56,6 +67,59 @@ mod tests {
         assert!(update_endpoint("http://updates.example.com", "stable").is_err());
         assert!(update_endpoint("https://updates.example.com", "nightly").is_err());
     }
+
+    #[test]
+    fn local_agent_ipc_tokens_are_strong_and_ephemeral() {
+        let first = new_ipc_token();
+        let second = new_ipc_token();
+        assert_eq!(64, first.len());
+        assert!(first.chars().all(|value| value.is_ascii_hexdigit()));
+        assert_ne!(first, second);
+    }
+}
+
+use uuid::Uuid;
+
+#[tauri::command]
+async fn local_agent_status(state: State<'_, LocalAgentIpc>) -> Result<serde_json::Value, String> {
+    let token = state.token.clone();
+    tauri::async_runtime::spawn_blocking(move || read_local_agent_status(&token))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn read_local_agent_status(token: &str) -> Result<serde_json::Value, String> {
+    let address: SocketAddr = "127.0.0.1:8101"
+        .parse()
+        .map_err(|error: std::net::AddrParseError| error.to_string())?;
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(3))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(3)))
+        .map_err(|error| error.to_string())?;
+    let request = format!(
+        "GET /api/local-agent/status HTTP/1.1\r\nHost: 127.0.0.1:8101\r\nConnection: close\r\nX-AgentMate-IPC-Token: {token}\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| error.to_string())?;
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .map_err(|error| error.to_string())?;
+    let split = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| "Local Agent returned an invalid HTTP response".to_string())?;
+    let headers = std::str::from_utf8(&response[..split]).map_err(|error| error.to_string())?;
+    let status = headers.lines().next().unwrap_or_default();
+    if !status.starts_with("HTTP/1.1 200 ") {
+        return Err(format!("Local Agent returned {status}"));
+    }
+    serde_json::from_slice(&response[split + 4..]).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -165,20 +229,38 @@ pub fn run() {
 
     builder
         .manage(Backend(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![check_desktop_update])
+        .manage(LocalAgentIpc {
+            token: new_ipc_token(),
+        })
+        .invoke_handler(tauri::generate_handler![
+            check_desktop_update,
+            local_agent_status
+        ])
         .setup(|app| {
             // ---- backend sidecar: spawn + drain its output ----
-            match app.handle().shell().sidecar("agentmate-backend") {
+            let ipc_token = app.state::<LocalAgentIpc>().token.clone();
+            match app
+                .handle()
+                .shell()
+                .sidecar("agentmate-backend")
+                .map(|command| command.arg("--ipc-token-stdin"))
+            {
                 Ok(cmd) => match cmd.spawn() {
-                    Ok((mut rx, child)) => {
-                        app.state::<Backend>().0.lock().unwrap().replace(child);
-                        tauri::async_runtime::spawn(async move {
-                            while let Some(event) = rx.recv().await {
-                                if let CommandEvent::Terminated(_) = event {
-                                    break;
+                    Ok((mut rx, mut child)) => {
+                        let bootstrap = format!("{ipc_token}\n");
+                        if let Err(error) = child.write(bootstrap.as_bytes()) {
+                            eprintln!("[agentmate] IPC bootstrap failed: {error}");
+                            let _ = child.kill();
+                        } else {
+                            app.state::<Backend>().0.lock().unwrap().replace(child);
+                            tauri::async_runtime::spawn(async move {
+                                while let Some(event) = rx.recv().await {
+                                    if let CommandEvent::Terminated(_) = event {
+                                        break;
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
                     }
                     Err(e) => eprintln!("[agentmate] backend spawn failed: {e}"),
                 },

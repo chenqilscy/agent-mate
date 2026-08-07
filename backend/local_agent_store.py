@@ -1,0 +1,241 @@
+"""Minimal durable storage owned by Local Agent Core (WB-434).
+
+This database is intentionally not a business mirror. It contains only device
+identity material, Server session bindings, active lease metadata and the
+unacknowledged Run event WAL.
+"""
+from __future__ import annotations
+
+import secrets
+import sqlite3
+import threading
+import time
+from pathlib import Path
+from typing import Optional
+
+import local_secret_store
+from config import settings
+
+
+_local = threading.local()
+
+
+def _connect() -> sqlite3.Connection:
+    path = Path(settings.LOCAL_AGENT_DB_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
+    return conn
+
+
+def get_conn() -> sqlite3.Connection:
+    conn = getattr(_local, "conn", None)
+    current_path = str(Path(settings.LOCAL_AGENT_DB_PATH).resolve())
+    if conn is None or getattr(_local, "path", "") != current_path:
+        if conn is not None:
+            conn.close()
+        conn = _connect()
+        _local.conn = conn
+        _local.path = current_path
+        _local.initialized = False
+    return conn
+
+
+def close_thread_connection() -> None:
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        conn.close()
+    _local.conn = None
+    _local.path = ""
+    _local.initialized = False
+
+
+def init_db() -> None:
+    if getattr(_local, "initialized", False):
+        return
+    conn = get_conn()
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS local_agent_schema (
+            version INTEGER PRIMARY KEY,
+            applied_at REAL NOT NULL
+        );
+        INSERT OR IGNORE INTO local_agent_schema(version,applied_at)
+            VALUES (1,CAST(strftime('%s','now') AS REAL));
+
+        CREATE TABLE IF NOT EXISTS device_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS device_secrets (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS server_identities (
+            owner_id TEXT PRIMARY KEY,
+            server_token TEXT NOT NULL,
+            expires_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS run_transport_leases (
+            run_id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            lease_id TEXT NOT NULL,
+            lease_epoch INTEGER NOT NULL,
+            expires_at REAL NOT NULL,
+            ack_high_water INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            last_error TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_transport_leases_owner
+            ON run_transport_leases(owner_id,status,updated_at);
+
+        CREATE TABLE IF NOT EXISTS run_event_wal (
+            event_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            lease_id TEXT NOT NULL,
+            lease_epoch INTEGER NOT NULL,
+            sequence INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            occurred_at REAL NOT NULL,
+            payload TEXT NOT NULL,
+            payload_hash TEXT NOT NULL,
+            byte_size INTEGER NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_attempt_at REAL NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            UNIQUE(run_id,lease_epoch,sequence)
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_event_wal_flush
+            ON run_event_wal(owner_id,run_id,lease_epoch,sequence);
+        """
+    )
+    conn.commit()
+    _local.initialized = True
+
+
+def get_device_setting(key: str) -> Optional[str]:
+    init_db()
+    row = get_conn().execute("SELECT value FROM device_settings WHERE key=?", (key,)).fetchone()
+    return str(row["value"]) if row else None
+
+
+def set_device_setting(key: str, value: Optional[str]) -> None:
+    init_db()
+    if value is None:
+        get_conn().execute("DELETE FROM device_settings WHERE key=?", (key,))
+    else:
+        get_conn().execute(
+            "INSERT INTO device_settings(key,value,updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+            (key, value, time.time()),
+        )
+    get_conn().commit()
+
+
+def get_device_secret(key: str) -> Optional[str]:
+    init_db()
+    row = get_conn().execute("SELECT value FROM device_secrets WHERE key=?", (key,)).fetchone()
+    return local_secret_store.unprotect(str(row["value"])) if row else None
+
+
+def set_device_secret(key: str, value: Optional[str]) -> None:
+    init_db()
+    if not value:
+        get_conn().execute("DELETE FROM device_secrets WHERE key=?", (key,))
+    else:
+        get_conn().execute(
+            "INSERT INTO device_secrets(key,value,updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+            (key, local_secret_store.protect(value), time.time()),
+        )
+    get_conn().commit()
+
+
+def set_server_identity(owner_id: str, token: str, expires_at: float | None = None) -> None:
+    init_db()
+    expiry = float(expires_at or (time.time() + settings.SERVER_TOKEN_OFFLINE_GRACE_SECONDS))
+    get_conn().execute(
+        "INSERT INTO server_identities(owner_id,server_token,expires_at,updated_at) VALUES (?,?,?,?) "
+        "ON CONFLICT(owner_id) DO UPDATE SET server_token=excluded.server_token,"
+        "expires_at=excluded.expires_at,updated_at=excluded.updated_at",
+        (owner_id, local_secret_store.protect(token), expiry, time.time()),
+    )
+    get_conn().commit()
+
+
+def get_server_identity(owner_id: str) -> Optional[str]:
+    init_db()
+    row = get_conn().execute(
+        "SELECT server_token FROM server_identities WHERE owner_id=? AND expires_at>?",
+        (owner_id, time.time()),
+    ).fetchone()
+    return local_secret_store.unprotect(str(row["server_token"])) if row else None
+
+
+def list_server_identities() -> list[tuple[str, str]]:
+    init_db()
+    rows = get_conn().execute(
+        "SELECT owner_id,server_token FROM server_identities WHERE expires_at>? ORDER BY owner_id",
+        (time.time(),),
+    ).fetchall()
+    return [
+        (str(row["owner_id"]), local_secret_store.unprotect(str(row["server_token"])))
+        for row in rows
+    ]
+
+
+def clear_server_identity_by_token(token: str) -> None:
+    init_db()
+    rows = get_conn().execute("SELECT owner_id,server_token FROM server_identities").fetchall()
+    owner_ids = [
+        str(row["owner_id"]) for row in rows
+        if secrets.compare_digest(local_secret_store.unprotect(str(row["server_token"])), token)
+    ]
+    get_conn().executemany("DELETE FROM server_identities WHERE owner_id=?", [(item,) for item in owner_ids])
+    get_conn().commit()
+
+
+def clear_server_identity(owner_id: str) -> None:
+    init_db()
+    get_conn().execute("DELETE FROM server_identities WHERE owner_id=?", (owner_id,))
+    get_conn().commit()
+
+
+def status_snapshot() -> dict:
+    init_db()
+    conn = get_conn()
+    wal = conn.execute(
+        "SELECT COUNT(*) AS count,COALESCE(SUM(byte_size),0) AS bytes,MIN(created_at) AS oldest "
+        "FROM run_event_wal"
+    ).fetchone()
+    leases = conn.execute(
+        "SELECT COUNT(*) AS count,SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active "
+        "FROM run_transport_leases"
+    ).fetchone()
+    errors = conn.execute(
+        "SELECT run_id,last_error FROM run_transport_leases WHERE last_error<>'' "
+        "ORDER BY updated_at DESC LIMIT 10"
+    ).fetchall()
+    identities = int(conn.execute(
+        "SELECT COUNT(*) FROM server_identities WHERE expires_at>?", (time.time(),),
+    ).fetchone()[0])
+    return {
+        "identities": identities,
+        "leases": {"total": int(leases["count"] or 0), "active": int(leases["active"] or 0)},
+        "wal": {
+            "count": int(wal["count"] or 0), "bytes": int(wal["bytes"] or 0),
+            "oldest_at": float(wal["oldest"] or 0),
+        },
+        "errors": [{"run_id": str(row["run_id"]), "error": str(row["last_error"])} for row in errors],
+    }

@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import platform
 import re
 import time
 import uuid
@@ -18,9 +19,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 import server_client
-import server_sync
+import local_agent_store as db
+from agent.skills import _TOOL_REGISTRY
 from config import settings
-from storage import db
 
 
 PROTOCOL_VERSION = 1
@@ -91,10 +92,16 @@ def _private_key(owner_id: str) -> Ed25519PrivateKey:
 
 
 def _public_capabilities() -> dict[str, Any]:
-    report = dict(server_sync._capability_report(""))
-    report.pop("revision", None)
-    report["capabilities"] = ["run_events_v1", "local_workspace", "ask_user"]
-    return report
+    contracts = {name: settings.TOOL_CONTRACT_VERSION for name in _TOOL_REGISTRY}
+    contracts["ask_user"] = settings.TOOL_CONTRACT_VERSION
+    return {
+        "app_version": settings.APP_VERSION,
+        "platform": platform.system().lower(),
+        "arch": platform.machine().lower(),
+        "tool_contract_version": settings.TOOL_CONTRACT_VERSION,
+        "supported_tools": contracts,
+        "capabilities": ["run_events_v1", "local_workspace", "ask_user"],
+    }
 
 
 def ensure_device(owner_id: str, user_token: str) -> str | None:
@@ -142,6 +149,18 @@ def ensure_device(owner_id: str, user_token: str) -> str | None:
 def clear_device_token(owner_id: str) -> None:
     db.set_device_secret(_setting(owner_id, "token"), None)
     db.set_device_setting(_setting(owner_id, "token_expires_at"), None)
+
+
+def device_token(owner_id: str) -> str | None:
+    """Return the protected device credential without exposing its storage key."""
+    return db.get_device_secret(_setting(owner_id, "token"))
+
+
+def lease_owner(run_id: str) -> str | None:
+    row = db.get_conn().execute(
+        "SELECT owner_id FROM run_transport_leases WHERE run_id=? AND status='active'", (run_id,),
+    ).fetchone()
+    return str(row["owner_id"]) if row else None
 
 
 def heartbeat(owner_id: str, device_token: str) -> bool:

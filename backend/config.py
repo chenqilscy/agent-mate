@@ -106,6 +106,12 @@ class Settings:
     # DB + workspace live in DATA_DIR (backend/ in dev, per-user data dir when frozen).
     # AGENTMATE_DB overrides the DB path (isolated tests / running a second instance).
     DB_PATH: Path = Path(os.getenv("AGENTMATE_DB", str(DATA_DIR / "agentmate.db")))
+    # Local Agent Core owns only device identity, Server bindings, active leases
+    # and unacknowledged event WAL. It must remain usable without the legacy
+    # local business database above.
+    LOCAL_AGENT_DB_PATH: Path = Path(
+        os.getenv("AGENTMATE_LOCAL_AGENT_DB", str(DATA_DIR / "agentmate-local-agent.db"))
+    )
 
     WORKSPACE_ROOT: Path = Path(
         os.getenv("AGENTMATE_WORKSPACE", str(DATA_DIR / "workspace"))

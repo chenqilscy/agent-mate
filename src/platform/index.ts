@@ -22,6 +22,19 @@ export type UpdateOptions = {
   install?: boolean
 }
 
+export type LocalAgentStatus = {
+  service: 'local-agent-core'
+  protocol_version: number
+  server_configured: boolean
+  transport: {
+    identities: number
+    leases: { total: number; active: number }
+    wal: { count: number; bytes: number; oldest_at: number }
+    errors: Array<{ run_id: string; error: string }>
+  }
+  workers: unknown
+}
+
 export interface Platform {
   windowControls: {
     minimize(): void
@@ -42,6 +55,9 @@ export interface Platform {
   // Auto-update (A4): check the release endpoint; if newer, download+install and
   // relaunch (never returns in that case). Throws on network/endpoint failure.
   checkForUpdates(options: UpdateOptions): Promise<UpdateResult>
+  localAgent: {
+    status(): Promise<LocalAgentStatus | null>
+  }
   isDesktop: boolean
 }
 
@@ -62,6 +78,7 @@ const webPlatform: Platform = {
   globalShortcut: { register() {}, unregister() {} },
   fileDialog: { async openDirectory() { return null } },
   async checkForUpdates() { return { status: 'unsupported' } },
+  localAgent: { async status() { return null } },
   isDesktop: false,
 }
 
@@ -86,6 +103,12 @@ const tauriPlatform: Platform = {
       deviceId: options.deviceId,
       install: Boolean(options.install),
     })
+  },
+  localAgent: {
+    async status() {
+      const { invoke } = await import('@tauri-apps/api/core')
+      return invoke<LocalAgentStatus>('local_agent_status')
+    },
   },
   isDesktop: true,
 }

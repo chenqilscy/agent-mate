@@ -249,7 +249,15 @@ Local Agent 必须先把事件和 payload hash 原子写入 WAL，再发送。Se
 - 设备通道：`POST /api/agent/heartbeat` 更新公开 capability；`POST /api/agent/runs/lease` 原子领取；`renew/events/commands` 分别续租、提交有序事件和拉取取消/`ask_user` 命令。
 - Server migration v11 保存设备、challenge/token hash、租约、正式事件和命令；`business_runs.lease_epoch` 是 fencing 权威，活跃租约在数据库中有唯一索引。
 - Local App migration v9 只保存当前租约和未 ACK event WAL。发送失败、进程重启与 seq gap 都保留原 event；只有连续 `ack_high_water` 推进后才删除。
-- 后台调度器仅注册、心跳和补传 WAL；在 WB-434 完成 Local Agent Core 执行边界前不自动领取 Run，避免尚无执行 owner 时误消费任务。
+- 后台调度器仅注册、心跳和补传 WAL；Run 领取、事件写入和完成控制已由 WB-434 的受保护 Core 接口承接，不由兼容业务调度器抢占。
+
+### 7.6 已落地 Local Agent Core 基线（WB-434）
+
+- `backend/main.py --local-agent-core` 启动独立 FastAPI app，只初始化 `agentmate-local-agent.db`，不注册项目、会话、任务、自动化、登录或通用 Server 代理路由，也不打开本地业务数据库。
+- Core 仅绑定 `127.0.0.1`，并再次按请求来源拒绝非 loopback 客户端；所有 `/api/local-agent/*` 请求还必须携带 Tauri 每次启动生成的随机 IPC token。
+- IPC token 只通过 sidecar stdin 管道一次性注入，在 Tauri/Python 进程内存中使用；不进入参数值、子进程环境、数据库或前端。Desktop 只暴露窄化的原生命令，不提供通用带权代理。
+- 设备私钥、Device token 和 Server session token 在 Windows 使用当前用户 DPAPI 加密后落库；Run lease 和未 ACK WAL 使用独立 Core SQLite，payload 密钥字段在写 WAL 前失败关闭。
+- 为等待 WB-435 的 UI 双通道切换，默认 sidecar 暂时仍启动兼容 app，并在同一进程挂载上述受保护 Core 路由；独立 Core 入口和空业务库 Run 完成链路已经可验证，兼容业务路由不属于 Core app。
 
 ## 8. 离线和故障语义
 
@@ -319,6 +327,7 @@ Local Agent 至少暴露给本机诊断页：
 - 从 `backend/` 移除业务权威职责，保留 runtime、工具、MCP、凭据、workspace、WAL 和 device API。
 - 当前 FastAPI 可作为过渡 sidecar，但本地路由只能服务本机能力，不得继续拥有业务 CRUD。
 - 退出门槛：删除本地业务 DB 后，Local Agent 仍可从 Server 领取并完成 Run。
+- **2026-08-08 基线：** 独立 Core app、受保护 loopback IPC、独立加密 secret/lease/WAL 存储和空业务库 Run 完成回归已落地；默认 sidecar 的兼容业务路由将在阶段 4 完成 UI 切换时停止启动，避免提前破坏现有桌面流程。
 
 ### 阶段 4：Desktop UI 双通道切换
 
@@ -353,7 +362,7 @@ Local Agent 至少暴露给本机诊断页：
 | [WB-431](issues/archive/2026/WB-400-499.md#wb-431) | 目标架构、数据归属、迁移阶段与子项拆分 | 无 |
 | [WB-432](issues/archive/2026/WB-400-499.md#wb-432) | Server 持久业务模型与 API | WB-431 |
 | [WB-433](issues/archive/2026/WB-400-499.md#wb-433) | 设备身份、Run 租约、事件 WAL/ACK 协议 | WB-431；与 WB-432 对齐 Run schema |
-| [WB-434](issues/WB-434-local-agent-core-boundary.md) | Local Agent Core 收缩和本机 IPC | WB-433 |
+| [WB-434](issues/archive/2026/WB-400-499.md#wb-434) | Local Agent Core 收缩和本机 IPC | WB-433 |
 | [WB-435](issues/WB-435-desktop-dual-channel-cutover.md) | Desktop UI 业务/本机双通道切换 | WB-432、WB-433、WB-434 |
 | [WB-436](issues/WB-436-server-assets-working-copy.md) | Server 对象存储与 Local Agent working copy | WB-432、WB-433 |
 | [WB-437](issues/WB-437-server-first-data-migration-retirement.md) | 存量导入、分批切换和旧同步退役 | WB-432～WB-436 |
@@ -364,8 +373,8 @@ Local Agent 至少暴露给本机诊断页：
 |---|---|---|
 | Server API/Console | `server/`、`console/` | 扩展业务模型、Run/设备/资产 API |
 | Desktop UI | `src/`、`src-tauri/` | 业务请求改连 Server，本机能力改走 IPC |
-| Local Agent Core | `backend/main.py`、`backend/agent/`、`backend/mcp_*` | 保留执行能力，删除业务权威和同步代理 |
-| 本地安全/工作集 | `backend/storage/`、`workspace/` | 拆为 secret store、WAL、working copy、cache |
+| Local Agent Core | `backend/local_agent_core.py`、`backend/agent/`、`backend/mcp_*` | 独立 Core 入口已落地；WB-435 后默认 sidecar 停止加载兼容业务 app |
+| 本地安全/工作集 | `backend/local_agent_store.py`、`backend/local_secret_store.py`、`workspace/` | secret/lease/WAL 已拆分；working copy 与 cache 继续按 WB-436 收口 |
 | 旧同步层 | `backend/server_sync.py`、`backend/server_client.py`、镜像字段/表 | 迁移完成后删除 |
 
 旧 [`agentmate-server-架构设计.md`](agentmate-server-架构设计.md) 继续记录已经实现的 local-first 控制面基线，供迁移追溯；不得再把它当成新增功能的目标架构。

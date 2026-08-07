@@ -30,8 +30,8 @@
 | 助理、频道、自动化、调度与历史 | Server | 执行所需快照/缓存 | 不创建、不编辑；已租约任务按协议继续 | Server schema/API 已落地，待客户端迁移 |
 | Catalog、Capability Release、策略、安装目标 | Server | 已校验能力包缓存 | 使用 last-known-good 执行包；不改策略 | 已有目录下行，待去镜像化 |
 | 项目资产、正式产物、对象版本 | Server + object storage | working copy / 下载缓存 | 未上传文件仍标记“仅本机” | 待建设 |
-| 设备、capability、heartbeat、lease、ACK 高水位 | Server | 设备私钥、当前租约与 WAL | 重连后按 epoch/seq 恢复 | WB-433 协议已落地；执行接管待 WB-434 |
-| 用户 LLM/MCP/连接器执行 secret | Local Agent secure storage | ✅ 权威 | 仅本机可用 | 已本地保存，需迁入安全存储 |
+| 设备、capability、heartbeat、lease、ACK 高水位 | Server | 设备私钥、当前租约与 WAL | 重连后按 epoch/seq 恢复 | WB-433 协议与 WB-434 独立 Core 执行控制已落地 |
+| 用户 LLM/MCP/连接器执行 secret | Local Agent secure storage | ✅ 权威 | 仅本机可用 | Device/Server token 已迁入 DPAPI 加密 Core 存储；其余执行 secret 随后续边界迁移 |
 | OS 权限、外部路径 bookmark、浏览器 profile 授权 | Local Agent | ✅ 权威 | 仅本机可用 | 部分已有 |
 | Server SSO/中央服务/deployment secret | Server secret store | ❌ | 相关 Server 能力不可用 | 已有只写/加密基础 |
 | PID、端口、进程句柄、临时目录 | Local Agent runtime | 仅执行期 | 进程恢复按 Run 协议处理 | 已有 |
@@ -120,7 +120,7 @@ Server 已建立 `sessions/messages/runs/run_steps/assistants/channels/automatio
 ### 4.5 设备与 Run 传输 API 基线（WB-433）
 
 - 用户 Bearer token 只用于登记、列出和撤销设备；设备执行请求使用独立 `Device` token，Server 只存 token hash。撤销用户 session 不会伪装成设备撤销，两者生命周期独立；
-- 设备私钥在本机生成，Server 只接收 Ed25519 public key，并通过五分钟、一次性 challenge 证明持钥。当前客户端将私钥保存在 backend-only `device_secrets`；迁入 OS secure storage 属于 WB-434 本机服务边界，不得把私钥暴露给 UI；
+- 设备私钥在本机生成，Server 只接收 Ed25519 public key，并通过五分钟、一次性 challenge 证明持钥。WB-434 起私钥和 Device/Server token 只以当前 Windows 用户 DPAPI 密文保存在独立 Core DB，且不暴露给 UI；
 - Run 只从 `queued/recoverable` 原子变为 `leased`。租约超时或设备撤销增加 recovery count；超过上限由 Server 提交 `failed`，否则变为 `recoverable`；
 - Server 对 `(run_id, lease_epoch, seq)` 与 `event_id` 双重去重，hash 或语义不一致返回 `409`；seq gap 返回所需的 `expected_sequence`；
 - `cancel` 与 `ask_user_answer` 是 Server 持久命令。Local Agent 必须用命令确认/终态事件闭环，Server 不把“命令已发”误报为“本机已停止”。

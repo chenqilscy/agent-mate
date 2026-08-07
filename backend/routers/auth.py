@@ -12,6 +12,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 import server_client
+import local_agent_store
 from storage import db
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -56,6 +57,7 @@ def _mirror_server_account(token: str, acct: dict, expires_at: float | None = No
     db.upsert_external_user(aid, str(acct.get("name", "")), str(acct.get("plan", "体验版")))
     effective_expiry = db.cache_token(token, aid, expires_at)
     db.set_server_identity(aid, token)
+    local_agent_store.set_server_identity(aid, token, effective_expiry)
     user = db.get_user(aid)
     assert user is not None  # 刚 upsert，必存在
     return {"token": token, "expires_at": effective_expiry, "user": _user_view(user)}
@@ -151,6 +153,7 @@ def logout(authorization: str | None = Header(default=None)) -> dict:
     db.enqueue_token_revocation(token)
     db.delete_token(token)
     db.clear_server_identity_by_token(token)
+    local_agent_store.clear_server_identity_by_token(token)
     revoked_remote = server_client.server_logout(token)
     if revoked_remote:
         db.mark_token_revoked(token)

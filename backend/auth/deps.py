@@ -12,6 +12,7 @@ from contextvars import ContextVar
 from fastapi import Depends
 
 import server_client
+import local_agent_store
 from config import settings
 from storage import db
 from storage.models import LOCAL_USER_ID, User
@@ -58,6 +59,7 @@ def resolve_via_server(token: str) -> str | None:
     db.upsert_external_user(aid, str(acct.get("name", "")), str(acct.get("plan", "体验版")))
     db.cache_token(token, aid, acct.get("_token_expires_at"))
     db.set_server_identity(aid, token)  # 记住 Server token，供后台 outbox worker 以本人身份推送（Phase 3）
+    local_agent_store.set_server_identity(aid, token, acct.get("_token_expires_at"))
     return aid
 
 
