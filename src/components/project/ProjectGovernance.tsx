@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Empty, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Table, Tag, Typography } from 'antd'
 import { api } from '../../lib/api'
+import { RISK_DESCRIPTION_TEMPLATE } from '../../lib/governance'
 import type { GovernanceRecordType, ProjectGovernanceRecord, ProjectMember, RiskSeverity } from '../../lib/types'
 import { useWorkItemStore } from '../../stores/workItemStore'
 import { toast } from '../../stores/toastStore'
@@ -20,30 +21,6 @@ const SEVERITY: Array<{ value: RiskSeverity; label: string; color: string }> = [
   { value: 'high', label: '高', color: 'orange' }, { value: 'critical', label: '严重', color: 'red' },
 ]
 const PRIORITY_LABEL: Record<RiskSeverity, string> = { low: '低', medium: '中', high: '高', critical: '紧急' }
-
-export const RISK_DESCRIPTION_TEMPLATE = `## 触发条件
-
-描述什么情况出现时，这项风险会发生。
-
-## 潜在影响
-
-描述可能造成的业务、交付、成本或安全影响。
-
-## 影响范围
-
-- 受影响的用户、系统或团队：
-- 受影响的里程碑或目标：
-
-## 关闭条件
-
-- [ ] 处置任务已通过真实交付验收
-- [ ] 关键验证结果符合预期
-- [ ] 残余风险已评估并记录
-
-## 残余风险
-
-风险关闭前补充仍然存在的限制、监控项或复查时间。
-`
 
 const ACTION_TASK_ACCEPTANCE_TEMPLATE = `- [ ] 已完成风险应对措施中的全部实施项
 - [ ] 相关正常路径和异常路径无回归

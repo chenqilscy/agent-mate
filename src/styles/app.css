@@ -120,11 +120,18 @@
 .wb-markdown-editor-preview-content th,
 .wb-markdown-editor-preview-content td { padding: 7px 9px; border: 1px solid var(--border); }
 .wb-markdown-editor-preview-content a { color: var(--brand-600); }
+.wb-td-governance-head { align-items: center; justify-content: space-between; gap: var(--space-sm); }
+.wb-td-governance-head .wb-td-editlink { margin-left: 0; }
+.wb-td-governance-list { display: grid; gap: 7px; }
+.wb-td-governance-row { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-chip); }
+.wb-td-governance-title { flex: 1; min-width: 0; overflow: hidden; color: var(--text); font-size: var(--text-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.wb-td-governance-empty { margin-block: 4px 8px; }
 @media (max-width: 900px) {
   .wb-markdown-editor-toolbar,
   .wb-markdown-editor-footer { align-items: flex-start; flex-direction: column; }
   .wb-markdown-editor-body.is-split { grid-template-columns: minmax(0, 1fr); }
   .wb-markdown-editor-body.is-split .wb-markdown-editor-preview { border-inline-start: 0; border-top: 1px solid var(--border); }
+  .wb-td-governance-head { align-items: flex-start; flex-direction: column; }
 }
 
 .reward { position: absolute; top: 16px; right: 20px; display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px 0 7px; border-radius: 20px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); font-size: 12.5px; font-weight: 600; cursor: pointer; box-shadow: var(--shadow-sm); z-index: 5; }

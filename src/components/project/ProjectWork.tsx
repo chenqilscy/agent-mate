@@ -11,6 +11,7 @@ import { AntModalBridge } from '../ui/AntModalBridge'
 import { App as AntApp, Empty, Input, Select, Table, Tag } from 'antd'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../../lib/a11y'
+import { TaskGovernanceSection } from './TaskGovernanceSection'
 
 const COLS: { key: WorkStatus; label: string }[] = [
   { key: 'todo', label: '待开始' },
@@ -502,6 +503,8 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
           ) : (
             <div className={`wb-td-desc ${item.description ? '' : 'empty'}`.trim()}>{item.description || '暂无描述，点「编辑」补充。'}</div>
           )}
+
+          {projectId && <TaskGovernanceSection projectId={projectId} item={item} canWrite={canWrite} />}
 
           <div className="wb-td-sec-h">
             Agent 交付
