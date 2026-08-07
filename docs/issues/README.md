@@ -7,7 +7,7 @@
 
 - 活动状态 `open` / `in-progress` / `deferred`：每个问题一个 `WB-<编号>-<slug>.md` 文件。
 - 终态 `fixed` / `wontfix`：运行 `python scripts/archive_issues.py --apply` 后进入 [`archive/`](archive/README.md)。
-- 编号全局递增且不复用；当前最大编号是 `WB-436`，可用 `python scripts/archive_issues.py --next-id` 查询。
+- 编号全局递增且不复用；当前最大编号是 `WB-437`，可用 `python scripts/archive_issues.py --next-id` 查询。
 - 活动文件 frontmatter 是权威状态；下表是活动状态镜像。
 
 ## 活动台账
@@ -27,6 +27,7 @@
 | [WB-434](WB-434-local-agent-core-boundary.md) | ⬜ | P1 | backend | Local Agent Core 收缩为本机执行与 IPC 服务 |
 | [WB-435](WB-435-desktop-dual-channel-cutover.md) | ⬜ | P1 | frontend | Desktop UI 切换 Server 业务通道与 Local Agent IPC |
 | [WB-436](WB-436-server-assets-working-copy.md) | ⬜ | P1 | backend | Server 对象存储与 Local Agent working copy |
+| [WB-437](WB-437-server-first-data-migration-retirement.md) | ⬜ | P1 | misc | 存量业务数据迁移与旧同步机制退役 |
 
 ## 已关闭归档
 
