@@ -2630,6 +2630,14 @@ def accept_work_item_delivery(
     return accepted, False
 
 
+def get_work_item_acceptance(work_item_id: str) -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT * FROM work_item_acceptances WHERE work_item_id=?",
+        (work_item_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 # ---- 项目风险与决策台账（WB-350）----------------------------------------
 
 def get_project_governance(record_id: str) -> Optional[dict]:

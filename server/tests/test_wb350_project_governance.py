@@ -49,6 +49,11 @@ class ProjectGovernanceTest(unittest.TestCase):
         ), self.member)
         self.assertEqual("open", risk["status"])
         self.assertEqual("member", risk["owner_name"])
+        db.update_work_item(self.work["id"], status="review")
+        db.accept_work_item_delivery(
+            project_id=self.project.id, work_item_id=self.work["id"], run_id="local-run",
+            artifact_count=1, actor_id=self.owner.id, actor_name=self.owner.name,
+        )
         closed = update_record(self.project.id, risk["id"], UpdateBody(status="closed"), self.owner)
         self.assertGreater(closed["resolved_at"], 0)
         decision = create_record(self.project.id, CreateBody(

@@ -92,6 +92,41 @@
 .view.active { display: flex; }
 .page-scroll { flex: 1; overflow-y: auto; padding: 22px 28px 40px; }
 
+/* Markdown editor — uses the shared surface/text tokens so edit and preview remain legible in both themes. */
+.wb-markdown-editor { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); }
+.wb-markdown-editor-toolbar,
+.wb-markdown-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); padding: 7px 10px; background: var(--bg-chip); }
+.wb-markdown-editor-toolbar { border-bottom: 1px solid var(--border); }
+.wb-markdown-editor-footer { border-top: 1px solid var(--border); font-size: var(--text-xs); }
+.wb-markdown-editor-body.is-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wb-markdown-editor-input { min-height: 230px !important; padding: 14px !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; resize: vertical; }
+.wb-markdown-editor-preview { min-height: 230px; max-height: 440px; overflow: auto; padding: 14px 18px; background: var(--bg-surface); }
+.wb-markdown-editor-body.is-split .wb-markdown-editor-preview { border-inline-start: 1px solid var(--border); }
+.wb-markdown-editor-preview-content { overflow-wrap: anywhere; }
+.wb-markdown-editor-preview-content > :first-child { margin-top: 0; }
+.wb-markdown-editor-preview-content > :last-child { margin-bottom: 0; }
+.wb-markdown-editor-preview-content h1,
+.wb-markdown-editor-preview-content h2,
+.wb-markdown-editor-preview-content h3,
+.wb-markdown-editor-preview-content h4 { margin: 1.1em 0 .55em; line-height: 1.3; }
+.wb-markdown-editor-preview-content p,
+.wb-markdown-editor-preview-content ul,
+.wb-markdown-editor-preview-content ol { margin: .65em 0; }
+.wb-markdown-editor-preview-content blockquote { margin: .8em 0; padding: 4px 12px; color: var(--text-2); border-inline-start: 3px solid var(--brand); background: var(--bg-chip); }
+.wb-markdown-editor-preview-content code { padding: 2px 5px; border-radius: var(--radius-sm); background: var(--bg-chip); }
+.wb-markdown-editor-preview-content pre { overflow: auto; padding: 12px; border-radius: var(--radius-sm); background: var(--bg-chip); }
+.wb-markdown-editor-preview-content pre code { padding: 0; background: transparent; }
+.wb-markdown-editor-preview-content table { width: 100%; border-collapse: collapse; }
+.wb-markdown-editor-preview-content th,
+.wb-markdown-editor-preview-content td { padding: 7px 9px; border: 1px solid var(--border); }
+.wb-markdown-editor-preview-content a { color: var(--brand-600); }
+@media (max-width: 900px) {
+  .wb-markdown-editor-toolbar,
+  .wb-markdown-editor-footer { align-items: flex-start; flex-direction: column; }
+  .wb-markdown-editor-body.is-split { grid-template-columns: minmax(0, 1fr); }
+  .wb-markdown-editor-body.is-split .wb-markdown-editor-preview { border-inline-start: 0; border-top: 1px solid var(--border); }
+}
+
 .reward { position: absolute; top: 16px; right: 20px; display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px 0 7px; border-radius: 20px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); font-size: 12.5px; font-weight: 600; cursor: pointer; box-shadow: var(--shadow-sm); z-index: 5; }
 .reward .ri { width: 21px; height: 21px; border-radius: 50%; background: var(--brand); display: grid; place-items: center; font-size: 11px; flex-shrink: 0; }
 .reward svg { width: 15px; height: 15px; }

@@ -95,7 +95,34 @@ def _validate_scalar(changes: dict, current: dict | None = None) -> None:
 def _decorate(item: dict, by_id: dict) -> dict:
     a = item.get("assignee") or ""
     item["assignee_name"] = by_id.get(a, a)
+    # Server stores immutable assets separately; the App WorkItem contract still
+    # requires a list so opening a Server-created task never dereferences undefined.
+    item["attachments"] = []
+    item["delivery_accepted"] = db.get_work_item_acceptance(item["id"]) is not None
     return item
+
+
+def _sync_linked_risk(
+    project_id: str, work_item_id: str, status: str, account: Account,
+    *, run_id: str = "",
+) -> None:
+    if status not in {"doing", "paused", "review", "done"}:
+        return
+    for record in db.list_project_governance(project_id):
+        if (
+            record.get("record_type") != "risk"
+            or record.get("status") == "closed"
+            or record.get("work_item_id") != work_item_id
+        ):
+            continue
+        changes = {"status": "mitigating"}
+        if run_id:
+            changes["run_id"] = run_id
+        db.update_project_governance(record["id"], **changes)
+        db.log_project_governance_activity(
+            project_id=project_id, record_id=record["id"], actor_id=account.id,
+            kind="action_task_status", detail=f"{work_item_id}:{status}",
+        )
 
 
 def _sanitize_refs(
@@ -310,6 +337,8 @@ def update_item(project_id: str, wid: str, body: UpdateBody, account: Account = 
                 old, new = by_id.get(old, old) or "未指派", by_id.get(new, new) or "未指派"
             db.log_work_item_activity(project_id=project_id, work_item_id=wid, actor=account.name,
                                       kind=k, detail=f"{old}→{new}")
+    if "status" in changes:
+        _sync_linked_risk(project_id, wid, str(changes["status"]), account)
     observe_project_health(project_id, actor_name=account.name)
     return _decorate(updated, by_id)
 
@@ -333,6 +362,7 @@ def accept_item(project_id: str, wid: str, body: AcceptBody, account: Account = 
         raise HTTPException(404, "work item not found") from exc
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+    _sync_linked_risk(project_id, wid, "done", account, run_id=body.run_id)
     observe_project_health(project_id, actor_name=account.name)
     return _decorate(updated, _members_maps(project_id)[0])
 

@@ -737,6 +737,7 @@ export interface WorkItem {
   dependency_ids: string[]
   sprint_id: string
   critical_path?: boolean
+  delivery_accepted?: boolean
   ago?: string
   created_at?: number
   updated_at?: number

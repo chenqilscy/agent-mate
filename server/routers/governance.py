@@ -6,6 +6,8 @@ local-first 证据标识和说明，不上传文件或执行内容。
 from __future__ import annotations
 
 import json
+from datetime import date
+from threading import Lock
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -23,6 +25,8 @@ _STATUSES = {
 }
 _SEVERITIES = {"low", "medium", "high", "critical"}
 _SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+_ACTION_TASK_PRIORITY = {"low": "low", "medium": "medium", "high": "high", "critical": "urgent"}
+_ACTION_TASK_LOCK = Lock()
 
 
 def _access(project_id: str, account: Account) -> Role:
@@ -69,6 +73,28 @@ def _validate(record_type: str, values: dict) -> None:
         raise HTTPException(400, "decision severity must be empty")
 
 
+def _validate_risk_closure(project_id: str, values: dict) -> dict | None:
+    if values.get("record_type") != "risk" or values.get("status") != "closed":
+        return None
+    if not str(values.get("response") or "").strip():
+        raise HTTPException(409, "关闭风险前必须填写应对措施")
+    work_item_id = str(values.get("work_item_id") or "").strip()
+    if not work_item_id:
+        raise HTTPException(409, "关闭风险前必须关联处置任务")
+    work_item = db.get_work_item(work_item_id)
+    if not work_item or work_item["project_id"] != project_id:
+        raise HTTPException(409, "关联的处置任务不存在")
+    acceptance = db.get_work_item_acceptance(work_item_id)
+    if work_item.get("status") != "done" or not acceptance:
+        raise HTTPException(409, "处置任务通过真实交付验收后才能关闭风险")
+    if not str(values.get("evidence_label") or "").strip():
+        raise HTTPException(409, "关闭风险前必须填写残余风险结论与证据说明")
+    run_id = str(values.get("run_id") or "").strip()
+    if run_id and run_id != str(acceptance.get("run_id") or ""):
+        raise HTTPException(409, "风险证据 Run 必须与处置任务验收 Run 一致")
+    return acceptance
+
+
 def _decorate(item: dict) -> dict:
     members = {m["account_id"]: m.get("name", "") for m in db.list_project_members(item["project_id"])}
     work_item = db.get_work_item(item.get("work_item_id") or "")
@@ -78,6 +104,16 @@ def _decorate(item: dict) -> dict:
         "owner_name": members.get(item.get("owner_id") or "", ""),
         "work_item_title": work_item.get("title", "") if work_item else "",
         "milestone_name": milestone.get("name", "") if milestone else "",
+    }
+
+
+def _decorate_action_task(project_id: str, item: dict) -> dict:
+    members = {m["account_id"]: m.get("name", "") for m in db.list_project_members(project_id)}
+    return {
+        **item,
+        "assignee_name": members.get(str(item.get("assignee") or ""), str(item.get("assignee") or "")),
+        "attachments": [],
+        "delivery_accepted": db.get_work_item_acceptance(item["id"]) is not None,
     }
 
 
@@ -140,6 +176,12 @@ class UpdateBody(BaseModel):
     evidence_label: str | None = Field(default=None, max_length=500)
 
 
+class ActionTaskBody(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    due_date: str = ""
+    acceptance_criteria: str = Field(min_length=1, max_length=10000)
+
+
 @router.get("/projects/{project_id}/governance")
 def list_records(project_id: str, account: Account = CurrentAccount) -> dict:
     _access(project_id, account)
@@ -177,6 +219,63 @@ def create_record(project_id: str, body: CreateBody, account: Account = CurrentA
     return _decorate(item)
 
 
+@router.post("/projects/{project_id}/governance/{record_id}/action-task")
+def create_action_task(project_id: str, record_id: str, body: ActionTaskBody,
+                       account: Account = CurrentAccount) -> dict:
+    """Idempotently create and link the executable task for one risk."""
+    _require_write(project_id, account)
+    title = body.title.strip()
+    criteria = body.acceptance_criteria.strip()
+    due_date = body.due_date.strip()
+    if not title or not criteria:
+        raise HTTPException(400, "task title and acceptance criteria are required")
+    if due_date:
+        try:
+            date.fromisoformat(due_date)
+        except ValueError as exc:
+            raise HTTPException(400, "invalid due_date") from exc
+    with _ACTION_TASK_LOCK:
+        current = db.get_project_governance(record_id)
+        if not current or current["project_id"] != project_id:
+            raise HTTPException(404, "governance record not found")
+        if current["record_type"] != "risk" or current["status"] == "closed":
+            raise HTTPException(409, "only an active risk can create an action task")
+        if current.get("work_item_id"):
+            linked = db.get_work_item(current["work_item_id"])
+            if linked:
+                return {"created": False, "work_item": _decorate_action_task(project_id, linked), "risk": _decorate(current)}
+        source = f"risk:{record_id}"
+        existing = next((item for item in db.list_work_items(project_id) if item.get("source") == source), None)
+        if existing:
+            linked_risk = db.update_project_governance(record_id, work_item_id=existing["id"])
+            return {"created": False, "work_item": _decorate_action_task(project_id, existing), "risk": _decorate(linked_risk or current)}
+        description = "\n\n".join(part for part in (
+            f"## 来源风险\n\n**{current['title']}**",
+            str(current.get("description") or "").strip(),
+            f"## 应对措施\n\n{str(current.get('response') or '').strip() or '- 待补充'}",
+            f"## 验收标准\n\n{criteria}",
+            "## 证据要求\n\n- [ ] 通过真实 Run 完成任务交付\n- [ ] 交付物完整性校验通过\n- [ ] 风险关闭前补充残余风险结论",
+        ) if part)
+        item = db.create_work_item(
+            project_id=project_id, title=title, status="todo", source=source,
+            assignee=str(current.get("owner_id") or ""), description=description,
+            priority=_ACTION_TASK_PRIORITY[str(current.get("severity") or "medium")],
+            due_date=due_date, labels=["风险处置"],
+            milestone_id=str(current.get("milestone_id") or ""),
+        )
+        linked_risk = db.update_project_governance(record_id, work_item_id=item["id"])
+        db.log_work_item_activity(
+            project_id=project_id, work_item_id=item["id"], actor=account.name,
+            kind="created", detail=item["title"],
+        )
+        db.log_project_governance_activity(
+            project_id=project_id, record_id=record_id, actor_id=account.id,
+            kind="action_task_created", detail=json.dumps({"work_item_id": item["id"]}, ensure_ascii=False),
+        )
+        observe_project_health(project_id, actor_name=account.name)
+        return {"created": True, "work_item": _decorate_action_task(project_id, item), "risk": _decorate(linked_risk or current)}
+
+
 @router.patch("/projects/{project_id}/governance/{record_id}")
 def update_record(project_id: str, record_id: str, body: UpdateBody,
                   account: Account = CurrentAccount) -> dict:
@@ -192,6 +291,9 @@ def update_record(project_id: str, record_id: str, body: UpdateBody,
     merged = {**current, **changes}
     _validate(current["record_type"], merged)
     _validate_refs(project_id, merged)
+    acceptance = _validate_risk_closure(project_id, merged)
+    if acceptance and not str(merged.get("run_id") or "").strip():
+        changes["run_id"] = str(acceptance.get("run_id") or "")
     observe_project_health(project_id, actor_name=account.name)
     updated = db.update_project_governance(record_id, **changes)
     if not updated:

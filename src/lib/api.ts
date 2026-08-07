@@ -729,6 +729,13 @@ export const api = {
     serverSend<ProjectGovernanceRecord>('POST', `/projects/${body.project_id}/governance`, body),
   updateProjectGovernance: (projectId: string, id: string, patch: Partial<ProjectGovernanceRecord>) =>
     serverSend<ProjectGovernanceRecord>('PATCH', `/projects/${projectId}/governance/${id}`, patch),
+  createRiskActionTask: (projectId: string, id: string, body: {
+    title: string
+    due_date?: string
+    acceptance_criteria: string
+  }) => serverSend<{ created: boolean; work_item: WorkItem; risk: ProjectGovernanceRecord }>(
+    'POST', `/projects/${projectId}/governance/${id}/action-task`, body,
+  ),
   deleteProjectGovernance: (projectId: string, id: string) => serverSend<{ ok: boolean }>('DELETE', `/projects/${projectId}/governance/${id}`),
   projectHealth: (project: string) => serverGet<ProjectHealth>(`/projects/${encodeURIComponent(project)}/health`),
   projectHealthPortfolio: () => serverGet<ProjectHealthPortfolio>('/project-health'),
