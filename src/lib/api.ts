@@ -273,9 +273,21 @@ export const api = {
   serverProjectActivity: (pid: string) =>
     get<{ server: boolean; activity: { id: string; actor: string; kind: string; detail: string; created_at: number }[] }>(`/server/projects/${pid}/activity`),
   serverProjectCustomFields: (pid: string) =>
-    get<{ server: boolean; fields: { id: string; name: string; field_type: string; options: string[]; required: boolean }[] }>(`/server/projects/${pid}/custom-fields`),
+    get<{ server: boolean; fields: import('./types').ServerProjectField[] }>(`/server/projects/${pid}/custom-fields`),
+  serverCreateProjectCustomField: (pid: string, body: Omit<import('./types').ServerProjectField, 'id'>) =>
+    send<{ server: boolean; field: import('./types').ServerProjectField }>('POST', `/server/projects/${pid}/custom-fields`, body),
+  serverUpdateProjectCustomField: (pid: string, fieldId: string, body: Partial<Omit<import('./types').ServerProjectField, 'id'>>) =>
+    send<{ server: boolean; field: import('./types').ServerProjectField }>('PATCH', `/server/projects/${pid}/custom-fields/${fieldId}`, body),
+  serverDeleteProjectCustomField: (pid: string, fieldId: string) =>
+    send<{ server: boolean; ok: boolean }>('DELETE', `/server/projects/${pid}/custom-fields/${fieldId}`),
   serverProjectSprints: (pid: string) =>
-    get<{ server: boolean; sprints: { id: string; name: string; goal: string; start_date: string; end_date: string; status: string }[] }>(`/server/projects/${pid}/sprints`),
+    get<{ server: boolean; sprints: import('./types').ServerProjectSprint[] }>(`/server/projects/${pid}/sprints`),
+  serverCreateProjectSprint: (pid: string, body: Omit<import('./types').ServerProjectSprint, 'id'> & { milestone_id?: string }) =>
+    send<{ server: boolean; sprint: import('./types').ServerProjectSprint }>('POST', `/server/projects/${pid}/sprints`, body),
+  serverUpdateProjectSprint: (pid: string, sprintId: string, body: Partial<Omit<import('./types').ServerProjectSprint, 'id'> & { milestone_id?: string }>) =>
+    send<{ server: boolean; sprint: import('./types').ServerProjectSprint }>('PATCH', `/server/projects/${pid}/sprints/${sprintId}`, body),
+  serverDeleteProjectSprint: (pid: string, sprintId: string) =>
+    send<{ server: boolean; ok: boolean }>('DELETE', `/server/projects/${pid}/sprints/${sprintId}`),
   serverProjectPmPreferences: (pid: string) =>
     get<{ server: boolean; preferences: SharedPmPreferences }>(`/server/projects/${pid}/pm-preferences`),
   serverUpdateProjectPmPreferences: (pid: string, patch: Partial<SharedPmPreferences>) =>

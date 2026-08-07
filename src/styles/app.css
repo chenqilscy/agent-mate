@@ -1379,6 +1379,8 @@ body.dark .ph-illus { filter: brightness(.72) saturate(.78); }
 .pj-data-head .ant-btn { height: 26px; padding-inline: 7px; font-size: 11px; }
 .pj-data-row { display: grid; gap: 3px; min-width: 0; padding: 8px 0; border-top: 1px solid var(--border-2); }
 .pj-data-name { color: var(--text); font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-data-inline-actions { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
+.pj-data-inline-actions .ant-btn { height: 22px; padding-inline: 5px; font-size: 10px; font-weight: 500; }
 .pj-data-meta, .pj-data-summary, .pj-data-empty { color: var(--text-3); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
 .pj-data-empty { padding: 8px 0 2px; }
 .pjh-tabs { display: flex; gap: 22px; padding: 0 24px; border-bottom: 1px solid var(--border-2); flex-shrink: 0; }

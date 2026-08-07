@@ -821,6 +821,23 @@ export interface SharedPmPreferences {
   wip: Record<string, number>
 }
 
+export interface ServerProjectField {
+  id: string
+  name: string
+  field_type: string
+  options: string[]
+  required: boolean
+}
+
+export interface ServerProjectSprint {
+  id: string
+  name: string
+  goal: string
+  start_date: string
+  end_date: string
+  status: string
+}
+
 export type IdeaStatus = 'inbox' | 'active' | 'settled' | 'archived'
 export type IdeaRelationType = 'related' | 'derived' | 'duplicate'
 export type IdeaSettlementType = 'work_item' | 'decision' | 'memory'

@@ -467,11 +467,35 @@ def list_project_custom_fields(token: str, project_id: str) -> Optional[list[dic
     return fields if isinstance(fields, list) else None
 
 
+def create_project_custom_field(token: str, project_id: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    return _post(f"/api/projects/{project_id}/custom-fields", token, body, strict=True)
+
+
+def update_project_custom_field(token: str, project_id: str, field_id: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    return _patch(f"/api/projects/{project_id}/custom-fields/{field_id}", token, body, strict=True)
+
+
+def delete_project_custom_field(token: str, project_id: str, field_id: str) -> bool:
+    return _delete(f"/api/projects/{project_id}/custom-fields/{field_id}", token, strict=True)
+
+
 def list_project_sprints(token: str, project_id: str) -> Optional[list[dict[str, Any]]]:
     """读取 Server 项目迭代定义；App 只读回，不在本地伪造。"""
     d = _get(f"/api/projects/{project_id}/sprints", token, strict=True)
     sprints = d.get("sprints") if isinstance(d, dict) else None
     return sprints if isinstance(sprints, list) else None
+
+
+def create_project_sprint(token: str, project_id: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    return _post(f"/api/projects/{project_id}/sprints", token, body, strict=True)
+
+
+def update_project_sprint(token: str, project_id: str, sprint_id: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    return _patch(f"/api/projects/{project_id}/sprints/{sprint_id}", token, body, strict=True)
+
+
+def delete_project_sprint(token: str, project_id: str, sprint_id: str) -> bool:
+    return _delete(f"/api/projects/{project_id}/sprints/{sprint_id}", token, strict=True)
 
 
 def get_project_pm_preferences(token: str, project_id: str) -> Optional[dict[str, Any]]:

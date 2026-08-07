@@ -65,3 +65,12 @@ P1。项目是 App 与 Console 的核心共享对象；能力缺失会让跨端�
 - 使用真实 `admin` 账号打开 `buddy` 项目进行浏览器验收：页面显示 Server 权威接口、Sprint-0815 与 Sprint-0830、最近项目活动 7 条，自定义字段 0、共享工作台偏好 0，与 Server 数据一致。
 - 验证：`npx tsc --noEmit`、`npx vite build`、`git diff --check` 已通过；浏览器真实 DOM 已读回项目数据，390px 窄屏 `scrollWidth=390` 且无浏览器 error 日志。
 - 本 issue 继续保持 `in-progress`：自定义字段与 Sprint 的原生编辑 API、完整权限回归、离线/Server 不可达回归仍未完成，暂不关闭。
+
+## 处理记录（2026-08-07，第四阶段）
+
+- 补齐 App → Server 的字段/Sprint 严格写入代理：新增创建、更新、删除路由，复用 Server 原生 CRUD 和角色校验；Server 的 4xx 拒绝会原样映射，网络/5xx 失败返回 503，不写入本地副本。
+- App“项目数据”面板对可写且 Server 可达的团队项目提供字段/Sprint 新增、编辑、删除表单；只读角色或 Server 不可达时自动保留 Console 管理入口和只读展示，本机项目路径不受影响。
+- 使用真实 `admin` / `buddy` 项目验收：页面显示“新增字段”“新增 Sprint”、现有 Sprint 编辑/删除入口；表单可打开，390px 下 `scrollWidth=390`。未提交任何真实新增或删除，项目仍保持 Sprint 2、活动 7、字段 0。
+- 失败语义回归：无效字段类型和反向日期 Sprint 请求均返回 400，未污染项目数据；Server PM 字段测试 4 项通过。
+- 验证：`npx tsc --noEmit`、`npx vite build`、后端 `py_compile`、`git diff --check` 已通过；最终页面回归未产生新的控制台错误。本轮早期异步 Form 警告已改为受控草稿表单并移除。
+- 本 issue 继续保持 `in-progress`：Viewer/Member 完整权限矩阵、Server 不可达的真实 UI 回归、Console 反向写入后刷新回读仍需补齐，暂不关闭。

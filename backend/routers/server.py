@@ -277,18 +277,126 @@ class ServerPmPreferencesBody(BaseModel):
     wip: dict[str, int] | None = None
 
 
+class ServerCustomFieldBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    field_type: str = "text"
+    options: list[str] = Field(default_factory=list, max_length=50)
+    required: bool = False
+
+
+class ServerCustomFieldUpdateBody(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    field_type: str | None = None
+    options: list[str] | None = Field(default=None, max_length=50)
+    required: bool | None = None
+
+
+class ServerSprintBody(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    goal: str = Field(default="", max_length=1000)
+    milestone_id: str = Field(default="", max_length=100)
+    start_date: str
+    end_date: str
+    status: str = "planned"
+
+
+class ServerSprintUpdateBody(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    goal: str | None = Field(default=None, max_length=1000)
+    milestone_id: str | None = Field(default=None, max_length=100)
+    start_date: str | None = None
+    end_date: str | None = None
+    status: str | None = None
+
+
+def _server_write(call, unavailable_message: str):
+    try:
+        result = call()
+    except server_client.ServerRejected as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
+    if result is None or result is False:
+        raise HTTPException(503, unavailable_message)
+    return result
+
+
 @router.put("/server/projects/{project_id}/pm-preferences")
 def server_update_project_pm_preferences(project_id: str, body: ServerPmPreferencesBody,
                                           authorization: str = Header(default="")) -> dict:
     values = body.model_dump(exclude_unset=True)
     if not values:
         raise HTTPException(400, "PM preference patch is empty")
-    preferences = server_client.update_project_pm_preferences(
-        _server_project_read_token(project_id, authorization), project_id, values,
+    token = _server_project_read_token(project_id, authorization)
+    preferences = _server_write(
+        lambda: server_client.update_project_pm_preferences(token, project_id, values),
+        "Server 暂不可达，项目工作台偏好未保存",
     )
-    if preferences is None:
-        raise HTTPException(503, "Server 暂不可达，项目工作台偏好未保存")
     return {"server": True, "preferences": preferences}
+
+
+@router.post("/server/projects/{project_id}/custom-fields")
+def server_create_project_custom_field(project_id: str, body: ServerCustomFieldBody,
+                                       authorization: str = Header(default="")) -> dict:
+    token = _server_project_read_token(project_id, authorization)
+    field = _server_write(
+        lambda: server_client.create_project_custom_field(token, project_id, body.model_dump()),
+        "Server 暂不可达，项目字段未保存",
+    )
+    return {"server": True, "field": field}
+
+
+@router.patch("/server/projects/{project_id}/custom-fields/{field_id}")
+def server_update_project_custom_field(project_id: str, field_id: str, body: ServerCustomFieldUpdateBody,
+                                       authorization: str = Header(default="")) -> dict:
+    token = _server_project_read_token(project_id, authorization)
+    field = _server_write(
+        lambda: server_client.update_project_custom_field(token, project_id, field_id, body.model_dump(exclude_unset=True)),
+        "Server 暂不可达，项目字段未保存",
+    )
+    return {"server": True, "field": field}
+
+
+@router.delete("/server/projects/{project_id}/custom-fields/{field_id}")
+def server_delete_project_custom_field(project_id: str, field_id: str,
+                                       authorization: str = Header(default="")) -> dict:
+    token = _server_project_read_token(project_id, authorization)
+    _server_write(
+        lambda: server_client.delete_project_custom_field(token, project_id, field_id),
+        "Server 暂不可达，项目字段未删除",
+    )
+    return {"server": True, "ok": True}
+
+
+@router.post("/server/projects/{project_id}/sprints")
+def server_create_project_sprint(project_id: str, body: ServerSprintBody,
+                                 authorization: str = Header(default="")) -> dict:
+    token = _server_project_read_token(project_id, authorization)
+    sprint = _server_write(
+        lambda: server_client.create_project_sprint(token, project_id, body.model_dump()),
+        "Server 暂不可达，项目 Sprint 未保存",
+    )
+    return {"server": True, "sprint": sprint}
+
+
+@router.patch("/server/projects/{project_id}/sprints/{sprint_id}")
+def server_update_project_sprint(project_id: str, sprint_id: str, body: ServerSprintUpdateBody,
+                                 authorization: str = Header(default="")) -> dict:
+    token = _server_project_read_token(project_id, authorization)
+    sprint = _server_write(
+        lambda: server_client.update_project_sprint(token, project_id, sprint_id, body.model_dump(exclude_unset=True)),
+        "Server 暂不可达，项目 Sprint 未保存",
+    )
+    return {"server": True, "sprint": sprint}
+
+
+@router.delete("/server/projects/{project_id}/sprints/{sprint_id}")
+def server_delete_project_sprint(project_id: str, sprint_id: str,
+                                 authorization: str = Header(default="")) -> dict:
+    token = _server_project_read_token(project_id, authorization)
+    _server_write(
+        lambda: server_client.delete_project_sprint(token, project_id, sprint_id),
+        "Server 暂不可达，项目 Sprint 未删除",
+    )
+    return {"server": True, "ok": True}
 
 
 @router.get("/server/projects/{project_id}/sync-conflicts")
