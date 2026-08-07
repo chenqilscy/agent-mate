@@ -22,7 +22,6 @@
 | [WB-420](WB-420-workbuddy-reference-and-design-docs.md) | ✅ | P3 | docs | 补充 WorkBuddy 参考解读与 AgentMate 设计系统文档资料 |
 | [WB-423](WB-423-first-registration-admin-by-default.md) | ✅ | P2 | backend | 首个注册用户应自动成为平台管理员 |
 | [WB-430](WB-430-app-console-visual-alignment.md) | 🟡 | P2 | ui | AgentMate App 与 Console 的视觉系统和工作台细节不一致 |
-| [WB-433](WB-433-device-run-lease-event-protocol.md) | ⬜ | P1 | backend | 设备身份与 Run 租约事件可靠传输协议 |
 | [WB-434](WB-434-local-agent-core-boundary.md) | ⬜ | P1 | backend | Local Agent Core 收缩为本机执行与 IPC 服务 |
 | [WB-435](WB-435-desktop-dual-channel-cutover.md) | ⬜ | P1 | frontend | Desktop UI 切换 Server 业务通道与 Local Agent IPC |
 | [WB-436](WB-436-server-assets-working-copy.md) | ⬜ | P1 | backend | Server 对象存储与 Local Agent working copy |
@@ -30,5 +29,5 @@
 
 ## 已关闭归档
 
-共 422 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 423 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。

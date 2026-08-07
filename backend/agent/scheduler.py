@@ -11,6 +11,7 @@ from typing import Optional
 
 import server_sync
 import server_client
+import run_transport
 from project_health_service import (
     ProjectHealthNotFound,
     resolve_project_health,
@@ -415,6 +416,15 @@ async def _tick() -> None:
             lambda: asyncio.to_thread(server_sync.flush_outbox),
         )
         await _guard_component("server_relay.poll", _poll_relay_once)
+        async def _maintain_run_transport() -> None:
+            def _run() -> None:
+                try:
+                    run_transport.maintain_transport()
+                finally:
+                    db.close_thread_connection()
+            await asyncio.to_thread(_run)
+
+        await _guard_component("server_run_transport.maintain", _maintain_run_transport)
 
 
 async def _loop() -> None:

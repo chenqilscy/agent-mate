@@ -141,6 +141,46 @@ def _post(path: str, token: str, body: Optional[dict] = None, *, strict: bool = 
         return None
 
 
+def device_post(
+    path: str, device_token: str, body: Optional[dict] = None,
+) -> tuple[int, Optional[dict[str, Any]]]:
+    """POST on the independent device-auth channel.
+
+    Status 0 means the Server was unreachable. Unlike guarded business reads,
+    protocol conflicts are returned to the WAL driver so it can fence or resend.
+    """
+    if not settings.AGENTMATE_SERVER_URL or not device_token:
+        return 0, None
+    try:
+        response = _client().post(
+            f"{settings.AGENTMATE_SERVER_URL}{path}",
+            headers={"Authorization": f"Device {device_token}"},
+            json=body or {}, timeout=_TIMEOUT,
+        )
+        try:
+            payload = response.json()
+        except Exception:  # noqa: BLE001
+            payload = None
+        return response.status_code, payload if isinstance(payload, dict) else None
+    except Exception:  # noqa: BLE001 - a durable WAL keeps the request retryable
+        return 0, None
+
+
+def register_run_device(user_token: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    result = _post("/api/devices/register", user_token, body)
+    return result if isinstance(result, dict) else None
+
+
+def verify_run_device(
+    user_token: str, device_id: str, challenge_id: str, signature: str,
+) -> Optional[dict[str, Any]]:
+    result = _post(
+        f"/api/devices/{device_id}/verify", user_token,
+        {"challenge_id": challenge_id, "signature": signature},
+    )
+    return result if isinstance(result, dict) else None
+
+
 def _put(path: str, token: str, body: Optional[dict] = None, *, strict: bool = False) -> Optional[Any]:
     """PUT Server JSON; strict user writes preserve authoritative 4xx."""
     if not token or not settings.AGENTMATE_SERVER_URL:

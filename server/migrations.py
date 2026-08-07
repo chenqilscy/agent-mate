@@ -255,13 +255,23 @@ def assert_server_schema(conn: sqlite3.Connection) -> None:
         },
         "business_sessions": {"owner_id", "project_id", "version", "client_request_id"},
         "business_messages": {"session_id", "run_id", "sequence", "client_request_id"},
-        "business_runs": {"session_id", "project_id", "status", "version", "client_request_id"},
+        "business_runs": {
+            "session_id", "project_id", "status", "version", "client_request_id",
+            "target_device_id", "required_capabilities", "request_snapshot", "lease_epoch",
+            "recovery_count", "max_recoveries", "cancel_version",
+        },
         "business_run_steps": {"run_id", "sequence", "client_request_id"},
         "business_assistants": {"owner_id", "project_id", "version", "client_request_id"},
         "business_channels": {"assistant_id", "public_config", "credential_ref", "version"},
         "business_automations": {"owner_id", "project_id", "version", "client_request_id"},
         "business_assets": {"owner_id", "project_id", "object_ref", "storage_state", "version"},
         "business_audit": {"actor_id", "entity_type", "entity_id", "created_at"},
+        "agent_devices": {"owner_id", "public_key", "capabilities", "status", "revoked_at"},
+        "device_challenges": {"device_id", "nonce", "expires_at", "used_at"},
+        "device_tokens": {"token_hash", "device_id", "expires_at", "revoked_at"},
+        "run_leases": {"run_id", "device_id", "lease_epoch", "expires_at", "ack_high_water"},
+        "run_events": {"event_id", "run_id", "lease_epoch", "sequence", "payload_hash"},
+        "run_commands": {"run_id", "command_type", "version", "status"},
     }
     missing: list[str] = []
     for table, columns in required.items():
@@ -584,6 +594,138 @@ def migrate_durable_business_plane(conn: sqlite3.Connection) -> None:
     # ``executescript`` commits implicitly and would escape run_migrations'
     # BEGIN IMMEDIATE transaction. These statements contain no trigger bodies,
     # so executing them individually preserves an atomic schema migration.
+    for statement in schema.split(";"):
+        if statement.strip():
+            conn.execute(statement)
+
+
+def migrate_device_run_protocol(conn: sqlite3.Connection) -> None:
+    """Create device identity, fenced Run leases and ordered event storage (WB-433)."""
+    run_columns = {row[1] for row in conn.execute("PRAGMA table_info(business_runs)")}
+    for column, ddl in (
+        ("target_device_id", "target_device_id TEXT NOT NULL DEFAULT ''"),
+        ("required_capabilities", "required_capabilities TEXT NOT NULL DEFAULT '[]'"),
+        ("request_snapshot", "request_snapshot TEXT NOT NULL DEFAULT '{}'") ,
+        ("lease_epoch", "lease_epoch INTEGER NOT NULL DEFAULT 0"),
+        ("recovery_count", "recovery_count INTEGER NOT NULL DEFAULT 0"),
+        ("max_recoveries", "max_recoveries INTEGER NOT NULL DEFAULT 3"),
+        ("cancel_version", "cancel_version INTEGER NOT NULL DEFAULT 0"),
+        ("cancel_requested_at", "cancel_requested_at REAL NOT NULL DEFAULT 0"),
+    ):
+        if column not in run_columns:
+            conn.execute(f"ALTER TABLE business_runs ADD COLUMN {ddl}")
+
+    schema = """
+        CREATE TABLE IF NOT EXISTS agent_devices (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            public_key TEXT NOT NULL,
+            protocol_version INTEGER NOT NULL DEFAULT 1,
+            app_version TEXT NOT NULL DEFAULT '',
+            platform TEXT NOT NULL DEFAULT '',
+            arch TEXT NOT NULL DEFAULT '',
+            capabilities TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            authenticated_at REAL NOT NULL DEFAULT 0,
+            last_seen_at REAL NOT NULL DEFAULT 0,
+            revoked_at REAL NOT NULL DEFAULT 0,
+            FOREIGN KEY(owner_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_devices_owner
+            ON agent_devices(owner_id,status,last_seen_at DESC);
+
+        CREATE TABLE IF NOT EXISTS device_challenges (
+            id TEXT PRIMARY KEY,
+            device_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            nonce TEXT NOT NULL,
+            expires_at REAL NOT NULL,
+            used_at REAL NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            FOREIGN KEY(device_id) REFERENCES agent_devices(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_device_challenges_device
+            ON device_challenges(device_id,expires_at DESC);
+
+        CREATE TABLE IF NOT EXISTS device_tokens (
+            token_hash TEXT PRIMARY KEY,
+            device_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            expires_at REAL NOT NULL,
+            created_at REAL NOT NULL,
+            last_used_at REAL NOT NULL DEFAULT 0,
+            revoked_at REAL NOT NULL DEFAULT 0,
+            FOREIGN KEY(device_id) REFERENCES agent_devices(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_device_tokens_device
+            ON device_tokens(device_id,expires_at DESC);
+
+        CREATE TABLE IF NOT EXISTS run_leases (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            lease_epoch INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            issued_at REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            renewed_at REAL NOT NULL,
+            ack_high_water INTEGER NOT NULL DEFAULT 0,
+            terminal_event_id TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY(run_id) REFERENCES business_runs(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_id) REFERENCES accounts(id) ON DELETE CASCADE,
+            FOREIGN KEY(device_id) REFERENCES agent_devices(id) ON DELETE CASCADE,
+            UNIQUE(run_id,lease_epoch)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_run_leases_one_active
+            ON run_leases(run_id) WHERE status='active';
+        CREATE INDEX IF NOT EXISTS idx_run_leases_device
+            ON run_leases(device_id,status,expires_at);
+
+        CREATE TABLE IF NOT EXISTS run_events (
+            event_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            lease_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            lease_epoch INTEGER NOT NULL,
+            sequence INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            occurred_at REAL NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}',
+            payload_hash TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            FOREIGN KEY(run_id) REFERENCES business_runs(id) ON DELETE CASCADE,
+            FOREIGN KEY(lease_id) REFERENCES run_leases(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_id) REFERENCES accounts(id) ON DELETE CASCADE,
+            FOREIGN KEY(device_id) REFERENCES agent_devices(id) ON DELETE CASCADE,
+            UNIQUE(run_id,lease_epoch,sequence)
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_events_order
+            ON run_events(run_id,lease_epoch,sequence);
+
+        CREATE TABLE IF NOT EXISTS run_commands (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            command_type TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at REAL NOT NULL,
+            acknowledged_at REAL NOT NULL DEFAULT 0,
+            FOREIGN KEY(run_id) REFERENCES business_runs(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_id) REFERENCES accounts(id) ON DELETE CASCADE,
+            UNIQUE(run_id,command_type,version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_commands_pending
+            ON run_commands(run_id,status,version);
+    """
     for statement in schema.split(";"):
         if statement.strip():
             conn.execute(statement)

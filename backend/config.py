@@ -206,6 +206,11 @@ class Settings:
     )
     # 团队时间线上报开关（WB-062 Phase 3）。默认关——执行产出默认不上云（隐私，铁律 4）。
     AGENTMATE_SERVER_TIMELINE_UPLOAD: bool = os.getenv("AGENTMATE_SERVER_TIMELINE_UPLOAD", "0").strip().lower() in ("1", "true", "yes")
+    # Local Run events are never dropped. Once this durable WAL reaches its cap,
+    # the executor must pause before producing another event until Server ACKs free space.
+    RUN_EVENT_WAL_MAX_BYTES: int = max(
+        1024 * 1024, int(os.getenv("AGENTMATE_RUN_EVENT_WAL_MAX_BYTES", str(256 * 1024 * 1024)))
+    )
 
     @property
     def server_enabled(self) -> bool:

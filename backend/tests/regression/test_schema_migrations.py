@@ -37,7 +37,10 @@ class AppSchemaMigrationTest(unittest.TestCase):
                 rows = db.get_conn().execute(
                     "SELECT version,name FROM schema_migrations WHERE scope='app' ORDER BY version"
                 ).fetchall()
-                self.assertEqual([1, 2, 3, 4, 5, 6, 7, 8], [row["version"] for row in rows])
+                self.assertEqual(
+                    [1, 2, 3, 4, 5, 6, 7, 8, 9],
+                    [row["version"] for row in rows],
+                )
                 db._assert_app_schema(db.get_conn())
             finally:
                 db.close_thread_connection()

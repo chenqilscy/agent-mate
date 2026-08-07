@@ -33,6 +33,7 @@ from storage.migrations import (
     migrate_model_and_run_audit,
     migrate_artifact_presentation,
     migrate_connector_companion_skill,
+    migrate_run_transport_wal,
     migrate_project_org_scope,
     migrate_run_plan_version,
     run_migrations,
@@ -1329,6 +1330,12 @@ def _assert_app_schema(conn: sqlite3.Connection) -> None:
         "runs": {"model_snapshot", "estimated_cost", "cached_prompt_tokens", "plan_version"},
         "artifacts": {"is_primary", "display_order"},
         "catalog_connectors": {"companion_skill_slug"},
+        "run_transport_leases": {
+            "run_id", "owner_id", "device_id", "lease_id", "lease_epoch", "ack_high_water",
+        },
+        "run_event_wal": {
+            "event_id", "run_id", "lease_epoch", "sequence", "payload_hash", "byte_size",
+        },
     }
     missing: list[str] = []
     for table, columns in required.items():
@@ -1349,6 +1356,7 @@ def _migrate_columns() -> None:
         Migration(6, "project-org-model-policy-scope", migrate_project_org_scope),
         Migration(7, "artifact-presentation-authority", migrate_artifact_presentation),
         Migration(8, "connector-companion-skill", migrate_connector_companion_skill),
+        Migration(9, "run-transport-wal", migrate_run_transport_wal),
     ))
     _assert_app_schema(conn)
 

@@ -27,7 +27,10 @@ _SECRET_KEY_RE = re.compile(r"(^|[_-])(token|secret|password|api[_-]?key|authori
 _SESSION_KINDS = {"chat", "assistant", "projexec", "automation"}
 _SESSION_STATUSES = {"idle", "running", "waiting", "done", "error"}
 _RUN_MODES = {"exec", "plan", "ask"}
-_RUN_STATUSES = {"queued", "running", "waiting_user", "succeeded", "failed", "cancelled"}
+_RUN_STATUSES = {
+    "queued", "leased", "running", "waiting_user", "recoverable",
+    "completed", "succeeded", "failed", "cancelled",
+}
 _TRIGGER_KINDS = {"interval", "daily", "health_daily", "webhook"}
 
 
@@ -298,6 +301,10 @@ class RunCreate(BaseModel):
     model_id: str | None = Field(default=None, max_length=200)
     model_snapshot: dict[str, Any] = Field(default_factory=dict)
     permission_snapshot: dict[str, Any] = Field(default_factory=dict)
+    target_device_id: str = Field(default="", max_length=200)
+    required_capabilities: list[str] = Field(default_factory=list, max_length=100)
+    request_snapshot: dict[str, Any] = Field(default_factory=dict)
+    max_recoveries: int = Field(default=3, ge=0, le=20)
 
 
 class RunPatch(BaseModel):
@@ -348,6 +355,20 @@ def create_run(
         retry = _record("business_runs", body.retry_of, account)
         if retry["session_id"] != body.session_id:
             raise HTTPException(400, "retry_of does not belong to session")
+    if len(set(body.required_capabilities)) != len(body.required_capabilities) or any(
+        not item or len(item) > 200 for item in body.required_capabilities
+    ):
+        raise HTTPException(400, "required_capabilities must contain unique non-empty values")
+    if _contains_secret_key(body.request_snapshot):
+        raise HTTPException(400, "request_snapshot must not contain credentials or secrets")
+    if len(json.dumps(body.request_snapshot, ensure_ascii=False).encode("utf-8")) > 256 * 1024:
+        raise HTTPException(413, "request_snapshot exceeds size limit")
+    if body.target_device_id:
+        target = db.get_conn().execute(
+            "SELECT owner_id,status FROM agent_devices WHERE id=?", (body.target_device_id,),
+        ).fetchone()
+        if target is None or str(target["owner_id"]) != account.id or str(target["status"]) != "active":
+            raise HTTPException(400, "target device is not an active device owned by this account")
     key = _request_key(idempotency_key)
     try:
         item, duplicate = store.create_record(
@@ -357,6 +378,10 @@ def create_run(
                 "mode": body.mode, "status": "queued", "workspace": body.workspace,
                 "retry_of": body.retry_of, "model_ref": body.model_ref, "model_id": body.model_id,
                 "model_snapshot": body.model_snapshot, "permission_snapshot": body.permission_snapshot,
+                "target_device_id": body.target_device_id,
+                "required_capabilities": body.required_capabilities,
+                "request_snapshot": body.request_snapshot,
+                "max_recoveries": body.max_recoveries,
             }, client_request_id=key, request_hash=_payload_hash(body) if key else "",
         )
     except Exception as exc:

@@ -177,7 +177,7 @@ Local Agent Core 不提供项目、会话、任务等业务 CRUD，不维护业�
 ### 6.2 设备身份
 
 - Local Agent 首次启动生成设备密钥对，以登录用户授权完成设备注册。
-- Server 返回不可转移的 `device_id`；后续连接通过设备私钥签名 challenge，并绑定当前账号/组织授权。
+- Local Agent 生成不可关联主机名/用户名的 opaque `device_id`，Server 在用户授权下登记；后续连接通过设备私钥签名 challenge，并绑定当前账号授权。
 - 设备撤销后不能领取新 Run；已有租约被 fencing，未 ACK 事件只能按受控恢复协议上传。
 - capability report 只包含版本、OS/arch、可信工具/协议版本和非敏感可用状态。
 
@@ -242,6 +242,14 @@ Local Agent 必须先把事件和 payload hash 原子写入 WAL，再发送。Se
 - 用户取消先写 Server；Server 递增 cancel version 并推送设备。
 - Local Agent 停止子进程、写入取消确认事件；Server 在超时后可强制把设备标记失联，但不能假装本机进程已停止。
 - 暂停必须区分“Server 不再分配步骤”和“本机已安全停在 checkpoint”；没有 checkpoint 的工具只能取消或等待完成。
+
+### 7.5 已落地协议基线（WB-433）
+
+- 用户通道：`POST /api/devices/register` 创建一次性 challenge，`POST /api/devices/{id}/verify` 校验 Ed25519 签名并签发独立 Device token；`GET/DELETE /api/devices/{id}` 查询或撤销设备。
+- 设备通道：`POST /api/agent/heartbeat` 更新公开 capability；`POST /api/agent/runs/lease` 原子领取；`renew/events/commands` 分别续租、提交有序事件和拉取取消/`ask_user` 命令。
+- Server migration v11 保存设备、challenge/token hash、租约、正式事件和命令；`business_runs.lease_epoch` 是 fencing 权威，活跃租约在数据库中有唯一索引。
+- Local App migration v9 只保存当前租约和未 ACK event WAL。发送失败、进程重启与 seq gap 都保留原 event；只有连续 `ack_high_water` 推进后才删除。
+- 后台调度器仅注册、心跳和补传 WAL；在 WB-434 完成 Local Agent Core 执行边界前不自动领取 Run，避免尚无执行 owner 时误消费任务。
 
 ## 8. 离线和故障语义
 
@@ -344,7 +352,7 @@ Local Agent 至少暴露给本机诊断页：
 |---|---|---|
 | [WB-431](issues/archive/2026/WB-400-499.md#wb-431) | 目标架构、数据归属、迁移阶段与子项拆分 | 无 |
 | [WB-432](issues/archive/2026/WB-400-499.md#wb-432) | Server 持久业务模型与 API | WB-431 |
-| [WB-433](issues/WB-433-device-run-lease-event-protocol.md) | 设备身份、Run 租约、事件 WAL/ACK 协议 | WB-431；与 WB-432 对齐 Run schema |
+| [WB-433](issues/archive/2026/WB-400-499.md#wb-433) | 设备身份、Run 租约、事件 WAL/ACK 协议 | WB-431；与 WB-432 对齐 Run schema |
 | [WB-434](issues/WB-434-local-agent-core-boundary.md) | Local Agent Core 收缩和本机 IPC | WB-433 |
 | [WB-435](issues/WB-435-desktop-dual-channel-cutover.md) | Desktop UI 业务/本机双通道切换 | WB-432、WB-433、WB-434 |
 | [WB-436](issues/WB-436-server-assets-working-copy.md) | Server 对象存储与 Local Agent working copy | WB-432、WB-433 |

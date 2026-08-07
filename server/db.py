@@ -27,6 +27,7 @@ from migrations import (
     migrate_federated_identity_security,
     migrate_governance_activity_sequence,
     migrate_durable_business_plane,
+    migrate_device_run_protocol,
     migrate_relay_retention,
     migrate_single_active_sprint,
     migrate_work_item_acceptance_idempotency,
@@ -719,6 +720,7 @@ def init_db() -> None:
         Migration(8, "work-item-acceptance-idempotency", migrate_work_item_acceptance_idempotency),
         Migration(9, "single-active-sprint", migrate_single_active_sprint),
         Migration(10, "durable-business-plane", migrate_durable_business_plane),
+        Migration(11, "device-run-protocol", migrate_device_run_protocol),
     ))
     assert_server_schema(conn)
     # 新 App 版本可补充真实实现，但绝不覆盖 Console 已管理的运营字段。

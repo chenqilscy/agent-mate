@@ -197,3 +197,47 @@ def migrate_connector_companion_skill(conn: sqlite3.Connection) -> None:
         "UPDATE catalog_connectors SET companion_skill_slug='github-connector-guide' "
         "WHERE scope='builtin' AND slug='github'"
     )
+
+
+def migrate_run_transport_wal(conn: sqlite3.Connection) -> None:
+    """Durable local outbox for Server Run events; ACK is the only delete gate (WB-433)."""
+    schema = """
+        CREATE TABLE IF NOT EXISTS run_transport_leases (
+            run_id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            lease_id TEXT NOT NULL,
+            lease_epoch INTEGER NOT NULL,
+            expires_at REAL NOT NULL,
+            ack_high_water INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            last_error TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_transport_leases_owner
+            ON run_transport_leases(owner_id,status,updated_at);
+
+        CREATE TABLE IF NOT EXISTS run_event_wal (
+            event_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            lease_id TEXT NOT NULL,
+            lease_epoch INTEGER NOT NULL,
+            sequence INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            occurred_at REAL NOT NULL,
+            payload TEXT NOT NULL,
+            payload_hash TEXT NOT NULL,
+            byte_size INTEGER NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_attempt_at REAL NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            UNIQUE(run_id,lease_epoch,sequence)
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_event_wal_flush
+            ON run_event_wal(owner_id,run_id,lease_epoch,sequence);
+    """
+    for statement in schema.split(";"):
+        if statement.strip():
+            conn.execute(statement)

@@ -27,6 +27,7 @@ _TABLES = {
 }
 _JSON_COLUMNS = {
     "trace", "usage", "model_snapshot", "plan", "permission_snapshot", "checkpoint",
+    "required_capabilities", "request_snapshot",
     "payload", "experts", "skills", "connectors", "public_config",
     "preauthorized_permissions", "validation", "details",
 }
