@@ -84,3 +84,12 @@ P1。项目是 App 与 Console 的核心共享对象；能力缺失会让跨端�
 - 使用真实 `admin` / `buddy` 项目完成双向回读：Console 临时写入保存视图后 App 显示“保存视图 1”；App 临时保存视图后 Console API 读回同名视图。两组验收数据均已删除，最终 App 回读恢复为保存视图 0、Sprint 2、活动 7、字段 0。明暗主题项目数据页均完成目视检查并恢复原深色设置。
 - 验证通过：App 与 Console `npx tsc --noEmit`、两端 `npx vite build`、后端/Server `py_compile`、WB-427/Server 代理/PM 权限与并发定向测试共 13 项、`git diff --check`。
 - 本 issue 继续保持 `in-progress`：本轮 Server/Console CAS 代码尚未部署到 App 当前连接的 `192.168.20.81:8100`，远端旧模型可能忽略 expected revision；需部署后在真实更新实例复验 409。当前仅有 Admin 凭据，Viewer/Member 已完成权威路由矩阵但仍缺真实账号 UI 复验，不能以 Admin 或临时造号替代。
+
+## 处理记录（2026-08-07，第六阶段：真实角色账号与远端版本核验）
+
+- 已通过远端开放注册接口创建独立 `wb427-member` 与 `wb427-viewer` 账号，并由真实 `admin` 通过项目成员 API 分别赋予 `buddy` 项目的 Member、Viewer 角色；密码仅记录在被 `.gitignore` 精确排除的本机测试账号清单，不进入仓库。
+- 权威 API 实测：Member 读取/模板写入/个人视图写入为 200、WIP 写入为 403；Viewer 读取为 200、写入为 403。探针只同值回写既有空模板、空视图和空 WIP，最终共享数据保持不变。
+- App 浏览器实测：项目列表分别显示“成员”和“只读”，工作台显示“协作 · 成员/只读”；Member 可新增字段/Sprint、保存视图但 WIP 按钮禁用，Viewer 无新增待办、字段、Sprint、编辑或删除入口，保存视图和 WIP 均禁用。
+- Console 浏览器实测：Member 仅见工作区菜单且可进入项目业务工作台；Viewer 显示 `Viewer · 只读`，新建任务、里程碑、Sprint、成员邀请及项目设置保存入口均不存在。两端均使用同一远端项目 ID `a0e0b3d2-74eb-4c61-b028-4a5561c21752`。
+- 远端部署核验未通过：重启后的 `192.168.20.81:8100/openapi.json` 中 `PmPreferencesBody` 仍只有 `templates/wip/views`，缺少提交 `44d1635` 新增的 `expected_shared_updated_at` 与 `expected_views_updated_at`；因此旧服务会忽略 revision 并返回 200，不能把该结果视为 CAS 失败或 409 验收。需确认远端实际运行目录的 `git rev-parse HEAD=44d1635`，停止旧进程后从该目录硬重启，再补做 409。
+- 本 issue 继续保持 `in-progress`：真实 Viewer/Member 的 App/Console UI 权限门槛已完成，唯一剩余硬门槛为新 Server 进程的 revision schema 与 409 冲突回读。
