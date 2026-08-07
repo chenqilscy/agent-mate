@@ -8,6 +8,7 @@ import {
   Checkbox,
   Col,
   Drawer,
+  Dropdown,
   Empty,
   Form,
   Input,
@@ -34,8 +35,11 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   FlagOutlined,
+  MoreOutlined,
+  PlayCircleOutlined,
   PlusOutlined,
   SaveOutlined,
+  StopOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
 import { ProTable } from "@ant-design/pro-components";
@@ -95,6 +99,26 @@ const STATUS_META: Record<
   review: { label: "待验收", color: "purple" },
   done: { label: "完成", color: "success" },
 };
+const SPRINT_STATUS_META: Record<
+  Sprint["status"],
+  { label: string; color: string; order: number }
+> = {
+  active: { label: "当前", color: "processing", order: 0 },
+  planned: { label: "计划中", color: "blue", order: 1 },
+  closed: { label: "已结束", color: "default", order: 2 },
+};
+
+function orderSprints(sprints: Sprint[]) {
+  return [...sprints].sort((left, right) => {
+    const statusOrder =
+      SPRINT_STATUS_META[left.status].order -
+      SPRINT_STATUS_META[right.status].order;
+    if (statusOrder) return statusOrder;
+    if (left.status === "closed")
+      return right.end_date.localeCompare(left.end_date);
+    return left.start_date.localeCompare(right.start_date);
+  });
+}
 
 type TaskDraft = Partial<WorkItem> & { title: string };
 type TaskCreateDefaults = Partial<
@@ -259,7 +283,11 @@ interface ProjectWorkContextValue {
   setSelected: (ids: string[]) => void;
   reload: () => Promise<void>;
   navigateToTab: (tab: ProjectWorkspaceTab) => void;
-  openTask: (task: WorkItem | null, defaults?: TaskCreateDefaults) => void;
+  openTask: (
+    task: WorkItem | null,
+    defaults?: TaskCreateDefaults,
+    readOnly?: boolean,
+  ) => void;
   patchTask: (task: WorkItem, patch: Partial<WorkItem>) => Promise<void>;
   deleteTask: (task: WorkItem) => Promise<void>;
   batchPatch: (patch: Partial<WorkItem>) => Promise<void>;
@@ -355,6 +383,7 @@ export function ProjectWorkProvider({
   const preferenceRevisions = useRef({ shared: 0, views: 0 });
   const [taskDirty, setTaskDirty] = useState(false);
   const [taskSaving, setTaskSaving] = useState(false);
+  const [taskEditorReadOnly, setTaskEditorReadOnly] = useState(false);
   const [taskEditorStep, setTaskEditorStep] =
     useState<TaskEditorStep>("content");
   const [quickPlanSaving, setQuickPlanSaving] = useState(false);
@@ -477,8 +506,10 @@ export function ProjectWorkProvider({
   function loadTaskEditor(
     task: WorkItem | null,
     defaults: TaskCreateDefaults = {},
+    readOnly = false,
   ) {
     setTaskDirty(false);
+    setTaskEditorReadOnly(readOnly);
     setTaskEditorStep("content");
     setEditing(task);
     form.resetFields();
@@ -533,9 +564,13 @@ export function ProjectWorkProvider({
     });
   }
 
-  function openTask(task: WorkItem | null, defaults: TaskCreateDefaults = {}) {
+  function openTask(
+    task: WorkItem | null,
+    defaults: TaskCreateDefaults = {},
+    readOnly = false,
+  ) {
     confirmDiscard(
-      () => loadTaskEditor(task, defaults),
+      () => loadTaskEditor(task, defaults, readOnly),
       "切换任务并放弃修改？",
     );
   }
@@ -551,6 +586,7 @@ export function ProjectWorkProvider({
     if (taskSaving) return;
     confirmDiscard(() => {
       setTaskDirty(false);
+      setTaskEditorReadOnly(false);
       setEditing(undefined);
     }, "关闭并放弃修改？");
   }
@@ -896,6 +932,7 @@ export function ProjectWorkProvider({
               <Tag color="blue">{watchedMilestone.name}</Tag>
             )}
             {watchedSprint && <Tag color="cyan">{watchedSprint.name}</Tag>}
+            {taskEditorReadOnly && <Tag>只读历史任务</Tag>}
             {editing === null && !watchedSprint && <Tag>待规划</Tag>}
           </Space>
         }
@@ -904,7 +941,7 @@ export function ProjectWorkProvider({
         closable={!taskSaving}
         destroyOnHidden
         extra={
-          canWrite(project) && (
+          canWrite(project) && !taskEditorReadOnly && (
             <Space>
               {editing && (
                 <Button
@@ -930,7 +967,7 @@ export function ProjectWorkProvider({
         <Form
           form={form}
           layout="vertical"
-          disabled={!canWrite(project)}
+          disabled={!canWrite(project) || taskEditorReadOnly}
           onValuesChange={() => setTaskDirty(true)}
           onFinishFailed={({ errorFields }) => {
             const names = errorFields.map(({ name }) =>
@@ -986,7 +1023,9 @@ export function ProjectWorkProvider({
                         label="任务内容"
                         extra="建议写清背景、目标、实施要点和验收标准。"
                       >
-                        <MarkdownEditor disabled={!canWrite(project)} />
+                        <MarkdownEditor
+                          disabled={!canWrite(project) || taskEditorReadOnly}
+                        />
                       </Form.Item>
                     </Card>
                     <Card
@@ -1117,7 +1156,8 @@ export function ProjectWorkProvider({
                                 popupRender={(menu) => (
                                   <>
                                     {menu}
-                                    {canWrite(project) && (
+                                    {canWrite(project) &&
+                                      !taskEditorReadOnly && (
                                       <Button
                                         type="text"
                                         block
@@ -1170,7 +1210,8 @@ export function ProjectWorkProvider({
                                 popupRender={(menu) => (
                                   <>
                                     {menu}
-                                    {canWrite(project) && (
+                                    {canWrite(project) &&
+                                      !taskEditorReadOnly && (
                                       <Button
                                         type="text"
                                         block
@@ -1394,7 +1435,7 @@ export function ProjectWorkProvider({
                 </Space>
               }
               extra={
-                canWrite(project) && (
+                canWrite(project) && !taskEditorReadOnly && (
                   <Button
                     type="link"
                     icon={<PlusOutlined />}
@@ -1420,7 +1461,7 @@ export function ProjectWorkProvider({
                       >
                         详情
                       </Button>,
-                      ...(canWrite(project)
+                      ...(canWrite(project) && !taskEditorReadOnly
                         ? [
                             <Popconfirm
                               key="delete"
@@ -1436,7 +1477,11 @@ export function ProjectWorkProvider({
                     ]}
                   >
                     <Checkbox
-                      disabled={!canWrite(project) || savingTaskIds.has(child.id)}
+                      disabled={
+                        !canWrite(project) ||
+                        taskEditorReadOnly ||
+                        savingTaskIds.has(child.id)
+                      }
                       aria-label={`${child.title} 完成状态`}
                       checked={child.status === "done"}
                       onChange={(event) =>
@@ -1481,7 +1526,7 @@ export function ProjectWorkProvider({
                   </List.Item>
                 )}
               />
-              {canWrite(project) && (
+              {canWrite(project) && !taskEditorReadOnly && (
                 <Form
                   form={commentForm}
                   layout="inline"
@@ -2094,10 +2139,19 @@ export function ProjectPlan() {
     savePreferences,
     openTemplate,
     deleteTemplate,
+    reload,
   } = useProjectWork();
+  const { message, modal } = App.useApp();
+  const [changingSprintId, setChangingSprintId] = useState("");
   const selectedSprint = sprints.find(
     (sprint) => sprint.id === selectedSprintId,
   );
+  const activeSprint = sprints.find((sprint) => sprint.status === "active");
+  const suggestedSprint = orderSprints(sprints).find(
+    (sprint) => sprint.status === "planned",
+  );
+  const canEditSelectedSprint =
+    canWrite(project) && selectedSprint?.status !== "closed";
   const selectedMilestone = milestones.find(
     (milestone) => milestone.id === selectedSprint?.milestone_id,
   );
@@ -2172,6 +2226,34 @@ export function ProjectPlan() {
     );
   }
 
+  function startSprint(sprint: Sprint) {
+    modal.confirm({
+      title: `开始 Sprint“${sprint.name}”？`,
+      content:
+        activeSprint && activeSprint.id !== sprint.id
+          ? `当前 Sprint“${activeSprint.name}”会结束，任务仍保留在原 Sprint 中。`
+          : "开始后，它会成为项目唯一的当前 Sprint，并作为任务看板的默认执行范围。",
+      okText: activeSprint ? "切换当前 Sprint" : "开始 Sprint",
+      cancelText: "取消",
+      onOk: async () => {
+        setChangingSprintId(sprint.id);
+        try {
+          await consoleApi.updateSprint(project.id, sprint.id, {
+            status: "active",
+          });
+          setSelectedSprintId(sprint.id);
+          await reload();
+          message.success(`已开始 ${sprint.name}`);
+        } catch (reason) {
+          message.error(errorText(reason, "Sprint 启动失败"));
+          throw reason;
+        } finally {
+          setChangingSprintId("");
+        }
+      },
+    });
+  }
+
   async function saveWip(values: Record<string, number | null>) {
     const next: Partial<Record<WorkItem["status"], number>> = {};
     for (const option of STATUS_OPTIONS) {
@@ -2193,15 +2275,9 @@ export function ProjectPlan() {
   }
 
   if (loading) return <Card loading />;
-  const sprintOptions = sprints.map((sprint) => ({
+  const sprintOptions = orderSprints(sprints).map((sprint) => ({
     value: sprint.id,
-    label: `${sprint.name} · ${
-      sprint.status === "active"
-        ? "进行中"
-        : sprint.status === "closed"
-          ? "已关闭"
-          : "计划中"
-    }`,
+    label: `${sprint.name} · ${SPRINT_STATUS_META[sprint.status].label}`,
   }));
   const sprintScopeHeader = (
     <Card className="project-sprint-scope" styles={{ body: { padding: 14 } }}>
@@ -2222,18 +2298,24 @@ export function ProjectPlan() {
             options={sprintOptions}
             onChange={setSelectedSprintId}
           />
-          <Button onClick={() => navigateToTab("sprints")}>管理 Sprint</Button>
+          {selectedSprint?.status === "planned" && canWrite(project) && (
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              loading={changingSprintId === selectedSprint.id}
+              onClick={() => startSprint(selectedSprint)}
+            >
+              开始 Sprint
+            </Button>
+          )}
+          <Button onClick={() => navigateToTab("sprints")}>Sprint 管理</Button>
         </Space>
       </div>
       {selectedSprint && (
         <div className="project-sprint-scope-summary">
           <Space size={[6, 6]} wrap>
-            <Tag color={selectedSprint.status === "active" ? "green" : "default"}>
-              {selectedSprint.status === "active"
-                ? "进行中"
-                : selectedSprint.status === "closed"
-                  ? "已关闭"
-                  : "计划中"}
+            <Tag color={SPRINT_STATUS_META[selectedSprint.status].color}>
+              {SPRINT_STATUS_META[selectedSprint.status].label}
             </Tag>
             {selectedMilestone && <Tag>{selectedMilestone.name}</Tag>}
             <Typography.Text type="secondary">
@@ -2242,6 +2324,11 @@ export function ProjectPlan() {
             <Typography.Text type="secondary">
               {sprintDone}/{sprintRoots.length} 已完成
             </Typography.Text>
+            {selectedSprint.status === "closed" && (
+              <Typography.Text type="secondary">
+                历史 Sprint 仅供查看
+              </Typography.Text>
+            )}
           </Space>
           <Progress percent={sprintPercent} showInfo={false} />
         </div>
@@ -2259,11 +2346,25 @@ export function ProjectPlan() {
           >
             <Space wrap>
               <Typography.Text type="secondary">
-                项目看板不会回退到全项目任务，请先启用 Sprint 或从上方选择计划中的 Sprint。
+                项目看板不会回退到全项目任务。请开始一个计划中的 Sprint，建立明确的执行范围。
               </Typography.Text>
-              <Button type="primary" onClick={() => navigateToTab("sprints")}>
-                前往 Sprint 计划
-              </Button>
+              {suggestedSprint && canWrite(project) ? (
+                <Button
+                  type="primary"
+                  icon={<PlayCircleOutlined />}
+                  loading={changingSprintId === suggestedSprint.id}
+                  onClick={() => startSprint(suggestedSprint)}
+                >
+                  开始 {suggestedSprint.name}
+                </Button>
+              ) : (
+                <Button
+                  type={canWrite(project) ? "primary" : "default"}
+                  onClick={() => navigateToTab("sprints")}
+                >
+                  {canWrite(project) ? "创建 Sprint" : "查看 Sprint 计划"}
+                </Button>
+              )}
             </Space>
           </Empty>
         </Card>
@@ -2287,7 +2388,7 @@ export function ProjectPlan() {
               任务
             </Typography.Text>
             <Space wrap>
-            {canWrite(project) && (
+            {canEditSelectedSprint && (
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
@@ -2301,7 +2402,7 @@ export function ProjectPlan() {
                 新建 Sprint 任务
               </Button>
             )}
-            {canWrite(project) && (
+            {canEditSelectedSprint && (
               <Select
                 aria-label="任务模板"
                 value={templateId || undefined}
@@ -2313,7 +2414,7 @@ export function ProjectPlan() {
                 }))}
               />
             )}
-            {canWrite(project) && (
+            {canEditSelectedSprint && (
               <Button
                 disabled={!templateId}
                 onClick={() =>
@@ -2326,7 +2427,7 @@ export function ProjectPlan() {
                 使用模板
               </Button>
             )}
-            {canWrite(project) && (
+            {canEditSelectedSprint && (
               <Button
                 aria-label="删除任务模板"
                 danger
@@ -2428,7 +2529,7 @@ export function ProjectPlan() {
                 label: view.name,
               }))}
             />
-            {canWrite(project) && (
+            {canEditSelectedSprint && (
               <Button
                 aria-label="删除保存的视图"
                 danger
@@ -2444,13 +2545,13 @@ export function ProjectPlan() {
                 }}
               />
             )}
-            {canWrite(project) && (
+            {canEditSelectedSprint && (
               <Button icon={<SaveOutlined />} onClick={() => setViewOpen(true)}>
                 保存视图
               </Button>
             )}
             {(project.role === "Owner" || project.role === "Admin") &&
-              canWrite(project) && (
+              canEditSelectedSprint && (
                 <Button onClick={() => setWipOpen(true)}>
                   当前 Sprint WIP
                 </Button>
@@ -2458,7 +2559,7 @@ export function ProjectPlan() {
             </Space>
           </div>
         </div>
-        {selected.length > 0 && canWrite(project) && (
+        {selected.length > 0 && canEditSelectedSprint && (
           <div className="project-batch-bar">
             <Typography.Text strong>
               已选择 {selected.length} 项
@@ -2503,10 +2604,10 @@ export function ProjectPlan() {
                     className={`project-kanban-column${over ? " is-over-wip" : ""}`}
                     key={status.value}
                     onDragOver={(event) => {
-                      if (canWrite(project)) event.preventDefault();
+                      if (canEditSelectedSprint) event.preventDefault();
                     }}
                     onDrop={(event) => {
-                      if (!canWrite(project)) return;
+                      if (!canEditSelectedSprint) return;
                       const id = event.dataTransfer.getData("text/plain");
                       const task = sprintRoots.find((item) => item.id === id);
                       if (task && task.status !== status.value) {
@@ -2545,16 +2646,22 @@ export function ProjectPlan() {
                           size="small"
                           className={`project-task-card${savingTaskIds.has(task.id) ? " is-saving" : ""}`}
                           draggable={
-                            canWrite(project) && !savingTaskIds.has(task.id)
+                            canEditSelectedSprint && !savingTaskIds.has(task.id)
                           }
                           aria-busy={savingTaskIds.has(task.id)}
                           onDragStart={(event) =>
                             event.dataTransfer.setData("text/plain", task.id)
                           }
-                          onClick={() => openTask(task)}
+                          onClick={() =>
+                            openTask(
+                              task,
+                              {},
+                              selectedSprint.status === "closed",
+                            )
+                          }
                         >
                           <div className="project-task-card-title">
-                            {canWrite(project) && (
+                            {canEditSelectedSprint && (
                               <Checkbox
                                 checked={selected.includes(task.id)}
                                 disabled={savingTaskIds.has(task.id)}
@@ -2612,7 +2719,7 @@ export function ProjectPlan() {
                                 </Tag>
                               )}
                             </Space>
-                            {canWrite(project) && (
+                            {canEditSelectedSprint && (
                               <Select
                                 size="small"
                                 value={task.status}
@@ -2647,7 +2754,7 @@ export function ProjectPlan() {
             }
           >
             <Space wrap>
-              {!sprintRoots.length && canWrite(project) && (
+              {!sprintRoots.length && canEditSelectedSprint && (
                 <Button
                   type="primary"
                   onClick={() =>
@@ -3247,10 +3354,13 @@ export function ProjectIterations({
     milestones,
     customFields,
     sprints,
+    selectedSprintId,
+    setSelectedSprintId,
     reload,
+    navigateToTab,
     openTask,
   } = useProjectWork();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [section, setSection] = useState<PlanningSettingsSection>(
     sectionOnly || "milestones",
   );
@@ -3260,6 +3370,7 @@ export function ProjectIterations({
     null,
   );
   const [editingSprint, setEditingSprint] = useState<Sprint | null>(null);
+  const [changingSprintId, setChangingSprintId] = useState("");
   const [burn, setBurn] = useState<{
     sprint: Sprint;
     total: number;
@@ -3270,6 +3381,13 @@ export function ProjectIterations({
       Pick<ProjectCustomField, "name" | "field_type" | "options" | "required">
     >();
   const [sprintForm] = Form.useForm<SprintFormDraft>();
+  const orderedSprints = useMemo(() => orderSprints(sprints), [sprints]);
+  const activeSprint = orderedSprints.find(
+    (sprint) => sprint.status === "active",
+  );
+  const suggestedSprint = orderedSprints.find(
+    (sprint) => sprint.status === "planned",
+  );
   const sprintStats = useMemo(
     () =>
       new Map(
@@ -3319,6 +3437,92 @@ export function ProjectIterations({
       required: false,
     });
     setFieldOpen(true);
+  }
+
+  function openSprintEditor(sprint: Sprint) {
+    setEditingSprint(sprint);
+    sprintForm.setFieldsValue({
+      ...sprint,
+      sync_task_milestone: false,
+    });
+    setSprintOpen(true);
+  }
+
+  function startSprint(sprint: Sprint) {
+    modal.confirm({
+      title: `开始 Sprint“${sprint.name}”？`,
+      content:
+        activeSprint && activeSprint.id !== sprint.id
+          ? `当前 Sprint“${activeSprint.name}”会自动结束；两个 Sprint 的任务归属均保持不变。`
+          : "开始后，它会成为项目唯一的当前 Sprint，并出现在任务执行看板中。",
+      okText: activeSprint ? "切换当前 Sprint" : "开始 Sprint",
+      cancelText: "取消",
+      onOk: async () => {
+        setChangingSprintId(sprint.id);
+        try {
+          await consoleApi.updateSprint(project.id, sprint.id, {
+            status: "active",
+          });
+          setSelectedSprintId(sprint.id);
+          await reload();
+          message.success(`已开始 ${sprint.name}`);
+        } catch (reason) {
+          message.error(errorText(reason, "Sprint 启动失败"));
+          throw reason;
+        } finally {
+          setChangingSprintId("");
+        }
+      },
+    });
+  }
+
+  function closeSprint(sprint: Sprint) {
+    modal.confirm({
+      title: `结束 Sprint“${sprint.name}”？`,
+      content:
+        "结束后任务和燃尽数据会保留，但该 Sprint 会变为只读历史；未完成任务不会自动移入 Backlog。",
+      okText: "结束 Sprint",
+      okButtonProps: { danger: true },
+      cancelText: "继续执行",
+      onOk: async () => {
+        setChangingSprintId(sprint.id);
+        try {
+          await consoleApi.updateSprint(project.id, sprint.id, {
+            status: "closed",
+          });
+          if (selectedSprintId === sprint.id) setSelectedSprintId("");
+          await reload();
+          message.success(`${sprint.name} 已结束`);
+        } catch (reason) {
+          message.error(errorText(reason, "Sprint 结束失败"));
+          throw reason;
+        } finally {
+          setChangingSprintId("");
+        }
+      },
+    });
+  }
+
+  function deletePlannedSprint(sprint: Sprint) {
+    const taskCount = sprintStats.get(sprint.id)?.tasks || 0;
+    modal.confirm({
+      title: `删除 Sprint“${sprint.name}”？`,
+      content: `${taskCount} 个任务会移回 Backlog，但不会被删除。`,
+      okText: "删除 Sprint",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      onOk: async () => {
+        try {
+          await consoleApi.deleteSprint(project.id, sprint.id);
+          if (selectedSprintId === sprint.id) setSelectedSprintId("");
+          await reload();
+          message.success("Sprint 已删除，关联任务已移回 Backlog");
+        } catch (reason) {
+          message.error(errorText(reason, "Sprint 删除失败"));
+          throw reason;
+        }
+      },
+    });
   }
 
   return (
@@ -3384,14 +3588,70 @@ export function ProjectIterations({
                   </Space>
                 }
               >
+                {activeSprint ? (
+                  <Alert
+                    className="project-sprint-current"
+                    type="success"
+                    showIcon
+                    message={
+                      <Space size={6} wrap>
+                        <Typography.Text strong>当前 Sprint</Typography.Text>
+                        <Tag color="processing">{activeSprint.name}</Tag>
+                        <Typography.Text type="secondary">
+                          {activeSprint.start_date} — {activeSprint.end_date}
+                        </Typography.Text>
+                      </Space>
+                    }
+                    description={
+                      activeSprint.goal || "尚未设置目标，可编辑 Sprint 补充。"
+                    }
+                    action={
+                      <Space wrap>
+                        <Button onClick={() => navigateToTab("plan")}>
+                          打开执行看板
+                        </Button>
+                        {canWrite(project) && (
+                          <Button
+                            danger
+                            icon={<StopOutlined />}
+                            loading={changingSprintId === activeSprint.id}
+                            onClick={() => closeSprint(activeSprint)}
+                          >
+                            结束 Sprint
+                          </Button>
+                        )}
+                      </Space>
+                    }
+                  />
+                ) : (
+                  <Alert
+                    className="project-sprint-current"
+                    type="warning"
+                    showIcon
+                    message="尚无当前 Sprint"
+                    description="开始一个计划中的 Sprint 后，任务看板才会建立明确的执行范围。"
+                    action={
+                      suggestedSprint && canWrite(project) ? (
+                        <Button
+                          type="primary"
+                          icon={<PlayCircleOutlined />}
+                          loading={changingSprintId === suggestedSprint.id}
+                          onClick={() => startSprint(suggestedSprint)}
+                        >
+                          开始 {suggestedSprint.name}
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                )}
                 <Table<Sprint>
                   rowKey="id"
-                  dataSource={sprints}
+                  dataSource={orderedSprints}
                   pagination={{
                     pageSize: 10,
                     hideOnSinglePage: true,
                   }}
-                  scroll={{ x: 1080 }}
+                  scroll={{ x: 930 }}
                   locale={{
                     emptyText: (
                       <Empty
@@ -3400,10 +3660,10 @@ export function ProjectIterations({
                       />
                     ),
                   }}
-                  rowClassName={() =>
-                    canWrite(project)
-                      ? "project-settings-row is-clickable"
-                      : "project-settings-row"
+                  rowClassName={(sprint) =>
+                    `project-settings-row${
+                      sprint.status === "active" ? " is-current" : ""
+                    }${canWrite(project) ? " is-clickable" : ""}`
                   }
                   onRow={(sprint) => ({
                     onClick: (event) => {
@@ -3412,24 +3672,24 @@ export function ProjectIterations({
                         (event.target as HTMLElement).closest("button")
                       )
                         return;
-                      setEditingSprint(sprint);
-                      sprintForm.setFieldsValue({
-                        ...sprint,
-                        sync_task_milestone: false,
-                      });
-                      setSprintOpen(true);
+                      openSprintEditor(sprint);
                     },
                   })}
                   columns={[
                     {
                       title: "Sprint",
                       dataIndex: "name",
-                      minWidth: 220,
+                      minWidth: 200,
                       render: (value, sprint) => (
                         <div>
-                          <Typography.Text strong>
-                            {String(value)}
-                          </Typography.Text>
+                          <Space size={6} wrap>
+                            <Typography.Text strong>
+                              {String(value)}
+                            </Typography.Text>
+                            <Tag color={SPRINT_STATUS_META[sprint.status].color}>
+                              {SPRINT_STATUS_META[sprint.status].label}
+                            </Tag>
+                          </Space>
                           <div>
                             <Typography.Text type="secondary" ellipsis>
                               {sprint.goal || "未设置目标"}
@@ -3440,7 +3700,7 @@ export function ProjectIterations({
                     },
                     {
                       title: "执行",
-                      width: 220,
+                      width: 180,
                       render: (_value, sprint) => {
                         const stats = sprintStats.get(sprint.id);
                         return (
@@ -3464,14 +3724,14 @@ export function ProjectIterations({
                     },
                     {
                       title: "周期",
-                      width: 220,
+                      width: 200,
                       render: (_value, sprint) =>
                         `${sprint.start_date} — ${sprint.end_date}`,
                     },
                     {
                       title: "里程碑",
                       dataIndex: "milestone_id",
-                      width: 150,
+                      width: 130,
                       render: (value) =>
                         milestones.find(
                           (milestone) => milestone.id === value,
@@ -3482,81 +3742,115 @@ export function ProjectIterations({
                         ),
                     },
                     {
-                      title: "状态",
-                      dataIndex: "status",
-                      width: 100,
-                      render: (value) => (
-                        <Tag
-                          color={
-                            value === "active"
-                              ? "processing"
-                              : value === "closed"
-                                ? "default"
-                                : "blue"
-                          }
-                        >
-                          {value === "active"
-                            ? "进行中"
-                            : value === "closed"
-                              ? "已关闭"
-                              : "计划中"}
-                        </Tag>
-                      ),
-                    },
-                    {
                       title: "操作",
-                      width: 210,
+                      width: 220,
                       fixed: "right",
                       render: (_value, sprint) => (
                         <Space size={4}>
-                          {canWrite(project) && (
+                          {canWrite(project) && sprint.status === "planned" && (
                             <Button
                               type="link"
                               size="small"
-                              icon={<PlusOutlined />}
-                              onClick={() =>
-                                openTask(null, {
-                                  sprint_id: sprint.id,
-                                  milestone_id: sprint.milestone_id || "",
-                                })
-                              }
+                              icon={<PlayCircleOutlined />}
+                              loading={changingSprintId === sprint.id}
+                              onClick={() => startSprint(sprint)}
                             >
-                              新建任务
+                              开始
+                            </Button>
+                          )}
+                          {canWrite(project) && sprint.status === "active" && (
+                            <Button
+                              type="link"
+                              danger
+                              size="small"
+                              icon={<StopOutlined />}
+                              loading={changingSprintId === sprint.id}
+                              onClick={() => closeSprint(sprint)}
+                            >
+                              结束
                             </Button>
                           )}
                           <Button
                             type="link"
                             size="small"
-                            onClick={async () => {
-                              const result = await consoleApi.sprintBurndown(
-                                project.id,
-                                sprint.id,
-                              );
-                              setBurn({ sprint, ...result });
+                            onClick={() => {
+                              setSelectedSprintId(sprint.id);
+                              navigateToTab("plan");
                             }}
                           >
-                            燃尽
+                            查看任务
                           </Button>
-                          {canWrite(project) && (
-                            <Popconfirm
-                              title="删除 Sprint？"
-                              description="任务会被移出该 Sprint，但不会删除。"
-                              onConfirm={async () => {
-                                await consoleApi.deleteSprint(
-                                  project.id,
-                                  sprint.id,
-                                );
-                                await reload();
-                              }}
-                            >
-                              <Button
-                                type="text"
-                                danger
-                                icon={<DeleteOutlined />}
-                                aria-label={`删除 Sprint ${sprint.name}`}
-                              />
-                            </Popconfirm>
-                          )}
+                          <Dropdown
+                            trigger={["click"]}
+                            menu={{
+                              items: [
+                                ...(canWrite(project) &&
+                                sprint.status !== "closed"
+                                  ? [
+                                      {
+                                        key: "new-task",
+                                        icon: <PlusOutlined />,
+                                        label: "新建任务",
+                                      },
+                                    ]
+                                  : []),
+                                { key: "burndown", label: "查看燃尽" },
+                                ...(canWrite(project)
+                                  ? [
+                                      {
+                                        key: "edit",
+                                        icon: <EditOutlined />,
+                                        label: "编辑 Sprint",
+                                      },
+                                    ]
+                                  : []),
+                                ...(canWrite(project) &&
+                                sprint.status === "planned"
+                                  ? [
+                                      {
+                                        key: "delete",
+                                        danger: true,
+                                        icon: <DeleteOutlined />,
+                                        label: "删除 Sprint",
+                                      },
+                                    ]
+                                  : []),
+                              ],
+                              onClick: async ({ key, domEvent }) => {
+                                domEvent.stopPropagation();
+                                if (key === "new-task") {
+                                  openTask(null, {
+                                    sprint_id: sprint.id,
+                                    milestone_id: sprint.milestone_id || "",
+                                  });
+                                } else if (key === "burndown") {
+                                  try {
+                                    const result =
+                                      await consoleApi.sprintBurndown(
+                                        project.id,
+                                        sprint.id,
+                                      );
+                                    setBurn({ sprint, ...result });
+                                  } catch (reason) {
+                                    message.error(
+                                      errorText(reason, "燃尽数据加载失败"),
+                                    );
+                                  }
+                                } else if (key === "edit") {
+                                  openSprintEditor(sprint);
+                                } else if (key === "delete") {
+                                  deletePlannedSprint(sprint);
+                                }
+                              },
+                            }}
+                          >
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<MoreOutlined />}
+                              aria-label={`${sprint.name} 更多操作`}
+                            />
+                          </Dropdown>
                         </Space>
                       ),
                     },
@@ -3757,8 +4051,14 @@ export function ProjectIterations({
           layout="vertical"
           onFinish={async (values) => {
             try {
-              const { sync_task_milestone: syncTasks, ...sprintValues } =
-                values;
+              const syncTasks = values.sync_task_milestone;
+              const sprintValues = {
+                name: values.name,
+                goal: values.goal,
+                milestone_id: values.milestone_id,
+                start_date: values.start_date,
+                end_date: values.end_date,
+              };
               const milestoneChanged =
                 Boolean(editingSprint) &&
                 editingSprint?.milestone_id !==
@@ -3769,7 +4069,11 @@ export function ProjectIterations({
                   editingSprint.id,
                   sprintValues,
                 );
-              else await consoleApi.createSprint(project.id, sprintValues);
+              else
+                await consoleApi.createSprint(project.id, {
+                  ...sprintValues,
+                  status: "planned",
+                });
               let failedSyncs = 0;
               if (editingSprint && milestoneChanged && syncTasks) {
                 const results = await Promise.allSettled(
@@ -3878,14 +4182,25 @@ export function ProjectIterations({
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item name="status" label="状态">
-            <Select
-              options={[
-                { value: "planned", label: "计划中" },
-                { value: "active", label: "进行中" },
-                { value: "closed", label: "已关闭" },
-              ]}
-            />
+          <Form.Item label="状态">
+            <Space size={8} wrap>
+              <Tag
+                color={
+                  editingSprint
+                    ? SPRINT_STATUS_META[editingSprint.status].color
+                    : SPRINT_STATUS_META.planned.color
+                }
+              >
+                {editingSprint
+                  ? SPRINT_STATUS_META[editingSprint.status].label
+                  : SPRINT_STATUS_META.planned.label}
+              </Tag>
+              <Typography.Text type="secondary">
+                {editingSprint
+                  ? "请在 Sprint 列表使用“开始”或“结束”变更生命周期。"
+                  : "新 Sprint 会先保存为计划中，确认任务范围后再开始。"}
+              </Typography.Text>
+            </Space>
           </Form.Item>
           {editingSprint && (
             <Form.Item

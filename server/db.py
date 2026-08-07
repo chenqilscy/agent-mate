@@ -27,6 +27,7 @@ from migrations import (
     migrate_federated_identity_security,
     migrate_governance_activity_sequence,
     migrate_relay_retention,
+    migrate_single_active_sprint,
     migrate_work_item_acceptance_idempotency,
     migrate_server_legacy_schema,
     assert_server_schema,
@@ -715,6 +716,7 @@ def init_db() -> None:
         ),
         Migration(7, "sso-provider-audit", migrate_sso_provider_audit),
         Migration(8, "work-item-acceptance-idempotency", migrate_work_item_acceptance_idempotency),
+        Migration(9, "single-active-sprint", migrate_single_active_sprint),
     ))
     assert_server_schema(conn)
     # 新 App 版本可补充真实实现，但绝不覆盖 Console 已管理的运营字段。
@@ -2803,11 +2805,17 @@ def get_sprint(sprint_id: str) -> Optional[dict]:
 
 def create_sprint(*, project_id: str, name: str, goal: str, start_date: str,
                   end_date: str, status: str = "planned", milestone_id: str = "") -> dict:
-    sprint_id = new_uuid(); now = time.time()
-    sort = get_conn().execute(
+    sprint_id = new_uuid(); now = time.time(); conn = get_conn()
+    sort = conn.execute(
         "SELECT COALESCE(MAX(sort),0)+1 FROM sprints WHERE project_id=?", (project_id,),
     ).fetchone()[0]
-    get_conn().execute(
+    if status == "active":
+        conn.execute(
+            "UPDATE sprints SET status='closed',updated_at=? "
+            "WHERE project_id=? AND status='active'",
+            (now, project_id),
+        )
+    conn.execute(
         "INSERT INTO sprints "
         "(id,project_id,milestone_id,name,goal,start_date,end_date,status,sort,created_at,updated_at) "
         "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -2816,21 +2824,34 @@ def create_sprint(*, project_id: str, name: str, goal: str, start_date: str,
             start_date, end_date, status, sort, now, now,
         ),
     )
-    get_conn().commit()
+    conn.commit()
     return get_sprint(sprint_id)  # type: ignore[return-value]
 
 
 def update_sprint(sprint_id: str, **fields: Any) -> Optional[dict]:
     allowed = {"name", "goal", "start_date", "end_date", "status", "sort", "milestone_id"}
+    conn = get_conn()
+    current = conn.execute(
+        "SELECT project_id FROM sprints WHERE id=?", (sprint_id,),
+    ).fetchone()
+    if current is None:
+        return None
     sets, values = [], []
     for key, value in fields.items():
         if key in allowed and value is not None:
             sets.append(f"{key}=?"); values.append(value)
     if not sets:
         return get_sprint(sprint_id)
-    sets.append("updated_at=?"); values.extend([time.time(), sprint_id])
-    cur = get_conn().execute(f"UPDATE sprints SET {', '.join(sets)} WHERE id=?", values)
-    get_conn().commit()
+    now = time.time()
+    if fields.get("status") == "active":
+        conn.execute(
+            "UPDATE sprints SET status='closed',updated_at=? "
+            "WHERE project_id=? AND status='active' AND id<>?",
+            (now, current["project_id"], sprint_id),
+        )
+    sets.append("updated_at=?"); values.extend([now, sprint_id])
+    cur = conn.execute(f"UPDATE sprints SET {', '.join(sets)} WHERE id=?", values)
+    conn.commit()
     return get_sprint(sprint_id) if cur.rowcount else None
 
 

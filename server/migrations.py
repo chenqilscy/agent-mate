@@ -277,3 +277,29 @@ def migrate_sso_provider_audit(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_sso_provider_audit_created "
         "ON sso_provider_audit(created_at DESC)"
     )
+
+
+def migrate_single_active_sprint(conn: sqlite3.Connection) -> None:
+    """Keep the newest current Sprint and enforce one active row per project."""
+    active_rows = conn.execute(
+        "SELECT id,project_id FROM sprints WHERE status='active' "
+        "ORDER BY project_id,updated_at DESC,created_at DESC,id DESC"
+    ).fetchall()
+    seen_projects: set[str] = set()
+    stale_ids: list[str] = []
+    for row in active_rows:
+        project_id = str(row["project_id"])
+        if project_id in seen_projects:
+            stale_ids.append(str(row["id"]))
+        else:
+            seen_projects.add(project_id)
+    if stale_ids:
+        placeholders = ",".join("?" for _item in stale_ids)
+        conn.execute(
+            f"UPDATE sprints SET status='closed',updated_at=? WHERE id IN ({placeholders})",
+            (time.time(), *stale_ids),
+        )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_sprints_one_active_per_project "
+        "ON sprints(project_id) WHERE status='active'"
+    )

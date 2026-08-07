@@ -134,6 +134,8 @@ body {
 .project-settings-row.is-clickable:hover { background: color-mix(in srgb, var(--console-brand) 6%, transparent); }
 .project-settings-progress { display: grid; min-width: 180px; gap: 3px; }
 .project-settings-progress .ant-progress { margin: 0; }
+.project-sprint-current { margin-bottom: 12px; }
+.project-settings-row.is-current > td { background: color-mix(in srgb, var(--console-brand) 8%, var(--console-panel)); }
 .project-field-option-editor { display: grid; gap: 8px; }
 .project-field-option-editor .ant-space { min-width: 0; }
 .project-field-option-editor .ant-tag { max-width: 100%; margin-inline-end: 0; white-space: normal; }
@@ -430,6 +432,8 @@ body {
   .markdown-editor-body.is-split .markdown-editor-preview { border-inline-start: 0; border-top: 1px solid var(--console-border); }
   .project-settings-panel .ant-card-head-wrapper { align-items: stretch; flex-direction: column; padding-block: 12px; }
   .project-settings-panel .ant-card-extra { margin-inline-start: 0; }
+  .project-sprint-current { align-items: flex-start; }
+  .project-sprint-current .ant-alert-action { margin-inline-start: 0; padding-top: 10px; }
   .project-task-center-header { align-items: stretch; flex-direction: column; }
   .project-sprint-scope-head { align-items: stretch; flex-direction: column; }
   .project-sprint-scope-summary { grid-template-columns: 1fr; }
