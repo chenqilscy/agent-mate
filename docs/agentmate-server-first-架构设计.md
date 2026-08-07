@@ -343,7 +343,7 @@ Local Agent 至少暴露给本机诊断页：
 | 工作包 | 范围 | 依赖 |
 |---|---|---|
 | [WB-431](issues/archive/2026/WB-400-499.md#wb-431) | 目标架构、数据归属、迁移阶段与子项拆分 | 无 |
-| [WB-432](issues/WB-432-server-durable-business-plane.md) | Server 持久业务模型与 API | WB-431 |
+| [WB-432](issues/archive/2026/WB-400-499.md#wb-432) | Server 持久业务模型与 API | WB-431 |
 | [WB-433](issues/WB-433-device-run-lease-event-protocol.md) | 设备身份、Run 租约、事件 WAL/ACK 协议 | WB-431；与 WB-432 对齐 Run schema |
 | [WB-434](issues/WB-434-local-agent-core-boundary.md) | Local Agent Core 收缩和本机 IPC | WB-433 |
 | [WB-435](issues/WB-435-desktop-dual-channel-cutover.md) | Desktop UI 业务/本机双通道切换 | WB-432、WB-433、WB-434 |

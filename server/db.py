@@ -26,6 +26,7 @@ from migrations import (
     migrate_account_login_lifecycle,
     migrate_federated_identity_security,
     migrate_governance_activity_sequence,
+    migrate_durable_business_plane,
     migrate_relay_retention,
     migrate_single_active_sprint,
     migrate_work_item_acceptance_idempotency,
@@ -717,6 +718,7 @@ def init_db() -> None:
         Migration(7, "sso-provider-audit", migrate_sso_provider_audit),
         Migration(8, "work-item-acceptance-idempotency", migrate_work_item_acceptance_idempotency),
         Migration(9, "single-active-sprint", migrate_single_active_sprint),
+        Migration(10, "durable-business-plane", migrate_durable_business_plane),
     ))
     assert_server_schema(conn)
     # 新 App 版本可补充真实实现，但绝不覆盖 Console 已管理的运营字段。
@@ -1676,6 +1678,9 @@ def project_delete_counts(project_id: str) -> dict[str, int]:
         "members": "project_members", "tasks": "work_items", "knowledge_bases": "knowledge_bases",
         "milestones": "milestones", "sprints": "sprints", "comments": "comments",
         "governance": "project_governance",
+        "sessions": "business_sessions", "runs": "business_runs",
+        "assistants": "business_assistants", "automations": "business_automations",
+        "assets": "business_assets",
     }
     return {
         key: int(conn.execute(f"SELECT COUNT(*) FROM {table} WHERE project_id=?", (project_id,)).fetchone()[0])

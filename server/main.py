@@ -29,7 +29,7 @@ import db  # noqa: E402
 import relay_store  # noqa: E402
 import sso_store  # noqa: E402
 from config import settings  # noqa: E402
-from routers import accounts, auth, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, relay, sso, timeline, work_items  # noqa: E402
+from routers import accounts, auth, business, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, relay, sso, timeline, work_items  # noqa: E402
 
 db.init_db()
 sso_store.migrate_plaintext_provider_secrets()
@@ -97,6 +97,7 @@ app.include_router(sso.router)
 app.include_router(accounts.router)
 app.include_router(orgs.router)
 app.include_router(projects.router)
+app.include_router(business.router)
 app.include_router(invites.router)
 app.include_router(catalog.router)
 app.include_router(timeline.router)

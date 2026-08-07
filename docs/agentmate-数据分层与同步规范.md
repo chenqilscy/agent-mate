@@ -26,8 +26,8 @@
 | 账号、外部身份、组织、成员、角色、邀请 | Server | token/账号显示缓存 | 不能新登录或改权限 | Server 已权威 |
 | 项目、任务、里程碑、Sprint、自定义字段、治理 | Server | 只读可重建缓存 | 只读缓存；禁止业务写 | 部分仍有本地镜像 |
 | 评论、@、通知、presence、timeline、审计 | Server | 可选短期缓存 | 只读或不可用 | Server 已覆盖主要 API |
-| 会话、消息、Run、步骤、交付、结构化工具事件 | Server | 当前 Run working set + 未 ACK WAL | 已领取 Run 可受控继续 | 当前主要在本地，待迁移 |
-| 助理、频道、自动化、调度与历史 | Server | 执行所需快照/缓存 | 不创建、不编辑；已租约任务按协议继续 | 当前主要在本地，待迁移 |
+| 会话、消息、Run、步骤、交付、结构化工具事件 | Server | 当前 Run working set + 未 ACK WAL | 已领取 Run 可受控继续 | Server schema/API 已落地，待客户端迁移 |
+| 助理、频道、自动化、调度与历史 | Server | 执行所需快照/缓存 | 不创建、不编辑；已租约任务按协议继续 | Server schema/API 已落地，待客户端迁移 |
 | Catalog、Capability Release、策略、安装目标 | Server | 已校验能力包缓存 | 使用 last-known-good 执行包；不改策略 | 已有目录下行，待去镜像化 |
 | 项目资产、正式产物、对象版本 | Server + object storage | working copy / 下载缓存 | 未上传文件仍标记“仅本机” | 待建设 |
 | 设备、capability、heartbeat、lease、ACK 高水位 | Server | 设备私钥、当前租约与 WAL | 重连后按 epoch/seq 恢复 | relay 有基础，Run 协议待建设 |
@@ -101,6 +101,21 @@ WAL 不是 sessions/messages/runs 的本地副本，不接受 UI 直接编辑；
 - Server 使用 revision、ETag、版本号或实时失效事件通知客户端刷新。
 - 网络不可达保留 last-known-good cache；Server 明确 tombstone/撤回则必须失效。
 - “不可达”和“已删除/撤权”是不同状态，不能用同一空列表回退处理。
+
+### 4.4 持久业务 API 基线（WB-432）
+
+Server 已建立 `sessions/messages/runs/run_steps/assistants/channels/automations/assets` 的版本化关系模型，统一路由位于 `/api`：
+
+- 集合读取使用 `limit + next_cursor`；游标由稳定排序字段和实体 id 组成，调用方不能自行解释或改写；
+- 创建请求可带 `Idempotency-Key`。同账号、同实体类型和同 key 重试返回原实体；key 对应的 payload 改变时返回 `409`；
+- 可变实体携带 `version`，更新和删除必须传 `expected_version`，陈旧写返回 `409`；
+- 项目实体由 Server 的项目角色判定：Viewer 只读，Member 可写执行数据，Admin/Owner 管理共享助理、渠道和自动化；撤权后立即返回不可见；
+- 写操作与实体事务同时写入 `business_audit`，审计通过 `/api/business/audit` 使用同样的稳定游标导出；业务集合本身也可逐页导出，不提供绕过权限的全库 dump；
+- 删除采用有审计的 soft delete。本阶段不自动物理清除；数据库备份保留实体关系和 tombstone。后续若引入物理保留期，必须是显式的平台策略和独立审计操作；
+- `channels.public_config` 拒绝 token/secret/password/API key 等字段，只允许保存不含秘密的配置；`credential_ref` 只能是指向本机或设备安全存储的 opaque URI；
+- `assets` 在本阶段只提交元数据、hash 和对象引用状态。对象字节、签名上传与 working copy 由 WB-436 定义，不能把二进制或本机绝对路径写入此 API。
+
+这些 API 是迁移的 Server 目标端，不构成长期双写许可。Desktop 切换前的本地表仍按 §10 管理。
 
 ## 5. Run 事件传输
 
