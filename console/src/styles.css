@@ -134,6 +134,9 @@ body {
 .project-settings-row.is-clickable:hover { background: color-mix(in srgb, var(--console-brand) 6%, transparent); }
 .project-settings-progress { display: grid; min-width: 180px; gap: 3px; }
 .project-settings-progress .ant-progress { margin: 0; }
+.project-field-option-editor { display: grid; gap: 8px; }
+.project-field-option-editor .ant-space { min-width: 0; }
+.project-field-option-editor .ant-tag { max-width: 100%; margin-inline-end: 0; white-space: normal; }
 
 .project-plan { display: grid; gap: 16px; }
 .project-sprint-scope { border-color: var(--console-border); }

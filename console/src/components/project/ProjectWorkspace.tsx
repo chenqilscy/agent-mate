@@ -104,6 +104,10 @@ type QuickPlanKind = "milestone" | "sprint";
 type TaskEditorStep = "content" | "plan" | "advanced";
 type PlanningSettingsSection = "milestones" | "sprints" | "fields";
 type ProjectTaskListScope = "backlog" | "all";
+type CustomFieldOptionEditorProps = {
+  value?: string[];
+  onChange?: (value: string[]) => void;
+};
 export type ProjectWorkspaceTab =
   | "overview"
   | "plan"
@@ -127,6 +131,92 @@ interface QuickPlanDraft {
   start_date?: string;
   end_date?: string;
   status?: string;
+}
+
+function CustomFieldOptionEditor({
+  value = [],
+  onChange,
+}: CustomFieldOptionEditorProps) {
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState("");
+  const options = Array.isArray(value) ? value : [];
+
+  function addOptions() {
+    const candidates = draft
+      .split(/[,，\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!candidates.length) return;
+    const next = [...options];
+    for (const candidate of candidates) {
+      if (candidate.length > 80) {
+        setError(`选项“${candidate.slice(0, 20)}…”超过 80 个字符`);
+        return;
+      }
+      if (next.includes(candidate)) {
+        setError(`选项“${candidate}”已存在`);
+        return;
+      }
+      if (next.length >= 50) {
+        setError("最多添加 50 个选项");
+        return;
+      }
+      next.push(candidate);
+    }
+    onChange?.(next);
+    setDraft("");
+    setError("");
+  }
+
+  return (
+    <div className="project-field-option-editor">
+      <Space.Compact block>
+        <Input
+          aria-label="选项名称"
+          value={draft}
+          maxLength={4000}
+          placeholder="输入选项，按 Enter 或点击添加"
+          onChange={(event) => {
+            setDraft(event.target.value);
+            if (error) setError("");
+          }}
+          onPressEnter={(event) => {
+            event.preventDefault();
+            addOptions();
+          }}
+        />
+        <Button
+          icon={<PlusOutlined />}
+          disabled={!draft.trim() || options.length >= 50}
+          onClick={addOptions}
+        >
+          添加
+        </Button>
+      </Space.Compact>
+      <Typography.Text type={error ? "danger" : "secondary"}>
+        {error || `已添加 ${options.length}/50；可用逗号批量添加`}
+      </Typography.Text>
+      <Space size={[6, 8]} wrap aria-label="已添加选项">
+        {options.length ? (
+          options.map((option, index) => (
+            <Tag
+              key={`${option}-${index}`}
+              closable
+              onClose={(event) => {
+                event.preventDefault();
+                onChange?.(options.filter((_item, itemIndex) => itemIndex !== index));
+                setError("");
+              }}
+            >
+              {option}
+            </Tag>
+          ))
+        ) : (
+          <Typography.Text type="secondary">尚未添加选项</Typography.Text>
+        )}
+      </Space>
+    </div>
+  );
 }
 type SprintFormDraft = Pick<
   Sprint,
@@ -3583,17 +3673,19 @@ export function ProjectIterations({
           layout="vertical"
           onFinish={async (values) => {
             try {
+              const fieldValues = {
+                ...values,
+                options:
+                  values.field_type === "select" ? values.options || [] : [],
+              };
               if (editingField)
                 await consoleApi.updateCustomField(
                   project.id,
                   editingField.id,
-                  { ...values, options: values.options || [] },
+                  fieldValues,
                 );
               else
-                await consoleApi.createCustomField(project.id, {
-                  ...values,
-                  options: values.options || [],
-                });
+                await consoleApi.createCustomField(project.id, fieldValues);
               setFieldOpen(false);
               setEditingField(null);
               await reload();
@@ -3631,8 +3723,19 @@ export function ProjectIterations({
           >
             {({ getFieldValue }) =>
               getFieldValue("field_type") === "select" && (
-                <Form.Item name="options" label="选项">
-                  <Select mode="tags" tokenSeparators={[","]} />
+                <Form.Item
+                  name="options"
+                  label="选项"
+                  rules={[
+                    {
+                      validator: (_rule, options) =>
+                        Array.isArray(options) && options.length > 0
+                          ? Promise.resolve()
+                          : Promise.reject(new Error("请至少添加一个选项")),
+                    },
+                  ]}
+                >
+                  <CustomFieldOptionEditor />
                 </Form.Item>
               )
             }
