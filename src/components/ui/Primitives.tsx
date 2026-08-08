@@ -26,9 +26,9 @@ type NativeButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type'> &
 // generic default/primary hover rule otherwise reintroduces a 1px border,
 // shrinking the content box and making icons/text jump on pointer entry.
 const BORDERLESS_VISUAL_CLASSES = new Set([
+  'more-shortcut-item',
   'asst-del',
   'asst-new',
-  'auto-more',
   'btn-dark',
   'idea-archive',
   'idea-unlink',

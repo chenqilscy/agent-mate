@@ -816,7 +816,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   </div>
                 </Card>
                 <div className="set-actions">
-                  <WbButton className="btn-dark" onClick={() => void openServerConsole('/account')}>打开 Console</WbButton>
+                  <WbButton className="btn-dark" onClick={() => void openServerConsole()}>打开 Console</WbButton>
                   {loggedIn
                     ? <WbButton className="btn-ghost danger-b" onClick={() => { onClose(); void logout() }}>退出登录</WbButton>
                     : <span className="set-pdesc">当前是匿名访客，不是本地账号；AgentMate 账号统一由 Server 提供。</span>}

@@ -420,6 +420,7 @@ export const api = {
     const runById = new Map(runs.map((run) => [run.id, run]))
     return {
       session,
+      runs,
       messages: result.map((message) => ({
         ...message,
         actor: message.actor || message.actor_id || message.role,
@@ -788,16 +789,16 @@ export const api = {
   listAutomationRuns: async (id: string) => ({ runs: await serverAutomationSessions(id) }),
 
   getAutomationWebhook: (id: string) =>
-    get<AutomationWebhookConfig>(`/automations/${id}/webhook`),
+    serverGet<AutomationWebhookConfig>(`/automations/${id}/webhook`),
 
   createAutomationWebhook: (id: string) =>
-    send<AutomationWebhookConfig>('POST', `/automations/${id}/webhook`, {}),
+    serverSend<AutomationWebhookConfig>('POST', `/automations/${id}/webhook`, {}),
 
   rotateAutomationWebhook: (id: string) =>
-    send<AutomationWebhookConfig>('POST', `/automations/${id}/webhook/rotate`, {}),
+    serverSend<AutomationWebhookConfig>('POST', `/automations/${id}/webhook/rotate`, {}),
 
   deleteAutomationWebhook: (id: string) =>
-    send<{ ok: boolean }>('DELETE', `/automations/${id}/webhook`),
+    serverSend<{ ok: boolean }>('DELETE', `/automations/${id}/webhook`),
 
   listAllAutomationRuns: async () => ({ runs: await serverAutomationSessions() }),
 

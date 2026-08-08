@@ -265,6 +265,105 @@ class DeviceRunProtocolTest(unittest.TestCase):
         self.assertEqual(200, submitted.status_code, submitted.text)
         self.assertEqual("completed", self.client.get(f"/api/runs/{run_id}", headers=self.user_auth).json()["status"])
 
+    def test_recovered_epoch_cursor_and_terminal_output_ignore_old_attempt(self) -> None:
+        device1, _private1, auth1, _challenge1, _signature1 = self._register_device("epoch-old")
+        device2, _private2, auth2, _challenge2, _signature2 = self._register_device("epoch-new")
+        run_id = self._create_run()
+        first = self.client.post(
+            "/api/agent/runs/lease", headers=auth1, json={"lease_seconds": 30},
+        ).json()["lease"]
+        old_events = [
+            self._event(
+                run_id=run_id, device_id=device1, epoch=first["lease_epoch"], sequence=1,
+                event_type="run.started",
+            ),
+            self._event(
+                run_id=run_id, device_id=device1, epoch=first["lease_epoch"], sequence=2,
+                event_type="ui.text", payload={"md": "旧尝试的部分输出"},
+            ),
+        ]
+        accepted = self.client.post(
+            f"/api/agent/runs/{run_id}/leases/{first['lease_id']}/events", headers=auth1,
+            json={"lease_epoch": first["lease_epoch"], "events": old_events},
+        )
+        self.assertEqual(200, accepted.status_code, accepted.text)
+        db.get_conn().execute("UPDATE run_leases SET expires_at=0 WHERE id=?", (first["lease_id"],))
+        db.get_conn().commit()
+
+        recovered = self.client.post(
+            "/api/agent/runs/lease", headers=auth2, json={"lease_seconds": 30},
+        ).json()["lease"]
+        self.assertEqual(first["lease_epoch"] + 1, recovered["lease_epoch"])
+        new_events = [
+            self._event(
+                run_id=run_id, device_id=device2, epoch=recovered["lease_epoch"], sequence=1,
+                event_type="run.started",
+            ),
+            self._event(
+                run_id=run_id, device_id=device2, epoch=recovered["lease_epoch"], sequence=2,
+                event_type="ui.text", payload={"md": "新尝试的完整输出"},
+            ),
+            self._event(
+                run_id=run_id, device_id=device2, epoch=recovered["lease_epoch"], sequence=3,
+                event_type="run.completed",
+            ),
+        ]
+        completed = self.client.post(
+            f"/api/agent/runs/{run_id}/leases/{recovered['lease_id']}/events", headers=auth2,
+            json={"lease_epoch": recovered["lease_epoch"], "events": new_events},
+        )
+        self.assertEqual(200, completed.status_code, completed.text)
+
+        incremental = self.client.get(
+            f"/api/runs/{run_id}/events?after_epoch={first['lease_epoch']}&after_sequence=2",
+            headers=self.user_auth,
+        )
+        self.assertEqual(200, incremental.status_code, incremental.text)
+        self.assertEqual(
+            [recovered["lease_epoch"]] * 3,
+            [event["lease_epoch"] for event in incremental.json()["events"]],
+        )
+        messages = self.client.get(
+            f"/api/sessions/{self.session_id}/messages", headers=self.user_auth,
+        ).json()["messages"]
+        assistant = next(item for item in messages if item.get("run_id") == run_id and item["role"] == "assistant")
+        self.assertEqual("新尝试的完整输出", assistant["content"])
+
+    def test_queued_cancel_commits_terminal_without_waiting_for_device(self) -> None:
+        run_id = self._create_run(capability="missing-capability")
+        cancelled = self.client.post(f"/api/runs/{run_id}/cancel", headers=self.user_auth)
+        self.assertEqual(200, cancelled.status_code, cancelled.text)
+        self.assertEqual("cancelled", cancelled.json()["run"]["status"])
+        messages = self.client.get(
+            f"/api/sessions/{self.session_id}/messages", headers=self.user_auth,
+        ).json()["messages"]
+        assistant = next(item for item in messages if item.get("run_id") == run_id and item["role"] == "assistant")
+        self.assertEqual("Run cancelled before local execution", assistant["error"])
+
+    def test_recovery_exhaustion_commits_failed_run_and_assistant(self) -> None:
+        _device1, _private1, auth1, _challenge1, _signature1 = self._register_device("exhaust-old")
+        _device2, _private2, auth2, _challenge2, _signature2 = self._register_device("exhaust-new")
+        run_id = self._create_run(max_recoveries=0)
+        first = self.client.post(
+            "/api/agent/runs/lease", headers=auth1, json={"lease_seconds": 30},
+        ).json()["lease"]
+        db.get_conn().execute("UPDATE run_leases SET expires_at=0 WHERE id=?", (first["lease_id"],))
+        db.get_conn().commit()
+
+        replacement = self.client.post(
+            "/api/agent/runs/lease", headers=auth2, json={"lease_seconds": 30},
+        )
+        self.assertEqual(200, replacement.status_code, replacement.text)
+        self.assertIsNone(replacement.json()["lease"])
+        run = self.client.get(f"/api/runs/{run_id}", headers=self.user_auth).json()
+        self.assertEqual("failed", run["status"])
+        self.assertEqual("lease_recovery_exhausted", run["error_code"])
+        messages = self.client.get(
+            f"/api/sessions/{self.session_id}/messages", headers=self.user_auth,
+        ).json()["messages"]
+        assistant = next(item for item in messages if item.get("run_id") == run_id and item["role"] == "assistant")
+        self.assertEqual("Run lease recovery limit exceeded", assistant["error"])
+
     def test_atomic_turn_and_device_terminal_event_are_the_only_commit_path(self) -> None:
         device_id, _private, auth, _challenge, _signature = self._register_device(
             "turn", ["run_events_v1", "llm.chat"],

@@ -290,6 +290,19 @@ def take_run_input(owner_id: str, request_key: str) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
+def clear_run_input(owner_id: str, request_key: str) -> bool:
+    """Delete terminal Run input only after the Server ACK closed its lease."""
+    if not request_key:
+        return False
+    init_db()
+    deleted = get_conn().execute(
+        "DELETE FROM run_input_staging WHERE request_key=? AND owner_id=?",
+        (request_key, owner_id),
+    ).rowcount
+    get_conn().commit()
+    return bool(deleted)
+
+
 def status_snapshot() -> dict:
     init_db()
     conn = get_conn()

@@ -31,7 +31,7 @@ import asset_object_store  # noqa: E402
 import automation_scheduler  # noqa: E402
 import sso_store  # noqa: E402
 from config import settings  # noqa: E402
-from routers import accounts, assets, auth, business, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, relay, run_protocol, sso, timeline, work_items  # noqa: E402
+from routers import accounts, assets, auth, automation_webhooks, business, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, relay, run_protocol, sso, timeline, work_items  # noqa: E402
 
 db.init_db()
 sso_store.migrate_plaintext_provider_secrets()
@@ -116,6 +116,7 @@ app.include_router(projects.router)
 # Static upload/grant routes precede the generic /assets/{asset_id} metadata route.
 app.include_router(assets.router)
 app.include_router(business.router)
+app.include_router(automation_webhooks.router)
 app.include_router(run_protocol.router)
 app.include_router(invites.router)
 app.include_router(catalog.router)

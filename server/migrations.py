@@ -263,7 +263,7 @@ def assert_server_schema(conn: sqlite3.Connection) -> None:
         "business_run_steps": {"run_id", "sequence", "client_request_id"},
         "business_assistants": {"owner_id", "project_id", "version", "client_request_id"},
         "business_channels": {"assistant_id", "public_config", "credential_ref", "version"},
-        "business_automations": {"owner_id", "project_id", "version", "client_request_id"},
+        "business_automations": {"owner_id", "project_id", "version", "client_request_id", "timezone"},
         "business_assets": {"owner_id", "project_id", "object_ref", "storage_state", "version"},
         "asset_object_versions": {"asset_id", "version_number", "storage_key", "sha256", "size"},
         "asset_uploads": {"asset_id", "expected_sha256", "expected_size", "state", "expires_at"},
@@ -278,6 +278,11 @@ def assert_server_schema(conn: sqlite3.Connection) -> None:
         "run_leases": {"run_id", "device_id", "lease_epoch", "expires_at", "ack_high_water"},
         "run_events": {"event_id", "run_id", "lease_epoch", "sequence", "payload_hash"},
         "run_commands": {"run_id", "command_type", "version", "status"},
+        "business_automation_fires": {"automation_id", "run_id", "status", "trigger_payload"},
+        "business_automation_webhooks": {"automation_id", "owner_id", "secret_ciphertext"},
+        "business_automation_webhook_deliveries": {
+            "webhook_id", "idempotency_key", "payload_sha256", "status", "fire_id",
+        },
     }
     missing: list[str] = []
     for table, columns in required.items():
@@ -853,3 +858,59 @@ def migrate_server_automation_fires(conn: sqlite3.Connection) -> None:
     for statement in schema.split(";"):
         if statement.strip():
             conn.execute(statement)
+
+
+def migrate_server_automation_webhooks(conn: sqlite3.Connection) -> None:
+    """Move signed webhook ingress and delivery idempotency to Server."""
+    fire_columns = {row[1] for row in conn.execute("PRAGMA table_info(business_automation_fires)")}
+    if "trigger_payload" not in fire_columns:
+        conn.execute(
+            "ALTER TABLE business_automation_fires ADD COLUMN trigger_payload TEXT NOT NULL DEFAULT '{}'"
+        )
+    schema = """
+        CREATE TABLE IF NOT EXISTS business_automation_webhooks (
+            id TEXT PRIMARY KEY,
+            automation_id TEXT NOT NULL UNIQUE,
+            owner_id TEXT NOT NULL,
+            secret_ciphertext TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            rotated_at REAL NOT NULL DEFAULT 0,
+            FOREIGN KEY(automation_id) REFERENCES business_automations(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_business_automation_webhooks_owner
+            ON business_automation_webhooks(owner_id,created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS business_automation_webhook_deliveries (
+            id TEXT PRIMARY KEY,
+            webhook_id TEXT NOT NULL,
+            automation_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            payload_sha256 TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'received',
+            fire_id TEXT,
+            error_code TEXT NOT NULL DEFAULT '',
+            received_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            UNIQUE(webhook_id,idempotency_key),
+            FOREIGN KEY(webhook_id) REFERENCES business_automation_webhooks(id) ON DELETE CASCADE,
+            FOREIGN KEY(automation_id) REFERENCES business_automations(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_id) REFERENCES accounts(id) ON DELETE CASCADE,
+            FOREIGN KEY(fire_id) REFERENCES business_automation_fires(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_business_automation_webhook_deliveries_owner
+            ON business_automation_webhook_deliveries(owner_id,received_at DESC);
+    """
+    for statement in schema.split(";"):
+        if statement.strip():
+            conn.execute(statement)
+
+
+def migrate_server_automation_timezone(conn: sqlite3.Connection) -> None:
+    """Pin daily schedules to an explicit timezone while preserving legacy semantics."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(business_automations)")}
+    if "timezone" not in columns:
+        conn.execute(
+            "ALTER TABLE business_automations ADD COLUMN timezone TEXT NOT NULL DEFAULT 'server_local'"
+        )

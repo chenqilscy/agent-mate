@@ -1,5 +1,8 @@
 import type {
   Account,
+  AutomationFireRecord,
+  AutomationRecord,
+  AutomationWebhookRecord,
   AssetRecord,
   Activity,
   AuthResponse,
@@ -97,7 +100,9 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
     `/api${path}${separator}filename=${encodeURIComponent(file.name)}`,
     {
       method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: file,
     },
   );
@@ -126,7 +131,9 @@ export async function apiDownload(
 ): Promise<void> {
   const token = getToken();
   const response = await fetch(`/api${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   });
   if (!response.ok)
     throw new ApiError(`HTTP ${response.status}`, response.status);
@@ -322,6 +329,51 @@ export const consoleApi = {
     apiRequest<{ projects: Project[] }>(
       "GET",
       `/projects${includeArchived ? "?include_archived=true" : ""}`,
+    ),
+  automations: () =>
+    apiRequest<{ automations: AutomationRecord[] }>("GET", "/automations"),
+  createAutomation: (body: Partial<AutomationRecord> & { name: string; prompt: string }) =>
+    apiRequest<{ automation: AutomationRecord }>("POST", "/automations", body),
+  updateAutomation: (id: string, body: Partial<AutomationRecord> & { expected_version: number }) =>
+    apiRequest<AutomationRecord>("PATCH", `/automations/${encodeURIComponent(id)}`, body),
+  deleteAutomation: (id: string, expectedVersion: number) =>
+    apiRequest<{ ok: boolean }>(
+      "DELETE", `/automations/${encodeURIComponent(id)}?expected_version=${expectedVersion}`,
+    ),
+  runAutomation: (id: string) =>
+    apiRequest<{
+      session: { id: string };
+      run: { id: string; status: string };
+      fire: AutomationFireRecord;
+      skipped?: boolean;
+    }>("POST", `/automations/${encodeURIComponent(id)}/run`),
+  automationFires: (automationId: string) =>
+    apiRequest<{ fires: AutomationFireRecord[] }>(
+      "GET", `/automation-fires?automation_id=${encodeURIComponent(automationId)}`,
+    ),
+  replayAutomationFire: (id: string) =>
+    apiRequest<{ ok: boolean; fire: AutomationFireRecord }>(
+      "POST", `/automation-fires/${encodeURIComponent(id)}/replay`, {},
+    ),
+  ignoreAutomationFire: (id: string) =>
+    apiRequest<{ ok: boolean; fire: AutomationFireRecord }>(
+      "POST", `/automation-fires/${encodeURIComponent(id)}/ignore`, {},
+    ),
+  automationWebhook: (id: string) =>
+    apiRequest<AutomationWebhookRecord>(
+      "GET", `/automations/${encodeURIComponent(id)}/webhook`,
+    ),
+  createAutomationWebhook: (id: string) =>
+    apiRequest<AutomationWebhookRecord>(
+      "POST", `/automations/${encodeURIComponent(id)}/webhook`, {},
+    ),
+  rotateAutomationWebhook: (id: string) =>
+    apiRequest<AutomationWebhookRecord>(
+      "POST", `/automations/${encodeURIComponent(id)}/webhook/rotate`, {},
+    ),
+  deleteAutomationWebhook: (id: string) =>
+    apiRequest<{ ok: boolean }>(
+      "DELETE", `/automations/${encodeURIComponent(id)}/webhook`,
     ),
   project: (id: string) =>
     apiRequest<Project>("GET", `/projects/${encodeURIComponent(id)}`),

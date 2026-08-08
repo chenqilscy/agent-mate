@@ -7,7 +7,7 @@
 // but driven by real events.
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import { streamChat } from '../lib/sse'
+import { followServerRun, streamChat } from '../lib/sse'
 import type { AskQuestion, ChatMessage, SessionInfo, SSEEvent, TraceItem } from '../lib/types'
 import { useSettingsStore } from './settingsStore'
 import { useLoadoutStore } from './loadoutStore'
@@ -28,6 +28,50 @@ function withRunPlan(
     ...trace.filter((item) => !['todo', 'plan_snapshot', 'plan_patch'].includes(item.kind)),
     { kind, version, items, project_id: projectId },
   ]
+}
+
+const ACTIVE_SERVER_RUNS = new Set(['queued', 'leased', 'running', 'waiting_user', 'recoverable'])
+
+function foldResumedRunEvent(message: ChatMessage, event: SSEEvent): ChatMessage {
+  switch (event.type) {
+    case 'run_recovered':
+      return {
+        ...message, content: '', trace: [], artifacts: [], error: undefined,
+        status: 'running', runStatus: 'running',
+      }
+    case 'text': return { ...message, content: message.content + event.data.md }
+    case 'think': return { ...message, trace: [...message.trace, { kind: 'think', text: event.data.text }] }
+    case 'step': return { ...message, trace: [...message.trace, { kind: 'step', tool: event.data.tool, label: event.data.label }] }
+    case 'file_read': return { ...message, trace: [...message.trace, { kind: 'file_read', path: event.data.path, range: event.data.range }] }
+    case 'diff': return { ...message, trace: [...message.trace, { kind: 'diff', ...event.data }] }
+    case 'todo': return { ...message, trace: [...message.trace, { kind: 'todo', text: event.data.text }] }
+    case 'plan_snapshot':
+    case 'plan_patch':
+      return {
+        ...message,
+        trace: withRunPlan(
+          message.trace, event.data.version, event.data.items, event.data.project_id, event.type,
+        ),
+      }
+    case 'artifact':
+      return {
+        ...message,
+        artifacts: [...(message.artifacts ?? []), event.data],
+        trace: [...message.trace, { kind: 'artifact', artifact: event.data }],
+      }
+    case 'qa_summary': return { ...message, trace: [...message.trace, { kind: 'qa', qa: event.data.qa }] }
+    case 'context_degraded':
+      return { ...message, trace: [...message.trace, { kind: 'context_degraded', ...event.data }] }
+    case 'status': return { ...message, status: event.data.state, secs: event.data.secs ?? message.secs }
+    case 'error':
+      return { ...message, error: event.data.message, status: 'done', runStatus: 'failed' }
+    case 'done':
+      return {
+        ...message, id: event.data.message_id || message.id, status: 'done',
+        runStatus: message.runStatus === 'failed' ? 'failed' : 'completed',
+      }
+    default: return message
+  }
 }
 
 interface ChatState {
@@ -53,6 +97,7 @@ interface ChatState {
   retry: (messageId: string) => Promise<void>
   answer: (answers: string[]) => void
   stop: () => void
+  detach: () => void
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -77,35 +122,94 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   openSession: async (id) => {
-    if (get().streaming) get().stop()
+    if (get().streaming) get().detach()
     useUIStore.getState().closeFile()
     useLoadoutStore.getState().reset()
     try {
-      const { session, messages } = await api.getMessages(id)
+      const { session, messages, runs } = await api.getMessages(id)
+      const rendered: ChatMessage[] = messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        trace: withRunPlan(
+          (m.trace as TraceItem[]) ?? [],
+          m.run_plan_version ?? 0,
+          m.run_plan ?? [],
+          m.run_project_id,
+        ),
+        status: 'done' as const,
+        usage: m.usage,
+        runId: m.run_id ?? undefined,
+        runStatus: m.run_status ?? undefined,
+        pendingQuestion: m.pending_question ?? undefined,
+        error: m.error ?? undefined,
+      }))
+      const activeRun = [...runs]
+        .sort((left, right) => right.created_at - left.created_at)
+        .find((run) => ACTIVE_SERVER_RUNS.has(run.status))
+      const controller = activeRun ? new AbortController() : null
+      const botId = activeRun ? `server-run:${activeRun.id}` : ''
+      if (activeRun && !rendered.some((message) => message.runId === activeRun.id && message.role === 'assistant')) {
+        rendered.push({
+          id: botId, role: 'assistant', content: '', trace: [], status: 'running',
+          runId: activeRun.id, runStatus: activeRun.status,
+        })
+      }
       set({
         activeId: id,
         activeProjectId: session.project_id ?? null,
         title: session.title,
         readOnly: session.read_only ?? false,
         ownerName: session.owner_name ?? null,
-        messages: messages.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          trace: withRunPlan(
-            (m.trace as TraceItem[]) ?? [],
-            m.run_plan_version ?? 0,
-            m.run_plan ?? [],
-            m.run_project_id,
-          ),
-          status: 'done',
-          usage: m.usage,
-          runId: m.run_id ?? undefined,
-          runStatus: m.run_status ?? undefined,
-          pendingQuestion: m.pending_question ?? undefined,
-          error: m.error ?? undefined,
-        })),
+        messages: rendered,
+        streaming: Boolean(activeRun),
+        abort: controller,
+        pending: null,
       })
+      if (activeRun && controller) {
+        const patchBot = (event: SSEEvent) => set((state) => ({
+          messages: state.messages.map((message) => (
+            message.role === 'assistant' && (message.id === botId || message.runId === activeRun.id)
+              ? foldResumedRunEvent(message, event)
+              : message
+          )),
+        }))
+        void followServerRun({
+          runId: activeRun.id,
+          sessionId: id,
+          signal: controller.signal,
+          onEvent: (event) => {
+            if (get().abort !== controller || get().activeId !== id) return
+            if (event.type === 'ask_user' && event.data.question_event_id && !session.read_only) {
+              set({
+                pending: {
+                  questions: event.data.questions,
+                  questionEventId: event.data.question_event_id,
+                  runId: activeRun.id,
+                },
+              })
+            } else if (event.type === 'qa_summary' || event.type === 'run_recovered') {
+              set({ pending: null })
+            } else if (event.type === 'work_item') {
+              useWorkItemStore.getState().applyRemote(event.data.item)
+            } else if (event.type === 'usage') {
+              useSettingsStore.getState().setUsage({
+                pct: event.data.pct, used: event.data.used, detail: event.data.detail,
+              })
+            }
+            patchBot(event)
+          },
+        }).catch((error) => {
+          if ((error as Error).name !== 'AbortError' && get().abort === controller) {
+            patchBot({ type: 'error', data: { message: String(error) } })
+          }
+        }).finally(() => {
+          if (get().abort === controller) {
+            set({ streaming: false, abort: null, pending: null })
+            void get().loadSessions()
+          }
+        })
+      }
     } catch {
       /* ignore */
     }
@@ -118,7 +222,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Fresh-start reset happens on the sidebar's 新建任务 action; opening a different
   // existing session resets in openSession.
   startDraft: (title) => {
-    if (get().streaming) get().stop()
+    if (get().streaming) get().detach()
     useUIStore.getState().closeFile()
     set({ activeId: null, activeProjectId: null, title, messages: [], readOnly: false, ownerName: null })
   },
@@ -126,7 +230,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Open a project's execution: a fresh chat scoped to the project. The first
   // send creates a project-scoped session (kind=projexec) on the backend.
   startProject: (projectId, name) => {
-    if (get().streaming) get().stop()
+    if (get().streaming) get().detach()
     useUIStore.getState().closeFile()
     set({ activeId: null, activeProjectId: projectId, title: name, messages: [], readOnly: false, ownerName: null })
   },
@@ -199,6 +303,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
               m.trace, ev.data.run.plan_version, ev.data.run.plan,
               ev.data.run.project_id,
             ),
+          }))
+          break
+        case 'run_recovered':
+          set({ pending: null })
+          patchBot((m) => ({
+            ...m, content: '', trace: [], artifacts: [], error: undefined,
+            status: 'running', runStatus: 'running',
           }))
           break
         case 'text':
@@ -383,5 +494,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       abort: null,
       pending: null,
     }))
+  },
+
+  detach: () => {
+    const controller = get().abort
+    controller?.abort()
+    set({ streaming: false, abort: null, pending: null })
   },
 }))

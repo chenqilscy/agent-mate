@@ -3,3 +3,4 @@ fastapi
 uvicorn[standard]
 httpx
 PyJWT[crypto]>=2.10,<3
+tzdata>=2025.2

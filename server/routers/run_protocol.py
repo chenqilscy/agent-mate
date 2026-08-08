@@ -218,14 +218,15 @@ def cancel_run(run_id: str, account: Account = CurrentAccount) -> dict:
 
 @router.get("/runs/{run_id}/events")
 def run_events(
-    run_id: str, after_sequence: int = 0, limit: int = 500,
+    run_id: str, after_epoch: int = 0, after_sequence: int = 0, limit: int = 500,
     account: Account = CurrentAccount,
 ) -> dict:
     run = _authorized_run(run_id, account, write=False)
     return {
         "run": run,
         "events": store.list_events(
-            run_id=run_id, after_sequence=max(0, after_sequence), limit=max(1, min(1000, limit)),
+            run_id=run_id, after_epoch=max(0, after_epoch),
+            after_sequence=max(0, after_sequence), limit=max(1, min(1000, limit)),
         ),
     }
 

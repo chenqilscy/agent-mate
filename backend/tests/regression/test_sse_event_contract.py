@@ -20,12 +20,18 @@ class SseEventContractTest(unittest.TestCase):
         block = re.search(r"SSE_EVENT_TYPES = \[(.*?)\] as const", types, re.S)
         self.assertIsNotNone(block)
         frontend = set(re.findall(r"'([a-z_]+)'", block.group(1)))  # type: ignore[union-attr]
+        synthetic_block = re.search(r"CLIENT_EVENT_TYPES = \[(.*?)\] as const", types, re.S)
+        self.assertIsNotNone(synthetic_block)
+        synthetic = set(re.findall(r"'([a-z_]+)'", synthetic_block.group(1)))  # type: ignore[union-attr]
         handled = set(re.findall(r"case '([a-z_]+)'", store))
 
         self.assertEqual(backend, frontend)
-        self.assertEqual(frontend, handled)
+        self.assertEqual(frontend | synthetic, handled)
         self.assertIn("const exhaustive: never = ev", store)
-        self.assertIn("checkedSSEEvent(parsed.event, parsed.data)", (ROOT / "src/lib/sse.ts").read_text(encoding="utf-8"))
+        self.assertIn(
+            "checkedSSEEvent(event.type.slice(3), event.payload)",
+            (ROOT / "src/lib/sse.ts").read_text(encoding="utf-8"),
+        )
 
 
 if __name__ == "__main__":

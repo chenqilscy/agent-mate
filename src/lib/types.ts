@@ -122,12 +122,17 @@ export interface UsageEvent { pct: number; used: number; detail: Record<string, 
 export interface ErrorEvent { message: string }
 export interface SessionEvent { id: string; title: string }
 export interface DoneEvent { message_id?: string }
+export interface RunRecoveredEvent { lease_epoch: number }
 
 export const SSE_EVENT_TYPES = [
   'session', 'status', 'run', 'think', 'step', 'file_read', 'diff', 'todo',
   'plan_snapshot', 'plan_patch', 'text', 'ask_user', 'qa_summary',
   'context_degraded', 'artifact', 'work_item', 'usage', 'error', 'done',
 ] as const
+
+// Events synthesized while following the durable Server Run protocol. They are
+// part of the store contract but never accepted from the legacy wire SSE parser.
+export const CLIENT_EVENT_TYPES = ['run_recovered'] as const
 
 export interface AskQuestion { q: string; options: string[] }
 export interface QaPair { q: string; a: string }
@@ -136,6 +141,7 @@ export type SSEEvent =
   | { type: 'session'; data: SessionEvent }
   | { type: 'status'; data: StatusEvent }
   | { type: 'run'; data: RunEvent }
+  | { type: 'run_recovered'; data: RunRecoveredEvent }
   | { type: 'think'; data: ThinkEvent }
   | { type: 'step'; data: StepEvent }
   | { type: 'file_read'; data: FileReadEvent }
@@ -236,6 +242,8 @@ export interface AgentRun {
   cached_prompt_tokens: number
   completion_tokens: number
   tool_calls: number
+  lease_epoch?: number
+  recovery_count?: number
   started_at?: number | null
   ended_at?: number | null
   created_at: number
@@ -660,7 +668,6 @@ export interface ProjectInfo {
   org_id?: string | null
   ago?: string
   role?: string // the current user's role in this project (M7 C2): Owner|Admin|Member|Viewer
-  sync_conflicts?: number // Server 镜像分叉数；>0 时 UI 必须显式提示，不能静默覆盖。
 }
 
 export interface ServerTimelineEvent {

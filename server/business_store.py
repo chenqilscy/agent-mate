@@ -256,6 +256,7 @@ def create_turn(
     run_fields: dict[str, Any],
     client_request_id: str,
     request_hash: str,
+    connection: Any | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
     """Atomically create the Session/UserMessage/Run execution turn.
 
@@ -264,9 +265,11 @@ def create_turn(
     client_request_id is the turn idempotency key; retries return the exact
     committed graph.
     """
-    conn = db.get_conn()
+    conn = connection or db.get_conn()
+    owns_transaction = connection is None
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        if owns_transaction:
+            conn.execute("BEGIN IMMEDIATE")
         existing = conn.execute(
             "SELECT * FROM business_runs WHERE owner_id=? AND client_request_id=?",
             (owner_id, client_request_id),
@@ -284,7 +287,8 @@ def create_turn(
             ).fetchone()
             if session is None or message is None:
                 raise RuntimeError("committed turn graph is incomplete")
-            conn.commit()
+            if owns_transaction:
+                conn.commit()
             return (
                 decode_row(session) or {}, decode_row(message) or {},
                 decode_row(existing) or {}, True,
@@ -364,10 +368,12 @@ def create_turn(
         session = conn.execute("SELECT * FROM business_sessions WHERE id=?", (sid,)).fetchone()
         message = conn.execute("SELECT * FROM business_messages WHERE id=?", (mid,)).fetchone()
         run = conn.execute("SELECT * FROM business_runs WHERE id=?", (rid,)).fetchone()
-        conn.commit()
+        if owns_transaction:
+            conn.commit()
         return decode_row(session) or {}, decode_row(message) or {}, decode_row(run) or {}, False
     except Exception:
-        conn.rollback()
+        if owns_transaction:
+            conn.rollback()
         raise
 
 

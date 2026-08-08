@@ -112,6 +112,26 @@ class LocalRunTransportTest(unittest.TestCase):
         self.assertIn("missing sequence 1", lease["last_error"])
         self.assertEqual(1, len(self._rows()))
 
+    def test_terminal_ack_closes_local_lease_and_renewal_deadline_fences(self) -> None:
+        run_transport.append_event(self.run_id, "run.completed")
+        with patch("server_client.device_post", return_value=(200, {
+            "ack_high_water": 1, "terminal_event_id": "terminal-433", "commands": [],
+        })):
+            result = run_transport.flush_wal(self.owner_id, "device-token")
+        self.assertEqual(1, result["acknowledged"])
+        self.assertEqual("completed", run_transport.lease_status(self.run_id))
+
+        run_transport.record_lease(self.owner_id, {
+            "lease_id": "lease-wb433-recovered", "lease_epoch": 2,
+            "expires_at": 1, "ack_high_water": 0, "run": {"id": self.run_id},
+        })
+        with (
+            patch("server_client.device_post", return_value=(0, None)),
+            self.assertRaises(run_transport.LeaseFenced),
+        ):
+            run_transport.renew_lease(self.run_id, "device-token")
+        self.assertEqual("fenced", run_transport.lease_status(self.run_id))
+
 
 if __name__ == "__main__":
     unittest.main()

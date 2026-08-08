@@ -17,7 +17,7 @@ class ProductBrandContractTest(unittest.TestCase):
     def test_user_facing_surfaces_use_agentmate(self) -> None:
         expected = {
             "index.html": "<title>AgentMate · 你的智能工作伙伴</title>",
-            "src/views/HomeView.tsx": "AgentMate<br />",
+            "src/views/HomeView.tsx": '<span className="g">你的本机 AI 执行工作台</span>',
             "src/components/layout/Sidebar.tsx": "<b>AgentMate</b>",
             "src/components/chat/MessageList.tsx": '<div className="bot-nm">AgentMate</div>',
             "src/lib/exportChat.ts": "_由 AgentMate 导出_",

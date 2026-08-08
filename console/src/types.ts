@@ -24,6 +24,77 @@ export interface AuthResponse {
   account: Account;
 }
 
+export type AutomationTriggerKind = "interval" | "daily" | "health_daily" | "webhook";
+
+export interface AutomationRecord {
+  id: string;
+  owner_id: string;
+  project_id?: string | null;
+  name: string;
+  prompt: string;
+  trigger_kind: AutomationTriggerKind;
+  interval_min: number;
+  at_time: string;
+  timezone: string;
+  model_ref?: string | null;
+  enabled: boolean;
+  timeout_sec: number;
+  max_attempts: number;
+  retry_backoff_sec: number;
+  max_total_tokens: number;
+  notify_policy: string;
+  concurrency_policy: "skip";
+  preauthorized_permissions: string[];
+  next_run_at?: number | null;
+  last_run_at?: number | null;
+  last_session_id?: string | null;
+  last_status?: string | null;
+  version: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AutomationFireRecord {
+  id: string;
+  automation_id: string;
+  owner_id: string;
+  fire_key: string;
+  trigger_kind: string;
+  planned_at: number;
+  status: "queued" | "running" | "retry_wait" | "succeeded" | "dead_letter" | "ignored";
+  attempt: number;
+  max_attempts: number;
+  session_id?: string | null;
+  run_id?: string | null;
+  error_code?: string;
+  error_message?: string;
+  next_attempt_at?: number | null;
+  created_at: number;
+  updated_at: number;
+  finished_at?: number;
+}
+
+export interface AutomationWebhookDeliveryRecord {
+  id: string;
+  idempotency_key: string;
+  status: string;
+  fire_id?: string | null;
+  error_code?: string;
+  fire_status?: string | null;
+  received_at: number;
+}
+
+export interface AutomationWebhookRecord {
+  configured: boolean;
+  automation_id: string;
+  webhook_id?: string | null;
+  endpoint?: string | null;
+  secret?: string;
+  created_at?: number | null;
+  rotated_at?: number | null;
+  deliveries: AutomationWebhookDeliveryRecord[];
+}
+
 export interface PlatformSettingItem {
   key: string;
   group: "knowledge" | "collaboration" | string;

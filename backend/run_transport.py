@@ -193,7 +193,7 @@ def record_lease(owner_id: str, lease: dict[str, Any]) -> dict[str, Any]:
          float(lease.get("expires_at") or 0), int(lease.get("ack_high_water") or 0), "active", now),
     )
     db.get_conn().commit()
-    return run
+    return {**run, "_lease_epoch": epoch, "_lease_id": lease_id}
 
 
 def claim_run(owner_id: str, device_token: str, *, lease_seconds: int = 30) -> dict[str, Any] | None:
@@ -327,6 +327,7 @@ def flush_wal(owner_id: str, device_token: str, *, batch_size: int = 100) -> dic
         if status != 200 or not isinstance(response, dict):
             continue
         ack = int(response.get("ack_high_water") or 0)
+        terminal_event_id = str(response.get("terminal_event_id") or "")
         if ack < int(lease["ack_high_water"]):
             _mark_transport_error(str(lease["run_id"]), "fenced", "Server ACK moved backwards")
             continue
@@ -338,8 +339,8 @@ def flush_wal(owner_id: str, device_token: str, *, batch_size: int = 100) -> dic
                 (lease["run_id"], lease["lease_epoch"], ack),
             ).rowcount
             conn.execute(
-                "UPDATE run_transport_leases SET ack_high_water=?,last_error='',updated_at=? WHERE run_id=?",
-                (ack, time.time(), lease["run_id"]),
+                "UPDATE run_transport_leases SET ack_high_water=?,status=?,last_error='',updated_at=? WHERE run_id=?",
+                (ack, "completed" if terminal_event_id else "active", time.time(), lease["run_id"]),
             )
             conn.commit()
             acknowledged += max(0, deleted)
@@ -364,6 +365,9 @@ def renew_lease(run_id: str, device_token: str, *, lease_seconds: int = 30) -> d
         if status in {401, 409}:
             _mark_transport_error(run_id, "fenced", "lease renewal rejected")
             raise LeaseFenced("Run lease renewal rejected")
+        if float(lease["expires_at"] or 0) <= time.time() + 5:
+            _mark_transport_error(run_id, "fenced", "lease renewal deadline exceeded")
+            raise LeaseFenced("Run lease could not be renewed before its safety deadline")
         return {}
     db.get_conn().execute(
         "UPDATE run_transport_leases SET expires_at=?,ack_high_water=?,updated_at=? WHERE run_id=?",
@@ -371,6 +375,13 @@ def renew_lease(run_id: str, device_token: str, *, lease_seconds: int = 30) -> d
     )
     db.get_conn().commit()
     return response
+
+
+def lease_status(run_id: str) -> str:
+    row = db.get_conn().execute(
+        "SELECT status FROM run_transport_leases WHERE run_id=?", (run_id,),
+    ).fetchone()
+    return str(row["status"]) if row else ""
 
 
 def maintain_transport() -> dict[str, int]:

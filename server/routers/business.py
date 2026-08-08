@@ -134,6 +134,12 @@ def _validate_automation(values: dict[str, Any]) -> None:
             assert 0 <= hour < 24 and 0 <= minute < 60
         except (ValueError, AssertionError):
             raise HTTPException(400, "at_time must be HH:MM")
+        try:
+            automation_scheduler.validate_timezone(str(values.get("timezone") or "server_local"))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    if kind == "health_daily" and not values.get("project_id"):
+        raise HTTPException(400, "health_daily requires project_id")
     for key, low, high in (
         ("timeout_sec", 1, 3600), ("max_attempts", 1, 10),
         ("retry_backoff_sec", 1, 86400), ("max_total_tokens", 0, 10_000_000),
@@ -781,6 +787,7 @@ class AutomationCreate(BaseModel):
     trigger_kind: str = "interval"
     interval_min: int = 60
     at_time: str = Field(default="09:00", max_length=5)
+    timezone: str = Field(default="server_local", min_length=1, max_length=100)
     model_ref: str | None = Field(default=None, max_length=200)
     enabled: bool = True
     timeout_sec: int = 300
@@ -796,9 +803,11 @@ class AutomationPatch(BaseModel):
     expected_version: int = Field(ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=120)
     prompt: str | None = Field(default=None, min_length=1, max_length=200000)
+    project_id: str | None = None
     trigger_kind: str | None = None
     interval_min: int | None = None
     at_time: str | None = Field(default=None, max_length=5)
+    timezone: str | None = Field(default=None, min_length=1, max_length=100)
     model_ref: str | None = Field(default=None, max_length=200)
     enabled: bool | None = None
     next_run_at: float | None = None
@@ -845,7 +854,7 @@ def create_automation(
     project_id = values.pop("project_id")
     values["next_run_at"] = (
         automation_scheduler.next_run_at(
-            body.trigger_kind, body.interval_min, body.at_time, time.time(),
+            body.trigger_kind, body.interval_min, body.at_time, time.time(), body.timezone,
         ) if body.enabled else None
     )
     key = _request_key(idempotency_key)
@@ -873,16 +882,18 @@ def update_automation(
     item = _record("business_automations", automation_id, account, write=True)
     if item.get("project_id"):
         _project_role(item["project_id"], account, write=True, manage=True)
-    patch = body.model_dump(exclude={"expected_version"}, exclude_none=True)
+    patch = body.model_dump(exclude={"expected_version"}, exclude_unset=True)
     if {"next_run_at", "last_run_at", "last_session_id", "last_status"} & patch.keys():
         raise HTTPException(403, "automation runtime state is Server-owned")
     merged = {**item, **patch}
     _validate_automation(merged)
-    if {"enabled", "trigger_kind", "interval_min", "at_time"} & patch.keys():
+    if "project_id" in patch and patch["project_id"]:
+        _project_role(str(patch["project_id"]), account, write=True, manage=True)
+    if {"enabled", "trigger_kind", "interval_min", "at_time", "timezone"} & patch.keys():
         patch["next_run_at"] = (
             automation_scheduler.next_run_at(
                 str(merged["trigger_kind"]), int(merged["interval_min"]),
-                str(merged["at_time"]), time.time(),
+                str(merged["at_time"]), time.time(), str(merged.get("timezone") or "server_local"),
             ) if bool(merged["enabled"]) else None
         )
     try:

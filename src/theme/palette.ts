@@ -43,7 +43,7 @@ export function uiThemeColorToken(mode: UIThemeMode): ThemeConfig['token'] {
     colorBgLayout: palette.page,
     colorBgContainer: palette.container,
     colorBgElevated: palette.elevated,
-    colorBgSpotlight: palette.elevated,
+    colorBgSpotlight: mode === 'light' ? '#1f2937' : palette.elevated,
     colorTextBase: palette.text,
     colorText: palette.text,
     colorTextSecondary: palette.textSecondary,

@@ -63,8 +63,8 @@ def _project(remote: dict[str, Any], owner_id: str) -> Project:
     )
 
 
-async def _flush(owner_id: str, device_token: str) -> None:
-    await asyncio.to_thread(run_transport.flush_wal, owner_id, device_token)
+async def _flush(owner_id: str, device_token: str) -> dict[str, int]:
+    return await asyncio.to_thread(run_transport.flush_wal, owner_id, device_token)
 
 
 async def _control_loop(
@@ -102,7 +102,7 @@ async def _control_loop(
         await _flush(owner_id, device_token)
 
 
-async def execute_run(owner_id: str, user_token: str, device_token: str, run: dict[str, Any]) -> None:
+async def _execute_run(owner_id: str, user_token: str, device_token: str, run: dict[str, Any]) -> None:
     run_id = str(run.get("id") or "")
     session_id = str(run.get("session_id") or "")
     if not run_id or not session_id:
@@ -187,7 +187,11 @@ async def execute_run(owner_id: str, user_token: str, device_token: str, run: di
                 knowledge_ids=[str(item) for item in loadout.get("knowledge_ids") or []],
                 refs=[item for item in refs if isinstance(item, dict)],
                 workspace=str(run.get("workspace") or "default"),
-                idempotency_key=f"server-run:{run_id}",
+                # A recovered Server lease is a new execution attempt. Reusing
+                # the old local key would make runtime.run_chat return the
+                # crashed attempt as an idempotent duplicate and falsely emit a
+                # successful terminal event without executing again.
+                idempotency_key=f"server-run:{run_id}:epoch:{int(run.get('_lease_epoch') or 0)}",
                 max_total_tokens=max(0, int(permission.get("max_total_tokens") or 0)),
                 execution_source=execution_source,
                 preauthorized_permissions=[
@@ -231,6 +235,35 @@ async def execute_run(owner_id: str, user_token: str, device_token: str, run: di
         state.terminal = True
         control.cancel()
         await asyncio.gather(control, return_exceptions=True)
+        if run_transport.lease_status(run_id) == "completed" and local_input_key:
+            local_agent_store.clear_run_input(owner_id, local_input_key)
+
+
+async def execute_run(owner_id: str, user_token: str, device_token: str, run: dict[str, Any]) -> None:
+    """Execute one claimed Run without ever letting its preparation kill the worker."""
+    try:
+        await _execute_run(owner_id, user_token, device_token, run)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - a claimed Run needs a durable terminal state
+        run_id = str(run.get("id") or "")
+        message = str(exc)[:20000]
+        log.exception("failed to prepare claimed Server Run %s", run_id or "<missing>")
+        if not run_id:
+            return
+        try:
+            run_transport.append_event(run_id, "ui.error", {"message": message})
+            run_transport.append_event(
+                run_id, "run.failed",
+                {"error_code": "local_agent_preflight", "error_message": message},
+            )
+            await _flush(owner_id, device_token)
+            snapshot = run.get("request_snapshot") if isinstance(run.get("request_snapshot"), dict) else {}
+            local_input_key = str(snapshot.get("local_input_key") or "")
+            if run_transport.lease_status(run_id) == "completed" and local_input_key:
+                local_agent_store.clear_run_input(owner_id, local_input_key)
+        except Exception:  # noqa: BLE001 - WAL/lease failure is retained in local status
+            log.exception("failed to persist preparation failure for Run %s", run_id)
 
 
 async def run_forever() -> None:
@@ -241,14 +274,22 @@ async def run_forever() -> None:
     while True:
         claimed = False
         for owner_id, user_token in local_agent_store.list_server_identities():
-            device_token = await asyncio.to_thread(run_transport.ensure_device, owner_id, user_token)
-            if not device_token:
-                continue
-            await asyncio.to_thread(run_transport.heartbeat, owner_id, device_token)
-            await _flush(owner_id, device_token)
-            run = await asyncio.to_thread(run_transport.claim_run, owner_id, device_token, lease_seconds=30)
-            if run is None:
-                continue
-            claimed = True
-            await execute_run(owner_id, user_token, device_token, run)
+            try:
+                device_token = await asyncio.to_thread(run_transport.ensure_device, owner_id, user_token)
+                if not device_token:
+                    continue
+                if not await asyncio.to_thread(run_transport.heartbeat, owner_id, device_token):
+                    continue
+                await _flush(owner_id, device_token)
+                run = await asyncio.to_thread(
+                    run_transport.claim_run, owner_id, device_token, lease_seconds=30,
+                )
+                if run is None:
+                    continue
+                claimed = True
+                await execute_run(owner_id, user_token, device_token, run)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - isolate one identity/network failure
+                log.exception("Local Agent worker poll failed for owner %s", owner_id)
         await asyncio.sleep(0.25 if claimed else 2)

@@ -10,7 +10,8 @@ import { platform } from '../platform'
 
 async function bindLocalAgent(ownerId: string, token: string): Promise<void> {
   if (platform.isDesktop) {
-    await platform.localAgent.bindIdentity(ownerId, token)
+    const bound = await platform.localAgent.bindIdentity(ownerId, token)
+    if (!bound) throw new Error('Local Agent 拒绝绑定 Server 身份')
     return
   }
   // Browser development has no native IPC bridge. A normal authenticated local
@@ -56,14 +57,24 @@ export const useAuthStore = create<AuthState>((set) => ({
   login: async (name, password) => {
     const { token, user } = await api.login(name, password)
     localStorage.setItem(TOKEN_KEY, token)
-    await bindLocalAgent(user.id, token)
+    try {
+      await bindLocalAgent(user.id, token)
+    } catch (error) {
+      localStorage.removeItem(TOKEN_KEY)
+      throw error
+    }
     window.location.reload()
   },
 
   register: async (name, password) => {
     const { token, user } = await api.register(name, password)
     localStorage.setItem(TOKEN_KEY, token)
-    await bindLocalAgent(user.id, token)
+    try {
+      await bindLocalAgent(user.id, token)
+    } catch (error) {
+      localStorage.removeItem(TOKEN_KEY)
+      throw error
+    }
     window.location.reload()
   },
 
@@ -84,7 +95,12 @@ export const useAuthStore = create<AuthState>((set) => ({
         if (result.status === 'error') throw new Error(result.error_code || 'sso_failed')
         if (result.status === 'completed') {
           localStorage.setItem(TOKEN_KEY, result.token)
-          await bindLocalAgent(result.user.id, result.token)
+          try {
+            await bindLocalAgent(result.user.id, result.token)
+          } catch (error) {
+            localStorage.removeItem(TOKEN_KEY)
+            throw error
+          }
           popup.close()
           window.location.reload()
           return

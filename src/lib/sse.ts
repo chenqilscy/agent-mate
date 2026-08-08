@@ -30,13 +30,20 @@ export interface ChatStreamOptions {
   onEvent: (ev: SSEEvent) => void
 }
 
+export interface FollowServerRunOptions {
+  runId: string
+  sessionId: string
+  signal?: AbortSignal
+  onEvent: (ev: SSEEvent) => void
+}
+
 export async function streamChat(opts: ChatStreamOptions): Promise<void> {
   let serverTurn: Awaited<ReturnType<typeof prepareServerTurn>> | null = null
   let assistantTrace: TraceItem[] = []
-  const seenEvents = new Set<string>()
 
   const onRunEvent = (event: SSEEvent) => {
-    if (event.type === 'think') assistantTrace.push({ kind: 'think', text: event.data.text })
+    if (event.type === 'run_recovered') assistantTrace = []
+    else if (event.type === 'think') assistantTrace.push({ kind: 'think', text: event.data.text })
     else if (event.type === 'step') assistantTrace.push({ kind: 'step', tool: event.data.tool, label: event.data.label })
     else if (event.type === 'file_read') assistantTrace.push({ kind: 'file_read', path: event.data.path, range: event.data.range })
     else if (event.type === 'diff') assistantTrace.push({ kind: 'diff', ...event.data })
@@ -65,47 +72,101 @@ export async function streamChat(opts: ChatStreamOptions): Promise<void> {
       type: 'run',
       data: { run: serverTurn.run, user_message_id: serverTurn.userMessage.id },
     })
-    let terminal = false
-    while (!terminal) {
-      if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-      const result = await serverGet<{
-        run: AgentRun
-        events: Array<{ event_id: string; type: string; payload: Record<string, unknown> }>
-      }>(`/runs/${serverTurn.run.id}/events?limit=1000`, { cache: false })
-      for (const event of result.events) {
-        if (seenEvents.has(event.event_id)) continue
-        seenEvents.add(event.event_id)
-        if (event.type.startsWith('ui.')) {
-          const checked = checkedSSEEvent(event.type.slice(3), event.payload)
-          if (checked) onRunEvent(checked)
-        } else if (event.type === 'run.waiting_user') {
-          const checked = checkedSSEEvent('ask_user', {
-            ...event.payload, question_event_id: event.event_id,
-          })
-          if (checked) onRunEvent(checked)
-        }
-      }
-      terminal = ['completed', 'succeeded', 'failed', 'cancelled'].includes(result.run.status)
-      if (!terminal) await abortableDelay(350, opts.signal)
-    }
+    await followServerRun({
+      runId: serverTurn.run.id,
+      sessionId: serverTurn.session.id,
+      signal: opts.signal,
+      onEvent: onRunEvent,
+    })
     await commitRunArtifacts(serverTurn, assistantTrace)
-    const messages = await serverGetAll<RawMessage>(
-      `/sessions/${serverTurn.session.id}/messages`, 'messages', 500, { cache: false },
-    )
-    const message = [...messages].reverse().find(
-      (item) => item.run_id === serverTurn!.run.id && item.role === 'assistant',
-    )
-    opts.onEvent({ type: 'done', data: { message_id: message?.id } })
   } catch (e) {
     // AbortError is an expected outcome of the stop button — the caller's stop()
     // already finalised the bubble, so stay silent (and keep one-shot refs).
     if ((e as Error).name !== 'AbortError') {
       opts.onEvent({ type: 'error', data: { message: String(e) } })
       opts.onEvent({ type: 'done', data: {} })
-    } else if (serverTurn) {
-      void cancelServerTurn(serverTurn.run.id)
     }
   }
+}
+
+export async function followServerRun(opts: FollowServerRunOptions): Promise<void> {
+  const pageLimit = 1000
+  let afterEpoch = 0
+  let afterSequence = 0
+  let currentEpoch = 0
+  let sawError = false
+  let terminalRun: AgentRun | null = null
+
+  while (true) {
+    if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    const query = new URLSearchParams({
+      after_epoch: String(afterEpoch),
+      after_sequence: String(afterSequence),
+      limit: String(pageLimit),
+    })
+    const result = await serverGet<{
+      run: AgentRun
+      events: Array<{
+        event_id: string
+        lease_epoch: number
+        sequence: number
+        type: string
+        payload: Record<string, unknown>
+      }>
+    }>(`/runs/${opts.runId}/events?${query}`, { cache: false })
+    terminalRun = result.run
+    const serverEpoch = Math.max(0, Number(result.run.lease_epoch || 0))
+    if (serverEpoch > currentEpoch) {
+      if (currentEpoch > 0) {
+        opts.onEvent({ type: 'run_recovered', data: { lease_epoch: serverEpoch } })
+        sawError = false
+      }
+      currentEpoch = serverEpoch
+    }
+
+    for (const event of result.events) {
+      afterEpoch = event.lease_epoch
+      afterSequence = event.sequence
+      if (event.lease_epoch < currentEpoch) continue
+      if (event.lease_epoch > currentEpoch) {
+        currentEpoch = event.lease_epoch
+        opts.onEvent({ type: 'run_recovered', data: { lease_epoch: currentEpoch } })
+        sawError = false
+      }
+      if (event.type.startsWith('ui.')) {
+        const checked = checkedSSEEvent(event.type.slice(3), event.payload)
+        if (checked) {
+          if (checked.type === 'error') sawError = true
+          opts.onEvent(checked)
+        }
+      } else if (event.type === 'run.waiting_user') {
+        const checked = checkedSSEEvent('ask_user', {
+          ...event.payload, question_event_id: event.event_id,
+        })
+        if (checked) opts.onEvent(checked)
+      }
+    }
+
+    const terminal = ['completed', 'succeeded', 'failed', 'cancelled'].includes(result.run.status)
+    if (terminal && result.events.length < pageLimit) break
+    if (!result.events.length || result.events.length < pageLimit) {
+      await abortableDelay(350, opts.signal)
+    }
+  }
+
+  if (terminalRun?.status === 'failed' && !sawError) {
+    opts.onEvent({
+      type: 'error',
+      data: { message: terminalRun.error_message || terminalRun.error_code || 'Local Agent 执行失败' },
+    })
+  }
+  const messages = await serverGetAll<RawMessage>(
+    `/sessions/${opts.sessionId}/messages`, 'messages', 500, { cache: false },
+  )
+  const message = [...messages].reverse().find(
+    (item) => item.run_id === opts.runId && item.role === 'assistant',
+  )
+  opts.onEvent({ type: 'done', data: { message_id: message?.id } })
 }
 
 function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -217,29 +278,6 @@ async function prepareServerTurn(opts: ChatStreamOptions): Promise<{
   return { session: turn.session, userMessage: turn.user_message, run: turn.run }
 }
 
-async function cancelServerTurn(runId: string): Promise<void> {
-  await serverSend('POST', `/runs/${runId}/cancel`)
-}
-
-function dispatchFrame(frame: string, onEvent: (ev: SSEEvent) => void): void {
-  const parsed = parseFrame(frame)
-  if (!parsed) {
-    if (frame.split('\n').some((line) => line.startsWith('data:'))) {
-      onEvent({ type: 'error', data: { message: 'SSE 协议错误：事件数据不是有效 JSON' } })
-    }
-    return
-  }
-  const event = checkedSSEEvent(parsed.event, parsed.data)
-  if (!event) {
-    onEvent({
-      type: 'error',
-      data: { message: `SSE 协议错误：未知事件或无效数据（${parsed.event || 'message'}）` },
-    })
-    return
-  }
-  onEvent(event)
-}
-
 const SSE_EVENT_TYPE_SET = new Set<string>(SSE_EVENT_TYPES)
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -259,6 +297,7 @@ function checkedSSEEvent(type: string, data: unknown): SSEEvent | null {
     case 'session': valid = text('id') && text('title'); break
     case 'status': valid = value.state === 'running' || value.state === 'done'; break
     case 'run': valid = record(value.run) !== null; break
+    case 'run_recovered': valid = number('lease_epoch'); break
     case 'think':
     case 'todo': valid = text('text'); break
     case 'step': valid = text('tool') && text('label'); break
@@ -302,7 +341,7 @@ export async function streamOrchestration(
   id: string,
   opts: { signal?: AbortSignal; onSnapshot: (item: Orchestration) => void },
 ): Promise<void> {
-  const resp = await fetch(`${API_BASE}/orchestrations/${encodeURIComponent(id)}/events`, {
+  const resp = await fetch(`${LOCAL_API_BASE}/orchestrations/${encodeURIComponent(id)}/events`, {
     headers: authHeaders(), signal: opts.signal,
   })
   if (!resp.ok || !resp.body) throw new Error(`专家团状态流不可用（HTTP ${resp.status}）`)

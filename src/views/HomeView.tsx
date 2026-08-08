@@ -167,7 +167,7 @@ export function HomeView() {
               <Popover open={moreOpen} anchor={moreAnchor.current} dir="down" onClose={() => setMoreOpen(false)} className="more-shortcuts" minWidth={248}>
                 <div className="more-shortcuts-head">更多能力</div>
                 {MORE_SHORTCUTS.map(([view, icon, label, description]) => (
-                  <button
+                  <WbButton
                     key={view}
                     type="button"
                     role="menuitem"
@@ -177,7 +177,7 @@ export function HomeView() {
                     <span className="more-shortcut-icon" aria-hidden="true">{icon}</span>
                     <span className="more-shortcut-copy"><b>{label}</b><small>{description}</small></span>
                     <span className="more-shortcut-arrow" aria-hidden="true">›</span>
-                  </button>
+                  </WbButton>
                 ))}
               </Popover>
 

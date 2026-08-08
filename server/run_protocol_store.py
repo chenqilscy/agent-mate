@@ -281,17 +281,42 @@ def revoke_device(*, owner_id: str, device_id: str) -> bool:
         raise
 
 
+def _server_terminal(
+    conn: sqlite3.Connection, *, run: sqlite3.Row, status: str,
+    error_code: str, error_message: str, now: float,
+) -> None:
+    """Commit a terminal Run which cannot receive a device terminal event."""
+    run_id = str(run["id"])
+    event = {
+        "event_id": f"server-terminal:{status}:{run_id}",
+        "lease_epoch": int(run["lease_epoch"] or 0),
+        "payload": {"error_code": error_code, "error_message": error_message},
+    }
+    output = _commit_terminal_output(
+        conn, run_id=run_id, event=event, failed=status != "completed",
+        cancelled=status == "cancelled", now=now,
+    )
+    conn.execute(
+        "UPDATE business_runs SET status=?,ended_at=?,error_code=?,error_message=?,"
+        "prompt_tokens=?,completion_tokens=?,updated_at=?,version=version+1 WHERE id=?",
+        (
+            status, now, error_code[:200], output["error_message"],
+            output["prompt_tokens"], output["completion_tokens"], now, run_id,
+        ),
+    )
+
+
 def _recover_run(conn: sqlite3.Connection, run_id: str, now: float) -> None:
     run = conn.execute("SELECT * FROM business_runs WHERE id=?", (run_id,)).fetchone()
     if run is None or str(run["status"]) in TERMINAL_STATUSES:
         return
     recovery_count = int(run["recovery_count"]) + 1
     if recovery_count > int(run["max_recoveries"]):
-        conn.execute(
-            "UPDATE business_runs SET status='failed',recovery_count=?,error_code='lease_recovery_exhausted',"
-            "error_message='Run lease recovery limit exceeded',ended_at=?,updated_at=?,version=version+1 WHERE id=?",
-            (recovery_count, now, now, run_id),
+        _server_terminal(
+            conn, run=run, status="failed", error_code="lease_recovery_exhausted",
+            error_message="Run lease recovery limit exceeded", now=now,
         )
+        conn.execute("UPDATE business_runs SET recovery_count=? WHERE id=?", (recovery_count, run_id))
     else:
         conn.execute(
             "UPDATE business_runs SET status='recoverable',recovery_count=?,updated_at=?,version=version+1 WHERE id=?",
@@ -429,12 +454,26 @@ def pending_commands(
     return _pending_commands(conn, run_id)
 
 
-def list_events(*, run_id: str, after_sequence: int = 0, limit: int = 500) -> list[dict[str, Any]]:
-    rows = db.get_conn().execute(
-        "SELECT event_id,sequence,event_type,occurred_at,payload,device_id,lease_epoch "
-        "FROM run_events WHERE run_id=? AND sequence>? ORDER BY lease_epoch,sequence LIMIT ?",
-        (run_id, max(0, after_sequence), max(1, min(1000, limit))),
-    ).fetchall()
+def list_events(
+    *, run_id: str, after_epoch: int = 0, after_sequence: int = 0, limit: int = 500,
+) -> list[dict[str, Any]]:
+    conn = db.get_conn()
+    capped_limit = max(1, min(1000, limit))
+    if after_epoch > 0:
+        rows = conn.execute(
+            "SELECT event_id,sequence,event_type,occurred_at,payload,device_id,lease_epoch "
+            "FROM run_events WHERE run_id=? AND (lease_epoch>? OR (lease_epoch=? AND sequence>?)) "
+            "ORDER BY lease_epoch,sequence LIMIT ?",
+            (run_id, after_epoch, after_epoch, max(0, after_sequence), capped_limit),
+        ).fetchall()
+    else:
+        # Backward compatibility for protocol-v1 callers that only supplied a
+        # sequence. New clients must send both parts of the epoch cursor.
+        rows = conn.execute(
+            "SELECT event_id,sequence,event_type,occurred_at,payload,device_id,lease_epoch "
+            "FROM run_events WHERE run_id=? AND sequence>? ORDER BY lease_epoch,sequence LIMIT ?",
+            (run_id, max(0, after_sequence), capped_limit),
+        ).fetchall()
     return [{
         "event_id": str(item["event_id"]), "sequence": int(item["sequence"]),
         "type": str(item["event_type"]), "occurred_at": float(item["occurred_at"]),
@@ -477,7 +516,8 @@ def _trace_item(event_type: str, payload: dict[str, Any]) -> dict[str, Any] | No
 
 
 def _commit_terminal_output(
-    conn: sqlite3.Connection, *, run_id: str, event: dict[str, Any], failed: bool, now: float,
+    conn: sqlite3.Connection, *, run_id: str, event: dict[str, Any], failed: bool,
+    now: float, cancelled: bool = False,
 ) -> dict[str, Any]:
     run = conn.execute("SELECT * FROM business_runs WHERE id=?", (run_id,)).fetchone()
     if run is None:
@@ -488,8 +528,10 @@ def _commit_terminal_output(
     trace: list[dict[str, Any]] = []
     usage: dict[str, Any] | None = None
     stream_error = ""
+    terminal_epoch = int(event.get("lease_epoch") or 0)
     rows = conn.execute(
-        "SELECT event_type,payload FROM run_events WHERE run_id=? ORDER BY lease_epoch,sequence", (run_id,),
+        "SELECT event_type,payload FROM run_events WHERE run_id=? AND lease_epoch=? ORDER BY sequence",
+        (run_id, terminal_epoch),
     ).fetchall()
     for item in rows:
         event_type = str(item["event_type"])
@@ -541,7 +583,7 @@ def _commit_terminal_output(
         message_id = str(existing["id"])
     conn.execute(
         "UPDATE business_sessions SET status=?,updated_at=?,version=version+1 WHERE id=?",
-        ("error" if failed else "done", now, session_id),
+        ("error" if failed and not cancelled else "done", now, session_id),
     )
     snapshot = _decode_json(run["request_snapshot"], {})
     automation_id = str(snapshot.get("automation_id") or "") if isinstance(snapshot, dict) else ""
@@ -555,6 +597,7 @@ def _commit_terminal_output(
         import automation_scheduler
         automation_scheduler.finish_run(
             conn, run_id=run_id, owner_id=owner_id, failed=failed,
+            cancelled=cancelled,
             error_code=str(event["payload"].get("error_code") or ("run_failed" if failed else "")),
             error_message=terminal_error,
             prompt_tokens=int((usage or {}).get("prompt") or 0),
@@ -576,6 +619,11 @@ def _apply_event(conn: sqlite3.Connection, row: sqlite3.Row, event: dict[str, An
     terminal = False
     if event_type == "run.started":
         fields.update(status="running", started_at=event["occurred_at"])
+        conn.execute(
+            "UPDATE business_automation_fires SET status='running',updated_at=? "
+            "WHERE run_id=? AND status='queued'",
+            (now, run_id),
+        )
     elif event_type == "run.waiting_user":
         fields.update(status="waiting_user")
     elif event_type == "run.checkpoint":
@@ -597,7 +645,9 @@ def _apply_event(conn: sqlite3.Connection, row: sqlite3.Row, event: dict[str, An
         )
         terminal = True
     elif event_type in {"run.cancelled", "run.cancel_ack"}:
-        output = _commit_terminal_output(conn, run_id=run_id, event=event, failed=True, now=now)
+        output = _commit_terminal_output(
+            conn, run_id=run_id, event=event, failed=True, cancelled=True, now=now,
+        )
         fields.update(
             status="cancelled", ended_at=event["occurred_at"],
             prompt_tokens=output["prompt_tokens"], completion_tokens=output["completion_tokens"],
@@ -681,7 +731,8 @@ def submit_events(
                  raw_payload.decode("utf-8"), expected_hash, now),
             )
             ack = sequence
-            if _apply_event(conn, lease, event, now):
+            event_with_epoch = {**event, "lease_epoch": lease_epoch}
+            if _apply_event(conn, lease, event_with_epoch, now):
                 terminal_event_id = str(event["event_id"])
                 conn.execute(
                     "UPDATE run_leases SET status='completed',terminal_event_id=? WHERE id=?",
@@ -707,6 +758,14 @@ def request_cancel(*, run_id: str, owner_id: str) -> dict[str, Any]:
         if str(run["status"]) in TERMINAL_STATUSES:
             conn.commit()
             return business_store.decode_row(run) or {}
+        if str(run["status"]) in {"queued", "recoverable"}:
+            _server_terminal(
+                conn, run=run, status="cancelled", error_code="cancelled_by_user",
+                error_message="Run cancelled before local execution", now=now,
+            )
+            row = conn.execute("SELECT * FROM business_runs WHERE id=?", (run_id,)).fetchone()
+            conn.commit()
+            return business_store.decode_row(row) or {}
         version = int(run["cancel_version"]) + 1
         conn.execute(
             "UPDATE business_runs SET cancel_version=?,cancel_requested_at=?,updated_at=?,version=version+1 WHERE id=?",
