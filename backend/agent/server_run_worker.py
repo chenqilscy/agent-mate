@@ -48,6 +48,26 @@ def _frames(chunk: str) -> list[tuple[str, dict[str, Any]]]:
     return result
 
 
+async def _commit_artifact(
+    *, owner_id: str, project_id: str, session_id: str, run_id: str,
+    payload: dict[str, Any],
+) -> None:
+    """Commit a Run artifact from the Local Agent, independent of any open App page."""
+    local_path = str(payload.get("path") or "").strip()
+    if not local_path:
+        raise ValueError("artifact event is missing its local path")
+    # Lazy import avoids the Local Agent Core ↔ worker module initialization cycle.
+    from local_agent_core import AssetCommitBody, commit_asset
+
+    await asyncio.to_thread(
+        commit_asset,
+        AssetCommitBody(
+            owner_id=owner_id, project_id=project_id, session_id=session_id,
+            run_id=run_id, local_path=local_path, kind="artifact",
+        ),
+    )
+
+
 def _project(remote: dict[str, Any], owner_id: str) -> Project:
     return Project(
         id=str(remote["id"]), name=str(remote.get("name") or ""),
@@ -160,6 +180,14 @@ async def _execute_run(owner_id: str, user_token: str, device_token: str, run: d
     refs = staged.get("refs") if isinstance(staged, dict) and isinstance(staged.get("refs"), list) else []
     if ref_metadata and not refs:
         raise RuntimeError("Local Agent input staging is missing for this device")
+    server_work_item_id = str(run.get("work_item_id") or "")
+    if server_work_item_id and not any(
+        isinstance(item, dict)
+        and item.get("kind") == "todo"
+        and str(item.get("itemId") or "") == server_work_item_id
+        for item in refs
+    ):
+        raise RuntimeError("Local Agent task input does not match the Server Run work item")
     state = _ControlState()
     control = asyncio.create_task(_control_loop(
         run_id=run_id, owner_id=owner_id, device_token=device_token,
@@ -198,6 +226,7 @@ async def _execute_run(owner_id: str, user_token: str, device_token: str, run: d
                     str(item) for item in permission.get("preauthorized_permissions") or []
                 ],
                 history_override=history, project_override=project_override,
+                server_token_override=user_token,
             ):
                 for event_type, payload in _frames(chunk):
                     if event_type == "run":
@@ -211,6 +240,11 @@ async def _execute_run(owner_id: str, user_token: str, device_token: str, run: d
                         continue
                     else:
                         run_transport.append_event(run_id, f"ui.{event_type}", payload)
+                        if event_type == "artifact":
+                            await _commit_artifact(
+                                owner_id=owner_id, project_id=project_id,
+                                session_id=session_id, run_id=run_id, payload=payload,
+                            )
                         if event_type == "error":
                             stream_error = str(payload.get("message") or "")
                     await _flush(owner_id, device_token)

@@ -285,14 +285,17 @@ def commit_asset(body: AssetCommitBody) -> dict[str, Any]:
         ),
         None,
     )
+    # A byte-identical working copy from another Run is not the same delivery:
+    # each Server Run needs its own immutable Asset row/work_item association.
+    reusable = prior if prior and str(prior.get("run_id") or "") == body.run_id else None
     copy = local_agent_store.upsert_working_copy(
         owner_id=body.owner_id, relative_path=local_key, source_kind=source_kind,
-        project_id=body.project_id, run_id=body.run_id, asset_id=str((prior or {}).get("asset_id") or ""),
+        project_id=body.project_id, run_id=body.run_id, asset_id=str((reusable or {}).get("asset_id") or ""),
         state="local-only", size=size, sha256=sha256,
-        upload_id=str((prior or {}).get("upload_id") or ""),
-        object_version_id=str((prior or {}).get("object_version_id") or ""),
+        upload_id=str((reusable or {}).get("upload_id") or ""),
+        object_version_id=str((reusable or {}).get("object_version_id") or ""),
     )
-    if prior and prior["state"] == "committed" and prior.get("object_version_id"):
+    if reusable and reusable["state"] == "committed" and reusable.get("object_version_id"):
         return {"working_copy": copy, "duplicate": True}
 
     token = _identity(body.owner_id)
@@ -312,7 +315,12 @@ def commit_asset(body: AssetCommitBody) -> dict[str, Any]:
                     "sha256": sha256,
                     "source_tool": "local-agent.explicit-upload" if body.external else "local-agent.workspace-commit",
                 },
-                f"working-copy:{copy['id']}:{sha256}",
+                # The working-copy row is path-scoped and survives across Runs,
+                # while each Run must create its own immutable delivery Asset.
+                # Therefore the Server idempotency scope must include run_id.
+                "working-copy:" + hashlib.sha256(
+                    f"{copy['id']}:{body.run_id or 'manual'}:{sha256}".encode("utf-8")
+                ).hexdigest(),
             )
             if not created:
                 raise HTTPException(503, "AgentMate Server is unavailable; working copy remains local-only")

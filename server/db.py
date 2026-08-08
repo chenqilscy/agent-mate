@@ -2644,6 +2644,94 @@ def get_work_item_acceptance(work_item_id: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
+def accept_server_work_item_delivery(
+    *, project_id: str, work_item_id: str, run_id: str,
+    actor_id: str, actor_name: str, expected_artifact_count: int | None = None,
+) -> tuple[dict, list[dict], bool]:
+    """Atomically accept a Server Run and all of its verified immutable assets."""
+    conn = get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute(
+            "SELECT * FROM work_items WHERE id=? AND project_id=?",
+            (work_item_id, project_id),
+        ).fetchone()
+        if row is None:
+            raise KeyError("work item not found")
+        run = conn.execute(
+            "SELECT * FROM business_runs WHERE id=? AND project_id=? AND work_item_id=? AND deleted_at=0",
+            (run_id, project_id, work_item_id),
+        ).fetchone()
+        if run is None:
+            raise KeyError("run not found")
+        if str(run["status"]) not in {"completed", "succeeded"}:
+            raise ValueError("run is not completed")
+        assets = conn.execute(
+            "SELECT * FROM business_assets WHERE run_id=? AND project_id=? AND deleted_at=0 "
+            "ORDER BY created_at,id",
+            (run_id, project_id),
+        ).fetchall()
+        if not assets:
+            raise ValueError("run has no artifacts")
+        if expected_artifact_count is not None and len(assets) != expected_artifact_count:
+            raise ValueError("artifact count does not match Server delivery")
+        if any(
+            str(asset["storage_state"]) != "committed"
+            or str(asset["validation_status"]) != "verified"
+            for asset in assets
+        ):
+            raise ValueError("artifact integrity verification failed")
+
+        acceptance = conn.execute(
+            "SELECT * FROM work_item_acceptances WHERE work_item_id=?", (work_item_id,),
+        ).fetchone()
+        replayed = acceptance is not None
+        if acceptance is not None:
+            if str(acceptance["run_id"]) != run_id or int(acceptance["artifact_count"]) != len(assets):
+                raise ValueError("work item was accepted with a different delivery")
+        else:
+            if str(row["status"]) != "review":
+                raise ValueError("work item is not awaiting acceptance")
+            now = time.time()
+            conn.execute(
+                "UPDATE work_items SET status='done',updated_at=? WHERE id=?", (now, work_item_id),
+            )
+            conn.execute(
+                "INSERT INTO work_item_acceptances "
+                "(work_item_id,project_id,run_id,artifact_count,accepted_by,accepted_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (work_item_id, project_id, run_id, len(assets), actor_id, now),
+            )
+            conn.execute(
+                "INSERT INTO work_item_activity (id,project_id,work_item_id,actor,kind,detail,created_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (
+                    new_uuid(), project_id, work_item_id, actor_name, "accepted",
+                    f"run={run_id}; artifacts={len(assets)}", now,
+                ),
+            )
+        accepted_at = float(
+            (acceptance["accepted_at"] if acceptance is not None else now)
+        )
+        conn.execute(
+            "UPDATE business_assets SET acceptance_status='accepted',accepted_by=?,accepted_at=?,"
+            "version=version+1,updated_at=? WHERE run_id=? AND project_id=? AND deleted_at=0",
+            (actor_id, accepted_at, accepted_at, run_id, project_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    accepted = get_work_item(work_item_id)
+    assert accepted is not None
+    committed_assets = conn.execute(
+        "SELECT * FROM business_assets WHERE run_id=? AND project_id=? AND deleted_at=0 "
+        "ORDER BY created_at,id",
+        (run_id, project_id),
+    ).fetchall()
+    return accepted, [dict(asset) for asset in committed_assets], replayed
+
+
 # ---- 项目风险与决策台账（WB-350）----------------------------------------
 
 def get_project_governance(record_id: str) -> Optional[dict]:

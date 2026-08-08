@@ -603,6 +603,34 @@ def _commit_terminal_output(
             prompt_tokens=int((usage or {}).get("prompt") or 0),
             completion_tokens=int((usage or {}).get("completion") or 0), now=now,
         )
+    work_item_id = str(run["work_item_id"] or "")
+    project_id = str(run["project_id"] or "")
+    if work_item_id and project_id:
+        item = conn.execute(
+            "SELECT status FROM work_items WHERE id=? AND project_id=?",
+            (work_item_id, project_id),
+        ).fetchone()
+        if item is not None and str(item["status"]) != "done":
+            verified_assets = int(conn.execute(
+                "SELECT COUNT(*) FROM business_assets WHERE run_id=? AND project_id=? AND deleted_at=0 "
+                "AND storage_state='committed' AND validation_status='verified'",
+                (run_id, project_id),
+            ).fetchone()[0])
+            next_status = "paused" if failed or cancelled or verified_assets == 0 else "review"
+            if str(item["status"]) != next_status:
+                conn.execute(
+                    "UPDATE work_items SET status=?,updated_at=? WHERE id=?",
+                    (next_status, now, work_item_id),
+                )
+                conn.execute(
+                    "INSERT INTO work_item_activity "
+                    "(id,project_id,work_item_id,actor,kind,detail,created_at) VALUES (?,?,?,?,?,?,?)",
+                    (
+                        db.new_uuid(), project_id, work_item_id, "AgentMate",
+                        "execution_finished" if next_status == "review" else "execution_paused",
+                        f"run={run_id}; verified_artifacts={verified_assets}", now,
+                    ),
+                )
     return {
         "message_id": message_id,
         "prompt_tokens": int((usage or {}).get("prompt") or 0),

@@ -331,7 +331,7 @@ class WorkItemDeliveryCollaborationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("artifact_missing", launch["error_code"])
         self.assertEqual("paused", db.get_work_item(empty.id).status)
 
-    async def test_project_member_agent_status_uses_server_authority_and_submits_review(self) -> None:
+    async def test_project_member_agent_status_uses_server_authority_without_mirror_write(self) -> None:
         member = db.create_user(name="member", password="pw", role=Role.MEMBER)
         db.add_project_member(self.project.id, member.id, Role.MEMBER)
         agent_tools.set_work_context(self.project.id, member.id)
@@ -351,7 +351,7 @@ class WorkItemDeliveryCollaborationTest(unittest.IsolatedAsyncioTestCase):
             "server-token", self.project.id, self.item.id, {"status": "review"},
         )
         self.assertIn("待验收", remote.text)
-        self.assertEqual("review", db.get_work_item(self.item.id).status)
+        self.assertEqual("doing", db.get_work_item(self.item.id).status)
         row = db.get_conn().execute(
             "SELECT server_dirty FROM work_items WHERE id=?", (self.item.id,),
         ).fetchone()

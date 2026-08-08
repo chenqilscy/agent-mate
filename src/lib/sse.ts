@@ -37,6 +37,33 @@ export interface FollowServerRunOptions {
   onEvent: (ev: SSEEvent) => void
 }
 
+export async function startWorkItemRun(opts: {
+  projectId: string
+  workItemId: string
+  title: string
+  description: string
+  model?: string | null
+  idempotencyKey?: string
+}): Promise<{
+  session: SessionInfo & { version: number }
+  user_message: RawMessage
+  run: AgentRun & { version: number }
+  duplicate: boolean
+}> {
+  const key = opts.idempotencyKey || requestKey('work-item')
+  const targetDeviceId = await stageLocalRunInput(key, [{
+    name: opts.title,
+    content: opts.description.trim() ? `${opts.title}\n\n${opts.description}` : opts.title,
+    kind: 'todo', itemId: opts.workItemId,
+  }])
+  if (!targetDeviceId) throw new Error('Local Agent 未返回可执行设备身份')
+  return serverSend('POST', `/projects/${opts.projectId}/work-items/${opts.workItemId}/execute`, {
+    target_device_id: targetDeviceId,
+    local_input_key: key,
+    model_ref: opts.model || null,
+  }, { headers: { 'Idempotency-Key': key } })
+}
+
 export async function streamChat(opts: ChatStreamOptions): Promise<void> {
   let serverTurn: Awaited<ReturnType<typeof prepareServerTurn>> | null = null
   let assistantTrace: TraceItem[] = []

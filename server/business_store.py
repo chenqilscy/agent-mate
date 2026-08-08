@@ -112,7 +112,7 @@ def list_scoped(
     params: list[Any] = []
     if parent is not None:
         column, value = parent
-        if column not in {"session_id", "run_id", "assistant_id"}:
+        if column not in {"session_id", "run_id", "assistant_id", "work_item_id"}:
             raise ValueError("unsupported parent column")
         where.append(f"t.{column}=?")
         params.append(value)

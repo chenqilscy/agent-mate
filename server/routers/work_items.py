@@ -5,12 +5,18 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import re
+import time
 from datetime import date
 from math import isfinite
+from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
+import business_store
 import db
 from auth import CurrentAccount
 from models import Account, Role, can_write
@@ -238,6 +244,149 @@ def list_items(project_id: str, account: Account = CurrentAccount) -> dict:
     return {"items": [{**_decorate(it, by_id), "critical_path": it["id"] in critical} for it in items]}
 
 
+def _run_artifact_view(asset: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **asset,
+        "path": str(asset.get("object_ref") or ""),
+        "preview_path": None,
+        "is_primary": False,
+        "display_order": 0,
+        "verification": {
+            "exists": asset.get("storage_state") == "committed",
+            "hash_matches": asset.get("validation_status") == "verified",
+        },
+    }
+
+
+@router.get("/projects/{project_id}/work-items/{wid}/delivery")
+def item_delivery(project_id: str, wid: str, account: Account = CurrentAccount) -> dict:
+    role = _access(project_id, account)
+    item = db.get_work_item(wid)
+    if not item or item["project_id"] != project_id:
+        raise HTTPException(404, "work item not found")
+    runs, _ = business_store.list_scoped(
+        "business_runs", account_id=account.id, project_id=project_id,
+        parent=("work_item_id", wid), limit=100,
+    )
+    launches: list[dict[str, Any]] = []
+    values: list[dict[str, Any]] = []
+    for run in runs:
+        assets, _ = business_store.list_scoped(
+            "business_assets", account_id=account.id, project_id=project_id,
+            parent=("run_id", str(run["id"])), limit=500,
+        )
+        status = str(run.get("status") or "queued")
+        launches.append({
+            "id": run["id"], "work_item_id": wid, "owner_id": run["owner_id"],
+            "idempotency_key": run.get("client_request_id") or "",
+            "session_id": run.get("session_id"), "run_id": run["id"],
+            "status": "running" if status in {"running", "planning", "waiting_user"}
+            else "completed" if status in {"completed", "succeeded"}
+            else "cancelled" if status == "cancelled"
+            else "failed" if status == "failed" else "queued",
+            "error_code": run.get("error_code"), "error_message": run.get("error_message"),
+            "created_at": run.get("created_at") or 0, "updated_at": run.get("updated_at") or 0,
+            "finished_at": run.get("ended_at"),
+        })
+        values.append({**run, "artifacts": [_run_artifact_view(asset) for asset in assets]})
+    by_id, _ = _members_maps(project_id)
+    return {
+        "work_item": _decorate(item, by_id),
+        "can_write": can_write(role) and not db.project_is_archived(project_id),
+        "launches": launches,
+        "runs": values,
+    }
+
+
+class ExecuteBody(BaseModel):
+    target_device_id: str = Field(min_length=8, max_length=200)
+    local_input_key: str = Field(min_length=8, max_length=200, pattern=r"^[A-Za-z0-9._:-]+$")
+    model_ref: str | None = Field(default=None, max_length=200)
+
+
+@router.post("/projects/{project_id}/work-items/{wid}/execute")
+def execute_item(
+    project_id: str, wid: str, body: ExecuteBody,
+    account: Account = CurrentAccount,
+    idempotency_key: str = Header(default="", alias="Idempotency-Key"),
+) -> dict:
+    _require_write(project_id, account)
+    key = idempotency_key.strip()
+    if not key:
+        raise HTTPException(400, "Idempotency-Key is required")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,119}", key):
+        raise HTTPException(400, "invalid Idempotency-Key")
+    item = db.get_work_item(wid)
+    if not item or item["project_id"] != project_id:
+        raise HTTPException(404, "work item not found")
+    if item["status"] == "done":
+        raise HTTPException(409, "completed work item cannot be executed again")
+    target = db.get_conn().execute(
+        "SELECT owner_id,status FROM agent_devices WHERE id=?", (body.target_device_id,),
+    ).fetchone()
+    if target is None or str(target["owner_id"]) != account.id or str(target["status"]) != "active":
+        raise HTTPException(400, "target device is not an active device owned by this account")
+    prompt = f"完成项目工作项：{item['title']}"
+    if str(item.get("description") or "").strip():
+        prompt += f"\n\n要求：\n{str(item['description']).strip()}"
+    prompt += "\n\n请真实执行并生成可验收交付物；在产物被人工验收前不要把工作项标记为完成。"
+    request_snapshot = {
+        "loadout": {},
+        "refs": [{"name": item["title"], "kind": "todo", "itemId": wid}],
+        "local_input_key": body.local_input_key,
+        "work_item_id": wid,
+    }
+    payload = {
+        "project_id": project_id, "work_item_id": wid, "prompt": prompt,
+        "target_device_id": body.target_device_id, "local_input_key": body.local_input_key,
+        "model_ref": body.model_ref,
+    }
+    request_hash = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    conn = db.get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        session, message, run, duplicate = business_store.create_turn(
+            actor_id=account.id, owner_id=account.id, project_id=project_id,
+            session_id=None, session_title=str(item["title"])[:500],
+            session_kind="projexec", session_space=None, user_text=prompt,
+            client_request_id=key, request_hash=request_hash,
+            run_fields={
+                "work_item_id": wid, "mode": "exec", "workspace": f"project:{project_id}",
+                "retry_of": None, "model_ref": body.model_ref, "model_id": None,
+                "model_snapshot": {},
+                # Clicking "交给 Agent 执行" is an explicit user grant for this
+                # project sandbox.  Background Runs still fail closed for every
+                # other restricted authority (process/host/network/connectors).
+                "permission_snapshot": {
+                    "execution_source": "background",
+                    "preauthorized_permissions": ["workspace.write"],
+                },
+                "target_device_id": body.target_device_id,
+                "required_capabilities": ["run_events_v1", "llm.chat", "agent.tools"],
+                "request_snapshot": request_snapshot, "max_recoveries": 3,
+            },
+            connection=conn,
+        )
+        if not duplicate:
+            now = time.time()
+            conn.execute("UPDATE work_items SET status='doing',updated_at=? WHERE id=?", (now, wid))
+            conn.execute(
+                "INSERT INTO work_item_activity (id,project_id,work_item_id,actor,kind,detail,created_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (db.new_uuid(), project_id, wid, account.name, "execution_started", f"run={run['id']}", now),
+            )
+        conn.commit()
+    except business_store.IdempotencyConflict as exc:
+        conn.rollback()
+        raise HTTPException(409, str(exc)) from exc
+    except Exception:
+        conn.rollback()
+        raise
+    return {"session": session, "user_message": message, "run": run, "duplicate": duplicate}
+
+
 class CreateBody(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     status: str = "todo"
@@ -350,14 +499,23 @@ class AcceptBody(BaseModel):
 
 @router.post("/projects/{project_id}/work-items/{wid}/accept")
 def accept_item(project_id: str, wid: str, body: AcceptBody, account: Account = CurrentAccount) -> dict:
-    """Close only after the local execution plane attests verified artifacts."""
+    """Close only after the authoritative Server Run has verified immutable assets."""
     _require_write(project_id, account)
     observe_project_health(project_id, actor_name=account.name)
     try:
-        updated, _replayed = db.accept_work_item_delivery(
-            project_id=project_id, work_item_id=wid, run_id=body.run_id,
-            artifact_count=body.artifact_count, actor_id=account.id, actor_name=account.name,
-        )
+        run = business_store.get_record("business_runs", body.run_id)
+        if run is not None:
+            updated, assets, _replayed = db.accept_server_work_item_delivery(
+                project_id=project_id, work_item_id=wid, run_id=body.run_id,
+                actor_id=account.id, actor_name=account.name,
+                expected_artifact_count=body.artifact_count,
+            )
+        else:
+            # Compatibility for an in-flight legacy Local Agent launch during cutover.
+            updated, _replayed = db.accept_work_item_delivery(
+                project_id=project_id, work_item_id=wid, run_id=body.run_id,
+                artifact_count=body.artifact_count, actor_id=account.id, actor_name=account.name,
+            )
     except KeyError as exc:
         raise HTTPException(404, "work item not found") from exc
     except ValueError as exc:

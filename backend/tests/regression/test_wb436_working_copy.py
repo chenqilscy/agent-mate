@@ -89,6 +89,47 @@ class WorkingCopyTest(unittest.TestCase):
         self.assertEqual(sha256, copy["sha256"])
         self.assertEqual(data[4:], b"".join(uploaded_parts), "part 0 must be skipped on resume")
 
+    def test_same_path_and_bytes_create_run_scoped_server_assets(self) -> None:
+        project_id = "project-run-scope-461"
+        path = sandbox.project_root(project_id) / "result.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("same delivery bytes", encoding="utf-8")
+        keys: list[str] = []
+        payloads: list[dict] = []
+
+        def create(_token, payload, key):
+            payloads.append(payload)
+            keys.append(key)
+            return {"asset": {"id": f"asset-{len(keys)}"}}
+
+        def begin(_token, asset_id, _size, _sha):
+            return {
+                "upload": {
+                    "id": f"upload-{asset_id}", "state": "committed", "part_size": 1024,
+                    "resumed": False, "deduplicated": True,
+                    "object_version_id": f"version-{asset_id}",
+                },
+            }
+
+        with (
+            patch("server_client.create_server_asset", side_effect=create),
+            patch("server_client.begin_asset_upload", side_effect=begin),
+        ):
+            for run_id in ("run-one-461", "run-two-461"):
+                response = self.client.post(
+                    "/api/local-agent/assets/commit", headers=self.headers,
+                    json={
+                        "owner_id": self.owner_id, "project_id": project_id,
+                        "local_path": "result.txt", "run_id": run_id,
+                    },
+                )
+                self.assertEqual(200, response.status_code, response.text)
+
+        self.assertEqual(["run-one-461", "run-two-461"], [item["run_id"] for item in payloads])
+        self.assertNotEqual(keys[0], keys[1])
+        self.assertTrue(all(key.startswith("working-copy:") for key in keys))
+        self.assertTrue(all(len(key) <= 120 for key in keys))
+
     def test_offline_file_stays_local_only_and_external_requires_consent(self) -> None:
         local = sandbox.project_root(None) / "draft.txt"
         local.parent.mkdir(parents=True, exist_ok=True)

@@ -2,8 +2,8 @@
 // goes straight to AgentMate Server, while device credentials, files and agent
 // execution stay on the loopback Local Agent. Provider API keys never enter UI state.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, RunStatus, SessionInfo, SharedPmPreferences, SharedPmPreferencesPatch, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkItemLaunch, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
-import { LOCAL_API_BASE, channelSnapshot, serverGet, serverGetAll, serverSend } from './channels'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, RunStatus, SessionInfo, SharedPmPreferences, SharedPmPreferencesPatch, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
+import { LOCAL_API_BASE, channelSnapshot, serverApiBase, serverGet, serverGetAll, serverSend } from './channels'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -720,13 +720,28 @@ export const api = {
 
   deleteWorkItem: (projectId: string, id: string) => serverSend<{ ok: boolean }>('DELETE', `/projects/${projectId}/work-items/${id}`),
 
-  getWorkItemDelivery: (id: string) => get<WorkItemDelivery>(`/work-items/${id}/delivery`),
-  executeWorkItem: (id: string, idempotencyKey: string, model?: string | null) =>
-    send<{ ok: boolean; created: boolean; launch: WorkItemLaunch }>('POST', `/work-items/${id}/execute`, {
-      idempotency_key: idempotencyKey, model: model || null,
+  getWorkItemDelivery: (projectId: string, id: string) =>
+    serverGet<WorkItemDelivery>(`/projects/${projectId}/work-items/${id}/delivery`, { cache: false }),
+  acceptWorkItemDelivery: (projectId: string, id: string, runId: string, artifactCount: number) =>
+    serverSend<WorkItem>('POST', `/projects/${projectId}/work-items/${id}/accept`, {
+      run_id: runId, artifact_count: artifactCount,
     }),
-  acceptWorkItemDelivery: (id: string, runId: string) =>
-    send<{ ok: boolean; work_item: WorkItem; run: AgentRun }>('POST', `/work-items/${id}/accept`, { run_id: runId }),
+  downloadServerAsset: async (assetId: string, name: string) => {
+    const grant = await serverSend<{
+      token: string
+    }>('POST', `/assets/${assetId}/download-grant`)
+    const base = await serverApiBase()
+    const response = await fetch(`${base}/assets/${assetId}/content?download=true`, {
+      headers: { 'X-Asset-Token': grant.token },
+    })
+    if (!response.ok) throw new Error(`GET /assets/${assetId}/content → ${response.status}`)
+    const href = URL.createObjectURL(await response.blob())
+    const anchor = document.createElement('a')
+    anchor.href = href
+    anchor.download = name
+    anchor.click()
+    URL.revokeObjectURL(href)
+  },
 
   // 里程碑（WB-108）：server-origin 项目走 Server 权威 + 本地镜像，离线回退本地。
   listMilestones: (project: string) => serverGet<{ milestones: Milestone[] }>(`/projects/${project}/milestones`),

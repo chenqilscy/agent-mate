@@ -602,6 +602,19 @@ def _list_work_items_run(args: dict[str, Any]) -> ToolOutcome:
     ctx = _work_ctx.get()
     if not ctx:
         return ToolOutcome(text="当前不在项目中，没有计划项可列。")
+    server_token = str(ctx.get("server_token") or "")
+    if server_token:
+        items = server_client.list_work_items(server_token, ctx["project_id"])
+        if items is None:
+            return ToolOutcome(text="Server 项目任务当前不可用，请恢复 Server 连接后重试。")
+        if not items:
+            return ToolOutcome(text="本项目暂无计划项（待办）。")
+        lines = [
+            f"- [{_WI_LABEL.get(str(item.get('status') or ''), str(item.get('status') or ''))}] "
+            f"{str(item.get('title') or '')}（id={str(item.get('id') or '')}）"
+            for item in items
+        ]
+        return ToolOutcome(text="本项目计划项：\n" + "\n".join(lines))
     items = db.list_work_items(ctx["project_id"])
     if not items:
         return ToolOutcome(text="本项目暂无计划项（待办）。")
@@ -628,23 +641,25 @@ def _set_work_item_status_run(args: dict[str, Any]) -> ToolOutcome:
     status = _WI_STATUS.get(raw) or _WI_STATUS.get(raw.lower())
     if not status:
         return ToolOutcome(text=f"未知状态「{raw}」。可用：待开始 / 进行中 / 暂停 / 待验收。")
+    server_token = str(ctx.get("server_token") or "")
+    if server_token:
+        updated = server_client.update_work_item(
+            server_token, ctx["project_id"], item_id, {"status": status},
+        )
+        if not updated:
+            return ToolOutcome(text="Server 暂不可达，状态未更新。")
+        title = str(updated.get("title") or item_id)
+        label = _WI_LABEL.get(status, status)
+        return ToolOutcome(
+            text=f"已将计划项「{title}」状态改为「{label}」。",
+            trace=[{"kind": "step", "tool": "set_work_item_status", "label": f"计划项「{title}」→ {label}"}],
+            live=[{"id": item_id, "project_id": ctx["project_id"], "status": status, "title": title}],
+        )
     wi = db.get_work_item(item_id)
     role = db.project_access_role(ctx["project_id"], ctx["owner_id"])
     if not wi or wi.project_id != ctx["project_id"] or role in {None, Role.VIEWER}:
         return ToolOutcome(text=f"未找到计划项 id={item_id}（或不属于当前项目）。可先用 list_work_items 核对 id。")
-    project = db.get_project(ctx["project_id"])
-    if project and project.origin == "server":
-        token = str(ctx.get("server_token") or "")
-        if not token:
-            return ToolOutcome(text="Server 项目当前没有可用登录凭据，状态未更新。")
-        updated = server_client.update_work_item(token, wi.project_id, wi.id, {"status": status})
-        if not updated:
-            return ToolOutcome(text="Server 暂不可达，状态未更新。")
-        db.apply_server_work_item_status(
-            wi.id, status, server_updated_at=float(updated.get("updated_at") or 0) or None,
-        )
-    else:
-        db.update_work_item(item_id, status=status)
+    db.update_work_item(item_id, status=status)
     label = _WI_LABEL.get(status, status)
     return ToolOutcome(
         text=f"已将计划项「{wi.title}」状态改为「{label}」。",

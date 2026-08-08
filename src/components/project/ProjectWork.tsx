@@ -12,6 +12,7 @@ import { App as AntApp, Empty, Input, Select, Table, Tag } from 'antd'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../../lib/a11y'
 import { TaskGovernanceSection } from './TaskGovernanceSection'
+import { startWorkItemRun } from '../../lib/sse'
 
 const COLS: { key: WorkStatus; label: string }[] = [
   { key: 'todo', label: '待开始' },
@@ -388,7 +389,8 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
     return () => { alive = false }
   }, [projectId, itemId])
   const loadDelivery = () => {
-    void api.getWorkItemDelivery(itemId).then((value) => {
+    if (!projectId) return
+    void api.getWorkItemDelivery(projectId, itemId).then((value) => {
       setDelivery(value)
       if (projectId && value.work_item.status !== item?.status) {
         useWorkItemStore.getState().applyRemote({
@@ -398,7 +400,10 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
     }).catch(() => {})
   }
   useEffect(() => { loadDelivery() }, [itemId]) // eslint-disable-line react-hooks/exhaustive-deps
-  const deliveryActive = delivery?.launches.some((launch) => ['queued', 'running'].includes(launch.status)) ?? false
+  const deliveryActive = delivery
+    ? delivery.launches.some((launch) => ['queued', 'running'].includes(launch.status))
+      || delivery.runs.some((run) => ['queued', 'planning', 'running', 'waiting_user'].includes(run.status))
+    : false
   useEffect(() => {
     if (!deliveryActive) return
     const timer = setInterval(loadDelivery, 2500)
@@ -454,18 +459,24 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
   }
 
   const executeWithAgent = async () => {
+    if (!projectId) return
     setDeliveryBusy(true)
     try {
-      await api.executeWorkItem(item.id, crypto.randomUUID())
+      await startWorkItemRun({
+        projectId, workItemId: item.id, title: item.title, description: item.description,
+        idempotencyKey: crypto.randomUUID(),
+      })
       if (projectId) useWorkItemStore.getState().applyRemote({ id: item.id, project_id: projectId, status: 'doing' })
       toast('已交给 Agent 执行')
       loadDelivery()
     } catch { toast('发起执行失败') } finally { setDeliveryBusy(false) }
   }
   const acceptDelivery = async (runId: string) => {
+    if (!projectId) return
     setDeliveryBusy(true)
     try {
-      await api.acceptWorkItemDelivery(item.id, runId)
+      const run = delivery?.runs.find((value) => value.id === runId)
+      await api.acceptWorkItemDelivery(projectId, item.id, runId, run?.artifacts?.length || 0)
       if (projectId) useWorkItemStore.getState().applyRemote({ id: item.id, project_id: projectId, status: 'done' })
       toast('交付已验收，工作项已完成')
       loadDelivery()
@@ -530,7 +541,7 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
                   {(run.artifacts ?? []).map((artifact) => (
                     <div className="wb-attach-chip" key={artifact.id}>
                       <span className="ic" aria-hidden>📦</span>
-                      <span className="nm" {...clickable} onClick={() => projectId && void api.downloadFile(artifact.path, artifact.name, { project: projectId })}>{artifact.name}</span>
+                      <span className="nm" {...clickable} onClick={() => void api.downloadServerAsset(artifact.id, artifact.name).catch(() => toast('Server 产物下载失败'))}>{artifact.name}</span>
                       <Tag color={artifact.acceptance_status === 'accepted' ? 'success' : 'default'}>{artifact.acceptance_status === 'accepted' ? '已验收' : '待验收'}</Tag>
                     </div>
                   ))}

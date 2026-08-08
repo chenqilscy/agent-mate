@@ -2391,6 +2391,7 @@ def create_run(
     *, session_id: str, owner_id: str, project_id: Optional[str], mode: str,
     workspace: str = "default", work_item_id: Optional[str] = None,
     idempotency_key: Optional[str] = None, retry_of: Optional[str] = None,
+    allow_unmirrored_work_item: bool = False,
     status: Optional[str] = None, permission_snapshot: Optional[dict[str, Any]] = None,
 ) -> tuple[Run, bool]:
     """Create one execution atomically; duplicate owner/idempotency keys reuse it."""
@@ -2399,7 +2400,9 @@ def create_run(
         raise ValueError("run session scope mismatch")
     if work_item_id:
         item = get_work_item(work_item_id)
-        if not item or item.project_id != project_id:
+        if item is not None and item.project_id != project_id:
+            raise ValueError("run work item scope mismatch")
+        if item is None and not allow_unmirrored_work_item:
             raise ValueError("run work item scope mismatch")
     if retry_of:
         original = get_run(retry_of)

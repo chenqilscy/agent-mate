@@ -400,6 +400,7 @@ async def run_chat(
     preauthorized_permissions: list[str] | None = None,
     history_override: list[Message] | None = None,
     project_override: Project | None = None,
+    server_token_override: str | None = None,
 ) -> AsyncIterator[str]:
     """Trace one user turn, delegating the unchanged SSE loop to the inner runner."""
     # Server-authoritative mode contract (WB-272): old/direct clients may still
@@ -430,6 +431,7 @@ async def run_chat(
             preauthorized_permissions=preauthorized_permissions,
             history_override=history_override,
             project_override=project_override,
+            server_token_override=server_token_override,
             chat_trace=chat_trace,
         ):
             yield chunk
@@ -471,6 +473,7 @@ async def _run_chat_inner(
     preauthorized_permissions: list[str] | None = None,
     history_override: list[Message] | None = None,
     project_override: Project | None = None,
+    server_token_override: str | None = None,
     chat_trace: telemetry.Observation,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
@@ -596,7 +599,10 @@ async def _run_chat_inner(
             authority="procedure", priority=700, heading="可按需加载的 Skill",
         )
     is_server_project = bool(project and project.origin == "server")
-    server_token = db.get_server_identity(user.id) if is_server_project else None
+    server_token = (
+        server_token_override or db.get_server_identity(user.id)
+        if is_server_project else None
+    )
     # Work-item tools act as the current project member; Server-origin writes
     # retain their Bearer authority instead of mutating a local mirror.
     set_work_context(session.project_id, user.id, server_token=server_token or "")
@@ -871,6 +877,7 @@ async def _run_chat_inner(
         session_id=session_id, owner_id=user.id, project_id=session.project_id,
         work_item_id=work_item_id, mode="ask" if ask else ("plan" if plan else "exec"),
         workspace=workspace_key, idempotency_key=idempotency_key, retry_of=retry_of,
+        allow_unmirrored_work_item=bool(project_override and server_token_override),
         permission_snapshot={
             "mode": "ask" if ask else ("plan" if plan else "exec"),
             "experts": active_experts, "skills": active_skills,
