@@ -7,11 +7,14 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Keep the device UI on the same deterministic loopback family as the
+    // Server and Local Agent. Node may otherwise resolve localhost to ::1.
+    host: '127.0.0.1',
     port: 8102,
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8101',
+        target: 'http://127.0.0.1:8101',
         changeOrigin: true,
         // Do not buffer — SSE needs to flush per event.
         configure: (proxy) => {
@@ -21,7 +24,7 @@ export default defineConfig({
         },
       },
       '/server-api': {
-        target: 'http://localhost:8100',
+        target: 'http://127.0.0.1:8100',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/server-api/, '/api'),
       },

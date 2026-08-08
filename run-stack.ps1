@@ -48,5 +48,5 @@ else {
 
 Write-Host ''
 Write-Host '开发栈：Server(API + Console) :8100  /  Local Agent :8101  /  App UI :8102' -ForegroundColor Green
-Write-Host '浏览器打开 http://localhost:8102；Server/Console 应在正式环境中独立部署。'
+Write-Host '浏览器打开 http://127.0.0.1:8102；Server/Console 应在正式环境中独立部署。'
 Write-Host '停止：关掉各自窗口，或  Get-NetTCPConnection -LocalPort 8100,8101,8102 | %{ Stop-Process -Id $_.OwningProcess -Force }'
