@@ -3,10 +3,10 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
 import { TOKEN_KEY } from '../lib/api'
-import { ChannelUnavailableError, channelSnapshot, probeServer, serverApiBase } from '../lib/channels'
+import { ChannelUnavailableError, channelSnapshot, probeServer, serverApiBase, serverConsoleBase } from '../lib/channels'
 
 interface ServerState {
-  enabled: boolean // 本地 backend 是否已配 AGENTMATE_SERVER_URL
+  enabled: boolean // 本机应用设置是否已配置 Server 地址
   consoleUrl: string
   linked: { account_id: string; name: string } | null // 是否已绑定某 Server 账号
   authState: 'unconfigured' | 'disconnected' | 'online' | 'offline_grace' | 'offline_expired' | 'revoked'
@@ -29,7 +29,8 @@ export const useServerStore = create<ServerState>((set) => ({
   refreshStatus: async () => {
     try {
       await probeServer()
-      const base = await serverApiBase()
+      await serverApiBase()
+      const consoleUrl = await serverConsoleBase()
       let me = null
       if (localStorage.getItem(TOKEN_KEY)) {
         try {
@@ -44,7 +45,7 @@ export const useServerStore = create<ServerState>((set) => ({
       }
       set({
         enabled: true,
-        consoleUrl: base.replace(/\/api$/, '/'),
+        consoleUrl,
         linked: me ? { account_id: me.id, name: me.name } : null,
         authState: me ? 'online' : 'disconnected',
         onlineValidationTtl: 30,
@@ -56,9 +57,9 @@ export const useServerStore = create<ServerState>((set) => ({
       let configured = false
       let consoleUrl = ''
       try {
-        const base = await serverApiBase()
+        await serverApiBase()
         configured = true
-        consoleUrl = base.replace(/\/api$/, '/')
+        consoleUrl = await serverConsoleBase()
       } catch { /* Desktop Local Agent has no Server origin configured. */ }
       set({
         checked: true,

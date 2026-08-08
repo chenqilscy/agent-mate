@@ -1,10 +1,9 @@
-import { serverApiBase } from './channels'
+import { serverConsoleBase } from './channels'
 
 export async function openServerConsole(path = '/'): Promise<void> {
   const popup = window.open('about:blank', '_blank')
   try {
-    const apiBase = await serverApiBase()
-    const root = apiBase.replace(/\/api\/?$/, '')
+    const root = await serverConsoleBase()
     const target = new URL(path.replace(/^\//, ''), `${root}/`).toString()
     if (popup) {
       popup.opener = null

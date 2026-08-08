@@ -75,6 +75,28 @@ export async function serverApiBase(): Promise<string> {
   return serverBasePromise
 }
 
+export async function serverConsoleBase(): Promise<string> {
+  // The browser API channel is intentionally the relative `/server-api`
+  // reverse proxy. It cannot identify the Console origin. Local Agent status
+  // carries the real application-owned Server URL for both web and desktop.
+  const status = await refreshLocalAgentStatus()
+  const configured = status?.server_api_url?.trim().replace(/\/+$/, '') || ''
+  if (!configured) {
+    throw new ChannelUnavailableError('server', 'AgentMate Server 尚未配置')
+  }
+  const root = configured.replace(/\/api$/, '')
+  let parsed: URL
+  try {
+    parsed = new URL(root)
+  } catch {
+    throw new ChannelUnavailableError('server', 'AgentMate Server 地址无效')
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new ChannelUnavailableError('server', 'AgentMate Server 地址必须使用 http(s)')
+  }
+  return parsed.toString().replace(/\/$/, '')
+}
+
 export function resetServerApiBase(): void {
   serverBasePromise = null
 }
