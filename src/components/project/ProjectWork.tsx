@@ -365,7 +365,13 @@ function AttachmentChips({ list, projectId, onRemove }: {
 
 // ---- 待办详情 modal -------------------------------------------------------
 
-function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClose: () => void; canWrite: boolean }) {
+export function TodoDetailModal({ itemId, onClose, canWrite, mode = 'manage' }: {
+  itemId: string
+  onClose: () => void
+  canWrite: boolean
+  mode?: 'manage' | 'execute'
+}) {
+  const executionOnly = mode === 'execute'
   const item = useWorkItemStore((s) => s.items.find((i) => i.id === itemId))
   const projectId = useWorkItemStore((s) => s.projectId)
   const update = useWorkItemStore((s) => s.update)
@@ -383,11 +389,11 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
   // If the item vanishes (deleted elsewhere), close.
   useEffect(() => { if (!item) onClose() }, [item, onClose])
   useEffect(() => {
-    if (!projectId) return
+    if (!projectId || executionOnly) return
     let alive = true
     void api.serverItemComments(projectId, itemId).then((r) => { if (alive) { setComments(r.comments || []); setServerOn(r.server) } }).catch(() => {})
     return () => { alive = false }
-  }, [projectId, itemId])
+  }, [projectId, itemId, executionOnly])
   const loadDelivery = () => {
     if (!projectId) return
     void api.getWorkItemDelivery(projectId, itemId).then((value) => {
@@ -484,24 +490,27 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
   }
   return (
     <AntModalBridge onClose={onClose}>
-      <div className="np-modal wb-td" role="dialog" aria-modal="true" aria-label="待办详情">
+      <div className="np-modal wb-td" role="dialog" aria-modal="true" aria-label={executionOnly ? 'Server 任务执行详情' : '待办详情'}>
         <div className="wb-td-top">
-          <span className="wb-td-kicker">待办详情</span>
+          <span className="wb-td-kicker">{executionOnly ? 'Server 任务' : '待办详情'}</span>
+          {executionOnly && <span className="pe-badge">本机执行</span>}
           <span style={{ flex: 1 }} />
-          {canWrite && <WbButton className="btn-ghost wb-td-addbtn" onClick={saveAsTemplate}>存为模板</WbButton>}
-          {canWrite && <WbButton className="btn-ghost wb-td-addbtn" onClick={addToInput}>＋ 添加到输入框</WbButton>}
+          {!executionOnly && canWrite && <WbButton className="btn-ghost wb-td-addbtn" onClick={saveAsTemplate}>存为模板</WbButton>}
+          {canWrite && <WbButton className="btn-ghost wb-td-addbtn" onClick={addToInput}>{executionOnly ? '引用到输入框' : '＋ 添加到输入框'}</WbButton>}
           <WbButton className="np-x" onClick={onClose}>×</WbButton>
         </div>
         <div className="np-body">
           <div className="wb-td-title">{item.title}</div>
           <div className="wb-td-meta">
-            由 {item.assignee_name} 创建 · {fmtDate(item.created_at)}
-            {item.updated_at && item.updated_at !== item.created_at ? ` · 更新于 ${fmtDate(item.updated_at)}` : ''}
+            {executionOnly
+              ? `负责人 ${item.assignee_name || '未指派'} · Server 权威任务`
+              : `由 ${item.assignee_name} 创建 · ${fmtDate(item.created_at)}`}
+            {!executionOnly && item.updated_at && item.updated_at !== item.created_at ? ` · 更新于 ${fmtDate(item.updated_at)}` : ''}
           </div>
 
           <div className="wb-td-sec-h">
             描述
-            {canWrite && !editDesc && <WbButton className="wb-td-editlink" onClick={startEdit}>✎ 编辑</WbButton>}
+            {!executionOnly && canWrite && !editDesc && <WbButton className="wb-td-editlink" onClick={startEdit}>✎ 编辑</WbButton>}
           </div>
           {editDesc ? (
             <>
@@ -512,21 +521,21 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
               </div>
             </>
           ) : (
-            <div className={`wb-td-desc ${item.description ? '' : 'empty'}`.trim()}>{item.description || '暂无描述，点「编辑」补充。'}</div>
+            <div className={`wb-td-desc ${item.description ? '' : 'empty'}`.trim()}>{item.description || (executionOnly ? 'Console 中尚未填写任务描述。' : '暂无描述，点「编辑」补充。')}</div>
           )}
 
-          {projectId && <TaskGovernanceSection projectId={projectId} item={item} canWrite={canWrite} />}
+          {!executionOnly && projectId && <TaskGovernanceSection projectId={projectId} item={item} canWrite={canWrite} />}
 
           <div className="wb-td-sec-h">
-            Agent 交付
-            {canWrite && delivery?.can_write && (
+            {executionOnly ? 'Local Agent 执行与交付' : 'Agent 交付'}
+            {!executionOnly && canWrite && delivery?.can_write && (
               <WbButton className="wb-td-editlink" disabled={deliveryBusy || deliveryActive} onClick={() => void executeWithAgent()}>
                 {deliveryActive ? '执行中…' : '交给 Agent 执行'}
               </WbButton>
             )}
           </div>
           {!delivery || (delivery.runs.length === 0 && delivery.launches.length === 0) ? (
-            <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有关联执行与交付物" />
+            <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={executionOnly ? '尚未交给 Local Agent 执行' : '还没有关联执行与交付物'} />
           ) : (
             <div className="auto-runs">
               {delivery.runs.map((run) => (
@@ -558,17 +567,20 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
             </div>
           )}
 
-          <div className="wb-td-sec-h">标签</div>
-          {canWrite ? <LabelsEditor labels={item.labels} onChange={(l) => void update(item.id, { labels: l })} /> : <LabelBadges labels={item.labels} />}
+          {(!executionOnly || item.labels.length > 0) && <div className="wb-td-sec-h">标签</div>}
+          {executionOnly
+            ? <LabelBadges labels={item.labels} />
+            : canWrite ? <LabelsEditor labels={item.labels} onChange={(l) => void update(item.id, { labels: l })} /> : <LabelBadges labels={item.labels} />}
 
           {item.attachments.length > 0 && <div className="wb-td-sec-h">附件 {item.attachments.length}</div>}
-          <AttachmentChips list={item.attachments} projectId={projectId} onRemove={canWrite ? rmAttach : undefined} />
-          {canWrite && <div style={{ marginTop: 10 }}>
+          <AttachmentChips list={item.attachments} projectId={projectId} onRemove={!executionOnly && canWrite ? rmAttach : undefined} />
+          {!executionOnly && canWrite && <div style={{ marginTop: 10 }}>
             <AttachmentAdder projectId={projectId} onAdd={addAttach} dir="up" />
           </div>}
 
-          <div className="wb-td-sec-h">工时（小时）</div>
-          <div style={{ display: 'flex', gap: 12 }}>
+          {!executionOnly && <>
+            <div className="wb-td-sec-h">工时（小时）</div>
+            <div style={{ display: 'flex', gap: 12 }}>
             <label style={{ flex: 1, fontSize: 12, color: 'var(--wb-dim, #93a0b8)' }}>预估
               <WbInput className="np-input" type="number" min={0} step={0.5} style={{ height: 30, marginTop: 4 }} disabled={!canWrite}
                 defaultValue={item.estimate_h || ''} key={`est-${item.id}-${item.estimate_h}`}
@@ -579,10 +591,10 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
                 defaultValue={item.spent_h || ''} key={`spent-${item.id}-${item.spent_h}`}
                 onBlur={(e) => { const v = parseFloat(e.target.value) || 0; if (v !== item.spent_h) void update(item.id, { spent_h: v }) }} />
             </label>
-          </div>
+            </div>
 
-          <div className="wb-td-sec-h">评论{comments.length > 0 ? ` ${comments.length}` : ''}</div>
-          {!serverOn ? (
+            <div className="wb-td-sec-h">评论{comments.length > 0 ? ` ${comments.length}` : ''}</div>
+            {!serverOn ? (
             <Empty className="pj-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="连接 AgentMate Server 账号后可在任务下评论、@ 队友。" />
           ) : (
             <>
@@ -605,11 +617,23 @@ function TodoDetailModal({ itemId, onClose, canWrite }: { itemId: string; onClos
                 ))
               )}
             </>
-          )}
+            )}
+          </>}
         </div>
         <div className="wb-td-foot">
           <span className="wb-av" title={item.assignee_name}>{item.assignee_name?.[0] ?? '奇'}</span>
-          {canWrite ? (
+          {executionOnly ? (
+            <>
+              <Tag className="pj-rolebadge">{STATUS_OPTS.find((status) => status.key === item.status)?.label}</Tag>
+              {item.priority && <Tag className="pj-rolebadge">{PRIO[item.priority].label}优先级</Tag>}
+              <span style={{ flex: 1 }} />
+              {canWrite && delivery?.can_write && (
+                <WbButton className="btn-dark" disabled={deliveryBusy || deliveryActive} onClick={() => void executeWithAgent()}>
+                  {deliveryActive ? 'Local Agent 执行中…' : '交给 Local Agent 执行'}
+                </WbButton>
+              )}
+            </>
+          ) : canWrite ? (
             <>
               <StatusPill status={item.status} dir="up" onPick={(s) => void update(item.id, { status: s })} />
               <PriorityPill value={item.priority} dir="up" onPick={(p) => void update(item.id, { priority: p })} />

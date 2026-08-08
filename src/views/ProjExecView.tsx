@@ -4,16 +4,20 @@ import { MessageList } from '../components/chat/MessageList'
 import { AskUserCard } from '../components/chat/AskUserCard'
 import { ChatSearch } from '../components/chat/ChatSearch'
 import { PePanel } from '../components/panel/PePanel'
+import { TodoDetailModal } from '../components/project/ProjectWork'
 import { Popover } from '../components/ui/Popover'
 import { WbButton } from '../components/ui/Primitives'
 import { api } from '../lib/api'
 import { useChatStore } from '../stores/chatStore'
 import { useProjectStore } from '../stores/projectStore'
+import { useWorkItemStore } from '../stores/workItemStore'
 import { useUIStore } from '../stores/uiStore'
 import { toast } from '../stores/toastStore'
 import { conversationToMarkdown, copyText, downloadText, safeFilename } from '../lib/exportChat'
 import { IcSearch, IcShare, IcFlow, IcPanel } from '../lib/icons'
 import { clickable } from '../lib/a11y'
+
+const TASK_STATUS_LABEL = { todo: '待开始', doing: '进行中', paused: '已暂停', review: '待验收', done: '已完成' } as const
 
 // Project execution view — a chat scoped to a project (the agent runs with the
 // project's instruction injected as background). Right panel = 产物/工作空间文件/变更.
@@ -34,6 +38,9 @@ export function ProjExecView() {
   const setView = useUIStore((s) => s.setView)
   const panelOpen = useUIStore((s) => s.ovOpen)
   const setPanel = useUIStore((s) => s.setOv)
+  const workItems = useWorkItemStore((s) => s.items)
+  const workItemProjectId = useWorkItemStore((s) => s.projectId)
+  const loadWorkItems = useWorkItemStore((s) => s.load)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
@@ -42,8 +49,18 @@ export function ProjExecView() {
   const [shareOpen, setShareOpen] = useState(false)
   const [flowOpen, setFlowOpen] = useState(false)
   const [flowBusy, setFlowBusy] = useState('')
+  const [taskOpen, setTaskOpen] = useState(false)
+  const [taskDetailId, setTaskDetailId] = useState<string | null>(null)
+  const [tasksLoading, setTasksLoading] = useState(false)
   const shareAnchor = useRef<HTMLElement | null>(null)
   const flowAnchor = useRef<HTMLElement | null>(null)
+  const taskAnchor = useRef<HTMLElement | null>(null)
+
+  const pendingServerTasks = useMemo(
+    () => workItemProjectId === project?.id ? workItems.filter((item) => item.status !== 'done') : [],
+    [workItemProjectId, project?.id, workItems],
+  )
+  const canWriteProject = project?.role !== 'Viewer'
 
   const flowItems = useMemo(() => messages.flatMap((message) => {
     if (message.role !== 'assistant') return []
@@ -56,6 +73,19 @@ export function ProjExecView() {
     setPanel(true)
     return () => setPanel(false)
   }, [setPanel])
+
+  useEffect(() => {
+    if (!project?.id || project.origin !== 'server') return
+    let alive = true
+    const refresh = () => {
+      if (!alive) return
+      setTasksLoading(true)
+      void loadWorkItems(project.id).finally(() => { if (alive) setTasksLoading(false) })
+    }
+    refresh()
+    window.addEventListener('focus', refresh)
+    return () => { alive = false; window.removeEventListener('focus', refresh) }
+  }, [project?.id, project?.origin, loadWorkItems])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -104,6 +134,34 @@ export function ProjExecView() {
     if (el && stickRef.current) el.scrollTop = el.scrollHeight
   }, [messages, streaming, pending])
 
+  const openTaskDetail = (itemId: string) => {
+    setTaskOpen(false)
+    setTaskDetailId(itemId)
+  }
+
+  const taskList = (emptyText: string) => (
+    <div className="pe-server-task-list">
+      {tasksLoading ? (
+        <div className="pe-server-task-empty">正在读取 Server 任务…</div>
+      ) : pendingServerTasks.length === 0 ? (
+        <div className="pe-server-task-empty">{emptyText}</div>
+      ) : pendingServerTasks.map((item) => (
+        <WbButton className="pe-server-task" key={item.id} onClick={() => openTaskDetail(item.id)}>
+          <span className="pe-server-task-copy">
+            <b>{item.title}</b>
+            {item.description && <small>{item.description}</small>}
+          </span>
+          <span className="pe-server-task-meta">
+            <span>{TASK_STATUS_LABEL[item.status]}</span>
+            <span>{item.assignee_name || '未指派'}</span>
+            {item.due_date && <span>截止 {item.due_date.slice(5)}</span>}
+          </span>
+          <span className="pe-server-task-go">查看详情</span>
+        </WbButton>
+      ))}
+    </div>
+  )
+
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -131,6 +189,13 @@ export function ProjExecView() {
             {streaming && <span className="pe-badge spin" aria-label="执行中"><span className="run-ic" /></span>}
           </div>
           <div className="ch-r" style={{ marginLeft: 'auto' }}>
+            <WbButton
+              className={`pe-task-trigger ${taskOpen ? 'on' : ''}`.trim()}
+              aria-label={`Server 待执行任务 ${pendingServerTasks.length} 项`}
+              onClick={(event) => { taskAnchor.current = event.currentTarget; setTaskOpen((value) => !value) }}
+            >
+              Server 任务 <span>{pendingServerTasks.length}</span>
+            </WbButton>
             <div className={`fic ${searchOpen ? 'on' : ''}`.trim()} data-tip="对话内搜索（⌘F / Ctrl+F）" aria-label="搜索" {...clickable} onClick={() => setSearchOpen((v) => !v)}><IcSearch /></div>
             <div className={`fic ${shareOpen ? 'on' : ''}`.trim()} data-tip="分享任务" aria-label="分享任务" {...clickable} onClick={(event) => { shareAnchor.current = event.currentTarget; setShareOpen((value) => !value) }}><IcShare /></div>
             <div className={`fic ${flowOpen ? 'on' : ''}`.trim()} data-tip="流转" aria-label="流转" {...clickable} onClick={(event) => { flowAnchor.current = event.currentTarget; setFlowOpen((value) => !value) }}><IcFlow /></div>
@@ -140,10 +205,19 @@ export function ProjExecView() {
 
         <div className="chat-scroll" ref={scrollRef}>
           {messages.length === 0 ? (
-            <div className="ov-center" style={{ paddingTop: 120 }}>
-              <span style={{ fontSize: 34 }}>📁</span>
-              {project?.name ?? '项目'}
-              <small>在下方描述任务，Agent 会带着本项目的指令与规范执行</small>
+            <div className="pe-task-home">
+              <div className="ov-center pe-task-intro">
+                <span style={{ fontSize: 34 }}>📁</span>
+                {project?.name ?? '项目'}
+                <small>选择 Server 任务交给 Local Agent，或在下方直接描述新任务</small>
+              </div>
+              <div className="pe-server-task-inbox">
+                <div className="pe-server-task-head">
+                  <div><b>Server 待执行任务</b><small>Console 负责任务管理，本机负责执行</small></div>
+                  <span>{pendingServerTasks.length}</span>
+                </div>
+                {taskList('当前项目没有待执行任务')}
+              </div>
             </div>
           ) : (
             <MessageList messages={messages} streaming={streaming} onRetry={retry} />
@@ -204,6 +278,20 @@ export function ProjExecView() {
           打开项目计划
         </div>
       </Popover>
+
+      <Popover open={taskOpen} anchor={taskAnchor.current} dir="down" onClose={() => setTaskOpen(false)} className="pe-task-pop" minWidth={360}>
+        <div className="pop-h">Server 待执行任务</div>
+        {taskList('当前项目没有待执行任务')}
+      </Popover>
+
+      {taskDetailId && (
+        <TodoDetailModal
+          itemId={taskDetailId}
+          canWrite={canWriteProject}
+          mode="execute"
+          onClose={() => setTaskDetailId(null)}
+        />
+      )}
     </section>
   )
 }
