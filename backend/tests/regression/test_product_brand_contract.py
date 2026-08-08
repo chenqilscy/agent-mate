@@ -54,7 +54,8 @@ class ProductBrandContractTest(unittest.TestCase):
         app_channels = read("src/lib/channels.ts")
         old_env = "HUB" + "_URL"
 
-        self.assertIn('os.getenv("AGENTMATE_SERVER_URL"', backend_config)
+        self.assertIn('AGENTMATE_SERVER_URL: str = ""', backend_config)
+        self.assertNotIn('os.getenv("AGENTMATE_SERVER_URL"', backend_config)
         self.assertNotIn(old_env, backend_config)
         self.assertIn('str(SERVER_DIR / "server.db")', server_config)
         self.assertIn('title="AgentMate Server API"', server_main)
@@ -78,11 +79,11 @@ class ProductBrandContractTest(unittest.TestCase):
         vite = read("vite.config.ts")
         self.assertIn("port: 8102", vite)
         self.assertIn("strictPort: true", vite)
-        self.assertIn("target: 'http://localhost:8101'", vite)
+        self.assertIn("target: 'http://127.0.0.1:8101'", vite)
         channels = read("src/lib/channels.ts")
         self.assertIn("http://127.0.0.1:8101/api", channels)
         self.assertIn("'/server-api'", channels)
-        self.assertIn("target: 'http://localhost:8100'", vite)
+        self.assertIn("target: 'http://127.0.0.1:8100'", vite)
         self.assertEqual(
             "http://localhost:8102",
             json.loads(read("src-tauri/tauri.conf.json"))["build"]["devUrl"],

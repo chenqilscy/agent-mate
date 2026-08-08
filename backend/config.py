@@ -193,9 +193,9 @@ class Settings:
         os.getenv("ASR_MODEL_DIR", str(DATA_DIR / "models" / "whisper"))
     ).resolve()
 
-    # AgentMate Server（中心控制平面，WB-061/062）。账号只来自 Server；URL 空时仅保留匿名访客的
-    # 本地执行能力。本地 backend 持 Server token 调其 /api/auth/verify 等；凭据/工作区文件绝不上云。
-    AGENTMATE_SERVER_URL: str = os.getenv("AGENTMATE_SERVER_URL", "").strip().rstrip("/")
+    # AgentMate Server（中心控制平面，WB-061/062）。地址只由本机应用设置数据库管理，
+    # 不从 .env / 进程环境读取；空值表示尚未在 App 中配置。
+    AGENTMATE_SERVER_URL: str = ""
     # WB-326：旧版本地缓存没有 expires_at；升级后只保留短兼容窗口。Server 返回的真实
     # expires_at 始终优先，本值仅用于老 Server / 老数据库兼容。
     SERVER_TOKEN_LEGACY_GRACE_SECONDS: int = max(

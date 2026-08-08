@@ -48,7 +48,7 @@ AgentMate Server :8100
 开发期 App UI :8102 ── /api 代理 ──▶ Local Agent :8101
 ```
 
-- `AGENTMATE_SERVER_URL` 为空时是纯本地模式；Server 不可达时，网络调用返回受控失败并保留本地能力。
+- 应用设置 `collaboration.server_url` 为空时是纯本地模式；Server 不可达时，网络调用返回受控失败并保留本地能力。该地址只保存在本机设置数据库，不从 `.env` 读取。
 - 前端只访问本机 Local Agent。登录 Server 时，Local Agent 代理登录并缓存 Server 身份；浏览器不直接
   依赖 Server 地址。
 - Server 不是远程执行器，不读取用户工作区，也不持有 LLM/连接器凭据。
@@ -220,7 +220,7 @@ pnpm dev                                 # http://127.0.0.1:8102
 ```
 
 需要 Server 与 Console 时，可在仓库根执行 `./run-stack.ps1`，启动 `:8100/:8101/:8102` 三层。
-不设置 `AGENTMATE_SERVER_URL` 即为纯本地模式。
+在 App 中不设置 `collaboration.server_url` 即为纯本地模式；Server 地址不允许通过 `.env` 或进程环境覆盖。
 
 常用验证：
 

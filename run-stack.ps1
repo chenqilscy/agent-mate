@@ -10,7 +10,7 @@
 #   Local Agent  用户设备上的执行服务：Agent runtime、MCP/tools、本机密钥、工作区、WAL/cache
 #   App UI       用户设备上的界面；不是 Local Agent，也不是 Server API
 #
-# 兼容模式：清空 AGENTMATE_SERVER_URL 可运行旧纯本地基线；这不是 Server-first 的目标部署形态。
+# Server 地址只在 App“设置中心 → 运行服务”中配置，并保存在本机数据库。
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -19,7 +19,6 @@ if (-not (Test-Path $py)) { $py = 'python' }   # 无 venv 时退回 PATH 的 pyt
 
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
-$env:AGENTMATE_SERVER_URL = 'http://127.0.0.1:8100'          # Local Agent 接开发 Server（也可写进 backend/.env）
 
 function Test-Listening([int]$port) {
   [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)

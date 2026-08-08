@@ -1,7 +1,8 @@
 """Typed, hot-reloadable device setting registry (WB-291).
 
 Device settings affect this AgentMate installation, not a Server account or one
-project. Environment variables remain bootstrap/disaster-recovery fallbacks.
+project. Definitions may explicitly retain a deployment environment fallback;
+the Server address is application-owned and never reads one.
 """
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ class Definition:
     maximum: float | None = None
     choices: tuple[str, ...] = ()
     placeholder: str = ""
+    environment_fallback: bool = True
 
 
 DEFINITIONS = (
@@ -46,7 +48,7 @@ DEFINITIONS = (
     Definition("voice.asr_model", "voice", "ASR 模型", "修改后释放已加载模型，下一次使用时重新加载。", "choice", "ASR_MODEL", "ASR_MODEL", choices=("tiny", "base", "small", "medium", "large-v3")),
     Definition("voice.asr_device", "voice", "计算设备", "CPU 适合通用设备；CUDA 需要兼容显卡环境。", "choice", "ASR_DEVICE", "ASR_DEVICE", choices=("cpu", "cuda")),
     Definition("voice.asr_compute_type", "voice", "计算精度", "CPU 推荐 int8，CUDA 可使用 float16。", "choice", "ASR_COMPUTE_TYPE", "ASR_COMPUTE_TYPE", choices=("int8", "int8_float16", "float16", "float32")),
-    Definition("collaboration.server_url", "collaboration", "AgentMate Server 地址", "账号统一由 Server 提供；未配置时只能以匿名访客使用本机能力，保存后登录、同步与项目知识请求立即使用新地址。", "string", "AGENTMATE_SERVER_URL", "AGENTMATE_SERVER_URL", placeholder="http://127.0.0.1:8100"),
+    Definition("collaboration.server_url", "collaboration", "AgentMate Server 地址", "账号统一由 Server 提供；地址只保存在本机应用设置中，未配置时只能以匿名访客使用本机能力。", "string", "", "AGENTMATE_SERVER_URL", placeholder="http://127.0.0.1:8100", environment_fallback=False),
     Definition("collaboration.timeline_upload", "collaboration", "上传团队时间线", "只上传执行元数据与短标题，不上传对话正文、凭据或工作区文件。", "boolean", "AGENTMATE_SERVER_TIMELINE_UPLOAD", "AGENTMATE_SERVER_TIMELINE_UPLOAD"),
 )
 
@@ -88,7 +90,7 @@ def effective_with_source(key: str) -> tuple[Any, str]:
     stored = _stored(item)
     if stored is not None:
         return _parse(item, stored), "database"
-    source = "environment" if os.getenv(item.env_name) is not None else "default"
+    source = "environment" if item.environment_fallback and os.getenv(item.env_name) is not None else "default"
     return _parse(item, _BOOTSTRAP[item.setting_attr]), source
 
 
@@ -197,6 +199,7 @@ def public_item(item: Definition) -> dict[str, Any]:
     value, source = effective_with_source(item.key)
     result = asdict(item)
     result.pop("setting_attr", None)
+    result.pop("environment_fallback", None)
     result["choices"] = list(item.choices)
     result.update({
         "source": source,

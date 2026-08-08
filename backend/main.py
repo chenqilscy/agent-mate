@@ -72,6 +72,11 @@ import server_client
 
 def _startup() -> None:
     db.init_db()
+    # Application-owned device settings must be restored before choosing the
+    # Server/local lifecycle branch. In particular, Server URL never comes
+    # from process environment after WB-459.
+    import device_settings as runtime_device_settings
+    runtime_device_settings.apply_all()
     if settings.server_enabled:
         local_agent_store.init_db()
         # Temporary one-way compatibility bridge: WB-435 will bind the Server
@@ -84,8 +89,6 @@ def _startup() -> None:
         logging.getLogger("agentmate.runs").warning(
             "paused %d Run(s) abandoned by the previous Local Agent process", len(recovered),
         )
-    import device_settings as runtime_device_settings
-    runtime_device_settings.apply_all()
     orchestration_store.ensure_tables()
     migrated = db.migrate_skill_identities(agent_skills.canonical_skill_key)
     if migrated["changed"] or migrated["dropped"]:
