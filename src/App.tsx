@@ -6,7 +6,7 @@ import { useUIStore } from './stores/uiStore'
 import { useAuthStore } from './stores/authStore'
 import { useChatStore } from './stores/chatStore'
 import { useSettingsStore } from './stores/settingsStore'
-import { api } from './lib/api'
+import { api, LOCAL_AUTH_INVALID_EVENT } from './lib/api'
 import { readRoute } from './lib/router'
 import { useProjectStore } from './stores/projectStore'
 import { useSystemSettingsStore } from './stores/systemSettingsStore'
@@ -94,6 +94,12 @@ export function App() {
 
   useEffect(() => {
     return useConnectivityStore.getState().start()
+  }, [])
+
+  useEffect(() => {
+    const invalidate = () => useAuthStore.setState({ me: null, loggedIn: false })
+    window.addEventListener(LOCAL_AUTH_INVALID_EVENT, invalidate)
+    return () => window.removeEventListener(LOCAL_AUTH_INVALID_EVENT, invalidate)
   }, [])
 
   useEffect(() => {

@@ -14,13 +14,28 @@ export const API_BASE = LOCAL_API_BASE
 // it survives reloads and is readable by both api.ts and the SSE reader. No
 // token means anonymous guest scope, never a separate local account.
 export const TOKEN_KEY = 'wb.token'
+export const LOCAL_AUTH_INVALID_EVENT = 'agentmate:local-auth-invalid'
+
 export function authHeaders(): Record<string, string> {
   const t = localStorage.getItem(TOKEN_KEY)
   return t ? { Authorization: `Bearer ${t}` } : {}
 }
 
+function invalidateStaleServerToken(): boolean {
+  if (!localStorage.getItem(TOKEN_KEY)) return false
+  localStorage.removeItem(TOKEN_KEY)
+  window.dispatchEvent(new Event(LOCAL_AUTH_INVALID_EVENT))
+  return true
+}
+
 async function get<T>(path: string): Promise<T> {
-  const r = await fetch(`${API_BASE}${path}`, { headers: authHeaders() })
+  let r = await fetch(`${API_BASE}${path}`, { headers: authHeaders() })
+  // A Server switch can leave an opaque token from the previous authority in
+  // the browser. Local GETs are idempotent: clear that identity and retry once
+  // as the existing anonymous device scope. Writes are never replayed below.
+  if (r.status === 401 && invalidateStaleServerToken()) {
+    r = await fetch(`${API_BASE}${path}`)
+  }
   if (!r.ok) throw new Error(`GET ${path} → ${r.status}`)
   return r.json() as Promise<T>
 }
@@ -31,6 +46,7 @@ async function send<T>(method: string, path: string, body?: unknown): Promise<T>
     headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
   })
+  if (r.status === 401) invalidateStaleServerToken()
   if (!r.ok) throw new Error(`${method} ${path} → ${r.status}`)
   return r.json() as Promise<T>
 }
