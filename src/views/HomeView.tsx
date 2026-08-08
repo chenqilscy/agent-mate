@@ -120,71 +120,78 @@ export function HomeView() {
 
   return (
     <section className="view active" data-view="home">
-      <div className="reward" role="status">
-        <span className="ri">{localAgent ? '●' : '○'}</span>
-        {localAgentChecked ? (localAgent ? `Local Agent 在线 · ${localAgent.transport.identities} 个 Server 身份 · WAL ${localAgent.transport.wal.count}` : 'Local Agent 离线，本机执行暂不可用') : '正在检查 Local Agent…'}
-      </div>
       <div className="home-wrap">
         <div className="home-inner">
-          <div className="home-command">
-            <h1 className="hero-title">
-              AgentMate<br />
-              <span className="g">你的本机 AI 执行工作台</span>
-            </h1>
-            <Segmented
-              className="scenes"
-              value={scene}
-              onChange={(value) => setScene(String(value))}
-              options={SCENES.map(([value, icon, label]) => ({ value, label: <span className="scene"><span className="si">{icon}</span>{label}</span> }))}
-            />
-            <div className="quick">
-              {QUICK[scene].map(([ic, label]) => (
-                <div
-                  key={label}
-                  className="qchip"
-                  {...clickable}
-                  aria-haspopup={label === '更多' ? 'menu' : undefined}
-                  aria-expanded={label === '更多' ? moreOpen : undefined}
-                  onClick={label === '更多' ? openMore : () => launch(label)}
-                >
-                  {ic === '⋯' ? (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></svg>
-                  ) : (
-                    ic
-                  )}{' '}
-                  {label}
-                </div>
-              ))}
+          <div className="home-page-head">
+            <div className="home-page-copy">
+              <b>本机工作台</b>
+              <span>发起任务，并查看这台设备的执行状态</span>
             </div>
-
-            <Popover open={moreOpen} anchor={moreAnchor.current} dir="down" onClose={() => setMoreOpen(false)} className="more-shortcuts" minWidth={248}>
-              <div className="more-shortcuts-head">更多能力</div>
-              {MORE_SHORTCUTS.map(([view, icon, label, description]) => (
-                <button
-                  key={view}
-                  type="button"
-                  role="menuitem"
-                  className="pop-item more-shortcut-item"
-                  onClick={() => { setMoreOpen(false); setView(view) }}
-                >
-                  <span className="more-shortcut-icon" aria-hidden="true">{icon}</span>
-                  <span className="more-shortcut-copy"><b>{label}</b><small>{description}</small></span>
-                  <span className="more-shortcut-arrow" aria-hidden="true">›</span>
-                </button>
-              ))}
-            </Popover>
-
-            <div className="comp-zone">
-              {!loggedIn && (
-                <div className="projects-context is-attention">
-                  <div className="projects-context-copy">
-                    <b>登录 Server 后开始本机执行</b>
-                    <span>Server 保存任务和 Run；Local Agent 使用这台设备的模型、技能、凭据和工作区执行。</span>
+            <div className={`reward ${localAgentChecked && !localAgent ? 'is-offline' : ''}`} role="status">
+              <span className="ri">{localAgent ? '●' : '○'}</span>
+              {localAgentChecked ? (localAgent ? `Local Agent 在线 · ${localAgent.transport.identities} 个 Server 身份 · WAL ${localAgent.transport.wal.count}` : 'Local Agent 离线，本机执行暂不可用') : '正在检查 Local Agent…'}
+            </div>
+          </div>
+          <div className="home-layout">
+            <div className="home-command">
+              <h1 className="hero-title">
+                AgentMate
+                <span className="g">你的本机 AI 执行工作台</span>
+              </h1>
+              <Segmented
+                className="scenes"
+                value={scene}
+                onChange={(value) => setScene(String(value))}
+                options={SCENES.map(([value, icon, label]) => ({ value, label: <span className="scene"><span className="si">{icon}</span>{label}</span> }))}
+              />
+              <div className="quick">
+                {QUICK[scene].map(([ic, label]) => (
+                  <div
+                    key={label}
+                    className="qchip"
+                    {...clickable}
+                    aria-haspopup={label === '更多' ? 'menu' : undefined}
+                    aria-expanded={label === '更多' ? moreOpen : undefined}
+                    onClick={label === '更多' ? openMore : () => launch(label)}
+                  >
+                    {ic === '⋯' ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></svg>
+                    ) : (
+                      ic
+                    )}{' '}
+                    {label}
                   </div>
-                  <WbButton className="btn-line" onClick={() => setLoginOpen(true)}>登录 Server</WbButton>
-                </div>
-              )}
-              <svg className="mascot2" viewBox="0 0 100 100" aria-hidden="true">
+                ))}
+              </div>
+
+              <Popover open={moreOpen} anchor={moreAnchor.current} dir="down" onClose={() => setMoreOpen(false)} className="more-shortcuts" minWidth={248}>
+                <div className="more-shortcuts-head">更多能力</div>
+                {MORE_SHORTCUTS.map(([view, icon, label, description]) => (
+                  <button
+                    key={view}
+                    type="button"
+                    role="menuitem"
+                    className="pop-item more-shortcut-item"
+                    onClick={() => { setMoreOpen(false); setView(view) }}
+                  >
+                    <span className="more-shortcut-icon" aria-hidden="true">{icon}</span>
+                    <span className="more-shortcut-copy"><b>{label}</b><small>{description}</small></span>
+                    <span className="more-shortcut-arrow" aria-hidden="true">›</span>
+                  </button>
+                ))}
+              </Popover>
+
+              <div className="comp-zone">
+                {!loggedIn && (
+                  <div className="projects-context is-attention">
+                    <div className="projects-context-copy">
+                      <b>登录 Server 后开始本机执行</b>
+                      <span>Server 保存任务和 Run；Local Agent 使用这台设备的模型、技能、凭据和工作区执行。</span>
+                    </div>
+                    <WbButton className="btn-line" onClick={() => setLoginOpen(true)}>登录 Server</WbButton>
+                  </div>
+                )}
+                <svg className="mascot2" viewBox="0 0 100 100" aria-hidden="true">
                 <circle cx="79" cy="13" r="9" fill="#16B37A" />
                 <path d="M75 13l3 3 5-5" stroke="#fff" strokeWidth="2.2" fill="none" strokeLinecap="round" />
                 <path d="M24 48a28 20 0 0152 0" fill="none" stroke="#9AA6B2" strokeWidth="5" strokeLinecap="round" />
@@ -197,9 +204,9 @@ export function HomeView() {
                 <circle cx="44.5" cy="61" r="1.3" fill="#eafff6" />
                 <circle cx="58.5" cy="61" r="1.3" fill="#eafff6" />
                 <path d="M46 73q4 2.6 8 0" stroke="#8B98A6" strokeWidth="2.4" fill="none" strokeLinecap="round" />
-              </svg>
-              <Composer variant="home" onSend={launch} autoFocus />
-              <div className="ctray">
+                </svg>
+                <Composer variant="home" onSend={launch} autoFocus />
+                <div className="ctray">
                 <WbButton
                   className="tray-chip"
                   ref={wsAnchor}
@@ -218,8 +225,8 @@ export function HomeView() {
                   {perm}
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 10, height: 10 }}><path d="M6 9l6 6 6-6" /></svg>
                 </WbButton>
-              </div>
-              <Popover open={pop === 'ws'} anchor={wsAnchor.current} dir="down" onClose={() => setPop(null)} minWidth={220}>
+                </div>
+                <Popover open={pop === 'ws'} anchor={wsAnchor.current} dir="down" onClose={() => setPop(null)} minWidth={220}>
                 <div className="pop-item" {...clickable} onClick={() => { setSelProject(null); setPop(null) }}>
                   无（默认空间）{selProject === null && <span className="chk">✓</span>}
                 </div>
@@ -229,61 +236,64 @@ export function HomeView() {
                     <span className="pi-ic">🗂️</span>{p.name}{selProject === p.id && <span className="chk">✓</span>}
                   </div>
                 ))}
-              </Popover>
-              <Popover open={pop === 'perm'} anchor={permAnchor.current} dir="down" onClose={() => setPop(null)} className="perm-pop" minWidth={232}>
-                <PermPopover />
-              </Popover>
-            </div>
-          </div>
-
-          <ProCard className="home-console" aria-label="任务进展" styles={{ body: { display: 'contents' } }}>
-            <div className="home-console-head">
-              <div>
-                <b>Local Agent 工作台</b>
-                <span>Server Run 状态 · 本机事件 WAL 与 working copy</span>
+                </Popover>
+                <Popover open={pop === 'perm'} anchor={permAnchor.current} dir="down" onClose={() => setPop(null)} className="perm-pop" minWidth={232}>
+                  <PermPopover />
+                </Popover>
               </div>
-              <WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'runtime')}>本机运行设置</WbButton>
             </div>
-            <div className="home-metrics">
-              <ProCard className="home-metric"><Statistic value={recentRuns.length} title="近 7 天 Server Run" /></ProCard>
-              <ProCard className="home-metric"><Statistic value={activeRuns.length} title="执行中 / 等待处理" /></ProCard>
-              <ProCard className="home-metric danger"><Statistic value={failedRuns} title="Run 失败" /></ProCard>
-              <ProCard className="home-metric"><Statistic value={localAgent?.transport.identities ?? 0} title="已绑定 Server 身份" /></ProCard>
-              <ProCard className={`home-metric ${(localAgent?.transport.wal.count ?? 0) > 0 ? 'danger' : ''}`}><Statistic value={localAgent?.transport.wal.count ?? 0} title="等待 Server ACK" /></ProCard>
-              <ProCard className="home-metric"><Statistic value={Object.values(localAgent?.transport.working_copies ?? {}).reduce((sum, value) => sum + (value ?? 0), 0)} title="本机工作副本" /></ProCard>
-            </div>
-            <div className="home-console-grid">
-              <div className="home-run-group">
-                <h2>需要关注</h2>
-                {attentionRuns.length > 0 ? <List dataSource={attentionRuns} renderItem={(session) => {
-                  const state = runState(session)
-                  return <List.Item className="home-run-item">
+
+            <ProCard className="home-console" aria-label="任务进展" styles={{ body: { display: 'contents' } }}>
+              <div className="home-console-head">
+                <div>
+                  <b>执行概览</b>
+                  <span>Server Run 与本机状态</span>
+                </div>
+                <WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'runtime')}>运行设置</WbButton>
+              </div>
+              <div className="home-metrics">
+                <ProCard className="home-metric"><Statistic value={recentRuns.length} title="近 7 天 Run" /></ProCard>
+                <ProCard className="home-metric"><Statistic value={activeRuns.length} title="执行中" /></ProCard>
+                <ProCard className="home-metric danger"><Statistic value={failedRuns} title="失败" /></ProCard>
+              </div>
+              <div className="home-device-status" aria-label="本机设备状态">
+                <div><span>Server 身份</span><b>{localAgent?.transport.identities ?? 0}</b></div>
+                <div className={(localAgent?.transport.wal.count ?? 0) > 0 ? 'danger' : ''}><span>等待 ACK</span><b>{localAgent?.transport.wal.count ?? 0}</b></div>
+                <div><span>工作副本</span><b>{Object.values(localAgent?.transport.working_copies ?? {}).reduce((sum, value) => sum + (value ?? 0), 0)}</b></div>
+              </div>
+              <div className="home-console-grid">
+                <div className="home-run-group">
+                  <h2>需要关注</h2>
+                  {attentionRuns.length > 0 ? <List dataSource={attentionRuns} renderItem={(session) => {
+                    const state = runState(session)
+                    return <List.Item className="home-run-item">
+                      <WbButton className="home-run" onClick={() => void openRun(session)}>
+                        <span className={`home-run-dot ${state.tone}`} />
+                        <span className="home-run-body">
+                          <b>{session.title}</b>
+                          <small>{state.label} · {session.ago ?? '刚刚'}</small>
+                        </span>
+                        <span className="home-run-arrow">›</span>
+                      </WbButton>
+                    </List.Item>
+                  }} /> : <Empty className="home-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有需要关注的任务" />}
+                </div>
+                <div className="home-run-group">
+                  <h2>最近完成</h2>
+                  {completedRuns.length > 0 ? <List dataSource={completedRuns} renderItem={(session) => <List.Item className="home-run-item">
                     <WbButton className="home-run" onClick={() => void openRun(session)}>
-                      <span className={`home-run-dot ${state.tone}`} />
+                      <span className="home-file-icon">✓</span>
                       <span className="home-run-body">
                         <b>{session.title}</b>
-                        <small>{state.label} · {session.ago ?? '刚刚'}</small>
+                        <small>{session.kind === 'automation' ? '自动化 Run' : '本机 Run'} · {session.ago ?? '最近完成'}</small>
                       </span>
                       <span className="home-run-arrow">›</span>
                     </WbButton>
-                  </List.Item>
-                }} /> : <Empty className="home-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有需要关注的任务" />}
+                  </List.Item>} /> : <Empty className="home-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有已完成的 Server Run" />}
+                </div>
               </div>
-              <div className="home-run-group">
-                <h2>最近完成</h2>
-                {completedRuns.length > 0 ? <List dataSource={completedRuns} renderItem={(session) => <List.Item className="home-run-item">
-                  <WbButton className="home-run" onClick={() => void openRun(session)}>
-                    <span className="home-file-icon">✓</span>
-                    <span className="home-run-body">
-                      <b>{session.title}</b>
-                      <small>{session.kind === 'automation' ? '自动化 Run' : '本机 Run'} · {session.ago ?? '最近完成'}</small>
-                    </span>
-                    <span className="home-run-arrow">›</span>
-                  </WbButton>
-                </List.Item>} /> : <Empty className="home-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有已完成的 Server Run" />}
-              </div>
-            </div>
-          </ProCard>
+            </ProCard>
+          </div>
         </div>
       </div>
       {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
