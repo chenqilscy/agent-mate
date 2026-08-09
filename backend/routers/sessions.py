@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from auth.deps import current_user
+from agent.execution_policy import clear_session_authorization
 from storage import db
 
 router = APIRouter(prefix="/api", tags=["sessions"])
@@ -132,7 +133,9 @@ def rename_session(session_id: str, body: RenameBody) -> dict:
 
 @router.delete("/sessions/{session_id}")
 def delete_session(session_id: str) -> dict:
-    if not db.get_session(session_id, owner_id=current_user().id):
+    user = current_user()
+    if not db.get_session(session_id, owner_id=user.id):
         raise HTTPException(404, "session not found")
     db.delete_session(session_id)
+    clear_session_authorization(user.id, session_id)
     return {"ok": True}

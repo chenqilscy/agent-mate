@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import json
+from threading import RLock
 from typing import Any, Literal
 
 from agent import security
@@ -23,6 +24,19 @@ PREAUTHORIZABLE_PERMISSIONS = frozenset({
 INTERACTIVE_CONFIRM_PERMISSIONS = frozenset({
     "process.execute", "host.unrestricted", "network.unrestricted",
 })
+
+ALLOW_ONCE_ANSWER = "允许一次"
+ALLOW_SESSION_ANSWER = "当前会话内全部允许"
+DENY_ANSWER = "拒绝"
+TOOL_AUTHORIZATION_OPTIONS = (
+    ALLOW_ONCE_ANSWER, ALLOW_SESSION_ANSWER, DENY_ANSWER,
+)
+
+# Session grants are deliberately process-local. A user's explicit temporary
+# approval survives later Runs in the same chat Session, but never becomes a
+# durable account/project permission and disappears on backend restart.
+_session_grants: dict[tuple[str, str], frozenset[str]] = {}
+_session_grants_lock = RLock()
 
 
 class ToolAuthorizationDenied(PermissionError):
@@ -48,9 +62,20 @@ def _restricted_for_background(permission: str, *, external: bool) -> bool:
     )
 
 
+def session_granted_permissions(owner_id: str, session_id: str) -> frozenset[str]:
+    with _session_grants_lock:
+        return _session_grants.get((owner_id, session_id), frozenset())
+
+
+def clear_session_authorization(owner_id: str, session_id: str) -> None:
+    with _session_grants_lock:
+        _session_grants.pop((owner_id, session_id), None)
+
+
 @dataclass
 class ExecutionAuthorization:
     owner_id: str
+    session_id: str | None = None
     source: ExecutionSource = "interactive"
     preauthorized_permissions: frozenset[str] = frozenset()
     _approved_calls: set[str] = field(default_factory=set)
@@ -60,7 +85,14 @@ class ExecutionAuthorization:
     ) -> Literal["allow", "confirm", "deny"]:
         required = frozenset(str(item) for item in permissions if str(item))
         if self.source == "interactive":
-            if required & INTERACTIVE_CONFIRM_PERMISSIONS:
+            high_risk = required & INTERACTIVE_CONFIRM_PERMISSIONS
+            if high_risk:
+                session_grants = (
+                    session_granted_permissions(self.owner_id, self.session_id)
+                    if self.session_id else frozenset()
+                )
+                if high_risk <= session_grants:
+                    return "allow"
                 return "allow" if _call_key(tool_name, args) in self._approved_calls else "confirm"
             return "allow"
         restricted = {
@@ -80,6 +112,17 @@ class ExecutionAuthorization:
     def approve_once(self, tool_name: str, args: dict[str, Any]) -> None:
         self._approved_calls.add(_call_key(tool_name, args))
 
+    def approve_for_session(self, permissions: tuple[str, ...] | list[str]) -> None:
+        if self.source != "interactive" or not self.session_id:
+            raise ToolAuthorizationDenied("session authorization requires an interactive session")
+        granted = frozenset(str(item) for item in permissions if str(item))
+        granted &= INTERACTIVE_CONFIRM_PERMISSIONS
+        if not granted:
+            return
+        key = (self.owner_id, self.session_id)
+        with _session_grants_lock:
+            _session_grants[key] = _session_grants.get(key, frozenset()) | granted
+
     def enforce(
         self, tool_name: str, args: dict[str, Any], permissions: tuple[str, ...] | list[str],
     ) -> None:
@@ -98,4 +141,3 @@ class ExecutionAuthorization:
         high_risk = bool(set(permissions) & INTERACTIVE_CONFIRM_PERMISSIONS)
         if not security.audit(self.owner_id, "tool_authorization", detail, "allowed") and high_risk:
             raise ToolAuthorizationDenied(f"authorization audit unavailable: {tool_name}")
-

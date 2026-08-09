@@ -40,7 +40,13 @@ from agent.skills import canonical_skill_keys, skill_display_name, skill_runtime
 from agent.tool_execution import (
     ToolExecutionCancelled, ToolExecutionTimeout, execute_async_call, execute_tool,
 )
-from agent.execution_policy import ExecutionAuthorization, ToolAuthorizationDenied
+from agent.execution_policy import (
+    ALLOW_ONCE_ANSWER,
+    ALLOW_SESSION_ANSWER,
+    TOOL_AUTHORIZATION_OPTIONS,
+    ExecutionAuthorization,
+    ToolAuthorizationDenied,
+)
 from agent.tools import (
     ASK_USER_SCHEMA,
     base_tools,
@@ -919,6 +925,7 @@ async def _run_chat_inner(
     run_id = run.id
     authorization = ExecutionAuthorization(
         owner_id=user.id,
+        session_id=session_id,
         source=execution_source if execution_source in {"interactive", "background", "external"} else "interactive",
         preauthorized_permissions=frozenset(preauthorized_permissions or []),
     )
@@ -1666,8 +1673,8 @@ async def _run_chat_inner(
                 decision = authorization.decision(name, args, tool.permissions)
                 if decision == "confirm":
                     questions = [{
-                        "q": f"工具「{name}」请求高风险权限：{', '.join(tool.permissions)}。是否仅允许本次调用？",
-                        "options": ["允许一次", "拒绝"],
+                        "q": f"工具「{name}」请求高风险权限：{', '.join(tool.permissions)}。请选择授权范围。",
+                        "options": list(TOOL_AUTHORIZATION_OPTIONS),
                     }]
                     ev = asyncio.Event()
                     _answers[run_id] = {"ev": ev, "answers": None}
@@ -1687,8 +1694,12 @@ async def _run_chat_inner(
                     pending = _answers.pop(run_id, None)
                     answers = (pending or {}).get("answers") or []
                     db.touch_session(session_id, status="running")
-                    if not stop.is_set() and answers and answers[0] == "允许一次":
-                        authorization.approve_once(name, args)
+                    answer = answers[0] if answers else ""
+                    if not stop.is_set() and answer in {ALLOW_ONCE_ANSWER, ALLOW_SESSION_ANSWER}:
+                        if answer == ALLOW_SESSION_ANSWER:
+                            authorization.approve_for_session(tool.permissions)
+                        else:
+                            authorization.approve_once(name, args)
                         db.set_run_status(
                             run_id, "running",
                             checkpoint=_without_pending_question(run_id),
