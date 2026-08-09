@@ -1,11 +1,13 @@
 import { Fragment, type HTMLAttributes, type KeyboardEvent, type ReactNode } from 'react'
+import { Spin } from 'antd'
 
 type ListLocale = { emptyText?: ReactNode }
 type RowKey<T> = keyof T | ((item: T, index: number) => string | number)
 
-type CompatListProps<T> = Omit<HTMLAttributes<HTMLDivElement>, 'children'> & {
+type CompatListProps<T> = Omit<HTMLAttributes<HTMLDivElement>, 'children' | 'loading'> & {
   className?: string
   dataSource?: readonly T[]
+  loading?: boolean
   locale?: ListLocale
   renderItem: (item: T, index: number) => ReactNode
   rowKey?: RowKey<T>
@@ -26,11 +28,15 @@ function rowIdentity<T>(item: T, index: number, rowKey?: RowKey<T>) {
   return index
 }
 
-function CompatListBase<T>({ className = '', dataSource = [], locale, renderItem, rowKey, size = 'default', ...rest }: CompatListProps<T>) {
+function CompatListBase<T>({ className = '', dataSource = [], loading = false, locale, renderItem, rowKey, size = 'default', ...rest }: CompatListProps<T>) {
   const classes = ['ant-list', 'compat-list', size === 'small' ? 'ant-list-sm' : '', size === 'large' ? 'ant-list-lg' : '', className].filter(Boolean).join(' ')
   return (
-    <div {...rest} className={classes}>
-      {dataSource.length ? (
+    <div {...rest} className={classes} aria-busy={loading || undefined}>
+      {loading && dataSource.length === 0 ? (
+        <div className="ant-list-empty-text compat-list-empty" role="status" aria-live="polite">
+          <Spin size="small" /> <span>正在加载…</span>
+        </div>
+      ) : dataSource.length ? (
         <ul className="ant-list-items compat-list-items">
           {dataSource.map((item, index) => <Fragment key={rowIdentity(item, index, rowKey)}>{renderItem(item, index)}</Fragment>)}
         </ul>
