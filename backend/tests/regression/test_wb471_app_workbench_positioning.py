@@ -38,14 +38,22 @@ class AppWorkbenchPositioningContractTest(unittest.TestCase):
         self.assertNotIn("Local Agent 的桌面控制面", current_surfaces)
         self.assertNotIn("Local Agent 工作台", current_surfaces)
         self.assertNotIn("你的本机 AI 执行工作台", current_surfaces)
+        self.assertNotIn("AgentMate Local Agent** 是安装在用户设备上的桌面客户端", current_surfaces)
+        self.assertIn("它不包含 App UI", current_surfaces)
+        self.assertIn('App["App<br/>个人 Agent 工作台"]', current_surfaces)
+        self.assertIn('LocalAgent["Local Agent<br/>后台执行节点', current_surfaces)
 
     def test_device_configuration_is_secondary_to_the_work_loop(self) -> None:
         home = read("src/views/HomeView.tsx")
+        settings = read("src/components/settings/SettingsModal.tsx")
         architecture = read("docs/agentmate-server-first-架构设计.md")
 
-        self.assertIn(">此设备</WbButton>", home)
-        self.assertIn("App 的“此设备”", architecture)
-        self.assertIn("App 的“本机能力/此设备”", architecture)
+        self.assertIn(">运行设置</WbButton>", home)
+        self.assertIn("label: '运行设置'", settings)
+        self.assertNotIn(">此设备</WbButton>", home)
+        self.assertIn("App 的“执行概览”", architecture)
+        self.assertIn("App 的“运行设置”", architecture)
+        self.assertIn("App 的“模型管理”和“本机能力”", architecture)
         self.assertIn("Local Agent 是当前默认的本机执行节点", architecture)
 
 

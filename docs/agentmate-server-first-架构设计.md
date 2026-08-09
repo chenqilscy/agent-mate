@@ -8,10 +8,12 @@
 
 AgentMate 从“local-first App + 可选 Server 控制平面”调整为：
 
-> **Server-first 协作平台 + Local Agent 本机执行节点。**
+> **Server 控制平面 + Console 系统管理端 + App 个人 Agent 工作台 + Local Agent 执行节点。**
 
 - **AgentMate Server** 由 API、Console、业务数据库、对象存储、Run 调度与实时事件流组成，是所有持久业务数据的唯一权威。
-- **AgentMate Local Agent** 是安装在用户设备上的桌面客户端，由 Desktop UI、后台执行服务、Agent Runtime、本机工具 worker 和本地安全存储组成。
+- **AgentMate Console** 是整个系统的管理端，承载平台、组织、项目、目录、自动化、设备舰队和审计治理。
+- **AgentMate App** 是普通用户的个人 Agent 工作台，承载任务组织、Run 发起、过程监督、交付与验收。
+- **AgentMate Local Agent** 是安装在用户设备上的后台执行节点，由 Agent Runtime、本机工具 worker、working copy、事件 WAL 和本地安全存储组成；它不包含 App UI。
 - 本地持久化只允许保存设备绑定的秘密/权限、执行工作集、可靠事件 WAL 和可重建缓存；不能成为另一份业务权威。
 - 离线时可以继续已领取的 Run 并缓存事件，但不能创建或修改 Server 业务对象。
 
@@ -38,27 +40,17 @@ AgentMate 从“local-first App + 可选 Server 控制平面”调整为：
 
 ## 3. 目标拓扑
 
-```text
-┌──────────────────────────── AgentMate Server ────────────────────────────┐
-│ API                                                                     │
-│ auth · orgs · projects · sessions · messages · runs · automations       │
-│ catalog · assets · policies · audit · device registry                   │
-│                                                                          │
-│ durable database · object storage · Run scheduler · event stream         │
-│                                      ▲                                   │
-│                                      │ same-origin /api                   │
-│                              AgentMate Console                           │
-└───────────────────────▲────────────────────────────▲──────────────────────┘
-                        │ HTTPS / SSE / WebSocket     │ outbound job channel
-                        │                             │ lease · event · ack
-┌───────────────────────┴──────────── Local Agent ───┴──────────────────────┐
-│ Desktop UI（Tauri + React）                                               │
-│   ├─ 业务数据 ───────────────▶ Server API                                 │
-│   └─ 本机操作 ───────────────▶ Local Agent Core（IPC）                     │
-│                                                                          │
-│ Local Agent Core · Agent Runtime · Tool/MCP Workers                       │
-│ secure secrets · workspace working copy · event WAL · disposable cache   │
-└──────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    Server["AgentMate Server<br/>API · durable data · object storage · Run scheduler"]
+    Console["Console<br/>系统管理端"]
+    App["App<br/>个人 Agent 工作台"]
+    LocalAgent["Local Agent<br/>后台执行节点 · Runtime · Tool/MCP Workers"]
+
+    Console -->|"same-origin /api<br/>系统配置与治理"| Server
+    App -->|"HTTPS / SSE<br/>业务读取与流转"| Server
+    App -->|"本机 IPC<br/>文件、权限与执行控制"| LocalAgent
+    LocalAgent -->|"outbound lease · event · ACK"| Server
 ```
 
 Server 不主动连接用户设备。Local Agent 使用 HTTPS/WebSocket 主动建立出站连接，完成设备注册、心跳、任务租约、事件上传和 ACK。
@@ -114,8 +106,9 @@ Console 管理系统，App 使用系统完成工作，Local Agent 在设备上�
 | 管理账号、组织、项目、成员、助理、自动化、目录、审计 | Server Console |
 | 查看我的项目任务、会话、Run，并开始或继续工作 | App |
 | 推进当前任务，回答、审批、提交交付和验收 | App；业务状态直接写 Server |
-| 查看/控制当前设备执行、权限、WAL、working copy | App 的“此设备”；状态来自 Local Agent |
-| 配置仅存在于本机的模型密钥、Skill、MCP 和连接器凭据 | App 的“本机能力/此设备” |
+| 查看当前设备执行、WAL 和 working copy 状态 | App 的“执行概览”；状态来自 Local Agent |
+| 配置设备运行服务与协作隐私 | App 的“运行设置” |
+| 配置仅存在于本机的模型密钥、Skill、MCP 和连接器凭据 | App 的“模型管理”和“本机能力” |
 | 查看个人跨设备会话与 Run 结果 | App；数据来自 Server |
 | 查看团队全局运行、设备舰队、成本和审计 | Server Console |
 

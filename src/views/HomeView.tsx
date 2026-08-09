@@ -249,7 +249,7 @@ export function HomeView() {
                   <b>执行概览</b>
                   <span>Server Run 与本机状态</span>
                 </div>
-                <WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'runtime')}>此设备</WbButton>
+                <WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'runtime')}>运行设置</WbButton>
               </div>
               <div className="home-metrics">
                 <ProCard className="home-metric"><Statistic value={recentRuns.length} title="近 7 天 Run" /></ProCard>
