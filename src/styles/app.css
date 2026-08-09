@@ -1454,6 +1454,55 @@ body.dark .ph-illus { filter: brightness(.72) saturate(.78); }
 .pe-server-task-empty { padding: 22px 14px; color: var(--text-3); font-size: 12px; text-align: center; }
 .pe-task-pop { width: 380px; max-width: calc(100vw - 24px); }
 .pe-task-pop .pe-server-task-list { max-height: min(54vh, 440px); overflow-y: auto; }
+.pe-task-center { width: min(1180px, 100%); min-height: 100%; margin: 0 auto; padding: 24px; color: var(--text); }
+.pe-task-center-head { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.pe-task-center-title { min-width: 210px; display: flex; align-items: center; gap: 10px; }
+.pe-task-center-title > span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; background: var(--chip); font-size: 20px; }
+.pe-task-center-title > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pe-task-center-title b, .pe-task-center-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-task-center-title b { font-size: 14px; }
+.pe-task-center-title small { max-width: 320px; color: var(--text-3); font-size: 10.5px; font-weight: 400; }
+.pe-task-center-tabs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 3px; overflow-x: auto; }
+.pe-task-center-tab { flex: 0 0 auto; height: 32px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); box-shadow: none; font-size: 12.5px; font-weight: 650; }
+.pe-task-center-tab:hover { background: var(--chip); color: var(--text); }
+.pe-task-center-tab.active { background: var(--chip); color: var(--text); box-shadow: var(--shadow-sm); }
+.pe-task-center-tab > span { min-width: 18px; height: 18px; display: inline-grid; place-items: center; margin-left: 6px; padding: 0 5px; border-radius: var(--radius-full); background: var(--bg-surface); color: var(--text-3); font-size: 10px; }
+.pe-task-center-create { flex: 0 0 auto; height: 32px; white-space: nowrap; }
+.pe-task-center-warning { min-height: 38px; display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 7px 10px; border: 1px solid rgba(245, 158, 11, .24); border-radius: 8px; background: rgba(245, 158, 11, .08); color: var(--text-2); font-size: 11.5px; }
+.pe-task-center-warning > span { flex: 1; min-width: 0; }
+.pe-task-center-warning > button { height: 26px; border: 0; background: transparent; color: var(--brand-600); box-shadow: none; }
+.pe-task-center-body { min-width: 0; padding-top: 16px; }
+.pe-task-center-filter { display: grid; grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(130px, auto)) auto; align-items: center; gap: 8px; margin-bottom: 12px; }
+.pe-task-center-filter > span { color: var(--text-3); font-size: 11.5px; white-space: nowrap; }
+.pe-task-center-table .ant-table-container { overflow: hidden; border: 1px solid var(--border); border-radius: 10px; }
+.pe-task-center-table .ant-table-tbody > tr { cursor: pointer; }
+.pe-task-title { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pe-task-title b, .pe-task-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-task-title b { font-size: 12.5px; }
+.pe-task-title small { color: var(--text-3); font-size: 10.5px; font-weight: 400; }
+.pe-task-status.ant-select { width: 100%; min-width: 94px; }
+.pe-plan-list { display: flex; flex-direction: column; gap: 8px; }
+.pe-plan-row { min-height: 78px; display: grid; grid-template-columns: minmax(260px, 1fr) minmax(180px, 280px) auto; align-items: center; gap: 18px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-surface); cursor: pointer; }
+.pe-plan-row:hover { border-color: var(--text-3); background: var(--chip); }
+.pe-plan-copy { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.pe-plan-copy > div { min-width: 0; display: flex; align-items: center; gap: 6px; }
+.pe-plan-copy b { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.pe-plan-copy small { overflow: hidden; color: var(--text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.pe-plan-progress { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.pe-plan-progress > span { color: var(--text-2); font-size: 11px; }
+.pe-plan-progress .ant-progress { margin: 0; }
+.pe-plan-actions { display: flex; align-items: center; gap: 4px; }
+.pe-plan-actions > button { height: 28px; padding: 0 8px; }
+.pe-task-center-loading { padding: 54px 12px; color: var(--text-3); font-size: 12px; text-align: center; }
+.pe-task-form { display: flex; flex-direction: column; gap: 14px; padding-top: 8px; }
+.pe-task-form > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.pe-task-form label { display: flex; flex-direction: column; gap: 6px; color: var(--text-2); font-size: 12px; }
+.pe-task-form .ant-select { width: 100%; }
+
+/* The execution composer remains discoverable through the caret and neutral
+   focus state; it must not draw a persistent green frame across the workbench. */
+.view[data-view="projexec"] .composer:focus-within { border-color: var(--text-3); box-shadow: none; }
+.view[data-view="projexec"] .composer textarea.ant-input:focus { outline: none; box-shadow: none; }
 
 @media (max-width: 700px) {
   .pe-task-home { padding-right: 14px; padding-left: 14px; }
@@ -1461,6 +1510,18 @@ body.dark .ph-illus { filter: brightness(.72) saturate(.78); }
   .pe-server-task-copy { flex-basis: calc(100% - 72px); }
   .pe-server-task-meta { order: 3; width: 100%; flex-wrap: wrap; }
   .pe-server-task-go { margin-left: auto; }
+  .pe-task-center { padding: 14px; }
+  .pe-task-center-head { align-items: flex-start; flex-wrap: wrap; }
+  .pe-task-center-title { width: 100%; }
+  .pe-task-center-title small { max-width: calc(100vw - 86px); }
+  .pe-task-center-tabs { order: 3; width: 100%; flex-basis: 100%; }
+  .pe-task-center-create { margin-left: auto; }
+  .pe-task-center-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pe-task-center-filter > .ant-input-group-wrapper { grid-column: 1 / -1; }
+  .pe-task-center-filter > span { grid-column: 1 / -1; }
+  .pe-plan-row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .pe-plan-actions { justify-content: flex-end; }
+  .pe-task-form > div { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ---- assistant ---- */

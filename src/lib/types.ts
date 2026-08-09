@@ -860,6 +860,7 @@ export interface ServerProjectSprint {
   start_date: string
   end_date: string
   status: string
+  milestone_id?: string
 }
 
 export type IdeaStatus = 'inbox' | 'active' | 'settled' | 'archived'

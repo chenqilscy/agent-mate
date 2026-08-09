@@ -5,6 +5,7 @@ import { AskUserCard } from '../components/chat/AskUserCard'
 import { ChatSearch } from '../components/chat/ChatSearch'
 import { PePanel } from '../components/panel/PePanel'
 import { TodoDetailModal } from '../components/project/ProjectWork'
+import { ProjectTaskCenter } from '../components/project/ProjectTaskCenter'
 import { Popover } from '../components/ui/Popover'
 import { WbButton } from '../components/ui/Primitives'
 import { api } from '../lib/api'
@@ -229,20 +230,15 @@ export function ProjExecView() {
 
         <div className="chat-scroll" ref={scrollRef}>
           {messages.length === 0 ? (
-            <div className="pe-task-home">
-              <div className="ov-center pe-task-intro">
-                <span style={{ fontSize: 34 }}>📁</span>
-                {project?.name ?? '项目'}
-                <small>选择 Server 任务交给 Local Agent，或在下方直接描述新任务</small>
-              </div>
-              <div className="pe-server-task-inbox">
-                <div className="pe-server-task-head">
-                  <div><b>Server 待执行任务</b><small>{taskSourceLabel} · 本机负责执行</small></div>
-                  <span>{pendingServerTasks.length}</span>
-                </div>
-                {taskList(workItemsError && !workItemsUpdatedAt ? 'Server 任务读取失败' : '当前项目没有待执行任务')}
-              </div>
-            </div>
+            project?.id ? <ProjectTaskCenter
+              projectId={project.id}
+              projectName={project.name}
+              canWrite={canWriteProject}
+              sourceLabel={`${taskSourceLabel} · 本机负责执行`}
+              loading={workItemsLoading}
+              error={workItemsError}
+              onRetry={() => void loadWorkItems(project.id)}
+            /> : null
           ) : (
             <MessageList messages={messages} streaming={streaming} onRetry={retry} />
           )}
