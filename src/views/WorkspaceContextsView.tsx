@@ -34,16 +34,16 @@ export function WorkspaceContextsView() {
       <div className="page-scroll">
         <div className="ph">
           <div className="ph-l">
-            <h1>项目任务</h1>
-            <div className="sub">从 Server 权威项目进入任务，再交给这台设备上的 Local Agent 执行</div>
+            <h1>我的项目工作</h1>
+            <div className="sub">从 Server 项目进入任务，在 App 中推进、监督并验收 Agent 工作</div>
             <WbButton className="btn-line" onClick={() => void openServerConsole('projects')}>在 Console 管理项目</WbButton>
           </div>
         </div>
         <Alert
           type="info"
           showIcon
-          title="App 只使用项目上下文，不负责项目治理"
-          description="新建项目、成员角色、计划、自动化和审计由 Server Console 统一管理；这里不保存第二份项目数据。"
+          title="App 负责推进工作，Console 负责项目治理"
+          description="这里可以查看任务、发起执行和验收交付；新建项目、成员角色、计划结构、自动化和审计由 Server Console 统一管理。"
         />
         {error && (
           <Alert

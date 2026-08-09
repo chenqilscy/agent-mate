@@ -89,29 +89,35 @@ Console 是 Server 同源托管的管理 UI，不是独立服务或第三套数�
 - Server deployment secret 的只写配置与轮换；
 - 业务资产和团队协作的 Web 管理入口。
 
-### 4.3 App UI（Local Agent 的桌面控制面）
+### 4.3 App（个人 Agent 工作台）
 
-App UI 存在的意义不是复制 Console，而是让用户看见、控制并信任本机执行。它与 Local Agent Core 共同构成桌面端：Core 可以在 App 窗口关闭后继续工作，App UI 则是其交互和诊断界面。
+App 是普通用户使用 AgentMate 的主要工作入口，不是 Local Agent 的管理控制台，也不是 Console 的桌面复制品。它把 Server 上的项目、任务、会话和 Run 组织成个人工作上下文，让用户发起、推进、监督和验收 Agent 工作。Local Agent 是当前默认的本机执行节点；App 的产品边界不依赖某一个执行节点，未来可以在不复制业务权威的前提下选择受 Server 管理的远程或云端执行位置。
+
+App 与 Local Agent Core 共同安装在桌面端，但生命周期和职责独立：Core 可以在 App 窗口关闭后继续已领取的 Run；App 负责用户交互、工作上下文和执行控制，Core 负责实际执行与可靠事件上报。
 
 App UI 负责：
 
-- 选择 Server 项目作为执行上下文，但不提供项目治理 CRUD；
-- 发起本机 Run，实时展示思考、工具、计划、产物与终态；
+- 展示当前用户的项目任务、会话、Run 和需要关注的执行，形成个人工作入口；
+- 选择 Server 项目或任务作为上下文，发起 Run，但不提供项目结构和组织治理 CRUD；
+- 选择当前可用的执行位置；现阶段真实可用的位置是这台设备上的 Local Agent；
+- 实时展示思考、工具、计划、产物与终态；
 - 回答 `ask_user`，执行暂停、继续、取消、权限确认和交付验收；
 - 选择本机文件，管理 working copy、下载目录和本机产物提交；
 - 管理本机模型凭据、已安装 Skill、本机 MCP/连接器和设备级运行设置；
 - 展示 Local Agent 在线状态、设备身份、能力缺口、WAL 积压、错误与恢复动作；
 - 在需要账号、组织、项目、成员、自动化或目录管理时打开 Server Console。
 
-Server Console 负责业务配置和治理；App UI 负责一次具体任务怎样在这台设备上安全执行。项目、自动化、助理、成员、目录发布、审计等管理页面不得在 App 中再维护一套同构信息架构。
+Console 管理系统，App 使用系统完成工作，Local Agent 在设备上实际执行。App 可以通过 Server API 完成领取任务、评论、回答、提交交付和验收等当前工作必需的业务流转，但项目结构、自动化定义、助理发布、成员、目录发布和审计等治理页面不得在 App 中再维护一套同构信息架构。
 
 | 用户意图 | 唯一入口 |
 |---|---|
 | 管理账号、组织、项目、成员、助理、自动化、目录、审计 | Server Console |
-| 选择项目上下文并开始任务 | App UI |
-| 查看/控制当前设备执行、权限、WAL、working copy | App UI |
-| 配置仅存在于本机的模型密钥、Skill、MCP 和连接器凭据 | App UI |
-| 查看跨设备会话、Run 终态和团队业务记录 | Server；App UI 只呈现当前执行所需视图 |
+| 查看我的项目任务、会话、Run，并开始或继续工作 | App |
+| 推进当前任务，回答、审批、提交交付和验收 | App；业务状态直接写 Server |
+| 查看/控制当前设备执行、权限、WAL、working copy | App 的“此设备”；状态来自 Local Agent |
+| 配置仅存在于本机的模型密钥、Skill、MCP 和连接器凭据 | App 的“本机能力/此设备” |
+| 查看个人跨设备会话与 Run 结果 | App；数据来自 Server |
+| 查看团队全局运行、设备舰队、成本和审计 | Server Console |
 
 业务数据直接使用 Server API；文件选择、权限确认、设备设置等本机能力使用 Tauri IPC、Named Pipe 或仅绑定 loopback 的受保护 Local Agent API。不得继续以本地业务数据库作为 UI 数据源。
 

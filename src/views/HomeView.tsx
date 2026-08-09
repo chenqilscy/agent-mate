@@ -124,8 +124,8 @@ export function HomeView() {
         <div className="home-inner">
           <div className="home-page-head">
             <div className="home-page-copy">
-              <b>本机工作台</b>
-              <span>发起任务，并查看这台设备的执行状态</span>
+              <b>个人 Agent 工作台</b>
+              <span>组织任务、发起 Run，并监督和验收 Agent 工作</span>
             </div>
             <div className={`reward ${localAgentChecked && !localAgent ? 'is-offline' : ''}`} role="status">
               <span className="ri">{localAgent ? '●' : '○'}</span>
@@ -136,7 +136,7 @@ export function HomeView() {
             <div className="home-command">
               <h1 className="hero-title">
                 AgentMate
-                <span className="g">你的本机 AI 执行工作台</span>
+                <span className="g">你的 Agent 工作台</span>
               </h1>
               <Segmented
                 className="scenes"
@@ -249,7 +249,7 @@ export function HomeView() {
                   <b>执行概览</b>
                   <span>Server Run 与本机状态</span>
                 </div>
-                <WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'runtime')}>运行设置</WbButton>
+                <WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'runtime')}>此设备</WbButton>
               </div>
               <div className="home-metrics">
                 <ProCard className="home-metric"><Statistic value={recentRuns.length} title="近 7 天 Run" /></ProCard>

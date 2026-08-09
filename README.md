@@ -38,11 +38,18 @@ Desktop UI ── local IPC ──▶ Local Agent Core · Agent Runtime · MCP/t
                               local secrets · working copy · WAL · cache
 ```
 
-Server is the sole authority for persistent business data. The App is the desktop UI; Local Agent is the background
-execution service on the same user device, not a UI and not the Server API. It owns device-bound secrets, OS permissions,
-runtime processes, working copies, unacknowledged event WAL and disposable caches. The current `:8101` Local Agent
-compatibility runtime still exposes some transitional App APIs, but its component name and deployment role are fixed.
-The legacy `backend/` directory name is retained only as a temporary Python import/source compatibility path.
+Server is the sole authority for persistent business data. Console manages the system; the App is each user's personal
+Agent workbench for starting, steering, reviewing and delivering work; Local Agent is the background execution node on
+the same device. Local Agent is not a UI or a second Server API. It owns device-bound secrets, OS permissions, runtime
+processes, working copies, unacknowledged event WAL and disposable caches. The current `:8101` Local Agent compatibility
+runtime still exposes some transitional App APIs, but its component name and deployment role are fixed. The legacy
+`backend/` directory name is retained only as a temporary Python import/source compatibility path.
+
+The App is the primary end-user surface, not a Local Agent administration console. It reads the user's projects, tasks,
+chats and Runs from Server, exposes only the business actions needed to advance the current work, and uses Local Agent
+for device-bound execution. Organization policy, project structure, membership, automation definitions, catalog releases
+and fleet-wide audit remain in Console. Local model credentials, installed capabilities, permissions and runtime recovery
+remain under the App's device settings.
 
 Third-party SkillHub browsing and installation are performed directly by each App. Server may publish a recommendation
 pointer and display copy, but does not mirror the marketplace, store SkillHub keys or host third-party skill packages.
@@ -80,8 +87,8 @@ API bases, and default model choices are stored in the local per-owner database;
 code or required in `backend/.env`.
 
 Settings follow explicit ownership: Console manages platform-wide WeKnora and collaboration policy; the App's
-Settings dialog manages device-wide Langfuse, local ASR and Server/timeline behavior; existing model, connector,
-assistant, user and project settings keep their narrower scopes. Runtime settings are persisted by their owning service,
+Settings dialog manages this device's Langfuse, local ASR, model credentials, installed capabilities and runtime behavior.
+Runtime settings are persisted by their owning service,
 take effect without a service restart, and keep secrets write-only. Only deployment/connector settings that explicitly
 support environment variables use them as fallbacks.
 Database paths, bind ports, cryptographic bootstrap material and release versions remain deployment-only.

@@ -20,7 +20,7 @@ export function ConsoleHandoffView() {
           type="info"
           showIcon
           title="这是 Server Console 的职责"
-          description="本地 App 已收敛为 Local Agent 工作台，不再维护与 Server 重复的业务管理页面。"
+          description="App 是你的个人 Agent 工作台，保留推进任务所需的操作，不复制 Server 的业务治理页面。"
         />
         <Result
           status="info"
