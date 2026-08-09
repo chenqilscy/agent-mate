@@ -383,8 +383,8 @@ Local Agent 至少暴露给本机诊断页：
 | [WB-432](issues/archive/2026/WB-400-499.md#wb-432) | Server 持久业务模型与 API | WB-431 |
 | [WB-433](issues/archive/2026/WB-400-499.md#wb-433) | 设备身份、Run 租约、事件 WAL/ACK 协议 | WB-431；与 WB-432 对齐 Run schema |
 | [WB-434](issues/archive/2026/WB-400-499.md#wb-434) | Local Agent Core 收缩和本机 IPC | WB-433 |
-| [WB-435](issues/WB-435-desktop-dual-channel-cutover.md) | Desktop UI 业务/本机双通道切换 | WB-432、WB-433、WB-434 |
-| [WB-436](issues/WB-436-server-assets-working-copy.md) | Server 对象存储与 Local Agent working copy | WB-432、WB-433 |
+| [WB-435](issues/archive/2026/WB-400-499.md#wb-435) | Desktop UI 业务/本机双通道切换 | WB-432、WB-433、WB-434 |
+| [WB-436](issues/archive/2026/WB-400-499.md#wb-436) | Server 对象存储与 Local Agent working copy | WB-432、WB-433 |
 | [WB-437](issues/WB-437-server-first-data-migration-retirement.md) | 存量导入、分批切换和旧同步退役 | WB-432～WB-436 |
 
 ## 14. 当前实现映射
