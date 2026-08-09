@@ -385,6 +385,9 @@ export interface SessionInfo {
   status: string
   space?: string | null
   project_id?: string | null
+  latest_run_id?: string | null
+  work_item_id?: string | null
+  work_item_title?: string | null
   ago?: string
   created_at?: number
   updated_at?: number

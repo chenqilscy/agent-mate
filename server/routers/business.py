@@ -174,6 +174,7 @@ def list_sessions(
     page = _page(lambda: store.list_scoped(
         "business_sessions", account_id=account.id, project_id=project_id, limit=limit, cursor=cursor,
     ))
+    page["items"] = store.with_latest_run_context(page["items"])
     return {"sessions": page["items"], "next_cursor": page["next_cursor"]}
 
 

@@ -76,6 +76,9 @@ function foldResumedRunEvent(message: ChatMessage, event: SSEEvent): ChatMessage
 
 interface ChatState {
   sessions: SessionInfo[]
+  sessionsLoading: boolean
+  sessionsError: string | null
+  sessionsUpdatedAt: number | null
   activeId: string | null
   title: string
   messages: ChatMessage[]
@@ -102,6 +105,9 @@ interface ChatState {
 
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
+  sessionsLoading: false,
+  sessionsError: null,
+  sessionsUpdatedAt: null,
   activeId: null,
   title: '对话',
   messages: [],
@@ -113,11 +119,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   ownerName: null,
 
   loadSessions: async () => {
+    set({ sessionsLoading: true, sessionsError: null })
     try {
       const { sessions } = await api.listSessions()
-      set({ sessions })
+      set({ sessions, sessionsLoading: false, sessionsError: null, sessionsUpdatedAt: Date.now() })
     } catch {
-      /* backend down — keep whatever we have */
+      // Keep the last successful list, but expose that it is no longer live.
+      set({ sessionsLoading: false, sessionsError: 'Server 执行记录读取失败' })
     }
   },
 

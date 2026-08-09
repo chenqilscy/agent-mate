@@ -679,6 +679,8 @@ function CapabilityView({ kind }: { kind: CapabilityKind }) {
   const setView = useUIStore((s) => s.setView)
   const installedCount = useSkillStore((s) => s.installed.length)
   const loadSkills = useSkillStore((s) => s.load)
+  const activeSessionId = useChatStore((s) => s.activeId)
+  const activeProjectId = useChatStore((s) => s.activeProjectId)
   const placeholder = { experts: '搜索专家职称或描述', skills: '搜索技能', connectors: '搜索连接器' }[kind]
   const actLabel = { experts: '我的专家', skills: '添加技能', connectors: '' }[kind]
 
@@ -695,11 +697,19 @@ function CapabilityView({ kind }: { kind: CapabilityKind }) {
     useUIStore.getState().setView('home')
     toast('已载入技能创建指南 · 请描述你要创建的技能')
   }
+  const returnToExecution = () => {
+    if (activeProjectId) {
+      setView('projexec', { projectId: activeProjectId, sessionId: activeSessionId ?? undefined })
+    } else if (activeSessionId) {
+      setView('chat', { sessionId: activeSessionId })
+    }
+  }
 
   return (
     <section className="view active" data-view={kind}>
       <div className="cap-top">
         <Tabs className="cap-tabs" activeKey={kind} onChange={(key) => setView(key as CapabilityKind)} items={TABS.map((item) => ({ key: item.id, label: <span className="cap-tab">{item.icon}{item.label}</span> }))} />
+        {(activeSessionId || activeProjectId) && <WbButton className="cap-return" onClick={returnToExecution}>← 返回当前执行</WbButton>}
         <div className="sp" />
         <Input.Search className="search-box" allowClear style={{ margin: 0, width: 260 }} placeholder={placeholder} value={query} onChange={(e) => setQuery(e.target.value)} />
         {kind === 'skills' ? (

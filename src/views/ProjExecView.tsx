@@ -35,11 +35,15 @@ export function ProjExecView() {
   const answer = useChatStore((s) => s.answer)
   const activeId = useChatStore((s) => s.activeId)
   const openSession = useChatStore((s) => s.openSession)
+  const startProject = useChatStore((s) => s.startProject)
   const setView = useUIStore((s) => s.setView)
   const panelOpen = useUIStore((s) => s.ovOpen)
   const setPanel = useUIStore((s) => s.setOv)
   const workItems = useWorkItemStore((s) => s.items)
   const workItemProjectId = useWorkItemStore((s) => s.projectId)
+  const workItemsLoading = useWorkItemStore((s) => s.loading)
+  const workItemsError = useWorkItemStore((s) => s.error)
+  const workItemsUpdatedAt = useWorkItemStore((s) => s.updatedAt)
   const loadWorkItems = useWorkItemStore((s) => s.load)
 
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -51,7 +55,6 @@ export function ProjExecView() {
   const [flowBusy, setFlowBusy] = useState('')
   const [taskOpen, setTaskOpen] = useState(false)
   const [taskDetailId, setTaskDetailId] = useState<string | null>(null)
-  const [tasksLoading, setTasksLoading] = useState(false)
   const shareAnchor = useRef<HTMLElement | null>(null)
   const flowAnchor = useRef<HTMLElement | null>(null)
   const taskAnchor = useRef<HTMLElement | null>(null)
@@ -61,6 +64,11 @@ export function ProjExecView() {
     [workItemProjectId, project?.id, workItems],
   )
   const canWriteProject = project?.role !== 'Viewer'
+  const executionReadOnly = readOnly || !canWriteProject
+  const hasExecution = Boolean(activeId || messages.length)
+  const taskSourceLabel = workItemsError
+    ? workItemsUpdatedAt ? 'Server 暂不可达 · 显示缓存' : 'Server 任务读取失败'
+    : workItemsLoading ? '正在同步 Server 权威任务' : 'Server 权威任务 · 已同步'
 
   const flowItems = useMemo(() => messages.flatMap((message) => {
     if (message.role !== 'assistant') return []
@@ -70,17 +78,18 @@ export function ProjExecView() {
   }), [messages])
 
   useEffect(() => {
-    setPanel(true)
+    // The workbench explains an active Run. A fresh project task inbox should
+    // use the full canvas instead of reserving a permanently empty right rail.
+    setPanel(hasExecution)
     return () => setPanel(false)
-  }, [setPanel])
+  }, [hasExecution, setPanel])
 
   useEffect(() => {
     if (!project?.id || project.origin !== 'server') return
     let alive = true
     const refresh = () => {
       if (!alive) return
-      setTasksLoading(true)
-      void loadWorkItems(project.id).finally(() => { if (alive) setTasksLoading(false) })
+      void loadWorkItems(project.id)
     }
     refresh()
     window.addEventListener('focus', refresh)
@@ -116,7 +125,7 @@ export function ProjExecView() {
     if (project?.id) setView('project', { projectId: project.id, projectTab: '计划' })
   }
   const promotePlanItem = async (runId: string | undefined, itemId: string) => {
-    if (!runId || !activeId || readOnly || streaming || flowBusy) return
+    if (!runId || !activeId || executionReadOnly || streaming || flowBusy) return
     setFlowBusy(itemId)
     try {
       const result = await api.promoteRunPlanItem(runId, itemId)
@@ -139,9 +148,22 @@ export function ProjExecView() {
     setTaskDetailId(itemId)
   }
 
+  const openProjectTasks = () => {
+    if (!project?.id) return
+    startProject(project.id, project.name)
+    setView('projexec', { projectId: project.id })
+  }
+
   const taskList = (emptyText: string) => (
     <div className="pe-server-task-list">
-      {tasksLoading ? (
+      {workItemsError && (
+        <div className="pe-task-state warning">
+          <span>{workItemsUpdatedAt ? `显示 ${new Date(workItemsUpdatedAt).toLocaleTimeString()} 的缓存` : workItemsError}</span>
+          <WbButton onClick={() => project?.id && void loadWorkItems(project.id)}>重新同步</WbButton>
+        </div>
+      )}
+      {workItemsLoading && workItems.length > 0 && <div className="pe-task-state"><span>正在刷新，当前保留上次结果</span></div>}
+      {workItemsLoading && workItems.length === 0 ? (
         <div className="pe-server-task-empty">正在读取 Server 任务…</div>
       ) : pendingServerTasks.length === 0 ? (
         <div className="pe-server-task-empty">{emptyText}</div>
@@ -183,23 +205,25 @@ export function ProjExecView() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
             <span className="pe-crumb-link" {...clickable} onClick={() => setView('projects')}>项目</span>
             <span className="ps">/</span>
-            <span className="pe-crumb-link project" {...clickable} onClick={() => setView('project', { projectId: project?.id })}>{project?.name ?? '项目'}</span>
+            <span className="pe-crumb-link project" {...clickable} onClick={openProjectTasks}>{project?.name ?? '项目'}</span>
             <span className="ps">/</span><b>{title || '开始执行'}</b>
-            <span className="pe-badge">{project?.origin === 'server' ? '团队' : '本地'}</span>
+            <span className="pe-badge">Server</span>
             {streaming && <span className="pe-badge spin" aria-label="执行中"><span className="run-ic" /></span>}
           </div>
           <div className="ch-r" style={{ marginLeft: 'auto' }}>
-            <WbButton
-              className={`pe-task-trigger ${taskOpen ? 'on' : ''}`.trim()}
-              aria-label={`Server 待执行任务 ${pendingServerTasks.length} 项`}
-              onClick={(event) => { taskAnchor.current = event.currentTarget; setTaskOpen((value) => !value) }}
-            >
-              Server 任务 <span>{pendingServerTasks.length}</span>
-            </WbButton>
+            {hasExecution && (
+              <WbButton
+                className={`pe-task-trigger ${taskOpen ? 'on' : ''}`.trim()}
+                aria-label={`Server 待执行任务 ${pendingServerTasks.length} 项${workItemsError ? '，当前为缓存' : ''}`}
+                onClick={(event) => { taskAnchor.current = event.currentTarget; setTaskOpen((value) => !value) }}
+              >
+                Server 任务 <span>{pendingServerTasks.length}</span>
+              </WbButton>
+            )}
             <div className={`fic ${searchOpen ? 'on' : ''}`.trim()} data-tip="对话内搜索（⌘F / Ctrl+F）" aria-label="搜索" {...clickable} onClick={() => setSearchOpen((v) => !v)}><IcSearch /></div>
             <div className={`fic ${shareOpen ? 'on' : ''}`.trim()} data-tip="分享任务" aria-label="分享任务" {...clickable} onClick={(event) => { shareAnchor.current = event.currentTarget; setShareOpen((value) => !value) }}><IcShare /></div>
             <div className={`fic ${flowOpen ? 'on' : ''}`.trim()} data-tip="流转" aria-label="流转" {...clickable} onClick={(event) => { flowAnchor.current = event.currentTarget; setFlowOpen((value) => !value) }}><IcFlow /></div>
-            {!panelOpen && <div className="fic" data-tip="打开任务工作台" aria-label="打开任务工作台" {...clickable} onClick={() => setPanel(true)}><IcPanel /></div>}
+            {hasExecution && !panelOpen && <div className="fic" data-tip="打开任务工作台" aria-label="打开任务工作台" {...clickable} onClick={() => setPanel(true)}><IcPanel /></div>}
           </div>
         </div>
 
@@ -213,10 +237,10 @@ export function ProjExecView() {
               </div>
               <div className="pe-server-task-inbox">
                 <div className="pe-server-task-head">
-                  <div><b>Server 待执行任务</b><small>Console 负责任务管理，本机负责执行</small></div>
+                  <div><b>Server 待执行任务</b><small>{taskSourceLabel} · 本机负责执行</small></div>
                   <span>{pendingServerTasks.length}</span>
                 </div>
-                {taskList('当前项目没有待执行任务')}
+                {taskList(workItemsError && !workItemsUpdatedAt ? 'Server 任务读取失败' : '当前项目没有待执行任务')}
               </div>
             </div>
           ) : (
@@ -228,12 +252,12 @@ export function ProjExecView() {
         </div>
 
         <div className="chat-foot">
-          {readOnly ? (
+          {executionReadOnly ? (
             // M7 C3: a teammate's run is read-only — you can view its trace/output
             // but not continue it. The owner drives their own session.
             <div className="pe-readonly">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a2 2 0 100-4 2 2 0 000 4z" /><path d="M6 10V7a6 6 0 0112 0v3" /><rect x="4" y="10" width="16" height="11" rx="2" /></svg>
-              由 <b>{ownerName || '队友'}</b> 执行 · 只读查看
+              {project?.role === 'Viewer' && !readOnly ? <>Viewer 权限 · 只读查看 Server 任务与执行</> : <>由 <b>{ownerName || '队友'}</b> 执行 · 只读查看</>}
             </div>
           ) : (
             <>
@@ -264,7 +288,7 @@ export function ProjExecView() {
           <WbButton
             key={`${item.runId ?? 'run'}-${item.id}`}
             className="pe-flow-item"
-            disabled={Boolean(item.work_item_id) || readOnly || streaming || Boolean(flowBusy)}
+            disabled={Boolean(item.work_item_id) || executionReadOnly || streaming || Boolean(flowBusy)}
             onClick={() => void promotePlanItem(item.runId, item.id)}
           >
             <span className={`pe-flow-status ${item.status}`}>{item.status === 'completed' ? '✓' : item.status === 'blocked' ? '!' : '○'}</span>

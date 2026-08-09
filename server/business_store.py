@@ -152,6 +152,42 @@ def list_scoped(
     return [decode_row(row) or {} for row in page_rows], next_cursor
 
 
+def with_latest_run_context(sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach each visible Session's latest Run and WorkItem without N+1 reads.
+
+    The caller has already applied account/project visibility to ``sessions``;
+    constraining this query to those ids preserves the same authorization scope.
+    """
+    session_ids = [str(item.get("id") or "") for item in sessions if item.get("id")]
+    if not session_ids:
+        return sessions
+    placeholders = ",".join("?" for _ in session_ids)
+    rows = db.get_conn().execute(
+        f"""
+        SELECT r.session_id, r.id AS latest_run_id, r.work_item_id,
+               w.title AS work_item_title
+        FROM business_runs r
+        LEFT JOIN work_items w ON w.id=r.work_item_id AND w.project_id=r.project_id
+        WHERE r.deleted_at=0 AND r.session_id IN ({placeholders})
+          AND r.id=(
+            SELECT newer.id FROM business_runs newer
+            WHERE newer.session_id=r.session_id AND newer.deleted_at=0
+            ORDER BY newer.updated_at DESC, newer.id DESC LIMIT 1
+          )
+        """,
+        session_ids,
+    ).fetchall()
+    context_by_session = {str(row["session_id"]): dict(row) for row in rows}
+    for session in sessions:
+        context = context_by_session.get(str(session.get("id") or ""))
+        session.update(context or {
+            "latest_run_id": None,
+            "work_item_id": None,
+            "work_item_title": None,
+        })
+    return sessions
+
+
 def _audit(
     conn: sqlite3.Connection,
     *,

@@ -45,6 +45,9 @@ interface WorkItemState {
   projectId: string | null
   items: WorkItem[]
   milestones: Milestone[]
+  loading: boolean
+  error: string | null
+  updatedAt: number | null
   load: (projectId: string) => Promise<void>
   loadMilestones: (projectId: string) => Promise<void>
   addMilestone: (name: string, due_date?: string | null) => Promise<Milestone | null>
@@ -62,15 +65,22 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
   projectId: null,
   items: [],
   milestones: [],
+  loading: false,
+  error: null,
+  updatedAt: null,
 
   load: async (projectId) => {
-    set({ projectId, items: [], milestones: [] })
+    const projectChanged = get().projectId !== projectId
+    set(projectChanged
+      ? { projectId, items: [], milestones: [], loading: true, error: null, updatedAt: null }
+      : { loading: true, error: null })
     try {
       const { items } = await api.listWorkItems(projectId)
       // guard against a stale response after the project changed
-      if (get().projectId === projectId) set({ items })
+      if (get().projectId === projectId) set({ items, loading: false, error: null, updatedAt: Date.now() })
     } catch {
-      /* backend down */
+      // Preserve the last successful result for this project and label it stale.
+      if (get().projectId === projectId) set({ loading: false, error: 'Server 任务读取失败' })
     }
     void get().loadMilestones(projectId)
   },
@@ -121,7 +131,7 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
         sprint_id: input.sprint_id,
       })
       // 只在仍停留在同一项目时才落到当前看板，防迟到响应写错项目（WB-159）。
-      if (get().projectId === pid) set({ items: [...get().items, wi] })
+      if (get().projectId === pid) set({ items: [...get().items, wi], error: null, updatedAt: Date.now() })
       return wi
     } catch {
       toast('新建任务失败，请重试')
@@ -135,7 +145,7 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
     try {
       if (!pid) return
       const wi = await api.updateWorkItem(pid, id, patch)
-      if (get().projectId === pid) set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
+      if (get().projectId === pid) set({ items: get().items.map((i) => (i.id === id ? wi : i)), error: null, updatedAt: Date.now() })
     } catch {
       toast('保存失败，请重试')
     }
@@ -144,7 +154,7 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
   applyRemote: (item) => {
     // Ignore changes for a project whose board isn't loaded (it refetches on open).
     if (item.project_id !== get().projectId) return
-    set({ items: get().items.map((i) => (i.id === item.id ? { ...i, status: item.status } : i)) })
+    set({ items: get().items.map((i) => (i.id === item.id ? { ...i, status: item.status } : i)), error: null, updatedAt: Date.now() })
   },
 
   // Optimistic move so the drag feels instant; reconcile from the server.
@@ -157,7 +167,7 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
     try {
       if (!pid) throw new Error('project not selected')
       const wi = await api.updateWorkItem(pid, id, { status })
-      if (get().projectId === pid) set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
+      if (get().projectId === pid) set({ items: get().items.map((i) => (i.id === id ? wi : i)), error: null, updatedAt: Date.now() })
     } catch {
       if (get().projectId === pid && prev) {
         set({ items: get().items.map((i) => (i.id === id ? { ...i, status: prev } : i)) })
@@ -171,7 +181,7 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
     try {
       if (!pid) return
       const wi = await api.updateWorkItem(pid, id, { title })
-      if (get().projectId === pid) set({ items: get().items.map((i) => (i.id === id ? wi : i)) })
+      if (get().projectId === pid) set({ items: get().items.map((i) => (i.id === id ? wi : i)), error: null, updatedAt: Date.now() })
     } catch {
       toast('重命名失败，请重试')
     }
@@ -184,6 +194,7 @@ export const useWorkItemStore = create<WorkItemState>((set, get) => ({
     try {
       if (!pid) throw new Error('project not selected')
       await api.deleteWorkItem(pid, id)
+      if (get().projectId === pid) set({ error: null, updatedAt: Date.now() })
     } catch {
       // 删除失败 → 恢复，别让下次 reload 卡片「诈尸」还无提示（WB-159）。
       if (get().projectId === pid) set({ items: prev })

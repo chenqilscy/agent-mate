@@ -7,52 +7,55 @@ import { useProjectStore } from '../../stores/projectStore'
 import { useAuthStore } from '../../stores/authStore'
 import { useNotificationStore } from '../../stores/notificationStore'
 import { toast } from '../../stores/toastStore'
-import type { ProjectInfo, SessionInfo, ViewId } from '../../lib/types'
+import type { SessionInfo, ViewId } from '../../lib/types'
 import { activate, clickable } from '../../lib/a11y'
 import { LoginModal } from '../auth/LoginModal'
 import { MessageCenter } from './MessageCenter'
 import { SettingsModal } from '../settings/SettingsModal'
 import { useServerStore } from '../../stores/serverStore'
-import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
-import { Badge, Button, Collapse, Dropdown, Input, Menu, Tooltip } from 'antd'
+import { IcBell, IcCompass } from '../../lib/icons'
+import { App as AntApp, Badge, Button, Dropdown, Input, Menu, Tooltip } from 'antd'
 import { CompatList as List } from '../ui/CompatList'
 import type { InputRef } from 'antd'
 import { openServerConsole } from '../../lib/console'
 import { useConnectivityStore } from '../../stores/connectivityStore'
+import { readRoute } from '../../lib/router'
 
 type NavItem = { id: ViewId; label: string; icon: ReactNode; cls?: string }
 type NavGroup = { label: string; items: NavItem[] }
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    label: '工作',
+    label: '工作台',
     items: [
       { id: 'home', label: '新建任务', cls: 'new', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg> },
-      { id: 'projects', label: '项目上下文', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg> },
-    ],
-  },
-  {
-    label: '本机能力',
-    items: [
-      { id: 'skills', label: '已安装技能', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg> },
-      { id: 'connectors', label: '本机连接器', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 15l6-6M8 8L6 10a4 4 0 006 6l2-2M16 16l2-2a4 4 0 00-6-6l-2 2" /></svg> },
+      { id: 'projects', label: '项目任务', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg> },
+      { id: 'skills', label: '本机能力', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg> },
     ],
   },
 ]
 
 function activeNav(view: ViewId): ViewId | 'more' {
   if (view === 'inspire' || view === 'myfiles' || view === 'kdocs' || view === 'knowledge') return 'more'
+  if (view === 'connectors' || view === 'experts') return 'skills'
   if (view === 'chat') return 'home'
   if (view === 'projexec' || view === 'project') return 'projects'
   return view
 }
 
 export function Sidebar() {
+  const { modal } = AntApp.useApp()
   const view = useUIStore((s) => s.view)
+  const route = readRoute()
   const setView = useUIStore((s) => s.setView)
   const sessions = useChatStore((s) => s.sessions)
+  const sessionsLoading = useChatStore((s) => s.sessionsLoading)
+  const sessionsError = useChatStore((s) => s.sessionsError)
+  const sessionsUpdatedAt = useChatStore((s) => s.sessionsUpdatedAt)
+  const loadSessions = useChatStore((s) => s.loadSessions)
   const openSession = useChatStore((s) => s.openSession)
   const projects = useProjectStore((s) => s.projects)
+  const activeProject = useProjectStore((s) => s.active)
   const loadProjects = useProjectStore((s) => s.load)
   const setActiveProject = useProjectStore((s) => s.setActive)
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
@@ -74,6 +77,11 @@ export function Sidebar() {
   const [msgOpen, setMsgOpen] = useState(false)
 
   useEffect(() => { loadProjects() }, [loadProjects])
+  useEffect(() => {
+    const refresh = () => { void loadSessions() }
+    window.addEventListener('focus', refresh)
+    return () => window.removeEventListener('focus', refresh)
+  }, [loadSessions])
   useEffect(() => { if (!serverChecked) void refreshServer() }, [serverChecked, refreshServer])
   // Message center (M7 C4): load on mount + poll lightly so the bell badge stays
   // live even while the center is closed.
@@ -82,13 +90,6 @@ export function Sidebar() {
     const t = setInterval(() => void loadNotifs(), 30_000)
     return () => clearInterval(t)
   }, [loadNotifs])
-  // Ad-hoc chats (no project) live under 任务; a workspace-bound automation's runs
-  // nest under that 空间 like project executions (WB-045); only unbound automation
-  // runs go to the dedicated 自动化 group (WB-041). Mutually exclusive, no dup.
-  const adhoc = sessions.filter((s) => !s.project_id && s.kind !== 'automation')
-  const sessionsOf = (pid: string) => sessions.filter((s) => s.project_id === pid)
-  const autoRuns = sessions.filter((s) => s.kind === 'automation' && !s.project_id) // unbound only; updated_at DESC from the API
-
   const [moreOpen, setMoreOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const footRef = useRef<HTMLDivElement>(null)
@@ -98,33 +99,54 @@ export function Sidebar() {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'running'>('all')
   const [showAllTasks, setShowAllTasks] = useState(false)
+  const [recentScope, setRecentScope] = useState<'project' | 'all'>(() => route.projectId ? 'project' : 'all')
   const searchRef = useRef<InputRef>(null)
 
   const act = activeNav(view)
+  const contextProjectId = (view === 'projexec' || view === 'project')
+    ? route.projectId || activeProject?.id || null
+    : null
+  const contextProject = contextProjectId
+    ? projects.find((project) => project.id === contextProjectId)
+      || (activeProject?.id === contextProjectId ? activeProject : null)
+    : null
+  const contextProjectName = contextProject?.name || '当前项目'
 
   useEffect(() => { if (searchOpen) searchRef.current?.focus() }, [searchOpen])
+  useEffect(() => {
+    setRecentScope(contextProjectId ? 'project' : 'all')
+    setShowAllTasks(false)
+  }, [contextProjectId])
 
-  // Live filtering of the 任务 / 空间 lists. Search matches titles/names; the
-  // status filter keeps only running sessions. A project survives when it has a
-  // matching child, or (text search only) its own name matches.
+  // The sidebar history has one ontology: Server-persisted Session/Run records.
+  // WorkItems and projects have their own explicit entry instead of sharing
+  // misleading task/space/automation counters.
   const q = query.trim().toLowerCase()
   const filtering = q !== '' || filter !== 'all'
   const matchText = (t: string) => !q || t.toLowerCase().includes(q)
-  const matchSession = (s: SessionInfo) => matchText(s.title) && (filter === 'all' || s.status === 'running')
-  const adhocShown = adhoc.filter(matchSession)
-  const visibleAdhoc = filtering || showAllTasks ? adhocShown : adhocShown.slice(0, 12)
-  // Automation runs can pile up (one per fire); show only the recent few here as a
-  // quick-access group — the full per-automation history lives on the 自动化 page.
-  const autoMatched = autoRuns.filter(matchSession)
-  const autoShown = autoMatched.slice(0, 10)
-  const projRows = projects
-    .map((p) => {
-      const kids = sessionsOf(p.id)
-      const kidsShown = filtering ? kids.filter(matchSession) : kids
-      const show = !filtering || kidsShown.length > 0 || (filter === 'all' && matchText(p.name))
-      return { p, kids, kidsShown, show }
-    })
-    .filter((r) => r.show)
+  const projectNames = new Map(projects.map((project) => [project.id, project.name]))
+  const matchSession = (session: SessionInfo) => {
+    const searchable = [
+      session.title,
+      session.work_item_title || '',
+      session.project_id ? projectNames.get(session.project_id) || '' : '',
+    ].join(' ')
+    return matchText(searchable) && (filter === 'all' || session.status === 'running')
+  }
+  const projectSessions = contextProjectId
+    ? sessions.filter((session) => session.project_id === contextProjectId)
+    : []
+  const scopedSessions = recentScope === 'project' && contextProjectId ? projectSessions : sessions
+  const recentShown = scopedSessions.filter(matchSession)
+  const visibleRecent = filtering || showAllTasks ? recentShown : recentShown.slice(0, 12)
+  const scopeLabel = (session: SessionInfo) => {
+    if (session.project_id) {
+      const projectLabel = `项目 · ${projectNames.get(session.project_id) || 'Server 项目'}`
+      return session.work_item_title ? `${projectLabel} · 任务 · ${session.work_item_title}` : projectLabel
+    }
+    if (session.kind === 'automation') return '自动化执行'
+    return '临时任务'
+  }
 
   const toggleSearch = () => {
     if (searchOpen) setQuery('') // closing → drop the active filter so the lists come back
@@ -151,21 +173,27 @@ export function Sidebar() {
     useLoadoutStore.getState().reset()
   }
 
-  const openTask = (id: string, target: ViewId = 'chat') => {
-    openSession(id)
-    let projectId: string | undefined
-    if (target === 'projexec') {
-      const s = sessions.find((x) => x.id === id)
-      const p = s?.project_id ? projects.find((pr) => pr.id === s.project_id) : null
-      if (p) { setActiveProject(p); projectId = p.id }
+  const openTask = (id: string) => {
+    const session = sessions.find((item) => item.id === id)
+    const projectId = session?.project_id ?? undefined
+    const project = projectId ? projects.find((item) => item.id === projectId) : undefined
+    const navigate = async () => {
+      if (project) setActiveProject(project)
+      await openSession(id)
+      setView(projectId ? 'projexec' : 'chat', { projectId, sessionId: id })
     }
-    setView(target, { projectId, sessionId: id })
-  }
-
-  const openProject = (p: ProjectInfo) => {
-    setActiveProject(p)
-    useChatStore.getState().startProject(p.id, p.name)
-    setView('projexec', { projectId: p.id })
+    if (contextProjectId && projectId && projectId !== contextProjectId) {
+      const targetName = project?.name || '目标项目'
+      modal.confirm({
+        title: `切换到项目“${targetName}”？`,
+        content: `此执行不属于当前项目“${contextProjectName}”。切换后将打开对应执行过程。`,
+        okText: '切换并打开',
+        cancelText: '留在当前项目',
+        onOk: navigate,
+      })
+      return
+    }
+    void navigate()
   }
 
   return (
@@ -226,18 +254,10 @@ export function Sidebar() {
             children: group.items.map((item) => ({ key: item.id, icon: <span className="n-ic">{item.icon}</span>, label: item.label, className: `nav-item ${item.cls ?? ''}`.trim() })),
           }))}
         />
-        <section className="nav-group" aria-label="Server 管理">
-          <div className="nav-group-label">Server</div>
-          <Button type="text" className="nav-item" onClick={() => void openServerConsole()}>
-            <span className="n-ic">☁️</span>
-            打开 Console<span className="sub">管理</span>
-          </Button>
-        </section>
         {/* Wrap the trigger + flyout so the menu anchors to the button (WB-042),
             instead of the old hard-coded left:250px; bottom:118px that flung it
             to the sidebar's bottom-right corner. */}
-        <section className="nav-group" aria-label="资源">
-          <div className="nav-group-label">资源</div>
+        <section className="nav-group nav-resource" aria-label="文件与知识">
           <Dropdown trigger={['click']} open={moreOpen} onOpenChange={setMoreOpen} menu={{ items: [
             { type: 'group', label: '文件与文档', children: [
               { key: 'myfiles', icon: <IcFolder />, label: '我的文件' },
@@ -250,24 +270,50 @@ export function Sidebar() {
             <span className="n-ic">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></svg>
             </span>
-            文件与知识<span className="sub">更多</span>
+            文件与知识
           </Button>
           </Dropdown>
         </section>
       </nav>
 
-      {/* 任务 + 空间 share one scroll region so long session/project lists stay
-          reachable; head/nav above and foot below stay pinned (WB-032). */}
-      <Collapse
-        ghost
-        className="sb-scroll"
-        defaultActiveKey={['tasks']}
-        items={[
-          { key: 'tasks', label: `任务 (${adhocShown.length})`, children: <><List className="sb-list" dataSource={visibleAdhoc} locale={{ emptyText: filtering ? '无匹配任务' : '暂无任务' }} renderItem={(s) => <List.Item className="sb-task" {...clickable} onClick={() => openTask(s.id)}><span className="tt">{s.title}</span>{s.status === 'running' ? <Badge status="processing" /> : <span className="ago">{s.ago}</span>}</List.Item>} />{!filtering && adhocShown.length > 12 && <Button type="text" className="sb-show-all" onClick={() => setShowAllTasks((value) => !value)}>{showAllTasks ? '收起最近任务' : `显示全部 ${adhocShown.length} 项`}</Button>}</> },
-          { key: 'spaces', label: `空间 (${projRows.length})`, children: <List className="sb-list" dataSource={projRows} locale={{ emptyText: filtering ? '无匹配空间' : '暂无项目' }} renderItem={({ p, kidsShown }) => <List.Item className="sb-task sb-space" {...clickable} onClick={() => openProject(p)}><IcFolder /><span className="tt">{p.name}</span>{kidsShown.length > 0 && <Badge count={kidsShown.length} />}</List.Item>} /> },
-          { key: 'automation', label: `自动化 (${autoMatched.length})`, children: <List className="sb-list" dataSource={autoShown} locale={{ emptyText: filtering ? '无匹配运行' : '暂无自动化运行' }} renderItem={(s) => <List.Item className="sb-task" {...clickable} onClick={() => openTask(s.id)}><span className="tt">{s.title}</span>{s.status === 'running' ? <Badge status="processing" /> : <span className="ago">{s.ago}</span>}</List.Item>} /> },
-        ]}
-      />
+      <section className="sb-scroll" aria-label="最近执行">
+        <div className="sb-recent-head">
+          <span>最近执行</span>
+          <small>{filtering ? `${recentShown.length}/${scopedSessions.length}` : scopedSessions.length}</small>
+          {sessionsError ? <span className="sb-sync cached" title={sessionsError}>缓存</span> : sessionsLoading ? <span className="sb-sync">同步中</span> : sessionsUpdatedAt ? <span className="sb-sync live">实时</span> : null}
+          <Button type="text" className="sb-refresh" aria-label="刷新最近执行" onClick={() => void loadSessions()}>↻</Button>
+        </div>
+        {contextProjectId && (
+          <div className="sb-run-scope" role="group" aria-label="最近执行范围">
+            <button type="button" className={recentScope === 'project' ? 'active' : ''} aria-pressed={recentScope === 'project'} onClick={() => { setRecentScope('project'); setShowAllTasks(false) }}>
+              当前项目 <small>{projectSessions.length}</small>
+            </button>
+            <button type="button" className={recentScope === 'all' ? 'active' : ''} aria-pressed={recentScope === 'all'} onClick={() => { setRecentScope('all'); setShowAllTasks(false) }}>
+              全部 <small>{sessions.length}</small>
+            </button>
+          </div>
+        )}
+        {sessionsError && (
+          <div className="sb-state-warning" title={sessionsUpdatedAt ? `上次同步 ${new Date(sessionsUpdatedAt).toLocaleTimeString()}` : sessionsError}>
+            {sessionsUpdatedAt ? 'Server 暂不可达，显示上次同步结果' : 'Server 执行记录读取失败'}
+          </div>
+        )}
+        <List
+          className="sb-list"
+          dataSource={visibleRecent}
+          locale={{ emptyText: sessionsLoading ? '正在同步执行记录…' : filtering ? '无匹配执行' : recentScope === 'project' && contextProjectId ? '当前项目暂无执行' : '暂无执行记录' }}
+          renderItem={(session) => (
+            <List.Item className="sb-task sb-run" {...clickable} onClick={() => openTask(session.id)}>
+              <div className="sb-task-copy">
+                <span className="tt">{session.title}</span>
+                <small>{scopeLabel(session)}</small>
+              </div>
+              {session.status === 'running' ? <Badge status="processing" /> : <span className="ago">{session.ago}</span>}
+            </List.Item>
+          )}
+        />
+        {!filtering && recentShown.length > 12 && <Button type="text" className="sb-show-all" onClick={() => setShowAllTasks((value) => !value)}>{showAllTasks ? '收起最近执行' : `显示全部 ${recentShown.length} 项`}</Button>}
+      </section>
 
       <div className="sb-foot" ref={footRef} {...clickable} onClick={(e) => {
         if ((e.target as HTMLElement).closest('.fic')) return
@@ -284,7 +330,7 @@ export function Sidebar() {
         <div className="fic" aria-label="通知" style={{ position: 'relative' }} onClick={(e) => { e.stopPropagation(); setMsgOpen(true) }} {...activate((e) => { e?.stopPropagation(); setMsgOpen(true) })}>
           <Badge count={unread} size="small"><IcBell /></Badge>
         </div>
-        <div className="fic" aria-label="发现" onClick={(e) => { e.stopPropagation(); toast('发现') }} {...activate((e) => { e?.stopPropagation(); toast('发现') })}>
+        <div className="fic" aria-label="灵感" onClick={(e) => { e.stopPropagation(); setView('inspire') }} {...activate((e) => { e?.stopPropagation(); setView('inspire') })}>
           <IcCompass />
         </div>
       </div>

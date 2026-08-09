@@ -13,6 +13,9 @@ const ROLE_LABEL: Record<string, string> = {
 
 export function WorkspaceContextsView() {
   const projects = useProjectStore((state) => state.projects)
+  const loading = useProjectStore((state) => state.loading)
+  const error = useProjectStore((state) => state.error)
+  const updatedAt = useProjectStore((state) => state.updatedAt)
   const load = useProjectStore((state) => state.load)
   const setActive = useProjectStore((state) => state.setActive)
   const startProject = useChatStore((state) => state.startProject)
@@ -31,8 +34,8 @@ export function WorkspaceContextsView() {
       <div className="page-scroll">
         <div className="ph">
           <div className="ph-l">
-            <h1>项目上下文</h1>
-            <div className="sub">选择 Server 项目，把任务交给这台设备上的 Local Agent 执行</div>
+            <h1>项目任务</h1>
+            <div className="sub">从 Server 权威项目进入任务，再交给这台设备上的 Local Agent 执行</div>
             <WbButton className="btn-line" onClick={() => void openServerConsole('projects')}>在 Console 管理项目</WbButton>
           </div>
         </div>
@@ -42,13 +45,24 @@ export function WorkspaceContextsView() {
           title="App 只使用项目上下文，不负责项目治理"
           description="新建项目、成员角色、计划、自动化和审计由 Server Console 统一管理；这里不保存第二份项目数据。"
         />
+        {error && (
+          <Alert
+            className="project-sync-alert"
+            type="warning"
+            showIcon
+            title={updatedAt ? 'Server 暂不可达，当前显示上次同步的项目' : 'Server 项目读取失败'}
+            description={updatedAt ? `上次成功同步：${new Date(updatedAt).toLocaleString()}` : '请检查 Server 登录与连接状态后重试。'}
+            action={<WbButton className="btn-line" onClick={() => void load()}>重新同步</WbButton>}
+          />
+        )}
         <List
           className="projects-list"
+          loading={loading && projects.length === 0}
           dataSource={projects}
           locale={{
             emptyText: (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Server 中还没有可用项目">
-                <WbButton className="btn-line" onClick={() => void openServerConsole('projects')}>打开 Console</WbButton>
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={error ? '无法读取 Server 项目' : 'Server 中还没有可用项目'}>
+                <WbButton className="btn-line" onClick={() => error ? void load() : void openServerConsole('projects')}>{error ? '重新同步' : '打开 Console'}</WbButton>
               </Empty>
             ),
           }}
@@ -72,10 +86,9 @@ export function WorkspaceContextsView() {
               </div>
               <WbButton
                 className="btn-dark"
-                disabled={project.role === 'Viewer'}
                 onClick={() => execute(project)}
               >
-                {project.role === 'Viewer' ? '只读上下文' : '开始本机任务'}
+                {project.role === 'Viewer' ? '查看任务' : '查看任务与执行'}
               </WbButton>
             </List.Item>
           )}
