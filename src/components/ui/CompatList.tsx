@@ -34,7 +34,7 @@ function CompatListBase<T>({ className = '', dataSource = [], loading = false, l
     <div {...rest} className={classes} aria-busy={loading || undefined}>
       {loading && dataSource.length === 0 ? (
         <div className="ant-list-empty-text compat-list-empty" role="status" aria-live="polite">
-          <Spin size="small" /> <span>正在加载…</span>
+          <span aria-hidden="true"><Spin size="small" /></span> <span>正在加载…</span>
         </div>
       ) : dataSource.length ? (
         <ul className="ant-list-items compat-list-items">

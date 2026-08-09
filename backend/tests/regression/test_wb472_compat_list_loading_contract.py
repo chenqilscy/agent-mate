@@ -21,7 +21,9 @@ class CompatListLoadingContractTest(unittest.TestCase):
 
         self.assertIn("loading && dataSource.length === 0", source)
         self.assertIn('role="status" aria-live="polite"', source)
-        self.assertIn('<Spin size="small" /> <span>正在加载…</span>', source)
+        self.assertEqual(source.count('aria-live="polite"'), 1)
+        self.assertIn('<span aria-hidden="true"><Spin size="small" /></span>', source)
+        self.assertIn('<span>正在加载…</span>', source)
 
 
 if __name__ == "__main__":
