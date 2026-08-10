@@ -29,7 +29,7 @@ from agent.skill_discovery import DISCOVERY_TOOLS
 from agent.skill_resources import RESOURCE_TOOLS
 from agent.tools import (
     TOOLS, Tool, ToolOutcome, knowledge_add, knowledge_retrieve,
-    list_work_items, set_work_item_status, tool_search,
+    list_my_action_items, list_work_items, set_work_item_status, tool_search,
 )
 
 _MAX = 6000
@@ -371,6 +371,7 @@ _TOOL_REGISTRY: dict[str, Tool] = {
     "analyze_csv": analyze_csv,
     "create_local_skill": create_local_skill,
     "propose_skill_candidate": propose_skill_candidate,
+    "list_my_action_items": list_my_action_items,
     "list_work_items": list_work_items,
     "set_work_item_status": set_work_item_status,
     "knowledge_retrieve": knowledge_retrieve,

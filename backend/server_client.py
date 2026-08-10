@@ -12,6 +12,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -728,6 +729,16 @@ def list_work_items(token: str, project_id: str) -> Optional[list[dict[str, Any]
     d = _get(f"/api/projects/{project_id}/work-items", token)
     items = d.get("items") if isinstance(d, dict) else None
     return items if isinstance(items, list) else None
+
+
+def get_personal_action_items(token: str, as_of: str) -> Optional[dict[str, Any]]:
+    """Read the Server-authoritative cross-project inbox; never fall back to local mirrors."""
+    data = _get(f"/api/work-items/action-items?as_of={quote(as_of, safe='')}", token)
+    if not isinstance(data, dict):
+        return None
+    if not isinstance(data.get("items"), list) or not isinstance(data.get("unassigned"), list):
+        return None
+    return data
 
 
 def create_work_item(token: str, project_id: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:

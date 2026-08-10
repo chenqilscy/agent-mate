@@ -609,9 +609,13 @@ async def _run_chat_inner(
         server_token_override or db.get_server_identity(user.id)
         if is_server_project else None
     )
+    account_server_token = server_token_override or db.get_server_identity(user.id) or ""
     # Work-item tools act as the current project member; Server-origin writes
     # retain their Bearer authority instead of mutating a local mirror.
-    set_work_context(session.project_id, user.id, server_token=server_token or "")
+    set_work_context(
+        session.project_id, user.id, server_token=server_token or "",
+        account_server_token=account_server_token,
+    )
     # Console 可能在上次全量 pull 后新增/删除 KB；每次项目执行前轻量读取当前绑定，避免要求
     # 每个成员手动同步。不可达时保留 last-known ids，真正调用仍会诚实失败且不回退本地。
     if is_server_project and server_token and project:
@@ -637,6 +641,15 @@ async def _run_chat_inner(
 
     # Tell the model about the plan-item tools when this run is inside a project
     # (WB-030). Plan mode is read-only, so it only gets the viewing tool.
+    if not ask:
+        context_layers.add(
+            "personal_action_items",
+            "自然语言输入是 AgentMate 工作操作入口。用户询问今天、我的任务、待处理工作或跨项目事项时，"
+            "必须先调用 list_my_action_items 读取 AgentMate Server 的真实 WorkItem；不得扫描工作区文件、"
+            "聊天标题或历史输出推测任务。查询只读，不创建或修改 WorkItem；只有用户明确选择真实任务后才执行。",
+            source="server:work-items:personal", authority="project",
+            priority=120, heading="个人工作入口",
+        )
     if session.project_id and not ask:
         if plan:
             context_layers.add(
@@ -1167,9 +1180,11 @@ async def _run_chat_inner(
         # Active toolset. Ask mode = no tools (pure Q&A). Otherwise base
         # (plan-filtered) tools + skill tools + connector (MCP) tools; connectors
         # spawn their stdio MCP servers now and are closed in `finally`.
-        # Work-item tools only for project runs (WB-030) — ad-hoc chats have no
-        # plan board to act on. Plan mode gets the read-only one (no status writes).
-        wi_tools = work_item_tools(plan) if (session.project_id and not ask) else []
+        # The personal inbox is globally readable from Server. Project-scoped list/
+        # status tools remain available only when this Run belongs to a project.
+        wi_tools = (
+            work_item_tools(plan, include_project=bool(session.project_id)) if not ask else []
+        )
         # 知识库工具（ask 模式无工具）：检索按会话挂载的库（active_knowledge）给；
         # 加入文件只要后端接了 WeKnora（配了 key）就给——不要求先挂载（WB-175）。
         kb_tools = _knowledge_tools(

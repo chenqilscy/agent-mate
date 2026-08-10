@@ -41,13 +41,15 @@ class ToolCatalogTest(unittest.TestCase):
     def test_full_inventory_and_bindable_projection_are_separate(self) -> None:
         all_tools = list_tools(True, self.admin)["tools"]
         selectable = list_skill_tools(self.admin)["tools"]
-        self.assertEqual(29, len(all_tools))
+        self.assertEqual(30, len(all_tools))
         self.assertEqual(16, len(selectable))
         all_by_name = {item["name"]: item for item in all_tools}
         discovery = all_by_name["tool_search"]
         self.assertEqual("automatic", discovery["exposure"])
         self.assertFalse(discovery["bindable"])
         self.assertEqual(["tool.definition.read"], discovery["permissions"])
+        self.assertEqual("automatic", all_by_name["list_my_action_items"]["exposure"])
+        self.assertFalse(all_by_name["list_my_action_items"]["bindable"])
         names = {item["name"] for item in selectable}
         self.assertIn("read_file", names)
         self.assertIn("create_docx", names)
@@ -61,7 +63,7 @@ class ToolCatalogTest(unittest.TestCase):
             app_version="1.0.0",
             supported_tools={item["name"]: "1" for item in all_tools},
         ), self.admin)
-        self.assertEqual(29, len(pulled["tools"]))
+        self.assertEqual(30, len(pulled["tools"]))
         self.assertEqual("native", pulled["tools"][0]["implementation_type"])
 
     def test_console_updates_database_without_bootstrap_overwrite_and_writes_audit(self) -> None:

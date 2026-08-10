@@ -21,6 +21,7 @@ import mimetypes
 import re
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Callable, Literal
 
 from agent import browser, office, security
@@ -580,11 +581,17 @@ _WI_LABEL = {"todo": "待开始", "doing": "进行中", "paused": "暂停", "rev
 
 def set_work_context(
     project_id: str | None, owner_id: str | None, *, server_token: str = "",
+    account_server_token: str = "",
 ) -> None:
     """Set the active project/member authority for work-item tools."""
     _work_ctx.set(
-        {"project_id": project_id, "owner_id": owner_id, "server_token": server_token}
-        if project_id and owner_id else None
+        {
+            "project_id": project_id or "",
+            "owner_id": owner_id,
+            "server_token": server_token,
+            "account_server_token": account_server_token or server_token,
+        }
+        if owner_id else None
     )
 
 
@@ -598,9 +605,87 @@ def restore_work_context(value: dict[str, str] | None) -> None:
     _work_ctx.set(dict(value) if value else None)
 
 
+_ACTION_LABEL = {
+    "overdue": "逾期", "due_today": "今天到期", "blocked": "阻塞",
+    "in_progress": "进行中", "awaiting_acceptance": "待验收",
+    "starts_today": "今天开始", "ready": "已到开始日期", "urgent": "紧急",
+}
+
+
+def _format_action_item(item: dict[str, Any]) -> str:
+    project = item.get("project") if isinstance(item.get("project"), dict) else {}
+    signals = item.get("action_signals") if isinstance(item.get("action_signals"), list) else []
+    signal_text = "、".join(_ACTION_LABEL.get(str(value), str(value)) for value in signals) or "需关注"
+    priority = {"urgent": "紧急", "high": "高", "medium": "中", "low": "低"}.get(
+        str(item.get("priority") or ""), "未设",
+    )
+    due = str(item.get("due_date") or "无")
+    status = _WI_LABEL.get(str(item.get("status") or ""), str(item.get("status") or ""))
+    return (
+        f"- [{signal_text}] {str(item.get('title') or '')}"
+        f"｜项目={str(project.get('name') or '')}"
+        f"｜状态={status}｜优先级={priority}｜截止={due}"
+        f"｜work_item_id={str(item.get('id') or '')}"
+    )
+
+
+def _list_my_action_items_run(_args: dict[str, Any]) -> ToolOutcome:
+    ctx = _work_ctx.get()
+    token = str((ctx or {}).get("account_server_token") or "")
+    if not ctx or not token:
+        return ToolOutcome(text="尚未连接 AgentMate Server，无法确认 Console 中的实时任务。")
+    local_now = datetime.now().astimezone()
+    as_of = local_now.date().isoformat()
+    result = server_client.get_personal_action_items(token, as_of)
+    if result is None:
+        return ToolOutcome(text="AgentMate Server 当前不可达，无法确认实时任务；未使用本机文件或缓存推测任务。")
+    assigned = result.get("items") if isinstance(result.get("items"), list) else []
+    unassigned = result.get("unassigned") if isinstance(result.get("unassigned"), list) else []
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    computed_at = float(result.get("computed_at") or 0)
+    queried_at = (
+        datetime.fromtimestamp(computed_at, tz=local_now.tzinfo).strftime("%H:%M:%S")
+        if computed_at > 0 else "未知"
+    )
+    lines = [
+        f"个人行动项（{str(result.get('as_of') or as_of)}，本机时区 {local_now.tzname() or 'local'}；"
+        f"来源=AgentMate Server；查询时间={queried_at}）",
+    ]
+    if assigned:
+        lines.append("分配给我的任务：")
+        lines.extend(_format_action_item(item) for item in assigned)
+    else:
+        lines.append("没有分配给我且属于逾期、今天到期/开始、进行中、阻塞或待验收的任务。")
+    if unassigned:
+        lines.append("项目中尚未分配的需关注任务（不计入我的任务）：")
+        lines.extend(_format_action_item(item) for item in unassigned)
+    backlog = int(summary.get("backlog") or 0)
+    if backlog:
+        lines.append(f"另有 {backlog} 项分配给我的未完成任务尚未到开始/截止日期或未设置日期，不计入今日行动项。")
+    return ToolOutcome(
+        text="\n".join(lines),
+        trace=[{"kind": "step", "tool": "list_my_action_items", "label": f"读取我的行动项 · {len(assigned)} 项"}],
+    )
+
+
+list_my_action_items = Tool(
+    name="list_my_action_items",
+    description=(
+        "从 AgentMate Server 查询当前账号跨项目的个人行动项，包括逾期、今天到期/开始、进行中、"
+        "阻塞和待验收任务，并单独列出未分配任务。用户询问今天/我的任务/需要处理的工作时必须先调用；"
+        "不要扫描工作区文件或聊天记录推测任务。"
+    ),
+    parameters={"type": "object", "properties": {}},
+    pre=lambda _a: {"kind": "step", "tool": "list_my_action_items", "label": "读取 Console 个人行动项"},
+    run=_list_my_action_items_run,
+    plan_safe=True,
+    permissions=("project.read",),
+)
+
+
 def _list_work_items_run(args: dict[str, Any]) -> ToolOutcome:
     ctx = _work_ctx.get()
-    if not ctx:
+    if not ctx or not ctx.get("project_id"):
         return ToolOutcome(text="当前不在项目中，没有计划项可列。")
     server_token = str(ctx.get("server_token") or "")
     if server_token:
@@ -634,7 +719,7 @@ list_work_items = Tool(
 
 def _set_work_item_status_run(args: dict[str, Any]) -> ToolOutcome:
     ctx = _work_ctx.get()
-    if not ctx:
+    if not ctx or not ctx.get("project_id"):
         return ToolOutcome(text="当前不在项目中，无法修改计划项。")
     item_id = str(args.get("item_id", "")).strip()
     raw = str(args.get("status", "")).strip()
@@ -689,9 +774,11 @@ set_work_item_status = Tool(
 )
 
 
-def work_item_tools(plan: bool = False) -> list[Tool]:
+def work_item_tools(plan: bool = False, *, include_project: bool = True) -> list[Tool]:
     """Work-item tools for a run. Plan mode is read-only, so no status writes."""
-    values = [list_work_items] if plan else [list_work_items, set_work_item_status]
+    values = [list_my_action_items]
+    if include_project:
+        values.extend([list_work_items] if plan else [list_work_items, set_work_item_status])
     return [tool for tool in values if server_tool_enabled(tool.name)]
 
 

@@ -13,7 +13,7 @@ from datetime import date
 from math import isfinite
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 import business_store
@@ -28,6 +28,16 @@ _STATUSES = {"todo", "doing", "paused", "review", "done"}
 _PRIORITIES = {"", "low", "medium", "high", "urgent"}
 # 记入活动流的关键字段（值变化时逐条留痕，来自真实操作）。
 _TRACKED = ("status", "assignee", "priority", "due_date", "milestone_id", "sprint_id")
+_ACTION_REASON_RANK = {
+    "overdue": 0,
+    "due_today": 1,
+    "blocked": 2,
+    "in_progress": 3,
+    "awaiting_acceptance": 4,
+    "starts_today": 5,
+    "ready": 6,
+    "urgent": 7,
+}
 
 
 def _access(project_id: str, account: Account) -> Role:
@@ -106,6 +116,108 @@ def _decorate(item: dict, by_id: dict) -> dict:
     item["attachments"] = []
     item["delivery_accepted"] = db.get_work_item_acceptance(item["id"]) is not None
     return item
+
+
+def _action_signals(item: dict, as_of: date) -> list[str]:
+    """Return explainable reasons why an unfinished item belongs in today's inbox."""
+    if item.get("status") == "done":
+        return []
+    today = as_of.isoformat()
+    due = str(item.get("due_date") or "")
+    start = str(item.get("start_date") or "")
+    status = str(item.get("status") or "")
+    signals: list[str] = []
+    if due and due < today:
+        signals.append("overdue")
+    elif due == today:
+        signals.append("due_today")
+    if status == "paused":
+        signals.append("blocked")
+    elif status == "doing":
+        signals.append("in_progress")
+    elif status == "review":
+        signals.append("awaiting_acceptance")
+    if start == today:
+        signals.append("starts_today")
+    elif start and start < today and status == "todo":
+        signals.append("ready")
+    if item.get("priority") == "urgent" and (not start or start <= today):
+        signals.append("urgent")
+    return sorted(set(signals), key=lambda value: _ACTION_REASON_RANK[value])
+
+
+def _action_sort_key(item: dict) -> tuple:
+    signals = item.get("action_signals") or []
+    priority_rank = {"urgent": 0, "high": 1, "medium": 2, "low": 3, "": 4}
+    return (
+        _ACTION_REASON_RANK.get(str(signals[0]) if signals else "", 99),
+        priority_rank.get(str(item.get("priority") or ""), 4),
+        str(item.get("due_date") or "9999-12-31"),
+        str((item.get("project") or {}).get("name") or "").casefold(),
+        str(item.get("title") or "").casefold(),
+        str(item.get("id") or ""),
+    )
+
+
+@router.get("/work-items/action-items")
+def personal_action_items(
+    as_of: str = Query(default=""), account: Account = CurrentAccount,
+) -> dict:
+    """Current account's actionable WorkItems across every authorized project."""
+    try:
+        effective_date = date.fromisoformat(as_of) if as_of else date.today()
+    except ValueError as exc:
+        raise HTTPException(400, "invalid as_of") from exc
+
+    assigned: list[dict[str, Any]] = []
+    unassigned: list[dict[str, Any]] = []
+    backlog_count = 0
+    reason_counts = {name: 0 for name in _ACTION_REASON_RANK}
+    for project, role in db.list_projects_for(account.id):
+        work_items = db.list_work_items(project.id)
+        by_id, _ = _members_maps(project.id)
+        critical = _critical_path_ids(work_items)
+        for raw in work_items:
+            if raw.get("status") == "done":
+                continue
+            assignee = str(raw.get("assignee") or "")
+            if assignee not in {"", account.id}:
+                continue
+            signals = _action_signals(raw, effective_date)
+            if not signals:
+                if assignee == account.id:
+                    backlog_count += 1
+                continue
+            item = {
+                **_decorate(dict(raw), by_id),
+                "critical_path": raw["id"] in critical,
+                "project": {
+                    "id": project.id,
+                    "name": project.name,
+                    "role": role.value,
+                },
+                "action_signals": signals,
+                "action_reason": signals[0],
+            }
+            for signal in signals:
+                reason_counts[signal] += 1
+            (unassigned if not assignee else assigned).append(item)
+
+    assigned.sort(key=_action_sort_key)
+    unassigned.sort(key=_action_sort_key)
+    return {
+        "as_of": effective_date.isoformat(),
+        "computed_at": time.time(),
+        "source": "server",
+        "items": assigned,
+        "unassigned": unassigned,
+        "summary": {
+            "assigned": len(assigned),
+            "unassigned": len(unassigned),
+            "backlog": backlog_count,
+            **reason_counts,
+        },
+    }
 
 
 def _sync_linked_risk(
