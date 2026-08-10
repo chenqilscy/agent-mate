@@ -10,10 +10,10 @@ class RecentExecutionActiveStateContractTest(unittest.TestCase):
         self.sidebar = (ROOT / "src" / "components" / "layout" / "Sidebar.tsx").read_text(encoding="utf-8")
         self.styles = (ROOT / "src" / "styles" / "app.css").read_text(encoding="utf-8")
 
-    def test_current_run_is_derived_from_route_with_store_fallback(self) -> None:
+    def test_current_run_uses_store_with_route_hydration_fallback(self) -> None:
         self.assertIn("const activeSessionId = useChatStore((s) => s.activeId)", self.sidebar)
-        self.assertIn("const selectedSessionId = route.sessionId", self.sidebar)
         self.assertIn("view === 'chat' || view === 'projexec'", self.sidebar)
+        self.assertIn("?? route.sessionId ?? null", self.sidebar)
 
     def test_current_run_has_persistent_visual_and_semantic_state(self) -> None:
         self.assertIn("selectedSessionId === session.id ? 'active' : ''", self.sidebar)

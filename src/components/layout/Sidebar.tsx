@@ -112,8 +112,9 @@ export function Sidebar() {
       || (activeProject?.id === contextProjectId ? activeProject : null)
     : null
   const contextProjectName = contextProject?.name || '当前项目'
-  const selectedSessionId = route.sessionId
-    ?? ((view === 'chat' || view === 'projexec') ? activeSessionId : null)
+  const selectedSessionId = (
+    (view === 'chat' || view === 'projexec') ? activeSessionId : null
+  ) ?? route.sessionId ?? null
 
   useEffect(() => { if (searchOpen) searchRef.current?.focus() }, [searchOpen])
   useEffect(() => {
