@@ -1790,7 +1790,20 @@ body.dark .wb-date { color-scheme: dark; }
 .wb-td-desc { background: var(--chip); border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.7; color: var(--text); white-space: pre-wrap; overflow-wrap: break-word; min-height: 60px; }
 .wb-td-desc.empty { color: var(--text-3); }
 .wb-td-foot { display: flex; align-items: center; gap: 10px; padding: 14px 20px 18px; border-top: 1px solid var(--border-2); margin-top: 14px; flex-shrink: 0; }
+.wb-td-spacer { flex: 1; }
 .wb-av { width: 26px; height: 26px; border-radius: 50%; background: var(--brand); color: #fff; display: grid; place-items: center; font-size: 12px; flex-shrink: 0; }
+
+@media (max-width: 520px) {
+  .wb-td-foot.execution { align-items: center; flex-wrap: wrap; padding-inline: 14px; }
+  .wb-td-foot.execution .wb-td-spacer { display: none; }
+  .wb-td-foot.execution > .btn-dark {
+    flex: 1 0 100%;
+    min-width: 0;
+    min-height: 40px;
+    justify-content: center;
+    white-space: normal;
+  }
+}
 
 /* 添加数据源 modal (placeholder) */
 .pj-ds-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 44px 20px; background: var(--chip); border-radius: 14px; }

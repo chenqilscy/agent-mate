@@ -620,13 +620,13 @@ export function TodoDetailModal({ itemId, onClose, canWrite, mode = 'manage' }: 
             )}
           </>}
         </div>
-        <div className="wb-td-foot">
+        <div className={`wb-td-foot${executionOnly ? ' execution' : ''}`}>
           <span className="wb-av" title={item.assignee_name}>{item.assignee_name?.[0] ?? '奇'}</span>
           {executionOnly ? (
             <>
               <Tag className="pj-rolebadge">{STATUS_OPTS.find((status) => status.key === item.status)?.label}</Tag>
               {item.priority && <Tag className="pj-rolebadge">{PRIO[item.priority].label}优先级</Tag>}
-              <span style={{ flex: 1 }} />
+              <span className="wb-td-spacer" />
               {canWrite && delivery?.can_write && (
                 <WbButton className="btn-dark" disabled={deliveryBusy || deliveryActive} onClick={() => void executeWithAgent()}>
                   {deliveryActive ? 'Local Agent 执行中…' : '交给 Local Agent 执行'}
