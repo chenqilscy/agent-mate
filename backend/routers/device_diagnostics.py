@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 import device_settings
 import local_agent_store
 import run_transport
-from agent import mcp_client, worker_health
+from agent import mcp_client, server_run_worker, worker_health
 from auth.deps import current_user
 from config import settings
 
@@ -27,6 +27,7 @@ class ActionBody(BaseModel):
 def _snapshot(owner_id: str) -> dict[str, Any]:
     transport = local_agent_store.diagnostics_snapshot(owner_id)
     workers = worker_health.snapshot()
+    server_runs = server_run_worker.snapshot(owner_id)
     connectors = mcp_client.connector_statuses(owner_id)
     now = time.time()
     issues: list[dict[str, Any]] = []
@@ -78,7 +79,8 @@ def _snapshot(owner_id: str) -> dict[str, Any]:
             "server_url": settings.AGENTMATE_SERVER_URL,
             "protocol_version": run_transport.PROTOCOL_VERSION,
         },
-        "transport": transport, "workers": workers, "connectors": connectors,
+        "transport": transport, "workers": workers, "server_runs": server_runs,
+        "connectors": connectors,
         "runtime": {"items": device_settings.public_registry()},
         "issues": issues,
         "healthy": not any(item["severity"] == "error" for item in issues),

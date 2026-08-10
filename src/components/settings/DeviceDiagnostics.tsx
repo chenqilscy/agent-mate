@@ -60,21 +60,27 @@ export function DeviceDiagnosticsPanel() {
 
   if (!data) return <div className="set-body"><div className="set-ptitle">执行诊断与恢复</div>{error ? <Alert type="error" showIcon title="诊断读取失败" description={error} action={<WbButton className="btn-line" onClick={() => void load()}>重试</WbButton>} /> : <div className="set-pdesc">正在检查 Local Agent…</div>}</div>
 
-  const active = data.transport.leases.filter((item) => item.status === 'active').length
+  const active = data.server_runs.active
+  const waitingLocks = data.server_runs.resources.waiting.length
   const unhealthyConnectors = data.connectors.filter((item) => item.enabled && !item.healthy).length
   return <div className="set-body">
     <div className="set-ptitle">执行诊断与恢复</div>
     <div className="set-pdesc">数据直接来自这台 Local Agent；恢复动作只重试可恢复传输或清理已确认缓存，不会删除运行中任务、WAL 或工作文件。</div>
-    <Alert type={data.healthy ? 'success' : 'warning'} showIcon title={data.healthy ? 'Local Agent 运行正常' : `发现 ${data.issues.length} 个需要关注的问题`} description={`检查时间 ${new Date(data.checked_at * 1000).toLocaleString()} · 协议 v${data.process.protocol_version} · PID ${data.process.pid}`} />
+    <Alert type={data.healthy ? 'success' : 'warning'} showIcon title={data.healthy ? 'Local Agent 运行正常' : `发现 ${data.issues.length} 个需要关注的问题`} description={`检查时间 ${new Date(data.checked_at * 1000).toLocaleString()} · 协议 v${data.process.protocol_version} · PID ${data.process.pid} · Run 领取协调器${data.server_runs.leader ? '正常' : '未就绪'}`} />
     <div className="home-metrics" style={{ marginTop: 14 }}>
-      <Card className="home-metric"><Statistic title="活动 Run" value={active} /></Card>
+      <Card className="home-metric"><Statistic title={`执行槽 · 驻留 ${data.server_runs.resident}`} value={active} suffix={`/ ${data.server_runs.max_concurrency}`} /></Card>
       <Card className={`home-metric ${data.transport.wal.count ? 'danger' : ''}`}><Statistic title="等待 ACK" value={data.transport.wal.count} suffix={data.transport.wal.count ? `· ${bytes(data.transport.wal.bytes)}` : undefined} /></Card>
-      <Card className={`home-metric ${unhealthyConnectors ? 'danger' : ''}`}><Statistic title="连接器异常" value={unhealthyConnectors} /></Card>
+      <Card className={`home-metric ${waitingLocks || unhealthyConnectors ? 'danger' : ''}`}><Statistic title={waitingLocks ? '资源锁等待' : '连接器异常'} value={waitingLocks || unhealthyConnectors} /></Card>
     </div>
     <Card className="set-card" title="需要处理" extra={<WbButton className="btn-ghost" onClick={() => void load()}>重新检测</WbButton>}>
       {data.issues.length ? <List dataSource={data.issues} renderItem={(issue) => <List.Item actions={[<WbButton key="action" className="btn-ghost" onClick={() => void issueAction(issue)}>{issue.action === 'open_run' ? '打开 Run' : issue.action === 'connectors' ? '管理连接器' : issue.action === 'login' ? '查看账号' : issue.action === 'runtime_settings' ? '运行设置' : issue.action === 'retry_transport' ? '立即重试' : '重新检测'}</WbButton>]}><List.Item.Meta title={<Space><Tag color={issue.severity === 'error' ? 'error' : 'warning'}>{issue.severity === 'error' ? '阻断' : '提醒'}</Tag>{issue.title}</Space>} description={issue.detail} /></List.Item>} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有需要处理的问题" />}
     </Card>
     <Card className="set-card" title="传输与执行">
+      <List size="small" dataSource={data.server_runs.runs} locale={{ emptyText: '当前没有占用执行槽的 Run' }} renderItem={(item) => {
+        const waiting = data.server_runs.resources.waiting.find((entry) => entry.run_id === item.run_id)
+        const holding = data.server_runs.resources.holding.find((entry) => entry.run_id === item.run_id)
+        return <List.Item><List.Item.Meta title={<Space>{item.run_id}<Tag>{item.phase}</Tag>{waiting ? <Tag color="warning">等待资源锁</Tag> : null}</Space>} description={waiting ? waiting.resources.join('、') : holding ? `持有 ${holding.resources.join('、')}` : `工作区 ${item.project_id || item.workspace}`} /></List.Item>
+      }} />
       <List size="small" dataSource={data.transport.leases.slice(0, 20)} locale={{ emptyText: '暂无 Run lease' }} renderItem={(item) => <List.Item><List.Item.Meta title={<Space>{item.run_id}<Tag>{item.status}</Tag><Tag>epoch {item.lease_epoch}</Tag></Space>} description={item.last_error || `ACK ${item.ack_high_water} · ${new Date(item.updated_at * 1000).toLocaleString()}`} /></List.Item>} />
     </Card>
     <Card className="set-card" title="后台组件">

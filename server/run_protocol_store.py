@@ -354,6 +354,53 @@ def _capability_set(capabilities: dict[str, Any]) -> set[str]:
     return result
 
 
+def _parallel_capacity(capabilities: dict[str, Any]) -> int:
+    try:
+        declared = int(capabilities.get("max_parallel_runs") or 1)
+    except (TypeError, ValueError):
+        declared = 1
+    return max(1, min(8, declared))
+
+
+def _resident_capacity(capabilities: dict[str, Any]) -> int:
+    compute = _parallel_capacity(capabilities)
+    try:
+        declared = int(capabilities.get("max_resident_runs") or compute * 4)
+    except (TypeError, ValueError):
+        declared = compute * 4
+    return max(compute, min(32, declared))
+
+
+def _workspace_scope(run: sqlite3.Row) -> str:
+    project_id = str(run["project_id"] or "")
+    if project_id:
+        return f"project:{project_id}"
+    workspace = str(run["workspace"] or "default")
+    if workspace.startswith("project:") or workspace.startswith("dedicated:"):
+        return workspace
+    # The Local Agent sandbox maps every other non-project spec to its shared
+    # default root; admission must use the same canonical scope.
+    return "default"
+
+
+def _scope_conflicts(conn: sqlite3.Connection, candidate: sqlite3.Row, now: float) -> bool:
+    """Conservatively serialize mutable Runs that share a workspace."""
+    candidate_scope = _workspace_scope(candidate)
+    candidate_writes = str(candidate["mode"] or "exec") not in {"ask", "plan"}
+    active = conn.execute(
+        "SELECT r.project_id,r.workspace,r.mode FROM run_leases l "
+        "JOIN business_runs r ON r.id=l.run_id "
+        "WHERE l.owner_id=? AND l.status='active' AND l.expires_at>? "
+        "AND r.status IN ('leased','running','waiting_user','paused')",
+        (candidate["owner_id"], now),
+    ).fetchall()
+    return any(
+        _workspace_scope(item) == candidate_scope
+        and (candidate_writes or str(item["mode"] or "exec") not in {"ask", "plan"})
+        for item in active
+    )
+
+
 def queue_context(run: dict[str, Any]) -> dict[str, Any] | None:
     """Explain why a non-terminal Server Run is not making progress.
 
@@ -389,9 +436,12 @@ def queue_context(run: dict[str, Any]) -> dict[str, Any] | None:
             "message": "目标 Local Agent 不可用，请检查登录与设备状态",
         }
 
+    device_capabilities = {
+        str(row["id"]): _decode_json(row["capabilities"], {}) for row in rows
+    }
     compatible = [
         row for row in rows
-        if required.issubset(_capability_set(_decode_json(row["capabilities"], {})))
+        if required.issubset(_capability_set(device_capabilities[str(row["id"])]))
     ]
     if not compatible:
         return {
@@ -410,7 +460,7 @@ def queue_context(run: dict[str, Any]) -> dict[str, Any] | None:
     device_ids = [str(row["id"]) for row in online]
     placeholders = ",".join("?" for _ in device_ids)
     blockers = conn.execute(
-        f"SELECT r.id,r.session_id,r.project_id,r.status,l.device_id,r.updated_at "
+        f"SELECT r.id,r.session_id,r.project_id,r.workspace,r.mode,r.status,l.device_id,r.updated_at "
         f"FROM run_leases l JOIN business_runs r ON r.id=l.run_id "
         f"WHERE l.device_id IN ({placeholders}) AND l.status='active' AND l.expires_at>? "
         "AND r.id<>? AND r.status IN ('leased','running','waiting_user','paused') "
@@ -422,9 +472,24 @@ def queue_context(run: dict[str, Any]) -> dict[str, Any] | None:
     # describe an existing Run as the blocker when every eligible online
     # device is currently occupied; otherwise the truthful state is simply
     # awaiting claim.
-    occupied_device_ids = {str(row["device_id"]) for row in blockers}
-    if blockers and occupied_device_ids.issuperset(device_ids):
-        blocker = blockers[0]
+    active_counts = {
+        device_id: sum(
+            1 for blocker in blockers
+            if str(blocker["device_id"]) == device_id
+            and str(blocker["status"]) in {"leased", "running"}
+        )
+        for device_id in device_ids
+    }
+    saturated_device_ids = {
+        device_id for device_id in device_ids
+        if active_counts[device_id] >= _parallel_capacity(device_capabilities[device_id])
+    }
+    if blockers and saturated_device_ids.issuperset(device_ids):
+        blocker = next(
+            item for item in blockers
+            if str(item["device_id"]) in saturated_device_ids
+            and str(item["status"]) in {"leased", "running"}
+        )
         blocker_status = str(blocker["status"])
         if blocker_status == "waiting_user":
             reason = "waiting_confirmation"
@@ -445,6 +510,29 @@ def queue_context(run: dict[str, Any]) -> dict[str, Any] | None:
                 "status": blocker_status,
             },
         }
+    candidate_scope = _workspace_scope(run)
+    candidate_writes = str(run.get("mode") or "exec") not in {"ask", "plan"}
+    scope_blocker = next((
+        item for item in blockers
+        if _workspace_scope(item) == candidate_scope
+        and (candidate_writes or str(item["mode"] or "exec") not in {"ask", "plan"})
+    ), None)
+    if scope_blocker is not None:
+        scope_status = str(scope_blocker["status"])
+        return {
+            "reason": "waiting_confirmation" if scope_status == "waiting_user" else "resource_lock_wait",
+            "message": (
+                "等待前序任务确认；处理后当前 Run 将继续排队"
+                if scope_status == "waiting_user"
+                else "同一工作区的写入任务正在串行执行"
+            ),
+            "blocking_run": {
+                "id": str(scope_blocker["id"]),
+                "session_id": str(scope_blocker["session_id"]),
+                "project_id": str(scope_blocker["project_id"] or ""),
+                "status": scope_status,
+            },
+        }
     return {
         "reason": "awaiting_claim",
         "message": "等待在线 Local Agent 领取",
@@ -457,6 +545,24 @@ def lease_run(principal: DevicePrincipal, *, lease_seconds: int) -> dict[str, An
     try:
         conn.execute("BEGIN IMMEDIATE")
         _expire_leases(conn, now, principal.owner_id)
+        active_for_device = int(conn.execute(
+            "SELECT COUNT(*) FROM run_leases l JOIN business_runs r ON r.id=l.run_id "
+            "WHERE l.owner_id=? AND l.device_id=? AND l.status='active' AND l.expires_at>? "
+            "AND r.status IN ('leased','running')",
+            (principal.owner_id, principal.device_id, now),
+        ).fetchone()[0])
+        if active_for_device >= _parallel_capacity(principal.capabilities):
+            conn.commit()
+            return None
+        resident_for_device = int(conn.execute(
+            "SELECT COUNT(*) FROM run_leases l JOIN business_runs r ON r.id=l.run_id "
+            "WHERE l.owner_id=? AND l.device_id=? AND l.status='active' AND l.expires_at>? "
+            "AND r.status IN ('leased','running','waiting_user','paused')",
+            (principal.owner_id, principal.device_id, now),
+        ).fetchone()[0])
+        if resident_for_device >= _resident_capacity(principal.capabilities):
+            conn.commit()
+            return None
         rows = conn.execute(
             "SELECT * FROM business_runs WHERE owner_id=? AND deleted_at=0 AND status IN ('queued','recoverable') "
             "ORDER BY created_at,id LIMIT 100",
@@ -470,6 +576,8 @@ def lease_run(principal: DevicePrincipal, *, lease_seconds: int) -> dict[str, An
             if target and target != principal.device_id:
                 continue
             if not required.issubset(available):
+                continue
+            if _scope_conflicts(conn, row, now):
                 continue
             selected = row
             break

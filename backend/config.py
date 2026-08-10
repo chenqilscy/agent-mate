@@ -165,6 +165,18 @@ class Settings:
     BACKGROUND_AGENT_PER_OWNER_CONCURRENCY: int = max(
         1, min(BACKGROUND_AGENT_MAX_CONCURRENCY, int(os.getenv("BACKGROUND_AGENT_PER_OWNER_CONCURRENCY", "2")))
     )
+    # Server-owned Runs have an independent, conservative pool.  The Server
+    # also enforces the advertised device capacity before granting a lease.
+    SERVER_RUN_MAX_CONCURRENCY: int = max(
+        1, min(8, int(os.getenv("SERVER_RUN_MAX_CONCURRENCY", "2")))
+    )
+    SERVER_RUN_PER_OWNER_CONCURRENCY: int = max(
+        1, min(SERVER_RUN_MAX_CONCURRENCY, int(os.getenv("SERVER_RUN_PER_OWNER_CONCURRENCY", "2")))
+    )
+    SERVER_RUN_MAX_RESIDENT: int = max(
+        SERVER_RUN_MAX_CONCURRENCY,
+        min(32, int(os.getenv("SERVER_RUN_MAX_RESIDENT", str(SERVER_RUN_MAX_CONCURRENCY * 4)))),
+    )
     RELAY_MAX_IN_FLIGHT: int = max(
         1, min(32, int(os.getenv("RELAY_MAX_IN_FLIGHT", "4")))
     )

@@ -84,6 +84,7 @@ def _status() -> dict[str, Any]:
         "server_api_url": settings.AGENTMATE_SERVER_URL,
         "transport": snapshot,
         "workers": worker_health.snapshot(),
+        "server_runs": server_run_worker.snapshot(),
     }
 
 

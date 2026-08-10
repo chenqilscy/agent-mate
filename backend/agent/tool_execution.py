@@ -200,14 +200,11 @@ async def _run_command_isolated(
     raise ToolExecutionTimeout(f"tool exceeded {tool.timeout_seconds:g}s")
 
 
-async def execute_tool(
+async def _execute_tool_impl(
     tool: Tool, args: dict[str, Any], stop: asyncio.Event,
     *, authorization: ExecutionAuthorization,
 ) -> ToolOutcome:
     """Execute under the declared policy; subprocess tools are kill-tree cancellable."""
-    if stop.is_set():
-        raise ToolExecutionCancelled()
-    authorization.enforce(tool.name, args, tool.permissions)
     started = time.monotonic()
     if tool.isolation == "subprocess":
         if tool.name != "run_command":
@@ -240,11 +237,28 @@ async def execute_tool(
         ) from exc
 
 
+async def execute_tool(
+    tool: Tool, args: dict[str, Any], stop: asyncio.Event,
+    *, authorization: ExecutionAuthorization,
+) -> ToolOutcome:
+    """Authorize, arbitrate shared Run resources, then execute one tool call."""
+    from agent import run_resources
+
+    if stop.is_set():
+        raise ToolExecutionCancelled()
+    authorization.enforce(tool.name, args, tool.permissions)
+    async with run_resources.acquire(tool.permissions):
+        return await _execute_tool_impl(tool, args, stop, authorization=authorization)
+
+
 async def execute_async_call(
     awaitable: Awaitable[Any], stop: asyncio.Event, timeout_seconds: float,
     *, authorization: ExecutionAuthorization, tool_name: str,
     args: dict[str, Any], permissions: tuple[str, ...],
 ) -> Any:
     """Apply the same deadline/cancel classification to cancellable async adapters (MCP)."""
+    from agent import run_resources
+
     authorization.enforce(tool_name, args, permissions)
-    return await _wait_or_stop(awaitable, stop, timeout_seconds)
+    async with run_resources.acquire(permissions):
+        return await _wait_or_stop(awaitable, stop, timeout_seconds)

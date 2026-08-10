@@ -102,7 +102,10 @@ def _public_capabilities() -> dict[str, Any]:
         "supported_tools": contracts,
         "capabilities": [
             "run_events_v1", "local_workspace", "ask_user", "llm.chat", "agent.tools",
+            "bounded_parallel_runs_v1", "resource_locking_v1",
         ],
+        "max_parallel_runs": settings.SERVER_RUN_PER_OWNER_CONCURRENCY,
+        "max_resident_runs": settings.SERVER_RUN_MAX_RESIDENT,
     }
 
 

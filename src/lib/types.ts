@@ -194,7 +194,7 @@ export interface ChatMessage {
 }
 
 export interface RunQueueContext {
-  reason: 'waiting_confirmation' | 'blocked_by_paused_run' | 'device_busy' | 'device_unavailable' | 'device_offline' | 'capability_mismatch' | 'awaiting_claim' | 'recovering'
+  reason: 'waiting_confirmation' | 'blocked_by_paused_run' | 'resource_lock_wait' | 'device_busy' | 'device_unavailable' | 'device_offline' | 'capability_mismatch' | 'awaiting_claim' | 'recovering'
   message: string
   blocking_run?: {
     id: string
@@ -328,6 +328,20 @@ export interface DeviceDiagnostics {
     staged_inputs: number
   }
   workers: { healthy: boolean; components: Array<{ name: string; last_attempt_at: number | null; last_success_at: number | null; last_failure_at: number | null; consecutive_failures: number; last_error: string | null }> }
+  server_runs: {
+    max_concurrency: number
+    per_owner_concurrency: number
+    active: number
+    resident: number
+    max_resident: number
+    available: number
+    leader: boolean
+    runs: Array<{ run_id: string; device_id: string; project_id: string; workspace: string; phase: string; slot_held: boolean }>
+    resources: {
+      waiting: Array<{ run_id: string; resources: string[] }>
+      holding: Array<{ run_id: string; resources: string[] }>
+    }
+  }
   connectors: ConnectorRuntimeStatus[]
   runtime: { items: DeviceSettingItem[] }
   issues: DeviceDiagnosticIssue[]

@@ -180,12 +180,99 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_connector_instances_owner
             ON connector_instances(owner_id,enabled,name);
+        CREATE TABLE IF NOT EXISTS run_worker_leader (
+            singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+            holder_id TEXT NOT NULL,
+            expires_at REAL NOT NULL,
+            snapshot TEXT NOT NULL DEFAULT '{}',
+            updated_at REAL NOT NULL
+        );
         INSERT OR IGNORE INTO local_agent_schema(version,applied_at)
             VALUES (2,CAST(strftime('%s','now') AS REAL));
+        INSERT OR IGNORE INTO local_agent_schema(version,applied_at)
+            VALUES (3,CAST(strftime('%s','now') AS REAL));
         """
     )
     conn.commit()
     _local.initialized = True
+
+
+def acquire_run_worker_leader(holder_id: str, *, ttl_seconds: float = 15.0) -> bool:
+    """Acquire or renew the single claimant for this Local Agent database."""
+    init_db()
+    conn = get_conn()
+    now = time.time()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT holder_id,expires_at FROM run_worker_leader WHERE singleton=1",
+        ).fetchone()
+        if row is not None and str(row["holder_id"]) != holder_id and float(row["expires_at"]) > now:
+            conn.commit()
+            return False
+        snapshot = "{}" if row is None or str(row["holder_id"]) != holder_id else None
+        if row is None:
+            conn.execute(
+                "INSERT INTO run_worker_leader(singleton,holder_id,expires_at,snapshot,updated_at) "
+                "VALUES (1,?,?,?,?)",
+                (holder_id, now + max(5.0, ttl_seconds), "{}", now),
+            )
+        elif snapshot is None:
+            conn.execute(
+                "UPDATE run_worker_leader SET expires_at=?,updated_at=? WHERE singleton=1 AND holder_id=?",
+                (now + max(5.0, ttl_seconds), now, holder_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE run_worker_leader SET holder_id=?,expires_at=?,snapshot='{}',updated_at=? "
+                "WHERE singleton=1",
+                (holder_id, now + max(5.0, ttl_seconds), now),
+            )
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def publish_run_worker_snapshot(holder_id: str, snapshot: dict) -> bool:
+    init_db()
+    now = time.time()
+    updated = get_conn().execute(
+        "UPDATE run_worker_leader SET snapshot=?,updated_at=? "
+        "WHERE singleton=1 AND holder_id=? AND expires_at>?",
+        (json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")), now, holder_id, now),
+    ).rowcount
+    get_conn().commit()
+    return bool(updated)
+
+
+def read_run_worker_snapshot() -> dict:
+    init_db()
+    row = get_conn().execute(
+        "SELECT holder_id,expires_at,snapshot,updated_at FROM run_worker_leader WHERE singleton=1",
+    ).fetchone()
+    if row is None or float(row["expires_at"] or 0) <= time.time():
+        return {"leader_active": False, "holder_id": "", "snapshot": {}, "updated_at": 0}
+    try:
+        snapshot = json.loads(str(row["snapshot"] or "{}"))
+    except json.JSONDecodeError:
+        snapshot = {}
+    return {
+        "leader_active": True, "holder_id": str(row["holder_id"]),
+        "snapshot": snapshot if isinstance(snapshot, dict) else {},
+        "updated_at": float(row["updated_at"] or 0),
+    }
+
+
+def release_run_worker_leader(holder_id: str) -> None:
+    init_db()
+    get_conn().execute(
+        "UPDATE run_worker_leader SET expires_at=0,snapshot='{}',updated_at=? "
+        "WHERE singleton=1 AND holder_id=?",
+        (time.time(), holder_id),
+    )
+    get_conn().commit()
 
 
 def get_device_setting(key: str) -> Optional[str]:
