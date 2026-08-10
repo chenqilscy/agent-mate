@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { ChatMessage } from '../../lib/types'
+import type { ChatMessage, RunQueueContext } from '../../lib/types'
 import { renderMarkdown } from '../../lib/markdown'
 import { CatLogo } from '../../lib/icons'
 import { TraceStream } from './TraceStream'
@@ -11,7 +11,12 @@ const SC_SM = (
   <svg className="sc" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg>
 )
 
-function BotMessage({ msg, streaming, onRetry }: { msg: ChatMessage; streaming: boolean; onRetry?: (messageId: string) => void }) {
+function BotMessage({ msg, streaming, onRetry, onOpenBlockingRun }: {
+  msg: ChatMessage
+  streaming: boolean
+  onRetry?: (messageId: string) => void
+  onOpenBlockingRun?: (run: NonNullable<RunQueueContext['blocking_run']>) => void
+}) {
   const [collapsed, setCollapsed] = useState(false)
   const running = msg.status === 'running'
   const html = useMemo(() => (msg.content ? renderMarkdown(msg.content) : ''), [msg.content])
@@ -45,6 +50,16 @@ function BotMessage({ msg, streaming, onRetry }: { msg: ChatMessage; streaming: 
         {!msg.content && running && !hasTrace && (
           <div className="typing"><i /><i /><i /></div>
         )}
+        {running && msg.queueContext && (
+          <div className={`run-queue-note ${msg.queueContext.reason === 'waiting_confirmation' ? 'needs-action' : ''}`.trim()} role="status">
+            <span>{msg.queueContext.message}</span>
+            {msg.queueContext.blocking_run && onOpenBlockingRun && (
+              <WbButton className="btn-ghost" onClick={() => onOpenBlockingRun(msg.queueContext!.blocking_run!)}>
+                查看并处理
+              </WbButton>
+            )}
+          </div>
+        )}
         {html && <div dangerouslySetInnerHTML={{ __html: html }} />}
         {msg.error && <p style={{ color: 'var(--color-error)' }}>⚠ {msg.error}</p>}
         {msg.pendingQuestion && (
@@ -68,7 +83,12 @@ function BotMessage({ msg, streaming, onRetry }: { msg: ChatMessage; streaming: 
   )
 }
 
-export function MessageList({ messages, streaming, onRetry }: { messages: ChatMessage[]; streaming: boolean; onRetry?: (messageId: string) => void }) {
+export function MessageList({ messages, streaming, onRetry, onOpenBlockingRun }: {
+  messages: ChatMessage[]
+  streaming: boolean
+  onRetry?: (messageId: string) => void
+  onOpenBlockingRun?: (run: NonNullable<RunQueueContext['blocking_run']>) => void
+}) {
   return (
     <>
       {messages.map((m) =>
@@ -78,7 +98,7 @@ export function MessageList({ messages, streaming, onRetry }: { messages: ChatMe
             {!streaming && <BotActions msg={m} simple />}
           </div>
         ) : (
-          <BotMessage key={m.id} msg={m} streaming={streaming} onRetry={onRetry} />
+          <BotMessage key={m.id} msg={m} streaming={streaming} onRetry={onRetry} onOpenBlockingRun={onOpenBlockingRun} />
         ),
       )}
     </>

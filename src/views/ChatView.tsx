@@ -11,6 +11,7 @@ import { toast } from '../stores/toastStore'
 import { activate, clickable } from '../lib/a11y'
 import { conversationToMarkdown, copyText, downloadText, safeFilename } from '../lib/exportChat'
 import { IcSearch, IcShare, IcHistory, IcPanel } from '../lib/icons'
+import type { RunQueueContext } from '../lib/types'
 
 export function ChatView() {
   const title = useChatStore((s) => s.title)
@@ -26,6 +27,8 @@ export function ChatView() {
   const controlStatus = [...messages].reverse().find((message) => message.status === 'running' && message.runId)?.runStatus
   const ovOpen = useUIStore((s) => s.ovOpen)
   const toggleOv = useUIStore((s) => s.toggleOv)
+  const setView = useUIStore((s) => s.setView)
+  const openSession = useChatStore((s) => s.openSession)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const [showDn, setShowDn] = useState(false)
@@ -102,6 +105,13 @@ export function ChatView() {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
   }
+  const openBlockingRun = async (run: NonNullable<RunQueueContext['blocking_run']>) => {
+    await openSession(run.session_id)
+    setView(run.project_id ? 'projexec' : 'chat', {
+      projectId: run.project_id || undefined,
+      sessionId: run.session_id,
+    })
+  }
 
   return (
     <section className={`view active split ${ovOpen ? '' : ''}`.trim()} data-view="chat">
@@ -125,7 +135,7 @@ export function ChatView() {
               <small>输入下方问题，与真实模型流式对话</small>
             </div>
           ) : (
-            <MessageList messages={messages} streaming={streaming} onRetry={retry} />
+            <MessageList messages={messages} streaming={streaming} onRetry={retry} onOpenBlockingRun={(run) => void openBlockingRun(run)} />
           )}
         </div>
         <div className={`scrolldn ${showDn ? 'show' : ''}`.trim()} aria-label="回到底部" {...clickable} onClick={scrollToBottom}>

@@ -189,7 +189,19 @@ export interface ChatMessage {
   runId?: string
   runStatus?: RunStatus
   pendingQuestion?: { questions: AskQuestion[]; recovery: 'retry_required'; source: string }
+  queueContext?: RunQueueContext
   artifacts?: ArtifactEvent[]
+}
+
+export interface RunQueueContext {
+  reason: 'waiting_confirmation' | 'blocked_by_paused_run' | 'device_busy' | 'device_unavailable' | 'device_offline' | 'capability_mismatch' | 'awaiting_claim' | 'recovering'
+  message: string
+  blocking_run?: {
+    id: string
+    session_id: string
+    project_id?: string
+    status: RunStatus
+  }
 }
 
 export interface ArtifactManifest {
@@ -250,6 +262,7 @@ export interface AgentRun {
   ended_at?: number | null
   created_at: number
   updated_at: number
+  queue_context?: RunQueueContext
   artifacts?: ArtifactManifest[]
 }
 

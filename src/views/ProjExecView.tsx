@@ -17,6 +17,7 @@ import { toast } from '../stores/toastStore'
 import { conversationToMarkdown, copyText, downloadText, safeFilename } from '../lib/exportChat'
 import { IcSearch, IcShare, IcFlow, IcPanel } from '../lib/icons'
 import { clickable } from '../lib/a11y'
+import type { RunQueueContext } from '../lib/types'
 
 const TASK_STATUS_LABEL = { todo: '待开始', doing: '进行中', paused: '已暂停', review: '待验收', done: '已完成' } as const
 
@@ -123,6 +124,13 @@ export function ProjExecView() {
     const name = safeFilename(`${project?.name ?? '项目'}-${title || '任务'}`)
     downloadText(name, exportMd())
     toast('已下载 · ' + name)
+  }
+  const openBlockingRun = async (run: NonNullable<RunQueueContext['blocking_run']>) => {
+    await openSession(run.session_id)
+    setView(run.project_id ? 'projexec' : 'chat', {
+      projectId: run.project_id || undefined,
+      sessionId: run.session_id,
+    })
   }
   const openProjectPlan = () => {
     setFlowOpen(false)
@@ -243,7 +251,7 @@ export function ProjExecView() {
               onRetry={() => void loadWorkItems(project.id)}
             /> : null
           ) : (
-            <MessageList messages={messages} streaming={streaming} onRetry={retry} />
+            <MessageList messages={messages} streaming={streaming} onRetry={retry} onOpenBlockingRun={(run) => void openBlockingRun(run)} />
           )}
         </div>
         <div className={`scrolldn ${showDn ? 'show' : ''}`.trim()} aria-label="回到底部" {...clickable} onClick={() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight }}>

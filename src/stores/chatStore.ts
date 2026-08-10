@@ -158,6 +158,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         usage: m.usage,
         runId: m.run_id ?? undefined,
         runStatus: m.run_status ?? undefined,
+        queueContext: m.run_queue_context,
         pendingQuestion: m.pending_question ?? undefined,
         error: m.error ?? undefined,
       }))
@@ -170,6 +171,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         rendered.push({
           id: botId, role: 'assistant', content: '', trace: [], status: 'running',
           runId: activeRun.id, runStatus: activeRun.status,
+          queueContext: activeRun.queue_context,
         })
       }
       set({

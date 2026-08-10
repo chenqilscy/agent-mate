@@ -448,6 +448,7 @@ export const api = {
         run_plan: message.run_id ? runById.get(message.run_id)?.plan : undefined,
         run_plan_version: message.run_id ? runById.get(message.run_id)?.plan_version : undefined,
         run_project_id: message.run_id ? runById.get(message.run_id)?.project_id : undefined,
+        run_queue_context: message.run_id ? runById.get(message.run_id)?.queue_context : undefined,
       })),
     }
   },
@@ -1015,6 +1016,7 @@ export interface RawMessage {
   run_plan?: import('./types').RunPlanItem[]
   run_plan_version?: number
   run_project_id?: string | null
+  run_queue_context?: import('./types').RunQueueContext
   pending_question?: { questions: import('./types').AskQuestion[]; recovery: 'retry_required'; source: string } | null
   error?: string | null
   created_at: number

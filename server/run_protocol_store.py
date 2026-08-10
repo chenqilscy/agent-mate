@@ -23,6 +23,7 @@ CHALLENGE_TTL_SECONDS = 300
 DEVICE_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
 MAX_EVENT_BYTES = 256 * 1024
 TERMINAL_STATUSES = {"completed", "succeeded", "failed", "cancelled"}
+DEVICE_ONLINE_WINDOW_SECONDS = 90
 
 
 class ProtocolConflict(ValueError):
@@ -351,6 +352,103 @@ def _capability_set(capabilities: dict[str, Any]) -> set[str]:
     if isinstance(tools, dict):
         result.update(f"tool:{name}" for name in tools)
     return result
+
+
+def queue_context(run: dict[str, Any]) -> dict[str, Any] | None:
+    """Explain why a non-terminal Server Run is not making progress.
+
+    The explanation is derived from durable device/lease state.  It never
+    guesses from UI timing and never changes the Run lifecycle itself.
+    """
+    status = str(run.get("status") or "")
+    if status == "recoverable":
+        return {
+            "reason": "recovering",
+            "message": "上次执行租约已中断，正在等待 Local Agent 恢复",
+        }
+    if status != "queued":
+        return None
+
+    owner_id = str(run.get("owner_id") or "")
+    target_device_id = str(run.get("target_device_id") or "")
+    required = set(run.get("required_capabilities") or [])
+    conn = db.get_conn()
+    params: list[Any] = [owner_id]
+    target_clause = ""
+    if target_device_id:
+        target_clause = " AND id=?"
+        params.append(target_device_id)
+    rows = conn.execute(
+        "SELECT id,name,capabilities,last_seen_at FROM agent_devices "
+        "WHERE owner_id=? AND status='active' AND revoked_at=0" + target_clause,
+        params,
+    ).fetchall()
+    if not rows:
+        return {
+            "reason": "device_unavailable",
+            "message": "目标 Local Agent 不可用，请检查登录与设备状态",
+        }
+
+    compatible = [
+        row for row in rows
+        if required.issubset(_capability_set(_decode_json(row["capabilities"], {})))
+    ]
+    if not compatible:
+        return {
+            "reason": "capability_mismatch",
+            "message": "当前 Local Agent 缺少本次 Run 所需能力",
+        }
+
+    now = time.time()
+    online = [row for row in compatible if float(row["last_seen_at"] or 0) >= now - DEVICE_ONLINE_WINDOW_SECONDS]
+    if not online:
+        return {
+            "reason": "device_offline",
+            "message": "目标 Local Agent 已离线，恢复在线后将继续领取",
+        }
+
+    device_ids = [str(row["id"]) for row in online]
+    placeholders = ",".join("?" for _ in device_ids)
+    blockers = conn.execute(
+        f"SELECT r.id,r.session_id,r.project_id,r.status,l.device_id,r.updated_at "
+        f"FROM run_leases l JOIN business_runs r ON r.id=l.run_id "
+        f"WHERE l.device_id IN ({placeholders}) AND l.status='active' AND l.expires_at>? "
+        "AND r.id<>? AND r.status IN ('leased','running','waiting_user','paused') "
+        "ORDER BY CASE r.status WHEN 'waiting_user' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END,"
+        "r.updated_at,r.id",
+        (*device_ids, now, str(run.get("id") or "")),
+    ).fetchall()
+    # An untargeted Run may be claimable by another compatible device.  Only
+    # describe an existing Run as the blocker when every eligible online
+    # device is currently occupied; otherwise the truthful state is simply
+    # awaiting claim.
+    occupied_device_ids = {str(row["device_id"]) for row in blockers}
+    if blockers and occupied_device_ids.issuperset(device_ids):
+        blocker = blockers[0]
+        blocker_status = str(blocker["status"])
+        if blocker_status == "waiting_user":
+            reason = "waiting_confirmation"
+            message = "等待前序任务确认；处理后当前 Run 将继续排队"
+        elif blocker_status == "paused":
+            reason = "blocked_by_paused_run"
+            message = "前序任务已暂停；恢复或取消后当前 Run 将继续排队"
+        else:
+            reason = "device_busy"
+            message = "Local Agent 正在执行前序任务"
+        return {
+            "reason": reason,
+            "message": message,
+            "blocking_run": {
+                "id": str(blocker["id"]),
+                "session_id": str(blocker["session_id"]),
+                "project_id": str(blocker["project_id"] or ""),
+                "status": blocker_status,
+            },
+        }
+    return {
+        "reason": "awaiting_claim",
+        "message": "等待在线 Local Agent 领取",
+    }
 
 
 def lease_run(principal: DevicePrincipal, *, lease_seconds: int) -> dict[str, Any] | None:

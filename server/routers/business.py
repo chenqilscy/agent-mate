@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 import business_store as store
 import automation_scheduler
 import db
+import run_protocol_store
 from auth import CurrentAccount
 from models import Account, Role, can_manage, can_write
 
@@ -54,6 +55,23 @@ def _page(call) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"items": items, "next_cursor": next_cursor}
+
+
+def _with_queue_context(run: dict[str, Any], account: Account) -> dict[str, Any]:
+    context = run_protocol_store.queue_context(run)
+    if not context:
+        return run
+    blocker = context.get("blocking_run")
+    if isinstance(blocker, dict):
+        blocker_project_id = str(blocker.get("project_id") or "")
+        blocker_visible = (
+            (not blocker_project_id and str(run.get("owner_id") or "") == account.id)
+            or (bool(blocker_project_id) and db.project_access_role(blocker_project_id, account.id) is not None)
+        )
+        if not blocker_visible:
+            context = {**context}
+            context.pop("blocking_run", None)
+    return {**run, "queue_context": context}
 
 
 def _project_role(
@@ -370,7 +388,10 @@ def list_runs(
         "business_runs", account_id=account.id, project_id=project_id, limit=limit,
         cursor=cursor, parent=parent,
     ))
-    return {"runs": page["items"], "next_cursor": page["next_cursor"]}
+    return {
+        "runs": [_with_queue_context(run, account) for run in page["items"]],
+        "next_cursor": page["next_cursor"],
+    }
 
 
 @router.post("/runs")
@@ -488,7 +509,7 @@ def create_turn(
 
 @router.get("/runs/{run_id}")
 def get_run(run_id: str, account: Account = CurrentAccount) -> dict:
-    return _record("business_runs", run_id, account)
+    return _with_queue_context(_record("business_runs", run_id, account), account)
 
 
 @router.patch("/runs/{run_id}")

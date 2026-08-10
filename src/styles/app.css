@@ -2236,3 +2236,4 @@ body.dark .auto-tabs .ant-tabs-tab-active { background: var(--chip); }
 
 body.dark .project-health-tag.ant-tag.is-critical { background: #47262A; color: #FF9A9E; }
 body.dark .project-health-tag.ant-tag.is-attention { background: #43351F; color: #F2BF68; }
+.run-queue-note{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--chip);color:var(--text-2);font-size:13px;line-height:1.5}.run-queue-note.needs-action{border-color:var(--color-warning);background:var(--color-warning-soft);color:var(--color-warning-text)}.run-queue-note .btn-ghost{min-height:34px;margin-left:auto}
