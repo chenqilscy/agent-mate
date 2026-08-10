@@ -16,6 +16,13 @@ function BotMessage({ msg, streaming, onRetry }: { msg: ChatMessage; streaming: 
   const running = msg.status === 'running'
   const html = useMemo(() => (msg.content ? renderMarkdown(msg.content) : ''), [msg.content])
   const hasTrace = msg.trace.length > 0
+  const runningLabel = msg.runStatus === 'paused'
+    ? '已暂停'
+    : msg.runStatus === 'waiting_user'
+      ? '等待你的回答…'
+      : msg.runStatus === 'queued'
+        ? '等待 Local Agent…'
+        : '执行中…'
 
   return (
     <div className="msg bot" id={`msg-${msg.id}`}>
@@ -29,12 +36,12 @@ function BotMessage({ msg, streaming, onRetry }: { msg: ChatMessage; streaming: 
           onClick={() => hasTrace && setCollapsed((v) => !v)}
         >
           {running ? (
-            <><span className="run-ic" />执行中…</>
+            <><span className="run-ic" />{runningLabel}</>
           ) : (
             <>已完成{msg.secs ? ` ${msg.secs}s` : ''} {hasTrace && SC_SM}</>
           )}
         </div>
-        {hasTrace && !collapsed && <TraceStream trace={msg.trace} streaming={running && streaming} runId={msg.runId} />}
+        {hasTrace && !collapsed && <TraceStream trace={msg.trace} streaming={running && streaming && msg.runStatus !== 'paused'} runId={msg.runId} />}
         {!msg.content && running && !hasTrace && (
           <div className="typing"><i /><i /><i /></div>
         )}
@@ -52,7 +59,7 @@ function BotMessage({ msg, streaming, onRetry }: { msg: ChatMessage; streaming: 
             <div className="ak-f">原等待流已结束，不能直接提交答案；请重试本次运行。</div>
           </div>
         )}
-        {onRetry && msg.runStatus && ['failed', 'cancelled', 'paused'].includes(msg.runStatus) && (
+        {onRetry && msg.runStatus && ['failed', 'cancelled'].includes(msg.runStatus) && (
           <WbButton className="btn-ghost msg-retry" onClick={() => onRetry(msg.id)}>重试本次运行</WbButton>
         )}
         {!running && (msg.content || msg.error) && <BotActions msg={msg} />}

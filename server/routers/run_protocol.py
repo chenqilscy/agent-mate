@@ -216,6 +216,30 @@ def cancel_run(run_id: str, account: Account = CurrentAccount) -> dict:
         raise
 
 
+@router.post("/runs/{run_id}/pause")
+def pause_run(run_id: str, account: Account = CurrentAccount) -> dict:
+    run = _authorized_run(run_id, account, write=True)
+    if run["owner_id"] != account.id:
+        raise HTTPException(403, "only the Run owner can pause execution")
+    try:
+        return {"run": store.request_pause(run_id=run_id, owner_id=account.id)}
+    except Exception as exc:
+        _protocol_error(exc)
+        raise
+
+
+@router.post("/runs/{run_id}/resume")
+def resume_run(run_id: str, account: Account = CurrentAccount) -> dict:
+    run = _authorized_run(run_id, account, write=True)
+    if run["owner_id"] != account.id:
+        raise HTTPException(403, "only the Run owner can resume execution")
+    try:
+        return {"run": store.request_resume(run_id=run_id, owner_id=account.id)}
+    except Exception as exc:
+        _protocol_error(exc)
+        raise
+
+
 @router.get("/runs/{run_id}/events")
 def run_events(
     run_id: str, after_epoch: int = 0, after_sequence: int = 0, limit: int = 500,

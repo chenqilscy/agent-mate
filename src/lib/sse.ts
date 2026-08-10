@@ -123,6 +123,7 @@ export async function followServerRun(opts: FollowServerRunOptions): Promise<voi
   let currentEpoch = 0
   let sawError = false
   let terminalRun: AgentRun | null = null
+  let lastStatus = ''
 
   while (true) {
     if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -142,6 +143,10 @@ export async function followServerRun(opts: FollowServerRunOptions): Promise<voi
       }>
     }>(`/runs/${opts.runId}/events?${query}`, { cache: false })
     terminalRun = result.run
+    if (result.run.status !== lastStatus) {
+      lastStatus = result.run.status
+      opts.onEvent({ type: 'run_state', data: { status: result.run.status } })
+    }
     const serverEpoch = Math.max(0, Number(result.run.lease_epoch || 0))
     if (serverEpoch > currentEpoch) {
       if (currentEpoch > 0) {

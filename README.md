@@ -1,7 +1,7 @@
 # AgentMate
 
-AgentMate is a real, runnable AI work companion. The current build retains a local-first compatibility baseline while
-the product migrates to a Server-first collaboration platform with a Local Agent execution node. It was initially informed by a high-fidelity
+AgentMate is a real, runnable personal Agent workbench backed by a Server control plane and a device-local execution node.
+The current build retains only a bounded local-first compatibility layer while obsolete storage/sync code is retired. It was initially informed by a high-fidelity
 Tencent WorkBuddy reference prototype, now archived with official-source notes under
 [`docs/WorkBuddy/`](docs/WorkBuddy/), and has evolved into an independent product.
 
@@ -14,10 +14,12 @@ The working baseline includes:
 
 - React 19 + Vite + TypeScript + Zustand App UI;
 - Local Agent execution service with SSE, device-local SQLite, project workspaces and a real tool loop;
-- projects, work items, automations, experts, Skills, MCP connectors, knowledge bases and model management;
+- Server-backed projects, work items, Sessions, Runs, delivery acceptance and automation records;
+- real Run pause/resume/cancel, ask-user, session-scoped authorization and durable trace replay;
+- model, Skill, generic stdio/HTTP-SSE MCP connector management, encrypted local credentials and execution diagnostics;
 - multi-assistant support with real Telegram and email channels;
 - Tauri 2 shell, PyInstaller sidecar, tray and MSI/NSIS build scaffolding;
-- AgentMate Server control plane and its same-origin AgentMate Console; the current build can still run without it during migration.
+- AgentMate Server control plane and its same-origin AgentMate Console; pure-local business writes remain compatibility-only during migration.
 
 The active issue ledger is [`docs/issues/`](docs/issues/README.md), with completed records compacted under its archive.
 The Server-first migration is tracked by WB-431 and its child work packages. Two release milestones also remain deferred:
@@ -56,10 +58,9 @@ pointer and display copy, but does not mirror the marketplace, store SkillHub ke
 
 Detailed boundaries:
 
-- [current implementation](docs/agentmate-实现方案.md)
-- [Server-first target architecture](docs/agentmate-server-first-架构设计.md)
+- [documentation map and authority](docs/README.md)
+- [current Server-first architecture](docs/agentmate-server-first-架构设计.md)
 - [data ownership and transport rules](docs/agentmate-数据分层与同步规范.md)
-- [implemented local-first Server baseline](docs/agentmate-server-架构设计.md)
 - [Console architecture](docs/agentmate-console-管理门户设计.md)
 - [desktop build and updater status](docs/desktop-build.md)
 
@@ -86,8 +87,9 @@ Open `http://127.0.0.1:8102`, then open “模型管理” to configure a provid
 API bases, and default model choices are stored in the local per-owner database; they are never placed in frontend
 code or required in `backend/.env`.
 
-Settings follow explicit ownership: Console manages platform-wide WeKnora and collaboration policy; the App's
-Settings dialog manages this device's Langfuse, local ASR, model credentials, installed capabilities and runtime behavior.
+Settings follow explicit ownership: Console manages platform-wide services and collaboration policy; the App's
+Settings dialog manages this device's Langfuse, local ASR, model credentials, installed capabilities, MCP instances,
+runtime behavior and execution diagnostics.
 Runtime settings are persisted by their owning service,
 take effect without a service restart, and keep secrets write-only. Only deployment/connector settings that explicitly
 support environment variables use them as fallbacks.

@@ -8,12 +8,13 @@ import { useExpertStore } from '../stores/expertStore'
 import { useSkillStore, matchSkill } from '../stores/skillStore'
 import { CreateExpertModal } from '../components/expert/CreateExpertModal'
 import { ConnectorDetailModal } from '../components/connector/ConnectorDetailModal'
+import { LocalConnectorManager } from '../components/connector/LocalConnectorManager'
 import { SkillDetail, type SkillTarget } from '../components/skill/SkillDetail'
 import { AddSkillControl } from '../components/skill/AddSkillControl'
 import { LocalSkillEditorModal } from '../components/skill/LocalSkillEditorModal'
 import { SkillBundleModal } from '../components/skill/SkillBundleModal'
 import { api } from '../lib/api'
-import type { InstalledSkill, SkillCard } from '../lib/types'
+import type { ConnectorRuntimeStatus, InstalledSkill, LocalConnectorPayload, SkillCard } from '../lib/types'
 import { type ExpertTeam } from '../data/catalog'
 import { useCatalog, useCatalogStore } from '../stores/catalogStore'
 import { AntModalBridge } from '../components/ui/AntModalBridge'
@@ -523,9 +524,9 @@ function InstalledCard({ skill, onOpenDetail, onEdit }: { skill: InstalledSkill;
 }
 
 // 连接器加入本会话的按钮（受控，反映真实 loadout；stopPropagation 不触发卡片详情）。
-function ConnAddBtn({ on, onToggle }: { on: boolean; onToggle: (e: MouseEvent) => void }) {
+function ConnAddBtn({ on, onToggle, disabled = false }: { on: boolean; onToggle: (e: MouseEvent) => void; disabled?: boolean }) {
   return (
-    <WbButton type="button" className={`add-btn ${on ? 'on' : ''}`.trim()} aria-label={on ? '移除' : '添加'} onClick={onToggle}>
+    <WbButton type="button" className={`add-btn ${on ? 'on' : ''}`.trim()} aria-label={on ? '移除' : disabled ? '连接器尚未就绪' : '添加'} disabled={disabled} onClick={onToggle}>
       {on ? (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 12l5 5L20 6" /></svg>
       ) : (
@@ -542,6 +543,9 @@ function ConnectorsPane() {
   // 真实连接态 → 卡片上的「● 已连接」。两类：OAuth（金山文档，问 kdocs 授权态）与
   // 表单型（WeKnora · WB-188，问 /api/knowledge/config 是否已配 key）。
   const [authed, setAuthed] = useState<Record<string, boolean>>({})
+  const [managerOpen, setManagerOpen] = useState(false)
+  const [runtime, setRuntime] = useState<LocalConnectorPayload>({ instances: [], statuses: [] })
+  const refreshRuntime = () => api.localConnectors().then(setRuntime).catch(() => {})
   const refreshAuth = () => {
     if (CONN_META['金山文档']?.oauth) {
       api.kdocsStatus().then((s) => setAuthed((m) => ({ ...m, 金山文档: s.authenticated }))).catch(() => {})
@@ -550,11 +554,35 @@ function ConnectorsPane() {
       api.knowledgeConfig().then((c) => setAuthed((m) => ({ ...m, WeKnora知识库: c.configured }))).catch(() => {})
     }
   }
-  useEffect(() => { refreshAuth() }, [])
+  useEffect(() => { refreshAuth(); refreshRuntime() }, [])
+  const runtimeByName = new Map(runtime.statuses.map((item) => [item.name, item]))
+  const localStatuses = runtime.statuses.filter((item) => item.source === 'local')
+  const recommendationNames = new Set(CONNECTOR_RECOMMENDATIONS.map((item) => item.name))
+  const connectorCards = [
+    ...CONNECTOR_RECOMMENDATIONS,
+    ...runtime.statuses
+      .filter((item) => item.source === 'builtin' && !recommendationNames.has(item.name))
+      .map((item) => ({
+        slug: item.id,
+        name: item.name,
+        icon: '🔌',
+        description: item.last_error || (item.transport === 'builtin' ? '本机内置连接器' : `${item.transport} 连接器`),
+        status: item.healthy ? 'rdy' as const : 'tok' as const,
+        scope: 'device',
+        placement: 'local-runtime',
+      })),
+  ]
+  const ready = (status: ConnectorRuntimeStatus | undefined, meta: ReturnType<typeof useCatalog>['CONN_META'][string] | undefined, name: string) =>
+    Boolean(status?.healthy && (!(meta?.oauth || meta?.configKind) || authed[name]))
 
   return (
     <div className="cap-pane show">
-      {CONNECTOR_RECOMMENDATIONS.length === 0 && (
+      <div className="ph" style={{ alignItems: 'center', marginTop: 2 }}>
+        <div><b>本机连接器</b><small>只有配置完成并通过连通测试的连接器才能加入任务</small></div>
+        <div style={{ flex: 1 }} />
+        <WbButton className="btn-dark" onClick={() => setManagerOpen(true)}>管理本机 MCP</WbButton>
+      </div>
+      {connectorCards.length === 0 && localStatuses.length === 0 && (
         <Empty
           className="auto-empty"
           image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -566,18 +594,22 @@ function ConnectorsPane() {
         </Empty>
       )}
       <div className="card-grid g2" style={{ marginTop: 6 }}>
-        {CONNECTOR_RECOMMENDATIONS.map((connector) => {
-          const { icon: ic, name: n, description: d, status } = connector
+        {connectorCards.map((connector) => {
+          const { icon: ic, name: n, description: d } = connector
           const meta = CONN_META[n]
+          const runtimeStatus = runtimeByName.get(n)
+          const executable = ready(runtimeStatus, meta, n)
           const added = connectors.includes(n)
           const open = () => setDetail([ic, n, d])
           // oauth / 表单型连接器显示实时连接态；其它显示静态标签。
-          const badge = meta ? ((meta.oauth || meta.configKind)
+          const badge = !runtimeStatus
+            ? <Tag className="conn-tag tok">尚未支持</Tag>
+            : meta ? ((meta.oauth || meta.configKind)
             ? (authed[n]
                 ? <Tag className="conn-tag rdy">● 已连接</Tag>
                 : <Tag className="conn-tag tok">{meta.statusLabel}</Tag>)
             : <Tag className={`conn-tag ${meta.status}`}>{meta.statusLabel}</Tag>)
-            : <Tag className={`conn-tag ${status}`}>{status === 'rdy' ? '内置即用' : '需连接'}</Tag>
+            : <Tag className={`conn-tag ${executable ? 'rdy' : 'tok'}`}>{executable ? '可用' : runtimeStatus.last_error || '需配置'}</Tag>
           return (
             <ProCard
               className="conn" key={n} hoverable styles={{ body: { display: 'contents' } }} role="button" tabIndex={0} onClick={open}
@@ -590,13 +622,15 @@ function ConnectorsPane() {
               </div>
               <ConnAddBtn
                 on={added}
+                disabled={!added && !executable}
                 onToggle={(e) => {
                   e.stopPropagation()
                   if (added) {
                     useLoadoutStore.getState().toggle('conn', n)
                     toast('已移除 · ' + n)
                   } else {
-                    summonConnector(n)
+                    if (executable) summonConnector(n)
+                    else toast(runtimeStatus?.last_error || '该连接器尚未配置完成并通过测试')
                   }
                 }}
               />
@@ -604,12 +638,33 @@ function ConnectorsPane() {
           )
         })}
       </div>
+      {localStatuses.length > 0 && <>
+        <div className="ph" style={{ marginTop: 20 }}><b>自定义 MCP</b></div>
+        <div className="card-grid g2" style={{ marginTop: 6 }}>
+          {localStatuses.map((status) => {
+            const added = connectors.includes(status.name)
+            return <ProCard className="conn" key={status.id} styles={{ body: { display: 'contents' } }}>
+              <div className="c-ic">🔌</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="c-n">{status.name}{status.healthy ? <Tag className="conn-tag rdy">● 可用</Tag> : <Tag className="conn-tag tok">{status.health_status}</Tag>}</div>
+                <div className="c-d">{status.transport} · {status.last_error || `${status.tool_count} 个工具`}</div>
+              </div>
+              <ConnAddBtn on={added} disabled={!added && !status.healthy} onToggle={(event) => {
+                event.stopPropagation()
+                if (added) useLoadoutStore.getState().toggle('conn', status.name)
+                else if (status.healthy) summonConnector(status.name)
+              }} />
+            </ProCard>
+          })}
+        </div>
+      </>}
       {detail && (
         <ConnectorDetailModal
           icon={detail[0]} name={detail[1]} desc={detail[2]}
           onClose={() => { setDetail(null); refreshAuth() }}
         />
       )}
+      <LocalConnectorManager open={managerOpen} onClose={() => setManagerOpen(false)} onChanged={(next) => setRuntime(next)} />
     </div>
   )
 }

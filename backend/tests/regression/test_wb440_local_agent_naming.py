@@ -53,8 +53,8 @@ class LocalAgentNamingContractTest(unittest.TestCase):
         for relative in (
             "README.md",
             "docs/desktop-build.md",
-            "docs/agentmate-实现方案.md",
-            "docs/agentmate-server-架构设计.md",
+            "docs/agentmate-server-first-架构设计.md",
+            "docs/agentmate-数据分层与同步规范.md",
         ):
             content = read(relative)
             with self.subTest(path=relative):

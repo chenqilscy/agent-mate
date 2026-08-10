@@ -26,6 +26,7 @@ from mcp import ClientSession, StdioServerParameters
 # the slow/broken local-server spawn seen in some bundled builds.
 _CONNECT_TIMEOUT = 12.0
 from mcp.client.stdio import stdio_client
+from mcp.client.sse import sse_client
 from mcp.shared.memory import create_connected_server_and_client_session
 
 _BACKEND = Path(__file__).resolve().parent.parent
@@ -63,10 +64,20 @@ def _builtin_fastmcp(server: str):
 #       `secret_env` forwards ONLY that connector's credential to its own process —
 #       never `os.environ` wholesale (WB-011); `requires` skips a run missing the
 #       token with a clear reason instead of a silent failure.
-def connector_specs() -> dict[str, dict[str, Any]]:
+def connector_specs(owner_id: str = "") -> dict[str, dict[str, Any]]:
     """连接器名 → 启动 spec，读自 DB（enabled 行）。替代原硬编码的 CONNECTORS 字典。"""
     from storage import db  # 局部 import：避免 storage.db ↔ agent.* 的模块级循环依赖
-    return db.connector_specs()
+    specs = db.connector_specs()
+    if owner_id:
+        import local_agent_store
+        for item in local_agent_store.list_connector_instances(owner_id, enabled_only=True):
+            specs[item["name"]] = {
+                "transport": item["transport"], "command": item["command"],
+                "args": item["args"], "url": item["url"], "env": item["environment"],
+                "secret_keys": item["secret_keys"], "_instance_id": item["id"],
+                "_health_status": item["health_status"], "_source": "local",
+            }
+    return specs
 
 
 def is_connector(name: str) -> bool:
@@ -89,15 +100,38 @@ def _safe_base_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k.upper() in _SAFE_ENV}
 
 
-def _secret_env(spec: dict[str, Any]) -> dict[str, str]:
+def _credential(owner_id: str, connector_name: str, spec: dict[str, Any], key: str) -> str:
+    if owner_id:
+        import local_agent_store
+        instance_id = str(spec.get("_instance_id") or "")
+        local = (
+            local_agent_store.get_connector_secret(owner_id, instance_id, key)
+            if instance_id else local_agent_store.get_builtin_connector_secret(owner_id, connector_name, key)
+        )
+        if local:
+            return local.strip()
+        # Owner-created connector definitions are untrusted input.  They may
+        # name a credential but must never use that name to read an unrelated
+        # secret from the Local Agent process environment.  Environment
+        # fallback is retained only for trusted catalog/built-in definitions.
+        if instance_id:
+            return ""
+    return os.environ.get(key, "").strip()
+
+
+def _secret_env(spec: dict[str, Any], *, owner_id: str, connector_name: str) -> dict[str, str]:
     """A connector's own declared credentials, read from host env / backend .env
     and injected into ONLY that connector's subprocess (target var name → value).
     Nothing else from os.environ crosses over (WB-011)."""
     out: dict[str, str] = {}
     for target, source_key in spec.get("secret_env", {}).items():
-        val = os.environ.get(source_key, "").strip()
+        val = _credential(owner_id, connector_name, spec, str(source_key))
         if val:
             out[target] = val
+    for target in spec.get("secret_keys", []):
+        val = _credential(owner_id, connector_name, spec, str(target))
+        if val:
+            out[str(target)] = val
     return out
 
 
@@ -125,7 +159,8 @@ def _slug(name: str, idx: int) -> str:
 
 
 async def open_connectors(
-    names: list[str], *, env: dict[str, str] | None = None
+    names: list[str], *, env: dict[str, str] | None = None, owner_id: str = "",
+    allow_unhealthy: bool = False,
 ) -> tuple[list[McpTool], AsyncExitStack, list[dict[str, str]]]:
     """Spawn each enabled connector's MCP server and list its tools.
 
@@ -138,7 +173,7 @@ async def open_connectors(
     stack = AsyncExitStack()
     tools: list[McpTool] = []
     skipped: list[dict[str, str]] = []
-    specs = connector_specs()  # name → launch spec, from DB (WB-059)
+    specs = connector_specs(owner_id)  # trusted built-ins + owner-scoped local instances
 
     def _collect(name: str, idx: int, session: ClientSession, listed: Any) -> None:
         for t in listed.tools:
@@ -159,9 +194,19 @@ async def open_connectors(
         if not spec:
             skipped.append({"name": name, "reason": "本机未提供可信运行定义或定义不兼容"})
             continue
-        missing = [k for k in spec.get("requires", []) if not os.environ.get(k, "").strip()]
+        if spec.get("_instance_id") and spec.get("_health_status") != "healthy" and not allow_unhealthy:
+            skipped.append({"name": name, "reason": "本机连接器尚未通过连通测试"})
+            continue
+        missing = [
+            str(key) for key in spec.get("requires", [])
+            if not _credential(owner_id, name, spec, str(key))
+        ]
+        missing.extend(
+            str(key) for key in spec.get("secret_keys", [])
+            if not _credential(owner_id, name, spec, str(key))
+        )
         if missing:
-            skipped.append({"name": name, "reason": f"需在 backend/.env 配置 {', '.join(missing)}"})
+            skipped.append({"name": name, "reason": f"缺少本机凭据 {', '.join(dict.fromkeys(missing))}"})
             continue
         # `requires_bin`: an external CLI must be on PATH (e.g. kdocs-cli for 金山文档,
         # whose auth is OAuth→keychain, not an env token). Missing → clean skip.
@@ -190,6 +235,28 @@ async def open_connectors(
                 skipped.append({"name": name, "reason": "启动失败"})
             continue
 
+        if spec.get("transport") == "sse":
+            url = str(spec.get("url") or "")
+            if not url:
+                skipped.append({"name": name, "reason": "SSE 地址未配置"})
+                continue
+            headers = {
+                **{str(k): str(v) for k, v in spec.get("env", {}).items()},
+                **_secret_env(spec, owner_id=owner_id, connector_name=name),
+            }
+            try:
+                read, write = await stack.enter_async_context(
+                    sse_client(url, headers=headers, timeout=_CONNECT_TIMEOUT)
+                )
+                session = await stack.enter_async_context(ClientSession(read, write))
+                await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
+                _collect(name, idx, session, await asyncio.wait_for(session.list_tools(), timeout=_CONNECT_TIMEOUT))
+            except asyncio.TimeoutError:
+                skipped.append({"name": name, "reason": "连接超时"})
+            except Exception:  # noqa: BLE001
+                skipped.append({"name": name, "reason": "连接失败"})
+            continue
+
         # ── Third-party server: spawn as a stdio subprocess. A frozen bundle can
         #    wedge on a held-open subprocess, so gate it (opt back in with
         #    AGENTMATE_BUNDLE_CONNECTORS=1).
@@ -207,7 +274,7 @@ async def open_connectors(
                 **_safe_base_env(),
                 **(env or {}),
                 **spec.get("env", {}),
-                **_secret_env(spec),
+                **_secret_env(spec, owner_id=owner_id, connector_name=name),
                 "PYTHONUTF8": "1",
                 "PYTHONIOENCODING": "utf-8",
             },
@@ -238,6 +305,60 @@ async def open_connectors(
             skipped.append({"name": name, "reason": "启动失败"})
             continue
     return tools, stack, skipped
+
+
+def connector_statuses(owner_id: str) -> list[dict[str, Any]]:
+    """Return a sanitized, actionable readiness view for the App."""
+    import local_agent_store
+    instances = local_agent_store.list_connector_instances(owner_id)
+    instances_by_id = {str(item["id"]): item for item in instances}
+    result: list[dict[str, Any]] = []
+    for name, spec in connector_specs(owner_id).items():
+        required = [str(item) for item in spec.get("requires", [])]
+        required.extend(str(item) for item in spec.get("secret_keys", []))
+        missing_credentials = [
+            key for key in dict.fromkeys(required) if not _credential(owner_id, name, spec, key)
+        ]
+        missing_bins = [str(item) for item in spec.get("requires_bin", []) if not shutil.which(str(item))]
+        instance_id = str(spec.get("_instance_id") or "")
+        health = str(spec.get("_health_status") or "ready")
+        configured = not missing_credentials and not missing_bins
+        healthy = configured and (not instance_id or health == "healthy")
+        result.append({
+            "id": instance_id or f"builtin:{name}", "name": name,
+            "source": "local" if instance_id else "builtin",
+            "transport": str(spec.get("transport") or ("builtin" if spec.get("builtin_server") else "stdio")),
+            "enabled": True, "configured": configured, "healthy": healthy,
+            "health_status": health if configured else "blocked",
+            "last_error": (
+                f"缺少凭据：{', '.join(missing_credentials)}" if missing_credentials
+                else f"未安装：{', '.join(missing_bins)}" if missing_bins
+                else ""
+            ),
+            "credential_keys": list(dict.fromkeys(required)),
+            "tool_count": int(instances_by_id.get(instance_id, {}).get("tool_count", 0)) if instance_id else 0,
+        })
+    visible_ids = {str(item["id"]) for item in result}
+    for instance in instances:
+        instance_id = str(instance["id"])
+        if instance_id in visible_ids:
+            continue
+        # Disabled instances are intentionally excluded from connector_specs(),
+        # but must remain visible so the App can edit or enable them again.
+        result.append({
+            "id": instance_id,
+            "name": str(instance["name"]),
+            "source": "local",
+            "transport": str(instance["transport"]),
+            "enabled": bool(instance["enabled"]),
+            "configured": True,
+            "healthy": False,
+            "health_status": "disabled" if not instance["enabled"] else str(instance["health_status"]),
+            "last_error": str(instance.get("last_error") or ""),
+            "credential_keys": list(instance.get("secret_keys") or []),
+            "tool_count": int(instance.get("tool_count") or 0),
+        })
+    return result
 
 
 def mcp_schema(t: McpTool) -> dict[str, Any]:

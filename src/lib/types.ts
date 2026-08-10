@@ -123,6 +123,7 @@ export interface ErrorEvent { message: string }
 export interface SessionEvent { id: string; title: string }
 export interface DoneEvent { message_id?: string }
 export interface RunRecoveredEvent { lease_epoch: number }
+export interface RunStateEvent { status: RunStatus }
 
 export const SSE_EVENT_TYPES = [
   'session', 'status', 'run', 'think', 'step', 'file_read', 'diff', 'todo',
@@ -132,7 +133,7 @@ export const SSE_EVENT_TYPES = [
 
 // Events synthesized while following the durable Server Run protocol. They are
 // part of the store contract but never accepted from the legacy wire SSE parser.
-export const CLIENT_EVENT_TYPES = ['run_recovered'] as const
+export const CLIENT_EVENT_TYPES = ['run_recovered', 'run_state'] as const
 
 export interface AskQuestion { q: string; options: string[] }
 export interface QaPair { q: string; a: string }
@@ -142,6 +143,7 @@ export type SSEEvent =
   | { type: 'status'; data: StatusEvent }
   | { type: 'run'; data: RunEvent }
   | { type: 'run_recovered'; data: RunRecoveredEvent }
+  | { type: 'run_state'; data: RunStateEvent }
   | { type: 'think'; data: ThinkEvent }
   | { type: 'step'; data: StepEvent }
   | { type: 'file_read'; data: FileReadEvent }
@@ -249,6 +251,73 @@ export interface AgentRun {
   created_at: number
   updated_at: number
   artifacts?: ArtifactManifest[]
+}
+
+export interface LocalConnectorInstance {
+  id: string
+  name: string
+  transport: 'stdio' | 'sse'
+  command: string
+  args: string[]
+  url: string
+  environment: Record<string, string>
+  secret_keys: string[]
+  has_secrets: Record<string, boolean>
+  enabled: boolean
+  health_status: 'unknown' | 'healthy' | 'unhealthy'
+  last_error: string
+  tool_count: number
+  last_checked_at: number
+  created_at: number
+  updated_at: number
+}
+
+export interface ConnectorRuntimeStatus {
+  id: string
+  name: string
+  source: 'builtin' | 'local'
+  transport: 'builtin' | 'stdio' | 'sse'
+  enabled: boolean
+  configured: boolean
+  healthy: boolean
+  health_status: string
+  last_error: string
+  credential_keys: string[]
+  tool_count: number
+}
+
+export interface LocalConnectorPayload {
+  instances: LocalConnectorInstance[]
+  statuses: ConnectorRuntimeStatus[]
+}
+
+export interface DeviceDiagnosticIssue {
+  code: string
+  severity: 'warning' | 'error'
+  title: string
+  detail: string
+  action: 'retry_transport' | 'open_run' | 'runtime_settings' | 'login' | 'recheck' | 'connectors'
+  run_id?: string
+}
+
+export interface DeviceDiagnostics {
+  checked_at: number
+  healthy: boolean
+  process: {
+    pid: number; platform: string; release: string; python: string
+    server_configured: boolean; server_url: string; protocol_version: number
+  }
+  transport: {
+    identity: { bound: boolean; expires_at: number; updated_at: number }
+    leases: Array<{ run_id: string; device_id: string; lease_epoch: number; expires_at: number; ack_high_water: number; status: string; last_error: string; updated_at: number }>
+    wal: { count: number; bytes: number; oldest_at: number; max_attempts: number; runs: Array<{ run_id: string; lease_epoch: number; count: number; bytes: number; oldest_at: number; attempts: number }> }
+    working_copies: Array<{ id: string; asset_id: string; project_id: string; run_id: string; relative_path: string; source_kind: string; state: string; size: number; updated_at: number }>
+    staged_inputs: number
+  }
+  workers: { healthy: boolean; components: Array<{ name: string; last_attempt_at: number | null; last_success_at: number | null; last_failure_at: number | null; consecutive_failures: number; last_error: string | null }> }
+  connectors: ConnectorRuntimeStatus[]
+  runtime: { items: DeviceSettingItem[] }
+  issues: DeviceDiagnosticIssue[]
 }
 
 export interface OpsRecentArtifact {
@@ -671,6 +740,7 @@ export interface ProjectInfo {
   org_id?: string | null
   ago?: string
   role?: string // the current user's role in this project (M7 C2): Owner|Admin|Member|Viewer
+  sync_conflicts?: number // local-first compatibility; removed with WB-437 UI retirement
 }
 
 export interface ServerTimelineEvent {

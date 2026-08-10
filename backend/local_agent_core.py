@@ -183,7 +183,7 @@ def _device_token(owner_id: str) -> str:
 class RunEventBody(BaseModel):
     owner_id: str = Field(min_length=8, max_length=200)
     type: str = Field(
-        pattern=r"^(run\.(started|waiting_user|checkpoint|completed|failed|cancelled|cancel_ack)|command\.ack)$"
+        pattern=r"^(run\.(started|waiting_user|checkpoint|paused|pause_ack|completed|failed|cancelled|cancel_ack)|command\.ack)$"
     )
     payload: dict[str, Any] = Field(default_factory=dict)
 

@@ -8,7 +8,7 @@ type Theme = 'light' | 'dark'
 // 设置中心（WB-146）的标签页 id。顺序即左侧导航顺序。
 export type SettingsTab =
   | 'account' | 'system' | 'agent' | 'shortcuts' | 'memory' | 'model'
-  | 'assistant' | 'runtime' | 'personalize' | 'data' | 'security' | 'help'
+  | 'assistant' | 'runtime' | 'diagnostics' | 'personalize' | 'data' | 'security' | 'help'
 
 interface UIState {
   view: ViewId

@@ -158,6 +158,30 @@ def init_db() -> None:
             created_at REAL NOT NULL,
             FOREIGN KEY(working_copy_id) REFERENCES asset_working_copies(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS connector_instances (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            transport TEXT NOT NULL,
+            command TEXT NOT NULL DEFAULT '',
+            args TEXT NOT NULL DEFAULT '[]',
+            url TEXT NOT NULL DEFAULT '',
+            environment TEXT NOT NULL DEFAULT '{}',
+            secret_keys TEXT NOT NULL DEFAULT '[]',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            health_status TEXT NOT NULL DEFAULT 'unknown',
+            last_error TEXT NOT NULL DEFAULT '',
+            tool_count INTEGER NOT NULL DEFAULT 0,
+            last_checked_at REAL NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            UNIQUE(owner_id,name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_connector_instances_owner
+            ON connector_instances(owner_id,enabled,name);
+        INSERT OR IGNORE INTO local_agent_schema(version,applied_at)
+            VALUES (2,CAST(strftime('%s','now') AS REAL));
         """
     )
     conn.commit()
@@ -200,6 +224,118 @@ def set_device_secret(key: str, value: Optional[str]) -> None:
             (key, local_secret_store.protect(value), time.time()),
         )
     get_conn().commit()
+
+
+def _connector_secret_key(owner_id: str, connector_id: str, name: str) -> str:
+    return f"connector:{owner_id}:{connector_id}:{name}"
+
+
+def set_connector_secret(owner_id: str, connector_id: str, name: str, value: Optional[str]) -> None:
+    set_device_secret(_connector_secret_key(owner_id, connector_id, name), value)
+
+
+def get_connector_secret(owner_id: str, connector_id: str, name: str) -> Optional[str]:
+    return get_device_secret(_connector_secret_key(owner_id, connector_id, name))
+
+
+def set_builtin_connector_secret(owner_id: str, connector_name: str, name: str, value: Optional[str]) -> None:
+    set_connector_secret(owner_id, f"builtin:{connector_name}", name, value)
+
+
+def get_builtin_connector_secret(owner_id: str, connector_name: str, name: str) -> Optional[str]:
+    return get_connector_secret(owner_id, f"builtin:{connector_name}", name)
+
+
+def _connector_row(row: sqlite3.Row) -> dict:
+    item = dict(row)
+    for key, fallback in (("args", []), ("environment", {}), ("secret_keys", [])):
+        try:
+            item[key] = json.loads(str(item[key]))
+        except (TypeError, json.JSONDecodeError):
+            item[key] = fallback
+    item["enabled"] = bool(item["enabled"])
+    item["has_secrets"] = {
+        key: bool(get_connector_secret(str(item["owner_id"]), str(item["id"]), key))
+        for key in item["secret_keys"]
+    }
+    return item
+
+
+def list_connector_instances(owner_id: str, *, enabled_only: bool = False) -> list[dict]:
+    init_db()
+    suffix = " AND enabled=1" if enabled_only else ""
+    rows = get_conn().execute(
+        f"SELECT * FROM connector_instances WHERE owner_id=?{suffix} ORDER BY name,id",
+        (owner_id,),
+    ).fetchall()
+    return [_connector_row(row) for row in rows]
+
+
+def get_connector_instance(owner_id: str, instance_id: str) -> Optional[dict]:
+    init_db()
+    row = get_conn().execute(
+        "SELECT * FROM connector_instances WHERE id=? AND owner_id=?", (instance_id, owner_id),
+    ).fetchone()
+    return _connector_row(row) if row else None
+
+
+def save_connector_instance(
+    owner_id: str, *, instance_id: str, name: str, transport: str,
+    command: str = "", args: list[str] | None = None, url: str = "",
+    environment: dict[str, str] | None = None, secret_keys: list[str] | None = None,
+    enabled: bool = True,
+) -> dict:
+    init_db()
+    now = time.time()
+    existing = get_connector_instance(owner_id, instance_id)
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO connector_instances "
+        "(id,owner_id,name,transport,command,args,url,environment,secret_keys,enabled,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+        "name=excluded.name,transport=excluded.transport,command=excluded.command,args=excluded.args,"
+        "url=excluded.url,environment=excluded.environment,secret_keys=excluded.secret_keys,"
+        "enabled=excluded.enabled,health_status='unknown',last_error='',tool_count=0,updated_at=excluded.updated_at "
+        "WHERE connector_instances.owner_id=excluded.owner_id",
+        (
+            instance_id, owner_id, name, transport, command,
+            json.dumps(args or [], ensure_ascii=False), url,
+            json.dumps(environment or {}, ensure_ascii=False),
+            json.dumps(secret_keys or [], ensure_ascii=False), int(enabled),
+            float(existing["created_at"]) if existing else now, now,
+        ),
+    )
+    conn.commit()
+    result = get_connector_instance(owner_id, instance_id)
+    if result is None:
+        raise KeyError(instance_id)
+    return result
+
+
+def set_connector_health(
+    owner_id: str, instance_id: str, *, status: str, error: str = "", tool_count: int = 0,
+) -> Optional[dict]:
+    init_db()
+    get_conn().execute(
+        "UPDATE connector_instances SET health_status=?,last_error=?,tool_count=?,last_checked_at=?,updated_at=? "
+        "WHERE id=? AND owner_id=?",
+        (status, error[:2000], max(0, tool_count), time.time(), time.time(), instance_id, owner_id),
+    )
+    get_conn().commit()
+    return get_connector_instance(owner_id, instance_id)
+
+
+def delete_connector_instance(owner_id: str, instance_id: str) -> bool:
+    instance = get_connector_instance(owner_id, instance_id)
+    if instance is None:
+        return False
+    for key in instance["secret_keys"]:
+        set_connector_secret(owner_id, instance_id, key, None)
+    cur = get_conn().execute(
+        "DELETE FROM connector_instances WHERE id=? AND owner_id=?", (instance_id, owner_id),
+    )
+    get_conn().commit()
+    return cur.rowcount > 0
 
 
 def set_server_identity(owner_id: str, token: str, expires_at: float | None = None) -> None:
@@ -338,6 +474,66 @@ def status_snapshot() -> dict:
         "working_copies": working_copies,
         "staged_inputs": int(conn.execute("SELECT COUNT(*) FROM run_input_staging").fetchone()[0]),
     }
+
+
+def diagnostics_snapshot(owner_id: str) -> dict:
+    """Owner-scoped transport details; never includes tokens, paths or secret values."""
+    init_db()
+    conn = get_conn()
+    now = time.time()
+    identity = conn.execute(
+        "SELECT expires_at,updated_at FROM server_identities WHERE owner_id=?", (owner_id,),
+    ).fetchone()
+    leases = [dict(row) for row in conn.execute(
+        "SELECT run_id,device_id,lease_epoch,expires_at,ack_high_water,status,last_error,updated_at "
+        "FROM run_transport_leases WHERE owner_id=? ORDER BY updated_at DESC LIMIT 50",
+        (owner_id,),
+    ).fetchall()]
+    wal = conn.execute(
+        "SELECT COUNT(*) AS count,COALESCE(SUM(byte_size),0) AS bytes,MIN(created_at) AS oldest,"
+        "COALESCE(MAX(attempts),0) AS max_attempts FROM run_event_wal WHERE owner_id=?",
+        (owner_id,),
+    ).fetchone()
+    wal_runs = [dict(row) for row in conn.execute(
+        "SELECT run_id,lease_epoch,COUNT(*) AS count,COALESCE(SUM(byte_size),0) AS bytes,"
+        "MIN(created_at) AS oldest_at,MAX(attempts) AS attempts "
+        "FROM run_event_wal WHERE owner_id=? GROUP BY run_id,lease_epoch ORDER BY oldest_at LIMIT 50",
+        (owner_id,),
+    ).fetchall()]
+    copies = [dict(row) for row in conn.execute(
+        "SELECT id,asset_id,project_id,run_id,relative_path,source_kind,state,size,updated_at "
+        "FROM asset_working_copies WHERE owner_id=? ORDER BY updated_at DESC LIMIT 50",
+        (owner_id,),
+    ).fetchall()]
+    return {
+        "identity": {
+            "bound": bool(identity and float(identity["expires_at"]) > now),
+            "expires_at": float(identity["expires_at"] or 0) if identity else 0,
+            "updated_at": float(identity["updated_at"] or 0) if identity else 0,
+        },
+        "leases": leases,
+        "wal": {
+            "count": int(wal["count"] or 0), "bytes": int(wal["bytes"] or 0),
+            "oldest_at": float(wal["oldest"] or 0), "max_attempts": int(wal["max_attempts"] or 0),
+            "runs": wal_runs,
+        },
+        "working_copies": copies,
+        "staged_inputs": int(conn.execute(
+            "SELECT COUNT(*) FROM run_input_staging WHERE owner_id=?", (owner_id,),
+        ).fetchone()[0]),
+    }
+
+
+def clear_completed_transport(owner_id: str) -> int:
+    """Remove only fully ACKed terminal lease metadata; never touch WAL or active state."""
+    init_db()
+    deleted = get_conn().execute(
+        "DELETE FROM run_transport_leases WHERE owner_id=? AND status='completed' "
+        "AND NOT EXISTS (SELECT 1 FROM run_event_wal w WHERE w.run_id=run_transport_leases.run_id)",
+        (owner_id,),
+    ).rowcount
+    get_conn().commit()
+    return int(deleted)
 
 
 def upsert_working_copy(

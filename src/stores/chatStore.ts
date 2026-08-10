@@ -30,7 +30,7 @@ function withRunPlan(
   ]
 }
 
-const ACTIVE_SERVER_RUNS = new Set(['queued', 'leased', 'running', 'waiting_user', 'recoverable'])
+const ACTIVE_SERVER_RUNS = new Set(['queued', 'leased', 'running', 'waiting_user', 'paused', 'recoverable'])
 
 function foldResumedRunEvent(message: ChatMessage, event: SSEEvent): ChatMessage {
   switch (event.type) {
@@ -38,6 +38,12 @@ function foldResumedRunEvent(message: ChatMessage, event: SSEEvent): ChatMessage
       return {
         ...message, content: '', trace: [], artifacts: [], error: undefined,
         status: 'running', runStatus: 'running',
+      }
+    case 'run_state':
+      return {
+        ...message,
+        status: ['completed', 'succeeded', 'failed', 'cancelled'].includes(event.data.status) ? 'done' : 'running',
+        runStatus: event.data.status,
       }
     case 'text': return { ...message, content: message.content + event.data.md }
     case 'think': return { ...message, trace: [...message.trace, { kind: 'think', text: event.data.text }] }
@@ -68,7 +74,7 @@ function foldResumedRunEvent(message: ChatMessage, event: SSEEvent): ChatMessage
     case 'done':
       return {
         ...message, id: event.data.message_id || message.id, status: 'done',
-        runStatus: message.runStatus === 'failed' ? 'failed' : 'completed',
+        runStatus: ['failed', 'cancelled'].includes(message.runStatus || '') ? message.runStatus : 'completed',
       }
     default: return message
   }
@@ -99,6 +105,9 @@ interface ChatState {
   send: (text: string, retryOf?: string) => Promise<string | null>
   retry: (messageId: string) => Promise<void>
   answer: (answers: string[]) => void
+  pause: () => Promise<void>
+  resume: () => Promise<void>
+  cancel: () => Promise<void>
   stop: () => void
   detach: () => void
 }
@@ -320,6 +329,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
             status: 'running', runStatus: 'running',
           }))
           break
+        case 'run_state':
+          patchBot((m) => ({
+            ...m,
+            status: ['completed', 'succeeded', 'failed', 'cancelled'].includes(ev.data.status) ? 'done' : 'running',
+            runStatus: ev.data.status,
+          }))
+          break
         case 'text':
           patchBot((m) => ({ ...m, content: m.content + ev.data.md }))
           break
@@ -488,20 +504,55 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })
   },
 
+  pause: async () => {
+    const message = [...get().messages].reverse().find((item) => item.status === 'running' && item.runId)
+    if (!message?.runId || message.runStatus === 'paused') return
+    try {
+      await api.pauseRun(message.runId)
+      toast('已请求暂停，等待 Local Agent 确认')
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '暂停失败')
+    }
+  },
+
+  resume: async () => {
+    const message = [...get().messages].reverse().find((item) => item.runStatus === 'paused' && item.runId)
+    if (!message?.runId) return
+    try {
+      const { run } = await api.resumeRun(message.runId)
+      set((state) => ({
+        messages: state.messages.map((item) => item.runId === message.runId
+          ? {
+              ...item,
+              status: ['failed', 'cancelled'].includes(run.status) ? 'done' : 'running',
+              runStatus: run.status,
+              error: run.status === 'failed' ? run.error_message || run.error_code || item.error : item.error,
+            }
+          : item),
+      }))
+      toast(run.status === 'failed'
+        ? '原执行节点已失去安全恢复点，请使用“重试本次运行”创建新 Run'
+        : run.status === 'recoverable'
+          ? '任务尚未开始，正在重新连接 Local Agent'
+          : '已请求继续执行')
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '恢复失败')
+    }
+  },
+
+  cancel: async () => {
+    const message = [...get().messages].reverse().find((item) => item.status === 'running' && item.runId)
+    if (!message?.runId) return
+    try {
+      await api.cancelRun(message.runId)
+      toast('已请求取消，等待 Local Agent 确认')
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '取消失败')
+    }
+  },
+
   stop: () => {
-    const { abort, messages } = get()
-    abort?.abort()
-    const runId = [...messages].reverse().find((message) => message.status === 'running')?.runId
-    if (runId) api.stopRun(runId).catch(() => {})
-    // abort() makes the SSE reader throw AbortError, which is swallowed and never
-    // dispatches `done` — so finalise the in-flight bubble here, else it stays a
-    // zombie 'running' spinner with no actions until the session is reopened (WB-001).
-    set((s) => ({
-      messages: s.messages.map((m) => (m.status === 'running' ? { ...m, status: 'done', runStatus: 'paused' } : m)),
-      streaming: false,
-      abort: null,
-      pending: null,
-    }))
+    void get().pause()
   },
 
   detach: () => {

@@ -10,7 +10,7 @@ import { useCatalog } from '../stores/catalogStore'
 import { Popover } from '../components/ui/Popover'
 import { PermPopover } from '../components/composer/PermPopover'
 import type { SessionInfo } from '../lib/types'
-import { Empty, Segmented, Statistic } from 'antd'
+import { Empty, Segmented, Space, Statistic } from 'antd'
 import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
@@ -249,7 +249,10 @@ export function HomeView() {
                   <b>执行概览</b>
                   <span>Server Run 与本机状态</span>
                 </div>
-                <WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'runtime')}>运行设置</WbButton>
+                <Space size={6}>
+                  <WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'diagnostics')}>执行诊断</WbButton>
+                  <WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'runtime')}>运行设置</WbButton>
+                </Space>
               </div>
               <div className="home-metrics">
                 <ProCard className="home-metric"><Statistic value={recentRuns.length} title="近 7 天 Run" /></ProCard>

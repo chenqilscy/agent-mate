@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import local_agent_store
@@ -23,6 +23,10 @@ log = logging.getLogger("agentmate.server-runs")
 class _ControlState:
     stopped: bool = False
     terminal: bool = False
+    paused: bool = False
+    pause_requested: bool = False
+    pending_pause_commands: list[str] = field(default_factory=list)
+    gate: asyncio.Event | None = None
 
 
 def _frames(chunk: str) -> list[tuple[str, dict[str, Any]]]:
@@ -87,6 +91,35 @@ async def _flush(owner_id: str, device_token: str) -> dict[str, int]:
     return await asyncio.to_thread(run_transport.flush_wal, owner_id, device_token)
 
 
+async def _pause_at_boundary(
+    *, run_id: str, owner_id: str, device_token: str, state: _ControlState,
+    execution_timeout: asyncio.Timeout, deadline: float | None,
+) -> float | None:
+    """Confirm a requested pause at an execution boundary and freeze its budget."""
+    if not state.pause_requested or state.stopped:
+        return deadline
+    gate = state.gate
+    if gate is None:
+        raise RuntimeError("pause gate is unavailable")
+    state.pause_requested = False
+    state.paused = True
+    gate.clear()
+    run_transport.append_event(run_id, "run.paused", {"reason": "user_requested"})
+    for command_id in state.pending_pause_commands:
+        run_transport.append_event(run_id, "command.ack", {"command_id": command_id})
+    state.pending_pause_commands.clear()
+    await _flush(owner_id, device_token)
+
+    loop = asyncio.get_running_loop()
+    paused_at = loop.time()
+    execution_timeout.reschedule(None)
+    await gate.wait()
+    if deadline is not None:
+        deadline += loop.time() - paused_at
+        execution_timeout.reschedule(deadline)
+    return deadline
+
+
 async def _control_loop(
     *, run_id: str, owner_id: str, device_token: str, local_session_id: str,
     state: _ControlState,
@@ -101,6 +134,8 @@ async def _control_loop(
         except run_transport.LeaseFenced:
             runtime.request_stop(local_session_id)
             state.stopped = True
+            if state.gate is not None:
+                state.gate.set()
             return
         for command in response.get("commands") or []:
             command_id = str(command.get("id") or "")
@@ -111,6 +146,26 @@ async def _control_loop(
             if command_type == "cancel":
                 runtime.request_stop(local_session_id)
                 state.stopped = True
+                if state.gate is not None:
+                    state.gate.set()
+            elif command_type == "pause":
+                if state.paused:
+                    run_transport.append_event(run_id, "command.ack", {"command_id": command_id})
+                    acknowledged.add(command_id)
+                    continue
+                # Do not acknowledge pause from the control task.  A model or
+                # tool step may still be in flight.  The execution task emits
+                # run.paused only after it reaches the next durable boundary.
+                state.pause_requested = True
+                state.pending_pause_commands.append(command_id)
+                acknowledged.add(command_id)
+                continue
+            elif command_type == "resume":
+                if state.paused:
+                    state.paused = False
+                    run_transport.append_event(run_id, "run.started", {"resumed_from": "paused"})
+                    if state.gate is not None:
+                        state.gate.set()
             elif command_type == "ask_user_answer":
                 answers = payload.get("answers") if isinstance(payload.get("answers"), list) else []
                 runtime.submit_answers(local_session_id, [str(item) for item in answers])
@@ -188,7 +243,9 @@ async def _execute_run(owner_id: str, user_token: str, device_token: str, run: d
         for item in refs
     ):
         raise RuntimeError("Local Agent task input does not match the Server Run work item")
-    state = _ControlState()
+    gate = asyncio.Event()
+    gate.set()
+    state = _ControlState(gate=gate)
     control = asyncio.create_task(_control_loop(
         run_id=run_id, owner_id=owner_id, device_token=device_token,
         local_session_id=local_session.id, state=state,
@@ -203,7 +260,9 @@ async def _execute_run(owner_id: str, user_token: str, device_token: str, run: d
     run_transport.append_event(run_id, "run.started", {"source": "local_agent"})
     await _flush(owner_id, device_token)
     try:
-        async with asyncio.timeout(timeout_seconds if timeout_seconds > 0 else None):
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds if timeout_seconds > 0 else None
+        async with asyncio.timeout_at(deadline) as execution_timeout:
             async for chunk in runtime.run_chat(
                 local_session, user, str(current.get("content") or ""),
                 model=str(run.get("model_ref") or "") or None,
@@ -248,6 +307,15 @@ async def _execute_run(owner_id: str, user_token: str, device_token: str, run: d
                         if event_type == "error":
                             stream_error = str(payload.get("message") or "")
                     await _flush(owner_id, device_token)
+                # Finish the already in-flight model/tool step and all of its
+                # frames before confirming pause.  Once run.paused is durable,
+                # this body blocks before async-for can request another step.
+                deadline = await _pause_at_boundary(
+                    run_id=run_id, owner_id=owner_id, device_token=device_token,
+                    state=state, execution_timeout=execution_timeout, deadline=deadline,
+                )
+                if state.stopped:
+                    break
         terminal_type = "run.cancelled" if state.stopped else "run.failed" if stream_error else "run.completed"
         terminal_payload = (
             {"error_code": "local_execution_failed", "error_message": stream_error}

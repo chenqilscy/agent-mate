@@ -2,7 +2,7 @@
 // goes straight to AgentMate Server, while device credentials, files and agent
 // execution stay on the loopback Local Agent. Provider API keys never enter UI state.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, RunStatus, SessionInfo, SharedPmPreferences, SharedPmPreferencesPatch, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceDiagnostics, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, LocalConnectorInstance, LocalConnectorPayload, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, RunStatus, SessionInfo, SharedPmPreferences, SharedPmPreferencesPatch, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
 import { LOCAL_API_BASE, channelSnapshot, serverApiBase, serverGet, serverGetAll, serverSend } from './channels'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
@@ -186,6 +186,9 @@ export const api = {
     send<DeviceSettingsPayload>('PUT', '/settings/runtime', { values, clear }),
   testRuntimeSettings: (group: string) =>
     send<{ ok: boolean; error?: string; [key: string]: unknown }>('POST', '/settings/runtime/test', { group }),
+  deviceDiagnostics: () => get<DeviceDiagnostics>('/device-diagnostics'),
+  deviceDiagnosticAction: (action: 'retry_transport' | 'register_device' | 'clear_completed') =>
+    send<{ result: Record<string, unknown>; diagnostics: DeviceDiagnostics }>('POST', '/device-diagnostics/actions', { action }),
 
   // 设置 · 记忆（WB-148；WB-166/167 认知记忆；WB-168 白盒管理）。
   memory: (status?: string, projectId?: string | null) => {
@@ -517,6 +520,11 @@ export const api = {
     return serverSend<{ ok: boolean }>('DELETE', `/sessions/${id}?expected_version=${current.version}`)
   },
 
+  pauseRun: (runId: string) => serverSend<{ run: AgentRun }>('POST', `/runs/${runId}/pause`),
+  resumeRun: (runId: string) => serverSend<{ run: AgentRun }>('POST', `/runs/${runId}/resume`),
+  cancelRun: (runId: string) => serverSend<{ run: AgentRun }>('POST', `/runs/${runId}/cancel`),
+  // Compatibility alias for older callers.  "stop" is terminal cancellation;
+  // interactive pause uses pauseRun and never aborts the Server event follower.
   stopRun: (runId: string) => serverSend<{ run: AgentRun }>('POST', `/runs/${runId}/cancel`),
 
   answerRun: (runId: string, questionEventId: string, answers: string[]) =>
@@ -565,6 +573,24 @@ export const api = {
   kdocsConnect: () =>
     send<{ status: 'connected' | 'pending'; authUrl: string | null }>('POST', '/connectors/kdocs/connect'),
   kdocsDisconnect: () => send<{ status: string }>('POST', '/connectors/kdocs/disconnect'),
+  localConnectors: () => get<LocalConnectorPayload>('/connectors/local'),
+  createLocalConnector: (body: {
+    name: string; transport: 'stdio' | 'sse'; command?: string; args?: string[]; url?: string
+    environment?: Record<string, string>; secrets?: Record<string, string>; secret_keys?: string[]; enabled?: boolean
+  }) => send<LocalConnectorPayload & { instance: LocalConnectorInstance }>('POST', '/connectors/local', body),
+  updateLocalConnector: (id: string, body: {
+    name: string; transport: 'stdio' | 'sse'; command?: string; args?: string[]; url?: string
+    environment?: Record<string, string>; secrets?: Record<string, string>; secret_keys?: string[]; enabled?: boolean
+  }) => send<LocalConnectorPayload & { instance: LocalConnectorInstance }>('PUT', `/connectors/local/${id}`, body),
+  setLocalConnectorEnabled: (id: string, enabled: boolean) =>
+    send<LocalConnectorPayload & { instance: LocalConnectorInstance }>('POST', `/connectors/local/${id}/enabled`, { enabled }),
+  testLocalConnector: (id: string) =>
+    send<{ ok: boolean; name: string; tools: Array<{ name: string; description: string }>; error: string }>('POST', `/connectors/local/${id}/test`),
+  testConnectorByName: (name: string) =>
+    send<{ ok: boolean; name: string; tools: Array<{ name: string; description: string }>; error: string }>('POST', '/connectors/local/test-by-name', { name }),
+  setBuiltinConnectorCredentials: (name: string, values: Record<string, string>, clear: string[] = []) =>
+    send<LocalConnectorPayload>('PUT', `/connectors/local/builtins/${encodeURIComponent(name)}/credentials`, { values, clear }),
+  deleteLocalConnector: (id: string) => send<LocalConnectorPayload>('DELETE', `/connectors/local/${id}`),
   // 侧栏「金山文档」面板取数（WB-140）：空 keyword=最近访问文档，有则搜索。
   // installed/authenticated 反映连接态，供面板做诚实降级引导。
   // kind: 'recent'（最近访问）| 'star'（收藏/星标）；非空 keyword 一律走搜索。

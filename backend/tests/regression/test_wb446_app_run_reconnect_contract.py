@@ -20,7 +20,9 @@ class AppRunReconnectContractTest(unittest.TestCase):
         self.assertIn("ACTIVE_SERVER_RUNS", store)
         self.assertIn("void followServerRun", store)
         self.assertIn("if (get().streaming) get().detach()", store)
-        self.assertIn("api.stopRun(runId)", store)
+        self.assertIn("api.pauseRun(message.runId)", store)
+        self.assertIn("api.resumeRun(message.runId)", store)
+        self.assertIn("api.cancelRun(message.runId)", store)
 
     def test_identity_binding_and_console_handoff_fail_honestly(self) -> None:
         auth = (ROOT / "src/stores/authStore.ts").read_text(encoding="utf-8")

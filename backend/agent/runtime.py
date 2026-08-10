@@ -1057,7 +1057,7 @@ async def _run_chat_inner(
         connector_authorized = authorization.tool_available(mcp_permissions)
         if active_connectors and not plan and not ask and connector_authorized:
             mcp_tools, mcp_stack, mcp_skipped = await open_connectors(
-                active_connectors, env={"AGENTMATE_NOTES_DIR": str(current_root())}
+                active_connectors, env={"AGENTMATE_NOTES_DIR": str(current_root())}, owner_id=user.id,
             )
         elif active_connectors and not plan and not ask and not connector_authorized:
             mcp_skipped.extend(

@@ -17,10 +17,13 @@ export function ChatView() {
   const messages = useChatStore((s) => s.messages)
   const streaming = useChatStore((s) => s.streaming)
   const send = useChatStore((s) => s.send)
-  const stop = useChatStore((s) => s.stop)
+  const pause = useChatStore((s) => s.pause)
+  const resume = useChatStore((s) => s.resume)
+  const cancel = useChatStore((s) => s.cancel)
   const retry = useChatStore((s) => s.retry)
   const pending = useChatStore((s) => s.pending)
   const answer = useChatStore((s) => s.answer)
+  const controlStatus = [...messages].reverse().find((message) => message.status === 'running' && message.runId)?.runStatus
   const ovOpen = useUIStore((s) => s.ovOpen)
   const toggleOv = useUIStore((s) => s.toggleOv)
 
@@ -131,7 +134,7 @@ export function ChatView() {
 
         <div className="chat-foot">
           {pending && <AskUserCard questions={pending.questions} onAnswer={answer} />}
-          <Composer variant="chat" streaming={streaming} onSend={send} onStop={stop} autoFocus />
+          <Composer variant="chat" streaming={streaming} controlStatus={controlStatus} onSend={send} onPause={pause} onResume={resume} onCancel={cancel} autoFocus />
           <div className="disc">内容由 AI 生成，请核实重要信息</div>
         </div>
       </div>

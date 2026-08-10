@@ -63,7 +63,7 @@ from agent import background_worker, scheduler, server_run_worker, skills as age
 from auth.middleware import AuthMiddleware
 from channels import manager as channel_manager
 from config import FROZEN, settings
-from routers import asr, auth, automations, catalog, channels, chat, data, device_settings, experts, files, governance, ideas, server, kdocs, knowledge, me, memory, milestones, models, notifications, ops, orchestrations, prefs, project_health, projects, runs, security, sessions, skills, work_items
+from routers import asr, auth, automations, catalog, channels, chat, data, device_diagnostics, device_settings, experts, files, governance, ideas, server, kdocs, knowledge, local_connectors, me, memory, milestones, models, notifications, ops, orchestrations, prefs, project_health, projects, runs, security, sessions, skills, work_items
 from storage import db, orchestration_store
 import local_agent_core
 import local_agent_store
@@ -261,8 +261,10 @@ app.include_router(server.router)
 app.include_router(channels.router)
 app.include_router(asr.router)
 app.include_router(knowledge.router)
+app.include_router(local_connectors.router)
 app.include_router(prefs.router)
 app.include_router(device_settings.router)
+app.include_router(device_diagnostics.router)
 app.include_router(memory.router)
 app.include_router(ideas.router)
 app.include_router(data.router)

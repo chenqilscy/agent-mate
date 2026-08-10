@@ -16,6 +16,7 @@ import { useKnowledgeStore } from '../../stores/knowledgeStore'
 import { skillDisplayName, useSkillStore } from '../../stores/skillStore'
 import { useVoiceInput } from './useVoiceInput'
 import { IcPlus, IcClose, IcSend, IcChevronDown, IcMic, IcShield } from '../../lib/icons'
+import type { RunStatus } from '../../lib/types'
 import { clickable } from '../../lib/a11y'
 
 // Attach limits — kept in step with the backend ref caps in backend/agent/runtime.py
@@ -31,6 +32,10 @@ interface ComposerProps {
   streaming?: boolean
   onSend: (text: string) => void
   onStop?: () => void
+  onPause?: () => void
+  onResume?: () => void
+  onCancel?: () => void
+  controlStatus?: RunStatus
   placeholder?: string
   autoFocus?: boolean
 }
@@ -39,7 +44,7 @@ type PopId = 'plusx' | 'model' | 'perm' | 'ctx' | null
 
 const PLACEHOLDER = '今天帮你做些什么？  @ 引用对话文件，/ 调用技能与指令'
 
-export function Composer({ variant = 'home', streaming = false, onSend, onStop, placeholder, autoFocus }: ComposerProps) {
+export function Composer({ variant = 'home', streaming = false, onSend, onStop, onPause, onResume, onCancel, controlStatus, placeholder, autoFocus }: ComposerProps) {
   const [text, setText] = useState('')
   const [pop, setPop] = useState<PopId>(null)
   const [picker, setPicker] = useState<'exp' | 'skill' | 'conn' | 'kb' | null>(null)
@@ -260,9 +265,22 @@ export function Composer({ variant = 'home', streaming = false, onSend, onStop, 
         </WbButton>
 
         {streaming ? (
-          <WbButton className="cstop" aria-label="停止" onClick={onStop}>
-            <span className="sq" />
-          </WbButton>
+          <>
+            {onCancel && (
+              <WbButton className="cicon" aria-label="取消运行" title="取消运行" onClick={onCancel}>
+                <IcClose />
+              </WbButton>
+            )}
+            {controlStatus === 'paused' ? (
+              <WbButton className="cstop" aria-label="继续运行" title="继续运行" onClick={onResume}>
+                <IcSend />
+              </WbButton>
+            ) : (
+              <WbButton className="cstop" aria-label="暂停运行" title="暂停运行" onClick={onPause || onStop}>
+                <span className="sq" />
+              </WbButton>
+            )}
+          </>
         ) : (
           <WbButton className="csend" aria-label="发送" disabled={!text.trim()} onClick={submit}>
             <IcSend />

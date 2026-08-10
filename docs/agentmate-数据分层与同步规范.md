@@ -1,207 +1,109 @@
 # AgentMate 数据归属与传输规范
 
-> 状态：v4 Server-first 目标规范（2026-08-08）；对应 [WB-431](issues/archive/2026/WB-400-499.md#wb-431)。
-> 本规范是新增实体和迁移完成后的唯一数据边界。当前 local-first 代码尚在迁移，旧镜像/代理行为只能作为兼容实现，不能成为新功能样板。
-> 完整组件、Run 协议和迁移设计见 [`agentmate-server-first-架构设计.md`](agentmate-server-first-架构设计.md)。
+> 状态：当前强制规范，更新于 2026-08-10。适用于所有新增和修改；迁移兼容代码不得成为新功能样板。
 
-## 0. 核心规则
+## 1. 五条红线
 
-1. **所有持久业务数据由 Server 唯一权威。** Desktop UI 和 Console 读取同一组 Server API/模型。
-2. **Local Agent 不是业务 Server。** 本地只保存设备秘密、执行工作集、事件 WAL 和可重建缓存。
-3. **没有通用双向同步。** 业务 CRUD 直接提交 Server；执行事件通过有序 WAL/ACK 协议上传。
-4. **离线只延续已领取的执行。** 不允许离线创建或修改 Server 业务对象，不做恢复后的业务冲突合并。
-5. **秘密和本机权限按执行位置归属。** 本机执行秘密留 Local Agent；Server deployment secret 留 Server，二者不互传。
+1. **持久业务数据只由 Server 权威。** App 与 Console 使用同一业务模型和权限结果。
+2. **Local Agent 不是业务 Server。** 本地只保存设备秘密、权限、执行工作集、working copy、未 ACK WAL 和可重建缓存。
+3. **不做通用双向同步。** 业务写直接提交 Server；执行结果通过 Run event 和 asset commit 进入 Server。
+4. **离线不产生业务分叉。** 只读缓存可以展示；只有已领取且 lease 有效的 Run 可以继续。
+5. **秘密跟随执行位置。** 个人本机 secret 留 Local Agent，Server deployment secret 留 Server，任何目录或事件都不能搬运它们。
 
-## 1. 组件定位
+## 2. 数据归属
 
-- **AgentMate Server**：API、Console、业务数据库、对象存储、Run 调度和事件流。所有持久业务状态都在这里提交。
-- **Desktop UI**：用户工作台。业务数据访问 Server，本机文件/权限/设备操作访问 Local Agent Core。
-- **Local Agent Core**：后台 sidecar/daemon。负责设备连接、Run 租约、Agent Runtime、本机工具、working copy 和 event WAL。
-- **Console**：Server 同源管理 UI，不是独立数据源。
+| 数据 | 权威 | 本机允许保存 | 离线行为 |
+|---|---|---|---|
+| 账号、组织、成员、角色、邀请 | Server | token 的加密绑定和显示缓存 | 不登录、不改权限 |
+| 项目、任务、里程碑、Sprint、评论和审计 | Server | 只读、带版本缓存 | 可显示缓存，不写 |
+| Session、消息、Run、事件、交付和验收 | Server | 当前执行工作集、lease、未 ACK WAL | 有效 lease 内继续 |
+| 自动化、助理、渠道定义和团队策略 | Server | 当前执行所需快照 | 不创建、不编辑 |
+| Catalog、Skill release、兼容策略 | Server | 已验证安装包/定义缓存 | 使用 last-known-good，不改策略 |
+| 项目资产与正式产物 | Server + object storage | working copy 和下载缓存 | 只保留“仅本机”状态 |
+| LLM/MCP/连接器/渠道个人凭据 | Local Agent | 加密权威 | 仅当前设备可用 |
+| OS 权限、真实路径、浏览器 profile | Local Agent | 设备绑定权威 | 仅当前设备可用 |
+| PID、进程句柄、执行门、临时目录 | Local Agent runtime | 当前执行期 | 按 lease/checkpoint 恢复 |
 
-## 2. 数据归属总表
+## 3. Server 业务写
 
-| 数据类别 | 唯一权威 | Local Agent 是否持久化 | 离线行为 | 迁移状态 |
-|---|---|---|---|---|
-| 账号、外部身份、组织、成员、角色、邀请 | Server | token/账号显示缓存 | 不能新登录或改权限 | Server 已权威 |
-| 项目、任务、里程碑、Sprint、自定义字段、治理 | Server | 只读可重建缓存 | 只读缓存；禁止业务写 | 部分仍有本地镜像 |
-| 评论、@、通知、presence、timeline、审计 | Server | 可选短期缓存 | 只读或不可用 | Server 已覆盖主要 API |
-| 会话、消息、Run、步骤、交付、结构化工具事件 | Server | 当前 Run working set + 未 ACK WAL | 已领取 Run 可受控继续 | Server schema/API 已落地，待客户端迁移 |
-| 助理、频道、自动化、调度与历史 | Server | 执行所需快照/缓存 | 不创建、不编辑；已租约任务按协议继续 | Server schema/API 已落地，待客户端迁移 |
-| Catalog、Capability Release、策略、安装目标 | Server | 已校验能力包缓存 | 使用 last-known-good 执行包；不改策略 | 已有目录下行，待去镜像化 |
-| 项目资产、正式产物、对象版本 | Server + object storage | working copy / 下载缓存 | 未上传文件仍标记“仅本机” | 待建设 |
-| 设备、capability、heartbeat、lease、ACK 高水位 | Server | 设备私钥、当前租约与 WAL | 重连后按 epoch/seq 恢复 | WB-433 协议与 WB-434 独立 Core 执行控制已落地 |
-| 用户 LLM/MCP/连接器执行 secret | Local Agent secure storage | ✅ 权威 | 仅本机可用 | Device/Server token 已迁入 DPAPI 加密 Core 存储；其余执行 secret 随后续边界迁移 |
-| OS 权限、外部路径 bookmark、浏览器 profile 授权 | Local Agent | ✅ 权威 | 仅本机可用 | 部分已有 |
-| Server SSO/中央服务/deployment secret | Server secret store | ❌ | 相关 Server 能力不可用 | 已有只写/加密基础 |
-| PID、端口、进程句柄、临时目录 | Local Agent runtime | 仅执行期 | 进程恢复按 Run 协议处理 | 已有 |
-| Server 查询缓存、对象块缓存 | Server | 可选、可删除 | 只读并显示缓存时间 | 待统一 |
+- 成功响应必须代表 Server 事务已提交；不能先写本地再后台补传。
+- 创建使用幂等键；同 key 改 payload 返回冲突，超时后查询原结果。
+- 更新使用实体 version/ETag；陈旧写失败，不能在 App 静默覆盖。
+- 项目权限由 Server 最终判定；前端隐藏按钮和本地角色缓存只用于体验优化。
+- 删除、验收、发布、撤回等关键动作与审计在同一权威事务中完成。
 
-“迁移状态”只描述当前代码差距，不改变目标权威。新功能不能因为某类尚未迁移就继续新增本地业务表。
+## 4. Run、lease 与 WAL
 
-## 3. 必须留在本地的数据
+每个执行事件包含：
 
-### 3.1 设备秘密
+```text
+event_id / run_id / device_id / lease_id / lease_epoch
+sequence / event_type / occurred_at / payload / payload_hash
+```
 
-- device private key；
-- Server refresh/session token；
-- 本机加密主密钥。
+- Local Agent 先原子追加 WAL，再发送；网络重试重发相同事件。
+- Server 对 `event_id` 和 `(run_id, lease_epoch, sequence)` 双重去重，返回连续 ACK 高水位。
+- sequence gap、hash 变化、旧 epoch 或外部 lease 均拒绝。
+- 暂停不是终态：活动设备保持 lease 和协程执行门，暂停墙钟时间不计入活跃执行超时；设备丢失且没有可验证 checkpoint 时禁止自动新建 epoch 重放，原 Run fail closed，用户只能显式重试为新 Run。
+- 取消是终态；重试创建新 Run 并记录 `retry_of`。
+- ACK 后才能清除 WAL；诊断清理不得删除未 ACK 事件。
 
-优先使用操作系统 secure storage；不得写入日志、事件 WAL、前端 localStorage、工作区或普通导出。
+## 5. 文件与资产
 
-### 3.2 执行秘密
+1. 用户选择的任意本机文件默认是设备本地引用，不自动上传。
+2. Run working copy 可读写中间文件，但 UI 必须区分“仅本机 / 上传中 / 已提交”。
+3. 上传使用临时对象或分片；Server 校验 owner、project、run、hash、size 和 content type 后才提交版本。
+4. 正式交付必须引用 Server asset；事件 JSON 不内嵌二进制、绝对路径或无限长 stdout。
+5. 删除 Server asset 不自动删除用户原始外部文件；本机缓存按独立策略回收。
 
-- 用户自带 LLM API key；
-- 本机 MCP/连接器 OAuth token、bot token；
-- 只对当前设备有效的 credential material。
+## 6. Secret 与配置
 
-Server 可以保存 provider 类型、credential reference、健康状态和缺失原因，但不能保存或回显上述秘密。Server 管理的企业服务凭据属于 Server secret，不属于 Local Agent secret。
+- 设备私钥、Server/Device token、模型 key、MCP/连接器 secret 使用 OS secure storage 或本机加密存储。
+- 前端读取接口只返回 `configured/has_secret`，不回显 secret。
+- stdio MCP 只继承安全基础环境和该实例声明的 secret；禁止透传整个 Local Agent 环境。
+- HTTP/SSE MCP 的 credential 只作为该实例声明的 Header 注入。
+- secret 不进入日志、WAL、Server request snapshot、工具 trace、普通导出或 Git。
+- Server 可以保存非敏感 credential reference、设备 capability 和健康原因，但不能借此获得秘密本身。
 
-### 3.3 本机权限与路径
+## 7. 缓存与失效
 
-- 用户授予的目录/文件访问权；
-- 文件选择 bookmark、浏览器 profile 授权；
-- 本机应用、证书或硬件设备访问权。
+- 缓存必须只读、可删除重建、带版本和更新时间。
+- Server 不可达与实体已删除/撤权是不同状态；不可达保留 last-known-good，tombstone/撤权立即失效。
+- 不能使用 `origin=local/server`、`server_dirty`、LWW 或冲突台账为新实体建立双主。
+- Local Agent 诊断缓存、连接器健康和 worker 状态不升级为业务真相。
 
-Server 只能知道“该设备是否声明具备某能力”，不能获得可直接访问本机资源的令牌或真实路径。
+## 8. 离线矩阵
 
-### 3.4 working copy 与运行时
-
-Local Agent 可以保存执行输入、下载资产、生成中的文件、临时目录、PID 和 checkpoint，但这些不是业务真相。正式产物只有完成 Server 元数据事务和对象存储提交后才算已交付。
-
-### 3.5 event WAL
-
-WAL 只保存未获 Server ACK 的 Run 事件，必须具备：
-
-- `run_id + lease_epoch + seq + event_id` 幂等键；
-- payload hash、创建时间、尝试次数和连续 ACK 高水位；
-- 原子追加、进程重启恢复、容量上限和可观察积压；
-- secret redaction 和 payload 大小限制。
-
-WAL 不是 sessions/messages/runs 的本地副本，不接受 UI 直接编辑；ACK 后按保留策略清理。
-
-## 4. Server 业务数据契约
-
-### 4.1 读取
-
-- Desktop UI 和 Console 直接调用 Server API。
-- Local Agent 只读取当前 Run 执行必需的版本化快照、能力包和资产引用。
-- 本地 cache 可以优化启动和弱网展示，但必须可删除重建、只读、带版本/ETag 和缓存时间。
-- Server 不可达不能把缓存自动提升为写权威。
-
-### 4.2 写入
-
-- Server API 成功响应代表业务事务已提交。
-- 网络超时使用 request id/idempotency key 查询原结果，不能在本地创建另一条业务记录。
-- Local Agent 产生的业务结果通过 Run event/artifact commit API 进入 Server；Server 验证当前 lease epoch、权限和 schema 后提交。
-- Viewer/Member/Admin/Owner 等权限只由 Server 决定，本地检查只能用于提前提示，不能代替 Server 授权。
-
-### 4.3 缓存失效
-
-- Server 使用 revision、ETag、版本号或实时失效事件通知客户端刷新。
-- 网络不可达保留 last-known-good cache；Server 明确 tombstone/撤回则必须失效。
-- “不可达”和“已删除/撤权”是不同状态，不能用同一空列表回退处理。
-
-### 4.4 持久业务 API 基线（WB-432）
-
-Server 已建立 `sessions/messages/runs/run_steps/assistants/channels/automations/assets` 的版本化关系模型，统一路由位于 `/api`：
-
-- 集合读取使用 `limit + next_cursor`；游标由稳定排序字段和实体 id 组成，调用方不能自行解释或改写；
-- 创建请求可带 `Idempotency-Key`。同账号、同实体类型和同 key 重试返回原实体；key 对应的 payload 改变时返回 `409`；
-- 可变实体携带 `version`，更新和删除必须传 `expected_version`，陈旧写返回 `409`；
-- 项目实体由 Server 的项目角色判定：Viewer 只读，Member 可写执行数据，Admin/Owner 管理共享助理、渠道和自动化；撤权后立即返回不可见；
-- 写操作与实体事务同时写入 `business_audit`，审计通过 `/api/business/audit` 使用同样的稳定游标导出；业务集合本身也可逐页导出，不提供绕过权限的全库 dump；
-- 删除采用有审计的 soft delete。本阶段不自动物理清除；数据库备份保留实体关系和 tombstone。后续若引入物理保留期，必须是显式的平台策略和独立审计操作；
-- `channels.public_config` 拒绝 token/secret/password/API key 等字段，只允许保存不含秘密的配置；`credential_ref` 只能是指向本机或设备安全存储的 opaque URI；
-- `assets` 在本阶段只提交元数据、hash 和对象引用状态。对象字节、签名上传与 working copy 由 WB-436 定义，不能把二进制或本机绝对路径写入此 API。
-
-这些 API 是迁移的 Server 目标端，不构成长期双写许可。Desktop 切换前的本地表仍按 §10 管理。
-
-### 4.5 设备与 Run 传输 API 基线（WB-433）
-
-- 用户 Bearer token 只用于登记、列出和撤销设备；设备执行请求使用独立 `Device` token，Server 只存 token hash。撤销用户 session 不会伪装成设备撤销，两者生命周期独立；
-- 设备私钥在本机生成，Server 只接收 Ed25519 public key，并通过五分钟、一次性 challenge 证明持钥。WB-434 起私钥和 Device/Server token 只以当前 Windows 用户 DPAPI 密文保存在独立 Core DB，且不暴露给 UI；
-- Run 只从 `queued/recoverable` 原子变为 `leased`。租约超时或设备撤销增加 recovery count；超过上限由 Server 提交 `failed`，否则变为 `recoverable`；
-- Server 对 `(run_id, lease_epoch, seq)` 与 `event_id` 双重去重，hash 或语义不一致返回 `409`；seq gap 返回所需的 `expected_sequence`；
-- `cancel` 与 `ask_user_answer` 是 Server 持久命令。Local Agent 必须用命令确认/终态事件闭环，Server 不把“命令已发”误报为“本机已停止”。
-
-## 5. Run 事件传输
-
-### 5.1 先落 WAL，再发送
-
-Local Agent 产生事件时先原子写入 WAL，再通过出站执行通道发送。Server 以 `event_id` 和 `(run_id, lease_epoch, seq)` 去重，事务提交后返回 ACK 高水位。
-
-### 5.2 重试不是重复执行
-
-- 发送失败重传原 event；
-- 不因 HTTP/WebSocket 超时生成新的 completion/tool-result 事件；
-- Server 返回 seq gap 时从 WAL 补传；
-- 旧 lease epoch 的新副作用事件必须被拒绝。
-
-### 5.3 敏感 payload
-
-- 消息和安全结构化结果进入 Server；
-- secret 字段在本机剔除；
-- 大文件和长输出转为 asset/artifact 引用；
-- 必须留本地的原始工具 payload 只上传 hash、大小、状态和安全摘要，并标记 `local_only`。
-
-## 6. 文件与对象存储
-
-1. 项目正式资产和 Run 产物由 Server 元数据 + object storage 权威管理。
-2. Local Agent 使用授权下载创建 working copy；缓存命中必须校验 content hash。
-3. 上传采用临时对象/分片，只有 Server 完成 hash、size、权限和 Run/项目归属校验后才 commit。
-4. 用户任意本机文件默认不上传。引用时 UI 必须显示“仅本机”；明确上传后才获得 Server asset id。
-5. 事件 JSON 禁止内嵌大文件正文、二进制或无限长 stdout。
-6. 删除 Server asset 不等于未经确认地删除用户原始外部文件；working copy 按独立清理策略回收。
-
-## 7. 离线规范
-
-| 操作 | Server 不可达时 |
+| 操作 | Server 不可达 |
 |---|---|
-| 浏览已缓存项目/会话/任务 | 允许只读，显示缓存时间和离线状态 |
-| 新建/修改/删除业务实体 | 禁止；明确提示未保存 |
-| 发起新 Run | 禁止，除非 Server 已提前创建并授予有效租约 |
-| 继续已领取 Run | 在租约和本地策略允许时继续，事件写 WAL |
-| 租约过期后的工具副作用 | 禁止，等待 Server 恢复或人工确认 |
-| 创建本机临时文件 | 允许，但标记为未上传、非正式资产 |
-| 修改本机设备设置/凭据 | 允许，仅影响当前设备 |
+| 查看已缓存项目、任务、Session、Run | 允许只读，显示缓存时间 |
+| 新建或修改业务实体 | 禁止并明确提示未保存 |
+| 发起新 Run | 禁止，除非 Server 已创建并授予 lease |
+| 继续已领取 Run | lease 和本机策略允许时继续，事件写 WAL |
+| pause/resume/cancel | 命令未被 Server 接受前不得伪报成功 |
+| 创建本机临时文件 | 允许，标记为未上传 |
+| 修改本机模型、MCP 和设备设置 | 允许，只影响当前设备 |
 
-不提供“离线修改业务对象、恢复后自动合并”。如果未来确有该产品需求，必须作为新的架构决策显式引入，而不能复用 cache/WAL 偷渡实现。
+## 9. 新实体判断
 
-## 8. 身份和人归属
+依次判断：
 
-- Server account id 是账号、actor、assignee、creator、reviewer 等字段的唯一人员标识。
-- 显示名是可变投影，不能作为关系键。
-- Desktop UI token、device identity 和 Local Agent 执行秘密是三种不同凭据，必须分开撤销和审计。
-- 未登录设备不是本地账号，不允许创建长期业务数据；可以进入有限的登录/设备设置界面。
-- Server 撤权立即阻止新读取/写入/租约；本地缓存不能继承已撤销权限。
+1. 跨会话或跨设备保留的业务状态 → Server。
+2. 本机秘密、OS 权限、真实路径、运行中进程 → Local Agent。
+3. 未 ACK 执行事件 → Local WAL，ACK 后 Server 是正式记录。
+4. 正式文件/产物 → Server + object storage；执行副本 → Local Agent。
+5. 纯性能数据 → 可删除的只读缓存。
 
-## 9. 新增实体决策流程
+无法明确归属时停止实现并更新架构决策，不得通过“先放本地以后再同步”绕过。
 
-新增实体前按顺序检查：
+## 10. 存量退役
 
-1. **它是否是跨会话需要保留的产品/业务状态？** 是 → Server 权威。
-2. **它是否是本机秘密、OS 权限、真实路径或运行中进程状态？** 是 → Local Agent 权威，Server 只保留必要非敏感状态。
-3. **它是否只是未 ACK 的执行事件？** 是 → Local WAL，ACK 后清理，Server 保存正式事件。
-4. **它是否只是性能缓存？** 是 → 必须可删除重建、只读、有版本，不能产生离线写。
-5. **它是否是项目文件或交付物？** 正式版本 → Server/object storage；执行 working copy → Local Agent。
+WB-437 处理旧本地业务表、pull/outbox、镜像字段和冲突机制。退役期间：
 
-禁止为新的业务实体增加以下模式：
+- 迁移源库只读，先做加密一致备份；
+- 导入使用稳定映射、幂等键和权限 readback；
+- 单类切换后禁止旧客户端重新写入；
+- 兼容表只读观察后删除；
+- 回滚不恢复双主。
 
-- `origin=local/server` 双权威；
-- `server_dirty/server_updated_at` 通用镜像字段；
-- 本地写成功后后台补传业务 CRUD；
-- 通用 LWW/冲突台账；
-- Server 不可达时自动创建纯本地替代对象。
-
-## 10. 迁移期兼容规则
-
-当前代码仍包含本地业务表、`POST /api/server/pull`、写代理、镜像字段、冲突台账和业务 outbox。迁移完成前：
-
-1. 不在这些机制上新增实体或扩展离线写能力。
-2. 每类实体切换时必须先完成 Server schema/API、幂等导入、权限回归和只读备份。
-3. 同一实体任一时刻只有一个写权威；禁止为了平滑迁移做无限期双写。
-4. 切换完成后，本地旧表只读观察，随后按退出门槛删除。
-5. 旧客户端不能在切换后重新写入本地并要求 Server 合并；Server 必须执行最低协议/版本门禁。
-
-具体阶段和退出门槛见目标架构设计 §11–§12。
+运行步骤见 [`server-first-migration-runbook.md`](server-first-migration-runbook.md)。

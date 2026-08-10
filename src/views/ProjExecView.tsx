@@ -28,12 +28,15 @@ export function ProjExecView() {
   const messages = useChatStore((s) => s.messages)
   const streaming = useChatStore((s) => s.streaming)
   const send = useChatStore((s) => s.send)
-  const stop = useChatStore((s) => s.stop)
+  const pause = useChatStore((s) => s.pause)
+  const resume = useChatStore((s) => s.resume)
+  const cancel = useChatStore((s) => s.cancel)
   const retry = useChatStore((s) => s.retry)
   const readOnly = useChatStore((s) => s.readOnly)
   const ownerName = useChatStore((s) => s.ownerName)
   const pending = useChatStore((s) => s.pending)
   const answer = useChatStore((s) => s.answer)
+  const controlStatus = [...messages].reverse().find((message) => message.status === 'running' && message.runId)?.runStatus
   const activeId = useChatStore((s) => s.activeId)
   const openSession = useChatStore((s) => s.openSession)
   const startProject = useChatStore((s) => s.startProject)
@@ -258,7 +261,7 @@ export function ProjExecView() {
           ) : (
             <>
               {pending && <AskUserCard questions={pending.questions} onAnswer={answer} />}
-              <Composer variant="chat" streaming={streaming} onSend={send} onStop={stop} autoFocus />
+              <Composer variant="chat" streaming={streaming} controlStatus={controlStatus} onSend={send} onPause={pause} onResume={resume} onCancel={cancel} autoFocus />
               <div className="disc">内容由 AI 生成，请核实重要信息</div>
             </>
           )}

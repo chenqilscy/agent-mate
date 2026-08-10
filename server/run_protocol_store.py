@@ -310,6 +310,15 @@ def _recover_run(conn: sqlite3.Connection, run_id: str, now: float) -> None:
     run = conn.execute("SELECT * FROM business_runs WHERE id=?", (run_id,)).fetchone()
     if run is None or str(run["status"]) in TERMINAL_STATUSES:
         return
+    # A user-paused Run must never become claimable merely because its device
+    # disappeared.  Resume is an explicit user action; the resume endpoint will
+    # move it to recoverable when no live lease remains.
+    if str(run["status"]) == "paused":
+        conn.execute(
+            "UPDATE business_runs SET updated_at=?,version=version+1 WHERE id=?",
+            (now, run_id),
+        )
+        return
     recovery_count = int(run["recovery_count"]) + 1
     if recovery_count > int(run["max_recoveries"]):
         _server_terminal(
@@ -654,6 +663,13 @@ def _apply_event(conn: sqlite3.Connection, row: sqlite3.Row, event: dict[str, An
         )
     elif event_type == "run.waiting_user":
         fields.update(status="waiting_user")
+    elif event_type in {"run.paused", "run.pause_ack"}:
+        fields.update(status="paused")
+        conn.execute(
+            "UPDATE run_commands SET status='acknowledged',acknowledged_at=? "
+            "WHERE run_id=? AND command_type='pause' AND status='pending'",
+            (now, run_id),
+        )
     elif event_type == "run.checkpoint":
         fields.update(checkpoint=_json(payload))
     elif event_type == "run.completed":
@@ -786,7 +802,11 @@ def request_cancel(*, run_id: str, owner_id: str) -> dict[str, Any]:
         if str(run["status"]) in TERMINAL_STATUSES:
             conn.commit()
             return business_store.decode_row(run) or {}
-        if str(run["status"]) in {"queued", "recoverable"}:
+        live_lease = conn.execute(
+            "SELECT id FROM run_leases WHERE run_id=? AND status='active' AND expires_at>?",
+            (run_id, now),
+        ).fetchone()
+        if str(run["status"]) in {"queued", "recoverable", "paused"} and live_lease is None:
             _server_terminal(
                 conn, run=run, status="cancelled", error_code="cancelled_by_user",
                 error_message="Run cancelled before local execution", now=now,
@@ -804,6 +824,114 @@ def request_cancel(*, run_id: str, owner_id: str) -> dict[str, Any]:
             "VALUES (?,?,?,?,?,'{}',?)",
             (db.new_uuid(), run_id, owner_id, "cancel", version, now),
         )
+        row = conn.execute("SELECT * FROM business_runs WHERE id=?", (run_id,)).fetchone()
+        conn.commit()
+        return business_store.decode_row(row) or {}
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def _next_command_version(conn: sqlite3.Connection, run_id: str) -> int:
+    return int(conn.execute(
+        "SELECT COALESCE(MAX(version),0)+1 FROM run_commands WHERE run_id=?", (run_id,),
+    ).fetchone()[0])
+
+
+def request_pause(*, run_id: str, owner_id: str) -> dict[str, Any]:
+    """Pause a queued Run immediately or ask its active device to pause safely."""
+    now = time.time()
+    conn = db.get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        run = conn.execute("SELECT * FROM business_runs WHERE id=?", (run_id,)).fetchone()
+        if run is None or str(run["owner_id"]) != owner_id:
+            raise KeyError(run_id)
+        status = str(run["status"])
+        if status in TERMINAL_STATUSES:
+            raise ProtocolConflict("terminal Run cannot be paused")
+        if status == "paused":
+            conn.commit()
+            return business_store.decode_row(run) or {}
+        if status in {"queued", "recoverable"}:
+            conn.execute(
+                "UPDATE business_runs SET status='paused',updated_at=?,version=version+1 WHERE id=?",
+                (now, run_id),
+            )
+        elif status in {"leased", "running"}:
+            pending = conn.execute(
+                "SELECT id FROM run_commands WHERE run_id=? AND command_type='pause' AND status='pending'",
+                (run_id,),
+            ).fetchone()
+            if pending is None:
+                conn.execute(
+                    "INSERT INTO run_commands (id,run_id,owner_id,command_type,version,payload,created_at) "
+                    "VALUES (?,?,?,?,?,'{}',?)",
+                    (db.new_uuid(), run_id, owner_id, "pause", _next_command_version(conn, run_id), now),
+                )
+        else:
+            raise ProtocolConflict(f"Run in {status} cannot be paused")
+        row = conn.execute("SELECT * FROM business_runs WHERE id=?", (run_id,)).fetchone()
+        conn.commit()
+        return business_store.decode_row(row) or {}
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def request_resume(*, run_id: str, owner_id: str) -> dict[str, Any]:
+    """Resume a paused Run only when the original lease is still live and safe."""
+    now = time.time()
+    conn = db.get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        run = conn.execute("SELECT * FROM business_runs WHERE id=?", (run_id,)).fetchone()
+        if run is None or str(run["owner_id"]) != owner_id:
+            raise KeyError(run_id)
+        if str(run["status"]) != "paused":
+            raise ProtocolConflict("only a paused Run can be resumed")
+        lease = conn.execute(
+            "SELECT id FROM run_leases WHERE run_id=? AND status='active' AND expires_at>? "
+            "ORDER BY lease_epoch DESC LIMIT 1",
+            (run_id, now),
+        ).fetchone()
+        if lease is None:
+            conn.execute(
+                "UPDATE run_leases SET status='expired' WHERE run_id=? AND status='active'",
+                (run_id,),
+            )
+            if int(run["lease_epoch"] or 0) == 0:
+                # A queued Run has not executed any side effects, so it is safe
+                # to make it claimable again.
+                conn.execute(
+                    "UPDATE business_runs SET status='recoverable',updated_at=?,version=version+1 WHERE id=?",
+                    (now, run_id),
+                )
+            else:
+                # Python/tool execution has no durable continuation checkpoint.
+                # Re-leasing this Run would replay the prompt and may duplicate
+                # external side effects.  Fail closed and let the user create an
+                # explicit retry Run instead of pretending this is a resume.
+                _server_terminal(
+                    conn, run=run, status="failed",
+                    error_code="resume_checkpoint_unavailable",
+                    error_message=(
+                        "Local Agent lease ended while paused; safe resume is unavailable. "
+                        "Retry this Run explicitly to start a new execution."
+                    ),
+                    now=now,
+                )
+        else:
+            pending = conn.execute(
+                "SELECT id FROM run_commands WHERE run_id=? AND command_type='resume' AND status='pending'",
+                (run_id,),
+            ).fetchone()
+            if pending is None:
+                conn.execute(
+                    "INSERT INTO run_commands (id,run_id,owner_id,command_type,version,payload,created_at) "
+                    "VALUES (?,?,?,?,?,'{}',?)",
+                    (db.new_uuid(), run_id, owner_id, "resume", _next_command_version(conn, run_id), now),
+                )
         row = conn.execute("SELECT * FROM business_runs WHERE id=?", (run_id,)).fetchone()
         conn.commit()
         return business_store.decode_row(row) or {}

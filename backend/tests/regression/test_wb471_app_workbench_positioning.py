@@ -33,15 +33,15 @@ class AppWorkbenchPositioningContractTest(unittest.TestCase):
         ))
 
         self.assertIn("Console manages the system", current_surfaces)
-        self.assertIn("App（个人 Agent 工作台）", current_surfaces)
-        self.assertIn("Console 管理系统，App 使用系统完成工作，Local Agent 在设备上实际执行", current_surfaces)
+        self.assertIn("普通用户的个人 Agent 工作台", current_surfaces)
+        self.assertIn("Console 管系统，App 让用户完成工作，Local Agent 在设备上执行", current_surfaces)
         self.assertNotIn("Local Agent 的桌面控制面", current_surfaces)
         self.assertNotIn("Local Agent 工作台", current_surfaces)
         self.assertNotIn("你的本机 AI 执行工作台", current_surfaces)
         self.assertNotIn("AgentMate Local Agent** 是安装在用户设备上的桌面客户端", current_surfaces)
-        self.assertIn("它不包含 App UI", current_surfaces)
+        self.assertIn("提供业务 CRUD、账号权威或 App UI", current_surfaces)
         self.assertIn('App["App<br/>个人 Agent 工作台"]', current_surfaces)
-        self.assertIn('LocalAgent["Local Agent<br/>后台执行节点', current_surfaces)
+        self.assertIn('Local["Local Agent<br/>Runtime · Tools · MCP · WAL"]', current_surfaces)
 
     def test_device_configuration_is_secondary_to_the_work_loop(self) -> None:
         home = read("src/views/HomeView.tsx")
@@ -51,10 +51,10 @@ class AppWorkbenchPositioningContractTest(unittest.TestCase):
         self.assertIn(">运行设置</WbButton>", home)
         self.assertIn("label: '运行设置'", settings)
         self.assertNotIn(">此设备</WbButton>", home)
-        self.assertIn("App 的“执行概览”", architecture)
-        self.assertIn("App 的“运行设置”", architecture)
-        self.assertIn("App 的“模型管理”和“本机能力”", architecture)
-        self.assertIn("Local Agent 是当前默认的本机执行节点", architecture)
+        self.assertIn("App 的执行诊断中心", architecture)
+        self.assertIn("当前设备运行设置", architecture)
+        self.assertIn("管理模型、Skill、设备运行设置以及本机 MCP/连接器", architecture)
+        self.assertIn("设备上的后台执行节点", architecture)
 
 
 if __name__ == "__main__":
