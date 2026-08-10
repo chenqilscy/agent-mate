@@ -185,17 +185,31 @@ def record_lease(owner_id: str, lease: dict[str, Any]) -> dict[str, Any]:
     if not run_id or not lease_id or epoch < 1:
         raise ValueError("invalid Run lease")
     now = time.time()
-    db.get_conn().execute(
-        "INSERT INTO run_transport_leases "
-        "(run_id,owner_id,device_id,lease_id,lease_epoch,expires_at,ack_high_water,status,updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(run_id) DO UPDATE SET "
-        "owner_id=excluded.owner_id,device_id=excluded.device_id,lease_id=excluded.lease_id,"
-        "lease_epoch=excluded.lease_epoch,expires_at=excluded.expires_at,"
-        "ack_high_water=excluded.ack_high_water,status='active',last_error='',updated_at=excluded.updated_at",
-        (run_id, owner_id, device_id(owner_id), lease_id, epoch,
-         float(lease.get("expires_at") or 0), int(lease.get("ack_high_water") or 0), "active", now),
-    )
-    db.get_conn().commit()
+    conn = db.get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        current = conn.execute(
+            "SELECT lease_epoch FROM run_transport_leases WHERE run_id=?", (run_id,),
+        ).fetchone()
+        if current is not None and epoch < int(current["lease_epoch"]):
+            raise LeaseFenced("Run lease epoch moved backwards")
+        # A higher Server epoch permanently fences older envelopes. Preserve
+        # them in the local audit archive, but remove them from retry/WAL counts.
+        db.retire_superseded_wal(conn, run_id, epoch, retired_at=now)
+        conn.execute(
+            "INSERT INTO run_transport_leases "
+            "(run_id,owner_id,device_id,lease_id,lease_epoch,expires_at,ack_high_water,status,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(run_id) DO UPDATE SET "
+            "owner_id=excluded.owner_id,device_id=excluded.device_id,lease_id=excluded.lease_id,"
+            "lease_epoch=excluded.lease_epoch,expires_at=excluded.expires_at,"
+            "ack_high_water=excluded.ack_high_water,status='active',last_error='',updated_at=excluded.updated_at",
+            (run_id, owner_id, device_id(owner_id), lease_id, epoch,
+             float(lease.get("expires_at") or 0), int(lease.get("ack_high_water") or 0), "active", now),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     return {**run, "_lease_epoch": epoch, "_lease_id": lease_id}
 
 

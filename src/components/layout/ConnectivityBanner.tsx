@@ -28,7 +28,7 @@ export function ConnectivityBanner() {
 
   const pending = agent?.transport.wal.count ?? 0
   if (pending > 0) {
-    messages.push(`Local Agent 有 ${pending} 条执行事件等待 Server ACK`)
+    messages.push(`Local Agent：${pending} 条执行事件待 Server 回执（无需用户确认）`)
   }
 
   if (!messages.length) return null

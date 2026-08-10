@@ -72,7 +72,7 @@ Local Agent 负责：
 - 领取一个匹配 owner、目标设备和 capability 的 Run；
 - 运行真实 LLM function-calling、工具、MCP、文件与浏览器操作；
 - 事件先写本机 WAL，再按 `(run_id, lease_epoch, sequence)` 发送；
-- 收到 ACK 后清除相应 WAL，断线时保留并重传原事件；
+- 收到 ACK 后清除相应 WAL，断线时保留并重传原事件；Server 签发更高 epoch 时，旧 epoch 事件移入本地审计归档，不再作为可重试事件误报；
 - 将产物作为 working copy 上传，Server 完成 hash、大小和归属校验后提交。
 
 Local Agent 不允许把业务 CRUD 失败降级成本地成功。Server 不可达时只能继续仍有有效 lease 的执行，并把事件留在 WAL。

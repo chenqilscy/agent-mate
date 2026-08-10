@@ -46,7 +46,7 @@ sequence / event_type / occurred_at / payload / payload_hash
 - sequence gap、hash 变化、旧 epoch 或外部 lease 均拒绝。
 - 暂停不是终态：活动设备保持 lease 和协程执行门，暂停墙钟时间不计入活跃执行超时；设备丢失且没有可验证 checkpoint 时禁止自动新建 epoch 重放，原 Run fail closed，用户只能显式重试为新 Run。
 - 取消是终态；重试创建新 Run 并记录 `retry_of`。
-- ACK 后才能清除 WAL；诊断清理不得删除未 ACK 事件。
+- ACK 后才能清除当前 epoch 的可重试 WAL；Server 签发更高 epoch 后，旧 epoch 事件必须原子移出重试队列并保留在本地审计归档，不能伪装为已 ACK 或由诊断清理直接删除。
 
 ## 5. 文件与资产
 

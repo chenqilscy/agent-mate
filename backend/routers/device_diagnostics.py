@@ -40,8 +40,8 @@ def _snapshot(owner_id: str) -> dict[str, Any]:
         age = max(0, int(now - wal["oldest_at"])) if wal["oldest_at"] else 0
         issues.append({
             "code": "wal_pending", "severity": "error" if age > 60 else "warning",
-            "title": f"{wal['count']} 个执行事件等待 Server ACK",
-            "detail": f"最旧事件已等待 {age} 秒；数据仍安全保存在本机 WAL。",
+            "title": f"{wal['count']} 个执行事件待 Server 持久化回执",
+            "detail": f"这是机器传输状态，不是用户确认；最旧事件已等待 {age} 秒，数据仍安全保存在本机 WAL。",
             "action": "retry_transport",
         })
     for lease in transport["leases"]:

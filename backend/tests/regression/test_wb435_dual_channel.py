@@ -76,7 +76,8 @@ class DesktopDualChannelTest(unittest.TestCase):
         self.assertFalse((repository / "src" / "stores" / "automationStore.ts").exists())
         self.assertIn("Server 离线", banner)
         self.assertIn("Local Agent 离线", banner)
-        self.assertIn("等待 Server ACK", banner)
+        self.assertIn("待 Server 回执", banner)
+        self.assertIn("无需用户确认", banner)
         self.assertIn("协议不兼容", banner)
 
     def test_server_history_is_bounded_context_input_not_a_local_authority(self) -> None:

@@ -63,6 +63,7 @@ class LocalAgentCoreBoundaryTest(unittest.TestCase):
         self.assertEqual({
             "local_agent_schema", "device_settings", "device_secrets",
             "server_identities", "run_transport_leases", "run_event_wal",
+            "retired_run_event_wal", "run_worker_leader",
             "run_input_staging",
             "asset_working_copies", "asset_working_copy_audit",
             "connector_instances",

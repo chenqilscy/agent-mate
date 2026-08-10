@@ -54,6 +54,38 @@ def close_thread_connection() -> None:
     _local.initialized = False
 
 
+def retire_superseded_wal(
+    conn: sqlite3.Connection,
+    run_id: str,
+    current_epoch: int,
+    *,
+    retired_at: float | None = None,
+) -> int:
+    """Move fenced older-epoch events out of the retry queue without losing audit data.
+
+    The caller owns the transaction. A Server-issued higher epoch makes older
+    envelopes permanently ineligible for upload, but they are retained locally
+    instead of being silently deleted as if they had received an ACK.
+    """
+    retired = float(retired_at or time.time())
+    conn.execute(
+        "INSERT OR IGNORE INTO retired_run_event_wal "
+        "(event_id,run_id,owner_id,device_id,lease_id,lease_epoch,sequence,event_type,"
+        "occurred_at,payload,payload_hash,byte_size,attempts,last_attempt_at,created_at,"
+        "retired_reason,superseded_by_epoch,retired_at) "
+        "SELECT event_id,run_id,owner_id,device_id,lease_id,lease_epoch,sequence,event_type,"
+        "occurred_at,payload,payload_hash,byte_size,attempts,last_attempt_at,created_at,"
+        "'lease_epoch_superseded',?,? FROM run_event_wal "
+        "WHERE run_id=? AND lease_epoch<?",
+        (current_epoch, retired, run_id, current_epoch),
+    )
+    return conn.execute(
+        "DELETE FROM run_event_wal WHERE run_id=? AND lease_epoch<? "
+        "AND event_id IN (SELECT event_id FROM retired_run_event_wal)",
+        (run_id, current_epoch),
+    ).rowcount
+
+
 def init_db() -> None:
     if getattr(_local, "initialized", False):
         return
@@ -119,6 +151,29 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_run_event_wal_flush
             ON run_event_wal(owner_id,run_id,lease_epoch,sequence);
+
+        CREATE TABLE IF NOT EXISTS retired_run_event_wal (
+            event_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            lease_id TEXT NOT NULL,
+            lease_epoch INTEGER NOT NULL,
+            sequence INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            occurred_at REAL NOT NULL,
+            payload TEXT NOT NULL,
+            payload_hash TEXT NOT NULL,
+            byte_size INTEGER NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_attempt_at REAL NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            retired_reason TEXT NOT NULL,
+            superseded_by_epoch INTEGER NOT NULL,
+            retired_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_retired_run_event_wal_owner
+            ON retired_run_event_wal(owner_id,run_id,lease_epoch);
 
         CREATE TABLE IF NOT EXISTS run_input_staging (
             request_key TEXT PRIMARY KEY,
@@ -191,9 +246,20 @@ def init_db() -> None:
             VALUES (2,CAST(strftime('%s','now') AS REAL));
         INSERT OR IGNORE INTO local_agent_schema(version,applied_at)
             VALUES (3,CAST(strftime('%s','now') AS REAL));
+        INSERT OR IGNORE INTO local_agent_schema(version,applied_at)
+            VALUES (4,CAST(strftime('%s','now') AS REAL));
         """
     )
-    conn.commit()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        for lease in conn.execute(
+            "SELECT run_id,lease_epoch FROM run_transport_leases WHERE lease_epoch>0"
+        ).fetchall():
+            retire_superseded_wal(conn, str(lease["run_id"]), int(lease["lease_epoch"]))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     _local.initialized = True
 
 
