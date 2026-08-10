@@ -59,6 +59,7 @@ export function Sidebar() {
   const activeProject = useProjectStore((s) => s.active)
   const loadProjects = useProjectStore((s) => s.load)
   const setActiveProject = useProjectStore((s) => s.setActive)
+  const navOpen = useUIStore((s) => s.navOpen)
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
   const settingsOpen = useUIStore((s) => s.settingsOpen)
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
@@ -266,14 +267,21 @@ export function Sidebar() {
             instead of the old hard-coded left:250px; bottom:118px that flung it
             to the sidebar's bottom-right corner. */}
         <section className="nav-group nav-resource" aria-label="文件与知识">
-          <Dropdown trigger={['click']} open={moreOpen} onOpenChange={setMoreOpen} menu={{ items: [
+          <Dropdown
+            trigger={['click']}
+            placement={navOpen ? 'bottomLeft' : 'rightTop'}
+            classNames={{ root: 'resource-menu-popup' }}
+            open={moreOpen}
+            onOpenChange={setMoreOpen}
+            menu={{ items: [
             { type: 'group', label: '文件与文档', children: [
               { key: 'myfiles', icon: <IcFolder />, label: '我的文件' },
-              { key: 'kdocs', label: '金山文档' },
-              { key: 'knowledge', label: '知识库' },
+              { key: 'kdocs', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>, label: '金山文档' },
+              { key: 'knowledge', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 5a2 2 0 012-2h9v16H6a2 2 0 00-2 2z" /><path d="M15 3h3a1 1 0 011 1v15" /><path d="M8 7h4M8 11h4" /></svg>, label: '知识库' },
             ] },
-            { type: 'group', label: '发现', children: [{ key: 'inspire', label: '灵感' }] },
-          ], onClick: ({ key }) => { setView(key as ViewId); setMoreOpen(false) } }}>
+            { type: 'group', label: '发现', children: [{ key: 'inspire', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" /></svg>, label: '灵感' }] },
+          ], onClick: ({ key }) => { setView(key as ViewId); setMoreOpen(false) } }}
+          >
           <Button type="text" className={`nav-item ${act === 'more' ? 'active' : ''}`.trim()}>
             <span className="n-ic">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></svg>

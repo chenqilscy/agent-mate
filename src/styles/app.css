@@ -546,6 +546,16 @@
 .more-item svg { width: 16px; height: 16px; color: var(--text-2); }
 .more-item.div { border-top: 1px solid var(--border-2); margin-top: 4px; padding-top: 11px; }
 
+/* Ant Dropdown replacement for the original WorkBuddy resource flyout (WB-492).
+   Keep the popup compact and restore the right-side anchor lost in WB-241. */
+.resource-menu-popup .ant-dropdown-menu { min-width: 186px; padding: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-surface); box-shadow: var(--shadow-md); }
+.resource-menu-popup .ant-dropdown-menu-item-group-title { padding: 5px 10px 3px; color: var(--text-3); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; }
+.resource-menu-popup .ant-dropdown-menu-item-group + .ant-dropdown-menu-item-group { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--border-2); }
+.resource-menu-popup .ant-dropdown-menu-item { min-height: 34px; padding: 8px 10px; gap: 10px; border-radius: 8px; color: var(--text); font-size: 13px; }
+.resource-menu-popup .ant-dropdown-menu-item:hover { background: var(--chip); }
+.resource-menu-popup .ant-dropdown-menu-item-icon { width: 16px !important; min-width: 16px; height: 16px !important; margin-inline-end: 0 !important; color: var(--text-2); flex: 0 0 16px; }
+.resource-menu-popup .ant-dropdown-menu-title-content { min-width: 0; white-space: nowrap; }
+
 /* ---- generic popup menus ---- */
 .pop { position: fixed; z-index: 130; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-md); padding: 6px; display: none; min-width: 178px; max-height: 66vh; overflow-y: auto; }
 .pop.open { display: block; animation: pop .14s ease; }
