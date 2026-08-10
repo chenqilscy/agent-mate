@@ -10,7 +10,7 @@ import { useCatalog } from '../stores/catalogStore'
 import { Popover } from '../components/ui/Popover'
 import { PermPopover } from '../components/composer/PermPopover'
 import type { SessionInfo } from '../lib/types'
-import { Empty, Segmented, Space, Statistic } from 'antd'
+import { Segmented, Space, Statistic } from 'antd'
 import { CompatList as List } from '../components/ui/CompatList'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
@@ -36,6 +36,12 @@ function runState(session: SessionInfo): { label: string; tone: string } {
   if (session.run_status === 'error') return { label: '自动化失败', tone: 'error' }
   if (session.status === 'waiting') return { label: '等待输入', tone: 'waiting' }
   return { label: '执行中', tone: 'running' }
+}
+
+function runSource(session: SessionInfo): string {
+  if (session.kind === 'automation') return '自动化 Run'
+  if (session.project_id) return '项目 Run'
+  return '个人 Run'
 }
 
 export function HomeView() {
@@ -73,6 +79,14 @@ export function HomeView() {
     s.kind !== 'assistant' && (s.status === 'running' || s.status === 'waiting' || s.run_status === 'running'),
   ), [sessions])
 
+  const runningRuns = useMemo(() => sessions.filter((s) =>
+    s.kind !== 'assistant' && s.status !== 'waiting' && (s.status === 'running' || s.run_status === 'running'),
+  ), [sessions])
+
+  const waitingRuns = useMemo(() => sessions.filter((s) =>
+    s.kind !== 'assistant' && s.status === 'waiting',
+  ), [sessions])
+
   const recentFailures = useMemo(() => {
     const since = Date.now() / 1000 - 7 * 86400
     return sessions.filter((s) =>
@@ -108,10 +122,8 @@ export function HomeView() {
   }
 
   const attentionRuns = [...activeRuns, ...recentFailures.filter((failed) => !activeRuns.some((run) => run.id === failed.id))].slice(0, 4)
-  const sevenDaysAgo = Date.now() / 1000 - 7 * 86400
-  const recentRuns = sessions.filter((session) => (session.updated_at ?? session.created_at ?? 0) >= sevenDaysAgo)
   const completedRuns = sessions.filter((session) => session.status === 'done').slice(0, 4)
-  const failedRuns = recentRuns.filter((session) => session.run_status === 'error').length
+  const failedRuns = recentFailures.length
 
   const openMore = (event: MouseEvent<HTMLDivElement>) => {
     moreAnchor.current = event.currentTarget
@@ -127,15 +139,19 @@ export function HomeView() {
               <b>个人 Agent 工作台</b>
               <span>组织任务、发起 Run，并监督和验收 Agent 工作</span>
             </div>
-            <div className={`reward ${localAgentChecked && !localAgent ? 'is-offline' : ''}`} role="status">
+            <div
+              className={`reward ${localAgentChecked && !localAgent ? 'is-offline' : ''}`}
+              role="status"
+              title={localAgent ? `${localAgent.transport.identities} 个 Server 身份 · WAL ${localAgent.transport.wal.count}` : undefined}
+            >
               <span className="ri">{localAgent ? '●' : '○'}</span>
-              {localAgentChecked ? (localAgent ? `Local Agent 在线 · ${localAgent.transport.identities} 个 Server 身份 · WAL ${localAgent.transport.wal.count}` : 'Local Agent 离线，本机执行暂不可用') : '正在检查 Local Agent…'}
+              {localAgentChecked ? (localAgent ? `Local Agent 在线${localAgent.transport.wal.count > 0 ? ` · ${localAgent.transport.wal.count} 条待同步` : ''}` : 'Local Agent 离线，本机执行暂不可用') : '正在检查 Local Agent…'}
             </div>
           </div>
           <div className="home-layout">
             <div className="home-command">
               <h1 className="hero-title">
-                AgentMate
+                <span className="hero-brand">AgentMate</span>
                 <span className="g">你的 Agent 工作台</span>
               </h1>
               <Segmented
@@ -247,7 +263,7 @@ export function HomeView() {
               <div className="home-console-head">
                 <div>
                   <b>执行概览</b>
-                  <span>Server Run 与本机状态</span>
+                  <span>你的 Run 与待处理事项</span>
                 </div>
                 <Space size={6}>
                   <WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'diagnostics')}>执行诊断</WbButton>
@@ -255,14 +271,9 @@ export function HomeView() {
                 </Space>
               </div>
               <div className="home-metrics">
-                <ProCard className="home-metric"><Statistic value={recentRuns.length} title="近 7 天 Run" /></ProCard>
-                <ProCard className="home-metric"><Statistic value={activeRuns.length} title="执行中" /></ProCard>
-                <ProCard className="home-metric danger"><Statistic value={failedRuns} title="失败" /></ProCard>
-              </div>
-              <div className="home-device-status" aria-label="本机设备状态">
-                <div><span>Server 身份</span><b>{localAgent?.transport.identities ?? 0}</b></div>
-                <div className={(localAgent?.transport.wal.count ?? 0) > 0 ? 'danger' : ''}><span>等待 ACK</span><b>{localAgent?.transport.wal.count ?? 0}</b></div>
-                <div><span>工作副本</span><b>{Object.values(localAgent?.transport.working_copies ?? {}).reduce((sum, value) => sum + (value ?? 0), 0)}</b></div>
+                <ProCard className="home-metric"><Statistic value={runningRuns.length} title="执行中" /></ProCard>
+                <ProCard className="home-metric waiting"><Statistic value={waitingRuns.length} title="等待我确认" /></ProCard>
+                <ProCard className={`home-metric ${failedRuns > 0 ? 'danger' : ''}`.trim()}><Statistic value={failedRuns} title="近 7 天失败" /></ProCard>
               </div>
               <div className="home-console-grid">
                 <div className="home-run-group">
@@ -279,20 +290,20 @@ export function HomeView() {
                         <span className="home-run-arrow">›</span>
                       </WbButton>
                     </List.Item>
-                  }} /> : <Empty className="home-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有需要关注的任务" />}
+                  }} /> : <div className="home-status-empty" role="status"><span aria-hidden="true">✓</span>当前没有需要处理的任务</div>}
                 </div>
                 <div className="home-run-group">
                   <h2>最近完成</h2>
                   {completedRuns.length > 0 ? <List dataSource={completedRuns} renderItem={(session) => <List.Item className="home-run-item">
-                    <WbButton className="home-run" onClick={() => void openRun(session)}>
+                    <WbButton className="home-run" aria-label={`打开${session.title}，${runSource(session)}`} onClick={() => void openRun(session)}>
                       <span className="home-file-icon">✓</span>
                       <span className="home-run-body">
                         <b>{session.title}</b>
-                        <small>{session.kind === 'automation' ? '自动化 Run' : '本机 Run'} · {session.ago ?? '最近完成'}</small>
+                        <small>{runSource(session)} · {session.ago ?? '最近完成'}</small>
                       </span>
                       <span className="home-run-arrow">›</span>
                     </WbButton>
-                  </List.Item>} /> : <Empty className="home-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有已完成的 Server Run" />}
+                  </List.Item>} /> : <div className="home-status-empty is-muted">还没有已完成的 Run</div>}
                 </div>
               </div>
             </ProCard>

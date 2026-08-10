@@ -28,7 +28,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: '个人工作台',
     items: [
-      { id: 'home', label: '新建任务', cls: 'new', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg> },
+      { id: 'home', label: '工作台', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg> },
       { id: 'projects', label: '项目任务', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg> },
       { id: 'skills', label: '本机能力', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg> },
     ],
@@ -175,6 +175,7 @@ export function Sidebar() {
   const newTask = () => {
     useChatStore.getState().startDraft('对话')
     useLoadoutStore.getState().reset()
+    setView('home')
   }
 
   const openTask = (id: string) => {
@@ -211,7 +212,6 @@ export function Sidebar() {
         </svg>
         <div className="sb-title">
           <b>AgentMate</b>
-          <small>v1.0.0</small>
         </div>
         <div className="sb-icos">
           <Tooltip title="收起侧栏"><Button type="text" className="sb-ico" aria-label="收起侧栏" onClick={() => setSidebarCollapsed(true)}>
@@ -221,9 +221,9 @@ export function Sidebar() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
           </Button></Tooltip>
           <Dropdown trigger={['click']} menu={{ selectedKeys: [filter], selectable: true, items: [{ key: 'all', label: '全部' }, { key: 'running', label: '进行中' }], onClick: ({ key }) => setFilter(key as 'all' | 'running') }}>
-          <Button type="text" className={`sb-ico ${filter !== 'all' ? 'on' : ''}`.trim()} aria-label="筛选">
+          <Tooltip title="筛选最近执行"><Button type="text" className={`sb-ico ${filter !== 'all' ? 'on' : ''}`.trim()} aria-label="筛选最近执行">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 5h18l-7 8v6l-4-2v-4z" /></svg>
-          </Button>
+          </Button></Tooltip>
           </Dropdown>
         </div>
       </div>
@@ -248,10 +248,14 @@ export function Sidebar() {
       )}
 
       <nav className="nav">
+        <WbButton type="button" className="sb-new-task" onClick={newTask}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          新建任务
+        </WbButton>
         <Menu
           mode="inline"
           selectedKeys={[String(act)]}
-          onClick={({ key }) => { const target = key as ViewId; if (target === 'home') newTask(); setView(target) }}
+          onClick={({ key }) => setView(key as ViewId)}
           items={NAV_GROUPS.map((group) => ({
             type: 'group' as const,
             label: group.label,
@@ -285,7 +289,7 @@ export function Sidebar() {
           <span>最近执行</span>
           <small>{filtering ? `${recentShown.length}/${scopedSessions.length}` : scopedSessions.length}</small>
           {sessionsError ? <span className="sb-sync cached" title={sessionsError}>缓存</span> : sessionsLoading ? <span className="sb-sync">同步中</span> : sessionsUpdatedAt ? <span className="sb-sync live">实时</span> : null}
-          <Button type="text" className="sb-refresh" aria-label="刷新最近执行" onClick={() => void loadSessions()}>↻</Button>
+          <Tooltip title="刷新最近执行"><Button type="text" className="sb-refresh" aria-label="刷新最近执行" onClick={() => void loadSessions()}>↻</Button></Tooltip>
         </div>
         {contextProjectId && (
           <div className="sb-run-scope" role="group" aria-label="最近执行范围">

@@ -226,7 +226,7 @@ function SystemPanel() {
           <div className="set-fsub">仅在从应用根地址启动时生效，分享或收藏的具体页面链接不受影响。</div>
         </div>
         <WbSelect className="np-input set-select" value={draft.startup_page} onChange={(e) => change('startup_page', e.target.value as SystemSettings['startup_page'])}>
-          <option value="home">新建任务</option>
+          <option value="home">工作台</option>
           <option value="projects">项目</option>
           <option value="knowledge">知识库</option>
           <option value="automation">自动化</option>
