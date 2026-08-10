@@ -52,6 +52,7 @@ export function Sidebar() {
   const sessionsLoading = useChatStore((s) => s.sessionsLoading)
   const sessionsError = useChatStore((s) => s.sessionsError)
   const sessionsUpdatedAt = useChatStore((s) => s.sessionsUpdatedAt)
+  const activeSessionId = useChatStore((s) => s.activeId)
   const loadSessions = useChatStore((s) => s.loadSessions)
   const openSession = useChatStore((s) => s.openSession)
   const projects = useProjectStore((s) => s.projects)
@@ -111,6 +112,8 @@ export function Sidebar() {
       || (activeProject?.id === contextProjectId ? activeProject : null)
     : null
   const contextProjectName = contextProject?.name || '当前项目'
+  const selectedSessionId = route.sessionId
+    ?? ((view === 'chat' || view === 'projexec') ? activeSessionId : null)
 
   useEffect(() => { if (searchOpen) searchRef.current?.focus() }, [searchOpen])
   useEffect(() => {
@@ -303,7 +306,12 @@ export function Sidebar() {
           dataSource={visibleRecent}
           locale={{ emptyText: sessionsLoading ? '正在同步执行记录…' : filtering ? '无匹配执行' : recentScope === 'project' && contextProjectId ? '当前项目暂无执行' : '暂无执行记录' }}
           renderItem={(session) => (
-            <List.Item className="sb-task sb-run" {...clickable} onClick={() => openTask(session.id)}>
+            <List.Item
+              className={`sb-task sb-run ${selectedSessionId === session.id ? 'active' : ''}`.trim()}
+              aria-current={selectedSessionId === session.id ? 'page' : undefined}
+              {...clickable}
+              onClick={() => openTask(session.id)}
+            >
               <div className="sb-task-copy">
                 <span className="tt">{session.title}</span>
                 <small>{scopeLabel(session)}</small>
