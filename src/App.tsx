@@ -23,8 +23,6 @@ const ConsoleHandoffView = lazy(() => import('./views/ConsoleHandoffView').then(
 const ProjExecView = lazy(() => import('./views/ProjExecView').then((module) => ({ default: module.ProjExecView })))
 const SkillsView = lazy(() => import('./views/ExpertsView').then((module) => ({ default: module.SkillsView })))
 const ConnectorsView = lazy(() => import('./views/ExpertsView').then((module) => ({ default: module.ConnectorsView })))
-const MyFilesView = lazy(() => import('./views/MyFilesView').then((module) => ({ default: module.MyFilesView })))
-const KdocsView = lazy(() => import('./views/KdocsView').then((module) => ({ default: module.KdocsView })))
 const KnowledgeView = lazy(() => import('./views/KnowledgeView').then((module) => ({ default: module.KnowledgeView })))
 
 function MainView() {
@@ -60,15 +58,6 @@ function MainView() {
       break
     case 'automation':
       content = <ConsoleHandoffView />
-      break
-    case 'inspire':
-      content = <ConsoleHandoffView />
-      break
-    case 'myfiles':
-      content = <MyFilesView />
-      break
-    case 'kdocs':
-      content = <KdocsView />
       break
     case 'knowledge':
       content = <KnowledgeView />
@@ -133,7 +122,7 @@ export function App() {
       if (cancelled) return
       let route = readRoute()
       // “默认启动页”只接管根路径；用户显式打开的任何 URL 永远优先。
-      if (window.location.pathname === '/' && system.startup_page !== 'home') {
+      if (window.location.pathname === '/' && system.startup_page !== 'home' && system.startup_page !== 'knowledge') {
         useUIStore.getState().setView(system.startup_page, { replace: true })
         route = readRoute()
       }

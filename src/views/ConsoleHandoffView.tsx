@@ -9,7 +9,6 @@ const COPY = {
   experts: ['专家目录', '共享专家与能力目录由 Server 统一发布；Desktop Companion 只选择已安装能力执行任务。'],
   projects: ['项目与任务', '项目、任务上下文、Run 发起和交付验收属于 Server Workspace。'],
   project: ['项目管理', '项目计划、成员、风险和协作记录由 Server Console 维护。'],
-  inspire: ['灵感与新意图', '新的业务意图由 Server Workspace 接收、调度并形成权威 Run。'],
 } as const
 
 export function ConsoleHandoffView() {

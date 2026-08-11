@@ -23,9 +23,6 @@ const STATIC_ROUTES: Partial<Record<ViewId, string>> = {
   skills: '/skills',
   connectors: '/connectors',
   automation: '/automations',
-  inspire: '/inspiration',
-  myfiles: '/files',
-  kdocs: '/kdocs',
   knowledge: '/knowledge',
 }
 

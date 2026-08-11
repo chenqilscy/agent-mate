@@ -12,7 +12,7 @@ import { LoginModal } from '../auth/LoginModal'
 import { MessageCenter } from './MessageCenter'
 import { SettingsModal } from '../settings/SettingsModal'
 import { useServerStore } from '../../stores/serverStore'
-import { IcBell, IcCompass, IcFolder } from '../../lib/icons'
+import { IcBell } from '../../lib/icons'
 import { App as AntApp, Badge, Button, Dropdown, Input, Menu, Tooltip } from 'antd'
 import { CompatList as List } from '../ui/CompatList'
 import type { InputRef } from 'antd'
@@ -33,9 +33,8 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-function activeNav(view: ViewId): ViewId | 'more' {
-  if (view === 'inspire' || view === 'myfiles' || view === 'kdocs' || view === 'knowledge') return 'more'
-  if (view === 'connectors' || view === 'experts') return 'skills'
+function activeNav(view: ViewId): ViewId {
+  if (view === 'connectors' || view === 'experts' || view === 'knowledge') return 'skills'
   if (view === 'chat') return 'home'
   if (view === 'projexec' || view === 'project' || view === 'projects') return 'home'
   return view
@@ -57,7 +56,6 @@ export function Sidebar() {
   const activeProject = useProjectStore((s) => s.active)
   const loadProjects = useProjectStore((s) => s.load)
   const setActiveProject = useProjectStore((s) => s.setActive)
-  const navOpen = useUIStore((s) => s.navOpen)
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
   const settingsOpen = useUIStore((s) => s.settingsOpen)
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
@@ -90,7 +88,6 @@ export function Sidebar() {
     const t = setInterval(() => void loadNotifs(), 30_000)
     return () => clearInterval(t)
   }, [loadNotifs])
-  const [moreOpen, setMoreOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const footRef = useRef<HTMLDivElement>(null)
 
@@ -157,17 +154,16 @@ export function Sidebar() {
   }
 
   useEffect(() => {
-    if (!profileOpen && !moreOpen) return
+    if (!profileOpen) return
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node
       if (footRef.current && footRef.current.contains(t)) return
-      if ((t as HTMLElement).closest?.('.profile') || (t as HTMLElement).closest?.('.more-wrap')) return
+      if ((t as HTMLElement).closest?.('.profile')) return
       setProfileOpen(false)
-      setMoreOpen(false)
     }
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
-  }, [profileOpen, moreOpen])
+  }, [profileOpen])
 
   const openTask = (id: string) => {
     const session = sessions.find((item) => item.id === id)
@@ -249,33 +245,6 @@ export function Sidebar() {
             children: group.items.map((item) => ({ key: item.id, icon: <span className="n-ic">{item.icon}</span>, label: item.label, className: `nav-item ${item.cls ?? ''}`.trim() })),
           }))}
         />
-        {/* Wrap the trigger + flyout so the menu anchors to the button (WB-042),
-            instead of the old hard-coded left:250px; bottom:118px that flung it
-            to the sidebar's bottom-right corner. */}
-        <section className="nav-group nav-resource" aria-label="文件与知识">
-          <Dropdown
-            trigger={['click']}
-            placement={navOpen ? 'bottomLeft' : 'rightTop'}
-            classNames={{ root: 'resource-menu-popup' }}
-            open={moreOpen}
-            onOpenChange={setMoreOpen}
-            menu={{ items: [
-            { type: 'group', label: '文件与文档', children: [
-              { key: 'myfiles', icon: <IcFolder />, label: '我的文件' },
-              { key: 'kdocs', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>, label: '金山文档' },
-              { key: 'knowledge', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 5a2 2 0 012-2h9v16H6a2 2 0 00-2 2z" /><path d="M15 3h3a1 1 0 011 1v15" /><path d="M8 7h4M8 11h4" /></svg>, label: '知识库' },
-            ] },
-            { type: 'group', label: '发现', children: [{ key: 'inspire', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" /></svg>, label: '灵感' }] },
-          ], onClick: ({ key }) => { setView(key as ViewId); setMoreOpen(false) } }}
-          >
-          <Button type="text" className={`nav-item ${act === 'more' ? 'active' : ''}`.trim()}>
-            <span className="n-ic">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></svg>
-            </span>
-            文件与知识
-          </Button>
-          </Dropdown>
-        </section>
       </nav>
 
       <section className="sb-scroll" aria-label="最近执行">
@@ -325,7 +294,6 @@ export function Sidebar() {
       <div className="sb-foot" ref={footRef} {...clickable} onClick={(e) => {
         if ((e.target as HTMLElement).closest('.fic')) return
         setProfileOpen((v) => !v)
-        setMoreOpen(false)
       }}>
         <svg className="sb-ava" viewBox="0 0 40 40" aria-hidden="true">
           <circle cx="20" cy="20" r="20" fill="#16B37A" />
@@ -336,9 +304,6 @@ export function Sidebar() {
         <span className="name">{me?.name ?? '奇'}</span>
         <div className="fic" aria-label="通知" style={{ position: 'relative' }} onClick={(e) => { e.stopPropagation(); setMsgOpen(true) }} {...activate((e) => { e?.stopPropagation(); setMsgOpen(true) })}>
           <Badge count={unread} size="small"><IcBell /></Badge>
-        </div>
-        <div className="fic" aria-label="灵感" onClick={(e) => { e.stopPropagation(); setView('inspire') }} {...activate((e) => { e?.stopPropagation(); setView('inspire') })}>
-          <IcCompass />
         </div>
       </div>
 

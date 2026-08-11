@@ -1,8 +1,7 @@
 import { WbButton } from '../components/ui/Primitives'
-import { useEffect, useState, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { toast } from '../stores/toastStore'
 import { useChatStore } from '../stores/chatStore'
-import { useLoadoutStore } from '../stores/loadoutStore'
 import { useUIStore } from '../stores/uiStore'
 import { useExpertStore } from '../stores/expertStore'
 import { useSkillStore, matchSkill } from '../stores/skillStore'
@@ -53,12 +52,6 @@ type Detail =
 function summon(_names: string[], display: string, _prompt?: string) {
   toast(`请在 Server Workspace 选择「${display}」并发起 Run`)
   void openServerConsole('/')
-}
-
-// 连接器卡片仅准备本机能力；新的业务 Run 始终由 Server Workspace 发起。
-function summonConnector(name: string) {
-  useLoadoutStore.getState().summonConnectors([name])
-  toast('已选择本机连接器「' + name + '」· 新 Run 请从 Server Workspace 发起')
 }
 
 function RecoBtn({ skillKey, displayName }: { skillKey: string; displayName: string }) {
@@ -510,23 +503,9 @@ function InstalledCard({ skill, onOpenDetail, onEdit }: { skill: InstalledSkill;
   )
 }
 
-// 连接器加入本会话的按钮（受控，反映真实 loadout；stopPropagation 不触发卡片详情）。
-function ConnAddBtn({ on, onToggle, disabled = false }: { on: boolean; onToggle: (e: MouseEvent) => void; disabled?: boolean }) {
-  return (
-    <WbButton type="button" className={`add-btn ${on ? 'on' : ''}`.trim()} aria-label={on ? '移除' : disabled ? '连接器尚未就绪' : '添加'} disabled={disabled} onClick={onToggle}>
-      {on ? (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 12l5 5L20 6" /></svg>
-      ) : (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
-      )}
-    </WbButton>
-  )
-}
-
 function ConnectorsPane() {
   const [detail, setDetail] = useState<[string, string, string] | null>(null)
   const { CONNECTOR_RECOMMENDATIONS, CONN_META } = useCatalog()
-  const connectors = useLoadoutStore((s) => s.connectors)
   // 真实连接态 → 卡片上的「● 已连接」。两类：OAuth（金山文档，问 kdocs 授权态）与
   // 表单型（WeKnora · WB-188，问 /api/knowledge/config 是否已配 key）。
   const [authed, setAuthed] = useState<Record<string, boolean>>({})
@@ -565,8 +544,9 @@ function ConnectorsPane() {
   return (
     <div className="cap-pane show">
       <div className="ph" style={{ alignItems: 'center', marginTop: 2 }}>
-        <div><b>本机连接器</b><small>只有配置完成并通过连通测试的连接器才能加入任务</small></div>
+        <div><b>本机连接器</b><small>配置这台设备可供 Server Run 调用的连接器</small></div>
         <div style={{ flex: 1 }} />
+        <WbButton className="btn-ghost" onClick={() => useUIStore.getState().setView('knowledge')}>管理本机知识源</WbButton>
         <WbButton className="btn-dark" onClick={() => setManagerOpen(true)}>管理本机 MCP</WbButton>
       </div>
       {connectorCards.length === 0 && localStatuses.length === 0 && (
@@ -586,7 +566,6 @@ function ConnectorsPane() {
           const meta = CONN_META[n]
           const runtimeStatus = runtimeByName.get(n)
           const executable = ready(runtimeStatus, meta, n)
-          const added = connectors.includes(n)
           const open = () => setDetail([ic, n, d])
           // oauth / 表单型连接器显示实时连接态；其它显示静态标签。
           const badge = !runtimeStatus
@@ -607,20 +586,6 @@ function ConnectorsPane() {
                 <div className="c-n">{n}{badge}</div>
                 <div className="c-d">{d}</div>
               </div>
-              <ConnAddBtn
-                on={added}
-                disabled={!added && !executable}
-                onToggle={(e) => {
-                  e.stopPropagation()
-                  if (added) {
-                    useLoadoutStore.getState().toggle('conn', n)
-                    toast('已移除 · ' + n)
-                  } else {
-                    if (executable) summonConnector(n)
-                    else toast(runtimeStatus?.last_error || '该连接器尚未配置完成并通过测试')
-                  }
-                }}
-              />
             </ProCard>
           )
         })}
@@ -629,18 +594,12 @@ function ConnectorsPane() {
         <div className="ph" style={{ marginTop: 20 }}><b>自定义 MCP</b></div>
         <div className="card-grid g2" style={{ marginTop: 6 }}>
           {localStatuses.map((status) => {
-            const added = connectors.includes(status.name)
             return <ProCard className="conn" key={status.id} styles={{ body: { display: 'contents' } }}>
               <div className="c-ic">🔌</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="c-n">{status.name}{status.healthy ? <Tag className="conn-tag rdy">● 可用</Tag> : <Tag className="conn-tag tok">{status.health_status}</Tag>}</div>
                 <div className="c-d">{status.transport} · {status.last_error || `${status.tool_count} 个工具`}</div>
               </div>
-              <ConnAddBtn on={added} disabled={!added && !status.healthy} onToggle={(event) => {
-                event.stopPropagation()
-                if (added) useLoadoutStore.getState().toggle('conn', status.name)
-                else if (status.healthy) summonConnector(status.name)
-              }} />
             </ProCard>
           })}
         </div>

@@ -1,7 +1,6 @@
 import { WbButton, WbInput } from '../components/ui/Primitives'
 import { useEffect, useRef, useState } from 'react'
 import { useKnowledgeStore } from '../stores/knowledgeStore'
-import { useLoadoutStore } from '../stores/loadoutStore'
 import { useCatalog } from '../stores/catalogStore'
 import { api } from '../lib/api'
 import type { KbDocument, KnowledgeConfig } from '../lib/types'
@@ -15,8 +14,8 @@ import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
 import { IconPicker, type IconPickerOption } from '../components/ui/IconPicker'
 
-// 知识库（自托管 WeKnora RAG · WB-173/174）：建库 / 传档 / 解析状态，并可「挂载到对话」，
-// 让 agent 用 knowledge_retrieve 真检索作答。真调 WeKnora（经本地 backend，API Key 只在后端）。
+// 本机知识源管理（自托管 WeKnora RAG · WB-173/174）：建库 / 传档 / 解析状态。
+// Server Run 选择业务上下文，Local Agent 在设备侧执行真实 knowledge_retrieve。
 // 复用 ExpertsView / 通用视图的 class 与 token（视觉零重设计）。
 
 // 建库图标可选项（纯前端展示；WeKnora 侧无图标概念）。
@@ -44,8 +43,6 @@ function docStatus(d: KbDocument): { label: string; color: string; done: boolean
 export function KnowledgeView() {
   const { modal } = AntApp.useApp()
   const { kbs, loaded, load, create, remove, listDocs, uploadDoc, deleteDoc } = useKnowledgeStore()
-  const knowledgeIds = useLoadoutStore((s) => s.knowledgeIds)
-  const toggleLoadout = useLoadoutStore((s) => s.toggle)
   const { KB_TPLS } = useCatalog()
 
   const [openId, setOpenId] = useState<string | null>(null) // 打开详情的库 id
@@ -145,21 +142,15 @@ export function KnowledgeView() {
     })
   }
 
-  const onMount = (id: string, name: string) => {
-    const on = knowledgeIds.includes(id)
-    toggleLoadout('kb', id)
-    toast(on ? `已从对话取消挂载「${name}」` : `已挂载「${name}」到对话，去输入框提问即可检索`)
-  }
-
   return (
     <section className="view active" data-view="knowledge">
       <div className="page-scroll">
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
           <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 800 }}>📚 知识库</h1>
+            <h1 style={{ fontSize: 22, fontWeight: 800 }}>📚 本机知识源</h1>
             <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.7 }}>
-              基于自托管 WeKnora 的知识库：上传文档由 WeKnora 解析并向量化，在对话中「挂载」后让 AI 检索作答、注明来源。
-              API Key 只存本机后端，绝不进前端。
+              管理 Local Agent 使用的 WeKnora 知识源；业务 Run 与知识上下文由 Server Workspace 选择。
+              文档和 API Key 只保留在本机执行节点，绝不进入前端或上传 Server。
             </div>
           </div>
           {!openKb && configured && (
@@ -212,14 +203,12 @@ export function KnowledgeView() {
             {kbs.length > 0 && (
               <div className="card-grid g2" style={{ marginTop: 16 }}>
                 {kbs.map((k) => {
-                  const mounted = knowledgeIds.includes(k.id)
                   return (
                     <ProCard key={k.id} className="scard" styles={{ body: { display: 'contents' } }}>
                       <span className="sc-ic" style={{ fontSize: 22 }}>{ICON_EMOJI[k.icon || 'book'] || '📚'}</span>
                       <div className="sc-info" style={{ minWidth: 0, flex: 1 }}>
                         <div className="sc-n" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           {k.name}
-                          {mounted && <Tag color="success" className="ec-tag">已挂载</Tag>}
                         </div>
                         <div className="sc-d">{k.description || '（无描述）'}</div>
                         <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
@@ -227,9 +216,6 @@ export function KnowledgeView() {
                         </div>
                         <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                           <WbButton className="btn-dark" onClick={() => openDetail(k.id)}>管理文档</WbButton>
-                          <WbButton className={mounted ? 'btn-dark' : 'btn-ghost'} onClick={() => onMount(k.id, k.name)}>
-                            {mounted ? '取消挂载' : '挂载到对话'}
-                          </WbButton>
                           <WbButton className="btn-ghost" onClick={() => onDelKb(k.id, k.name)}>删除</WbButton>
                         </div>
                       </div>

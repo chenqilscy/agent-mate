@@ -13,7 +13,6 @@ import { useUIStore } from '../stores/uiStore'
 const LOCAL_SHORTCUTS: [ViewId, string, string, string][] = [
   ['skills', '✨', '已安装技能', '管理这台设备可执行的技能'],
   ['connectors', '🔗', '本机连接器', '管理本机 MCP、连接器和凭据'],
-  ['myfiles', '📁', '本机文件', '查看 Local Agent 工作区与交付文件'],
 ]
 
 function serverLabel(state: 'unknown' | 'online' | 'offline' | 'cached'): string {

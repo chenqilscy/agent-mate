@@ -31,9 +31,11 @@ class DesktopRunLaunchRetirementContractTests(unittest.TestCase):
         self.assertNotIn("WorkspaceContextsView", app)
         self.assertNotIn("startDraft", app)
         self.assertNotIn("startProject", app)
-        self.assertGreaterEqual(app.count("content = <ConsoleHandoffView />"), 6)
+        # WB-521 fully retires the standalone inspiration surface instead of
+        # handing it off, leaving five business views on the shared handoff.
+        self.assertGreaterEqual(app.count("content = <ConsoleHandoffView />"), 5)
         self.assertIn("projects: ['项目与任务'", handoff)
-        self.assertIn("inspire: ['灵感与新意图'", handoff)
+        self.assertNotIn("inspire: ['灵感与新意图'", handoff)
         self.assertNotIn("|| 'new'", router)
         self.assertIn("m[1] !== 'new'", router)
         self.assertIn("m[2] !== 'new'", router)

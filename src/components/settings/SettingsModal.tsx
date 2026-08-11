@@ -228,7 +228,6 @@ function SystemPanel() {
         <WbSelect className="np-input set-select" value={draft.startup_page} onChange={(e) => change('startup_page', e.target.value as SystemSettings['startup_page'])}>
           <option value="home">执行与授权</option>
           <option value="projects">项目</option>
-          <option value="knowledge">知识库</option>
           <option value="automation">自动化</option>
         </WbSelect>
       </div>

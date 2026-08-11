@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { type ConnMeta } from '../../data/catalog'
 import { useCatalog } from '../../stores/catalogStore'
 import { api } from '../../lib/api'
-import { useLoadoutStore } from '../../stores/loadoutStore'
+import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
 import { WeKnoraConfigForm } from './WeKnoraConfigForm'
 import { AntModalBridge } from '../ui/AntModalBridge'
@@ -24,7 +24,6 @@ export function ConnectorDetailModal(
   { icon, name, desc, onClose }: { icon: string; name: string; desc: string; onClose: () => void },
 ) {
   const [showTools, setShowTools] = useState(false)
-  const added = useLoadoutStore((s) => s.connectors.includes(name))
   const { CONN_META } = useCatalog()
   const meta: ConnMeta | undefined = CONN_META[name]
   const intro = meta?.fullDesc || desc
@@ -99,15 +98,9 @@ export function ConnectorDetailModal(
     void openServerConsole('/')
   }
   const doPrompt = (_prompt: string) => useInWorkspace()
-  const toggleAdd = () => {
-    if (added) {
-      useLoadoutStore.getState().toggle('conn', name)
-      toast('已移除 · ' + name)
-      return
-    }
-    useLoadoutStore.getState().summonConnectors([name])
-    toast('已选择本机连接器 · ' + name)
+  const manageKnowledgeSources = () => {
     onClose()
+    useUIStore.getState().setView('knowledge')
   }
 
   // 头部状态标签：oauth 连接器显示实时连接态；其它连接器显示静态 statusLabel。
@@ -136,7 +129,6 @@ export function ConnectorDetailModal(
             </div>
             <div className="ec-tags" style={{ marginTop: 6 }}>
               <span className="ec-tag">连接器</span>
-              {added && <span className="ec-tag">本会话已接入</span>}
             </div>
           </div>
           <WbButton type="button" className="np-x" onClick={onClose}>×</WbButton>
@@ -223,7 +215,7 @@ export function ConnectorDetailModal(
           ) : (
             <>
               {isOAuth && <WbButton type="button" className="btn-ghost" onClick={doDisconnect}>断开</WbButton>}
-              <WbButton type="button" className="btn-ghost" onClick={toggleAdd}>{added ? '移除' : '添加到本会话'}</WbButton>
+              {meta?.configKind === 'weknora' && <WbButton type="button" className="btn-ghost" onClick={manageKnowledgeSources}>管理本机知识源</WbButton>}
               <WbButton type="button" className="btn-dark" style={{ flex: 1, justifyContent: 'center' }} onClick={useInWorkspace}>在 Workspace 使用</WbButton>
             </>
           )}

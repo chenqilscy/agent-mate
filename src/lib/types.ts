@@ -14,9 +14,6 @@ export type ViewId =
   | 'connectors'
   | 'automation'
   | 'projexec'
-  | 'inspire'
-  | 'myfiles'
-  | 'kdocs'
   | 'knowledge'
 
 // 金山文档面板一条文件（WB-140）— 后端 /connectors/kdocs/files 归一化后的形状。
