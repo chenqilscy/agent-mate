@@ -18,13 +18,14 @@ class HomeWorkbenchHierarchyContractTests(unittest.TestCase):
     def test_home_summary_prioritizes_actionable_run_state(self) -> None:
         home = (ROOT / "src/views/HomeView.tsx").read_text(encoding="utf-8")
 
-        self.assertIn('title="等待我确认"', home)
-        self.assertIn('title="近 7 天失败"', home)
-        self.assertIn('你的 Run 与待处理事项', home)
+        self.assertIn('需要我处理', home)
+        self.assertIn('我的行动项', home)
+        self.assertIn('真实 Session / Run 状态', home)
         self.assertIn('className="home-status-empty"', home)
-        self.assertIn("if (session.project_id) return '项目 Run'", home)
+        self.assertIn("waiting_user: '等待你的回答'", home)
+        self.assertIn("waiting_approval: '等待授权'", home)
         self.assertNotIn('className="home-device-status"', home)
-        self.assertNotIn('title="近 7 天 Run"', home)
+        self.assertNotIn('最近完成', home)
 
     def test_run_rows_and_empty_state_have_readable_density(self) -> None:
         css = (ROOT / "src/styles/app.css").read_text(encoding="utf-8")

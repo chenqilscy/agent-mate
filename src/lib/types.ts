@@ -853,6 +853,37 @@ export interface WorkItem {
   updated_at?: number
 }
 
+export type WorkActionSignal =
+  | 'overdue' | 'due_today' | 'blocked' | 'in_progress'
+  | 'awaiting_acceptance' | 'starts_today' | 'ready' | 'urgent'
+
+export interface PersonalActionItem extends WorkItem {
+  project: { id: string; name: string; role: string }
+  action_signals: WorkActionSignal[]
+  action_reason: WorkActionSignal
+}
+
+export interface PersonalActionItemsResponse {
+  as_of: string
+  computed_at: number
+  source: 'server'
+  items: PersonalActionItem[]
+  unassigned: PersonalActionItem[]
+  summary: {
+    assigned: number
+    unassigned: number
+    backlog: number
+    overdue: number
+    due_today: number
+    blocked: number
+    in_progress: number
+    awaiting_acceptance: number
+    starts_today: number
+    ready: number
+    urgent: number
+  }
+}
+
 // 项目里程碑 / 迭代（WB-108）。
 export interface Milestone {
   id: string

@@ -2,7 +2,7 @@
 // goes straight to AgentMate Server, while device credentials, files and agent
 // execution stay on the loopback Local Agent. Provider API keys never enter UI state.
 
-import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceDiagnostics, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, LocalConnectorInstance, LocalConnectorPayload, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, RunStatus, SessionInfo, SharedPmPreferences, SharedPmPreferencesPatch, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
+import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceDiagnostics, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, LocalConnectorInstance, LocalConnectorPayload, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, PersonalActionItemsResponse, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, RunStatus, SessionInfo, SharedPmPreferences, SharedPmPreferencesPatch, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
 import { LOCAL_API_BASE, channelSnapshot, serverApiBase, serverGet, serverGetAll, serverSend } from './channels'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
@@ -707,6 +707,9 @@ export const api = {
     serverSend<{ ok: boolean; unread: number }>('POST', '/notifications/read', ids ? { ids } : {}),
 
   listWorkItems: (project: string) => serverGet<{ items: WorkItem[] }>(`/projects/${project}/work-items`),
+
+  listPersonalActionItems: (asOf: string) =>
+    serverGet<PersonalActionItemsResponse>(`/work-items/action-items?as_of=${encodeURIComponent(asOf)}`),
 
   createWorkItem: (body: {
     project_id: string; title: string; status?: WorkStatus
