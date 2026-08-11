@@ -140,3 +140,154 @@ App 可以推进当前任务所需的状态、评论、回答和验收，但不�
 - 诊断验证离线、WAL 积压、能力缺失与 worker 失败，不用 mock 健康替代。
 - UI 修改检查明暗主题与 390px 窄屏；后端运行时修改硬重启后做真实请求。
 - 版本完成度和残余风险记录在 issue；发布声称遵守 RC 门禁。
+
+## 12. 以 WorkItem 为主线的产品契约
+
+三端功能不再按页面各自增长，而是围绕同一条业务主线建设：
+
+```mermaid
+flowchart LR
+    W["WorkItem<br/>要做什么"] --> S["Session<br/>对话与上下文"]
+    S --> R["Run<br/>一次真实执行尝试"]
+    R --> D["Delivery<br/>摘要·产物·diff·用量"]
+    D --> A["人工验收"]
+    A -->|"通过"| Done["WorkItem done"]
+    A -->|"退回"| W
+```
+
+- **WorkItem** 是 Server 权威的业务对象，承载标题、说明、负责人、里程碑、Sprint、依赖、优先级和工作状态。
+- **Session** 承载人与 Agent 的连续对话与项目上下文；一个 WorkItem 可以有多个 Session。
+- **Run** 是可租赁、可回放、可审计的一次执行尝试；重试创建新 Run 并用 `retry_of` 关联，不改写历史。
+- **Delivery** 是 Run 的可验收结果，包括结果摘要、真实产物、diff、验证、用量和错误。
+
+WorkItem 状态与 Run 状态必须分开。Run 完成不等于任务完成；成功执行只把任务推进到可验收状态，最终 `done` 仍需有权用户明确验收。
+
+## 13. Console、App 与 Local Agent 的使用场景
+
+### 13.1 Console：项目与执行治理
+
+Console 项目页需要同时提供两个投影，但不创建第二套数据：
+
+1. **计划投影**：里程碑、Sprint、WorkItem、依赖、负责人、截止时间和项目健康。
+2. **执行投影**：WorkItem 的最新 Run、当前阶段、真实计划步骤、等待授权/回答、设备、开始与耗时、终态、产物、错误和验收结果。
+
+Console 只读 Server 已接收并脱敏的 Run 事件，不远程读取用户未上传的本机文件、原始路径、密钥或工具私密输出。页面展示的“进度”必须来自真实 Run Plan/Todo 事件；无计划时只展示阶段和耗时，不伪造百分比。
+
+统计分析按四类组织：
+
+| 类别 | 首批指标 |
+|---|---|
+| 计划与交付 | 完成率、吞吐量、在制品、逾期数、周期时间、Sprint 燃尽 |
+| 执行效率 | Run 状态分布、排队等待、执行耗时、重试率、成功率、阻塞原因 |
+| 交付质量 | 首次验收通过率、退回/返工、产物校验失败、未验收积压 |
+| 成本与资源 | token/成本、模型/Skill/项目分布、在线设备、能力不匹配、设备槽位占用和 WAL 积压 |
+
+全部指标由 Server 持久化的 WorkItem、Run、Delivery、审计和用量事件聚合；统计 API 带项目/组织权限、时间窗口和口径版本。
+
+### 13.2 App：个人 Agent 工作台
+
+App 是日常工作主入口：
+
+- 查看 Server 权威的里程碑、Sprint 和任务，但不复制 Console 的完整治理信息架构；
+- 有权用户可创建任务并指定 Sprint，或通过 Agent 对话把已有任务加入开放的 Sprint；
+- 用户明确说“执行/开始某任务”时，Agent 必须先解析真实 `project_id + work_item_id`，再创建权威 Run；
+- 任务执行中可随时查看计划、步骤、工具、文件、diff、用量、产物、错误、暂停/恢复/取消和待用户动作；
+- Run 完成后在 App 验收交付；管理员也可在 Console 使用同一验收记录复核。
+
+对话工具对 Sprint 的修改只能更新 Server WorkItem，并遵守项目角色、已关闭 Sprint 只读、当前 Sprint 约束和审计记录；不通过对话维护本地副本。
+
+### 13.3 Local Agent：可验证的设备执行节点
+
+Local Agent 对每次 Run 实施本机能力预检，领取匹配的 lease，执行 LLM/工具/MCP，并通过 WAL/ACK 上报可审计事件。它不决定任务属于哪个 Sprint，不修改组织或项目治理，也不把“本机已完成”当成 Server 业务已完成。
+
+## 14. Console 能力与本机能力的四层模型
+
+Console 配置一项能力，不等于每台 Local Agent 立即可执行。一次 Run 必须同时通过四层：
+
+1. **目录与政策**（Server/Console）：定义、发布版本、启停、灰度、最低 App/工具版本、项目绑定和普通用户是否可用。
+2. **用户与设备准备**（App/Local Agent）：Skill 已安装且未禁用，连接器已配置本机凭据并真实握手成功，模型可用，所需 OS 权限已具备。
+3. **Run 冻结快照**（Server）：创建 Run 时固定专家、Skill release/内容 hash、连接器、工具契约、模型、权限、项目和目标设备，避免运行中配置漂移。
+4. **实际执行能力**（Local Agent）：领取前用真实版本、工具、连接器健康和权限与 Run 快照比对；缺失时拒绝执行并上报结构化原因。
+
+具体语义：
+
+- **专家**：Console 发布的 persona 在 App 可见，下行到 Run 后可使用；不携带凭据，不代表额外工具权限。
+- **Skill**：Console 管理 AgentMate Skill 定义和发布治理；App/Local Agent 完成兼容检查、本机安装和执行前加载。项目强制 Skill 缺失或不兼容时必须 fail closed。
+- **连接器**：Console 发布启动定义、工具与所需凭据名；App 配置这台 Local Agent 的真实凭据和实例。“项目已选”和“这台设备已就绪”必须分开展示。
+
+App 允许用户在本机创建、上传、安装、编辑、启停和卸载私有 Skill。这些 Skill 默认仅对当前 owner + Local Agent 安装可用，不自动同步到其他设备或 Console，不能无声替换项目钉定的 Server release。若项目允许个人扩展，可作为会话级候选 Skill；若要变成团队能力，必须走测试、审核和发布流程。
+
+## 15. 多 Local Agent 与设备选路
+
+同一账号允许注册多个 Local Agent 设备身份。每个副本必须有独立 `device_id`、Ed25519 密钥、本地数据目录、working copy、凭据和 WAL。不支持多进程共用同一 SQLite/工作目录伪装成多节点。
+
+设备选路只允许两种权威模式：
+
+| 模式 | 语义 | 适用场景 |
+|---|---|---|
+| `specific` | 固定 `target_device_id`，只由该设备领取 | 依赖特定 working copy、本机软件、私有连接器或用户在 App 点击执行 |
+| `any_compatible` | 由 Server 在同一执行 owner 的在线设备中按能力、容量和冲突锁匹配 | 后台自动任务或不依赖特定设备的通用工作 |
+
+App 手动执行默认 `specific` 到当前设备，因为引用文件和对话上下文已在本机暂存。Console 没有“当前设备”概念；它只能显式选择 `specific` 或 `any_compatible`。
+
+设备选择必须先固定 `execution_owner_id`。项目管理员不得默认浏览或远程调度其他成员的个人设备；MVP 只从任务负责人自己的已验证设备中选择。企业托管设备池需要独立的设备管理角色、授权和审计，不作为个人设备的隐式扩展。
+
+选路失败必须返回可解释原因：设备离线、已撤销、协议不兼容、缺少 Skill/工具/连接器、容量已满、同项目写锁冲突或缺少本地输入；不得只显示“排队中”。
+
+## 16. WorkItem 自动执行
+
+“任务自动执行”与现有“定时/Webhook 自动化”不是同一个对象：
+
+- **WorkItem 自动执行**：一次性，与某个真实任务、负责人、Run 和验收绑定。
+- **Automation**：可重复的定时/interval/Webhook 触发器，每次 fire 创建独立 Run；可以关联项目，但默认不代表某个 WorkItem 已完成。
+
+WorkItem 增加执行策略，而不用一个模糊布尔值：
+
+```text
+execution_mode        manual | auto
+execution_owner_id    真实执行账号，MVP 等于任务负责人
+device_mode           specific | any_compatible
+target_device_id      device_mode=specific 时必填
+required_capabilities 由项目绑定和 Run 请求计算
+automation_policy     超时、重试、token 上限、通知和预授权
+```
+
+`auto` 只在下列门禁全部通过时创建 Run：
+
+1. WorkItem 处于可执行状态，项目未归档，若绑定 Sprint 则 Sprint 必须处于 active；
+2. 依赖任务全部完成，执行 owner 和设备策略完整；
+3. 至少一台候选 Local Agent 在线、协议兼容且能力预检通过；
+4. 同一 WorkItem 没有 active Run，也没有已验收交付；
+5. 后台所需权限在允许预授权的最小集合内。
+
+触发必须用 `work_item_id + work_item_version + execution_policy_version` 组成幂等键，并对每个 WorkItem 保持“最多一个 active Run”。高风险工具不得因为后台执行而自动授权；若未预授权，Run 进入明确的待处理/失败状态并通知用户，不长期占用全部计算槽位。
+
+自动 Run 成功后仍进入人工验收，不自动把 WorkItem 标记为 `done`。重试为新 Run，到达上限后显示根因、候选设备和下一操作。
+
+## 17. 当前完成度与缺口（2026-08-11）
+
+| 使用场景 | 当前状态 | 当前边界 / 下一缺口 |
+|---|---|---|
+| Console 管理里程碑、Sprint、任务 | 已有 | Server 权威 CRUD、看板/列表/甘特、协作与项目健康已存在 |
+| Console 查看任务执行情况和结果 | 部分已有 | Server 已保存 WorkItem 关联 Run/产物，App 已消费；Console 项目页尚未接入执行投影 |
+| Console 项目统计分析 | 部分已有 | 已有项目健康、负载和 Sprint 燃尽；缺 Run 效率、交付质量、成本和设备指标 |
+| Console 配置专家、Skill、连接器 | 已有 | 定义、推荐、Skill 发布治理已有；项目页仍需显示每台设备的实际 readiness |
+| App/Local Agent 使用 Console 能力 | 已有条件化链路 | App 读 Server 目录，Runtime 执行前拉取/加载；安装、兼容、凭据、健康或权限缺失时不可用 |
+| App 配置本机私有 Skill | 已有 | 支持创建/上传/安装/编辑/启停/卸载；默认不跨设备、不进 Console |
+| 多 Local Agent 设备注册和领取 | 协议已有 | Server 已支持多设备、能力匹配、容量和 `target_device_id`；同数据目录多进程不支持 |
+| Console 指定 Local Agent | 数据契约已有，产品入口缺失 | App 手动 Run 会锁定当前设备；Console 缺设备列表、readiness 与任务/自动化选路 UI |
+| App 查看里程碑、Sprint、任务 | 已有 | 读取 Server 数据，并可在创建任务时绑定 Sprint |
+| Agent 把已有任务加入 Sprint | 未完整 | 现有对话工具能查任务、改状态和启动 Run，缺受限的计划字段更新工具 |
+| App 通过 Agent 对话执行指定任务 | 已有 | `list_my_action_items` / `start_work_item_run` 创建真实 Server Run，完成后人工验收 |
+| App 随时查看任务执行 | 已有 | 基于 Server Run 事件回放，支持执行控制、过程、错误、用量和产物 |
+| Console 任务标记为自动执行 | 未实现 | 现有 Automation 能定时/Webhook 创建 Run，但没有 WorkItem 执行策略和一次性触发门禁 |
+
+## 18. 建议实施顺序
+
+1. **P0：执行投影** —— 在 Server 建立按项目/WorkItem 查询的 Run + Delivery 读模型，Console 任务详情展示最新执行、过程、结果和验收；与 App 共用状态映射。
+2. **P0：设备与选路** —— Console 增加当前账号设备列表、在线/协议/能力/readiness；任务和 Automation 增加 `specific | any_compatible` 策略，先不引入企业共享设备池。
+3. **P1：WorkItem 自动执行** —— 实现执行策略、依赖/readiness 门禁、幂等创建、后台权限约束、重试/通知和人工验收。
+4. **P1：项目执行分析** —— 先发布统一口径的项目 Run 摘要、阻塞和交付质量，再扩展趋势、成本与设备利用率。
+5. **P2：对话式项目操作** —— 增加受限的 WorkItem 计划字段更新工具，首先覆盖“加入 Sprint”，保留权限、关闭 Sprint 只读、版本冲突和审计门禁。
+
+每一期单独登记 issue 并交付，不将上述顺序当成“当前已完成”的声称。
