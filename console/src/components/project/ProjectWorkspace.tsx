@@ -128,7 +128,7 @@ type TaskCreateDefaults = Partial<
   Pick<WorkItem, "milestone_id" | "sprint_id" | "start_date" | "due_date">
 >;
 type QuickPlanKind = "milestone" | "sprint";
-type TaskEditorStep = "content" | "plan" | "advanced";
+type TaskEditorStep = "content" | "plan" | "advanced" | "collaboration";
 type PlanningSettingsSection = "milestones" | "sprints" | "fields";
 type ProjectTaskListScope = "backlog" | "all";
 type CustomFieldOptionEditorProps = {
@@ -1437,9 +1437,19 @@ export function ProjectWorkProvider({
                   </Card>
                 ),
               },
+              ...(editing
+                ? [
+                    {
+                      key: "collaboration",
+                      label: "4 协作与交付",
+                      forceRender: true,
+                      children: null,
+                    },
+                  ]
+                : []),
             ]}
           />
-          {editing && (
+          {editing && taskEditorStep === "plan" && (
             <Card
               size="small"
               title={
@@ -1516,7 +1526,9 @@ export function ProjectWorkProvider({
               />
             </Card>
           )}
-          {editing && (
+        </Form>
+        {editing && taskEditorStep === "collaboration" && (
+          <Space orientation="vertical" size={16} className="full-width">
             <Card size="small" title="任务协作" className="section-card">
               <List
                 dataSource={taskComments}
@@ -1591,14 +1603,12 @@ export function ProjectWorkProvider({
                 />
               )}
             </Card>
-          )}
-        </Form>
-        {editing && (
-          <WorkItemExecution
-            project={project}
-            workItem={editing}
-            onWorkItemUpdated={syncWorkItemProjection}
-          />
+            <WorkItemExecution
+              project={project}
+              workItem={editing}
+              onWorkItemUpdated={syncWorkItemProjection}
+            />
+          </Space>
         )}
       </Drawer>
       <Modal
