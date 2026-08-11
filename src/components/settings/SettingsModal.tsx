@@ -798,7 +798,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             {tab === 'account' && (
               <div className="set-body">
                 <div className="set-ptitle">Server 账号状态</div>
-                <div className="set-pdesc">账号、组织、成员与套餐由 Server Console 统一管理；App 只使用登录身份绑定这台 Local Agent。</div>
+                <div className="set-pdesc">账号、组织、成员与套餐由 Server Workspace / Console 统一管理；Desktop Companion 只使用登录身份绑定这台 Local Agent。</div>
                 <Card className="set-card" variant="borderless">
                   <div className="set-row">
                     <span className="set-k">用户名</span>
@@ -818,7 +818,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   </div>
                 </Card>
                 <div className="set-actions">
-                  <WbButton className="btn-dark" onClick={() => void openServerConsole()}>打开 Console</WbButton>
+                  <WbButton className="btn-dark" onClick={() => void openServerConsole()}>打开 Server Workspace</WbButton>
                   {loggedIn
                     ? <WbButton className="btn-ghost danger-b" onClick={() => { onClose(); void logout() }}>退出登录</WbButton>
                     : <span className="set-pdesc">当前是匿名访客，不是本地账号；AgentMate 账号统一由 Server 提供。</span>}

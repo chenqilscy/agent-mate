@@ -26,10 +26,10 @@ type NavGroup = { label: string; items: NavItem[] }
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    label: '个人工作台',
+    label: '本机执行节点',
     items: [
-      { id: 'home', label: '工作台', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg> },
-      { id: 'projects', label: '项目任务', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg> },
+      { id: 'home', label: '执行与授权', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg> },
+      { id: 'projects', label: '任务上下文', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg> },
       { id: 'skills', label: '本机能力', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg> },
     ],
   },
@@ -212,7 +212,7 @@ export function Sidebar() {
           <circle cx="24.5" cy="25" r="2.7" fill="#eafff6" />
         </svg>
         <div className="sb-title">
-          <b>AgentMate</b>
+          <b>AgentMate Desktop</b>
         </div>
         <div className="sb-icos">
           <Tooltip title="收起侧栏"><Button type="text" className="sb-ico" aria-label="收起侧栏" onClick={() => setSidebarCollapsed(true)}>
@@ -377,7 +377,7 @@ export function Sidebar() {
           {loggedIn && serverEnabled && (
             <div className="pf-row" {...clickable} onClick={() => { setProfileOpen(false); void openServerConsole() }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 17H7A5 5 0 017 7h2M15 7h2a5 5 0 010 10h-2M8 12h8" /></svg>
-              {serverLinked ? `打开 Server Console · ${serverLinked.name}` : '打开 Server Console'}
+              {serverLinked ? `打开 Server Workspace · ${serverLinked.name}` : '打开 Server Workspace'}
             </div>
           )}
           <div className="pf-div" />

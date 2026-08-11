@@ -9,7 +9,7 @@ AgentMate —— 从腾讯 WorkBuddy 的高保真参考原型 [`docs/tencent-wor
 当前文档权威层级见 [`docs/README.md`](docs/README.md)，总体产品与技术边界见
 [`docs/agentmate-server-first-架构设计.md`](docs/agentmate-server-first-架构设计.md)。
 前端 React 19 + Vite + TS + Zustand（`src/`），后端 Python FastAPI + SSE + 自研 agent 工具循环 + SQLite（`backend/`）。
-Server `:8100` 是业务权威与控制平面；App `:8102` 是个人 Agent 工作台；Local Agent `:8101` 是设备上的执行节点。
+Server `:8100` 是业务权威并托管普通用户 Workspace 与管理 Console；Desktop Companion `:8102` 是过渡中的本机可信控制面；Local Agent `:8101` 是设备上的执行节点。独立 App 业务面按 WB-517 逐页退役，不再作为目标架构扩展。
 
 进度：M0–M5 + §11 项目工作台 A–D 已完成并验证；Tauri 2 桌面外壳（路线 A：外壳/sidecar/安装包/托盘·更新脚手架）已落地；
 能力补全（路线 B：自动化 + 内置/第三方 MCP 连接器 + 更多真实技能工具）已落地；
@@ -38,9 +38,9 @@ WB-063 迁移与 local-first 回退（存量导入 Server、LOCAL_USER↔Server 
 ## 架构速览
 
 ```
-浏览器 :8102 ──/api 代理──▶ FastAPI :8101 ──▶ OpenAI 兼容 LLM
- React/Zustand              自研 agent 工具循环
- marked/DOMPurify/hljs      SQLite 持久化 · 每项目沙箱工作区
+浏览器 ──▶ Server :8100 ──▶ Workspace / Console · 业务权威 · Run 调度
+桌面 UI :8102 ──Tauri IPC──▶ Local Agent :8101 ──▶ LLM · Tools · MCP
+                              working copy · 本机凭据 · WAL · 执行缓存
 ```
 
 - **agent 工具循环**：`backend/agent/runtime.py` 的 `run_chat` 是异步生成器，OpenAI function-calling 多轮循环，逐事件 `yield` SSE。工具在 `tools.py`（list_dir/read_file/write_file/run_command/update_plan），技能工具在 `skills.py`，MCP 连接器工具经 `mcp_client.py`（官方 mcp SDK stdio 客户端）。
@@ -53,7 +53,8 @@ WB-063 迁移与 local-first 回退（存量导入 Server、LOCAL_USER↔Server 
 ## 目录
 
 ```
-src/{views,components,stores,lib,platform,styles}     # 前端
+src/{views,components,stores,lib,platform,styles}     # 过渡中的 Desktop Companion 前端
+console/src/                                         # Server Workspace 与管理 Console 前端
 backend/{agent,routers,storage,auth,mcp_servers}     # 后端
 docs/                 # 方案 + 原型 + issues/ 台账
 .agents/skills/      # 项目内 skill（issue-tracker）

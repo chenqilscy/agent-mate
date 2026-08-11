@@ -35,15 +35,15 @@ export function WorkspaceContextsView() {
         <div className="ph">
           <div className="ph-l">
             <h1>我的项目工作</h1>
-            <div className="sub">从 Server 项目进入任务，在 App 中推进、监督并验收 Agent 工作</div>
+            <div className="sub">从 Server Workspace 选择任务上下文，在这台执行节点上运行 Agent</div>
             <WbButton className="btn-line" onClick={() => void openServerConsole('projects')}>在 Console 管理项目</WbButton>
           </div>
         </div>
         <Alert
           type="info"
           showIcon
-          title="App 负责推进工作，Console 负责项目治理"
-          description="这里可以查看任务、发起执行和验收交付；新建项目、成员角色、计划结构、自动化和审计由 Server Console 统一管理。"
+          title="Workspace 负责业务工作，Desktop Companion 负责本机执行"
+          description="这里仅选择任务上下文并交给当前执行节点；任务推进、交付验收与项目治理以 Server Workspace / Console 为准。"
         />
         {error && (
           <Alert
@@ -62,7 +62,7 @@ export function WorkspaceContextsView() {
           locale={{
             emptyText: (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={error ? '无法读取 Server 项目' : 'Server 中还没有可用项目'}>
-                <WbButton className="btn-line" onClick={() => error ? void load() : void openServerConsole('projects')}>{error ? '重新同步' : '打开 Console'}</WbButton>
+                <WbButton className="btn-line" onClick={() => error ? void load() : void openServerConsole('projects')}>{error ? '重新同步' : '打开 Server Workspace'}</WbButton>
               </Empty>
             ),
           }}

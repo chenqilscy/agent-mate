@@ -235,8 +235,8 @@ function RunCard({
           type="warning"
           showIcon
           className="work-item-run-alert"
-          title="需要在 App 端处理"
-          description="此 Run 正在等待回答或授权。Console 仅展示状态，请由执行负责人在 App 中继续。"
+          title="需要在执行节点处理"
+          description="此 Run 正在等待回答或本机授权。Server Workspace 展示权威状态；请由执行负责人在 Desktop Companion 中继续。"
         />
       )}
       {run.error_message && (

@@ -1,6 +1,6 @@
 # AgentMate
 
-AgentMate is a real, runnable personal Agent workbench backed by a Server control plane and a device-local execution node.
+AgentMate is a real, runnable Server Workspace backed by a control plane and one or more device-local Agent execution nodes.
 The current build retains only a bounded local-first compatibility layer while obsolete storage/sync code is retired. It was initially informed by a high-fidelity
 Tencent WorkBuddy reference prototype, now archived with official-source notes under
 [`docs/WorkBuddy/`](docs/WorkBuddy/), and has evolved into an independent product.
@@ -12,7 +12,7 @@ and a catalog card is never treated as proof that a capability works.
 
 The working baseline includes:
 
-- React 19 + Vite + TypeScript + Zustand App UI;
+- React 19 + Vite + TypeScript Server Workspace/Console and a transitional Desktop Companion UI;
 - Local Agent execution service with SSE, device-local SQLite, project workspaces and a real tool loop;
 - Server-backed projects, work items, Sessions, Runs, delivery acceptance and automation records;
 - real Run pause/resume/cancel, ask-user, session-scoped authorization and durable trace replay;
@@ -32,28 +32,29 @@ days of real-use evidence.
 Target architecture:
 
 ```text
-AgentMate Server ──▶ API · Console · durable business data · object storage · Run scheduler
-       ▲                                      ▲
-       │ HTTPS / SSE                          │ outbound lease · event · ACK
-       │                                      │
-Desktop UI ── local IPC ──▶ Local Agent Core · Agent Runtime · MCP/tools
-                              local secrets · working copy · WAL · cache
+AgentMate Server ──▶ API · Workspace · Console · business data · Run scheduler
+       ▲                                                    ▲
+       │ HTTPS / SSE                                        │ outbound lease · event · ACK
+       │                                                    │
+Web UI                                             Agent execution node
+                                           Desktop Companion · Local Agent Core
+                                           Runtime · MCP/tools · secrets · WAL
 ```
 
-Server is the sole authority for persistent business data. Console manages the system; the App is each user's personal
-Agent workbench for starting, steering, reviewing and delivering work; Local Agent is the background execution node on
-the same device. Local Agent is not a UI or a second Server API. It owns device-bound secrets, OS permissions, runtime
+Server is the sole authority for persistent business data. Workspace is each user's work surface; Console manages the
+system. Local Agent is the background execution node on a personal computer or dedicated worker, while Desktop Companion
+is its trusted local control surface. Local Agent is not a second Server API. It owns device-bound secrets, OS permissions, runtime
 processes, working copies, unacknowledged event WAL and disposable caches. The current `:8101` Local Agent compatibility
 runtime still exposes some transitional App APIs, but its component name and deployment role are fixed. The legacy
 `backend/` directory name is retained only as a temporary Python import/source compatibility path.
 
-The App is the primary end-user surface, not a Local Agent administration console. It reads the user's projects, tasks,
-chats and Runs from Server, exposes only the business actions needed to advance the current work, and uses Local Agent
-for device-bound execution. Organization policy, project structure, membership, automation definitions, catalog releases
-and fleet-wide audit remain in Console. Local model credentials, installed capabilities, permissions and runtime recovery
-remain under the App's device settings.
+Workspace is the primary end-user surface. It reads the user's projects, tasks, chats and Runs from Server and exposes
+the business actions needed to advance the current work. Console keeps organization policy, project governance, catalog
+releases and fleet-wide audit. Desktop Companion keeps only device-bound execution, trusted approval, local files,
+credentials, installed capabilities and runtime recovery. The former standalone App business UI is transitional and is
+retired page by page only after the corresponding Workspace flow passes real acceptance.
 
-Third-party SkillHub browsing and installation are performed directly by each App. Server may publish a recommendation
+Third-party SkillHub browsing and installation are performed directly by each Desktop Companion. Server may publish a recommendation
 pointer and display copy, but does not mirror the marketplace, store SkillHub keys or host third-party skill packages.
 
 Detailed boundaries:
@@ -78,16 +79,17 @@ Set-Location ..
 # Local Agent (new terminal after installation)
 pnpm dev:local-agent                 # http://127.0.0.1:8101
 
-# App UI (new terminal, repository root)
+# Desktop Companion UI (new terminal, repository root; transitional dev port)
 pnpm install
 pnpm dev:app                         # http://127.0.0.1:8102
 ```
 
-Open `http://127.0.0.1:8102`, then open “模型管理” to configure a provider or custom model. LLM provider credentials,
+Open Server Workspace at `http://127.0.0.1:8100`. Open `http://127.0.0.1:8102` only for the Desktop Companion and use
+“模型管理” to configure a provider or custom model. LLM provider credentials,
 API bases, and default model choices are stored in the local per-owner database; they are never placed in frontend
 code or required in `backend/.env`.
 
-Settings follow explicit ownership: Console manages platform-wide services and collaboration policy; the App's
+Settings follow explicit ownership: Console manages platform-wide services and collaboration policy; Desktop Companion
 Settings dialog manages this device's Langfuse, local ASR, model credentials, installed capabilities, MCP instances,
 runtime behavior and execution diagnostics.
 Runtime settings are persisted by their owning service,
@@ -101,7 +103,7 @@ Database paths, bind ports, cryptographic bootstrap material and release version
 ./run-stack.ps1
 ```
 
-This starts Server API + Console `:8100`, Local Agent `:8101`, and App UI `:8102`. Pure-local operation remains
+This starts Server API + Workspace/Console `:8100`, Local Agent `:8101`, and Desktop Companion UI `:8102`. Pure-local operation remains
 available only as a migration compatibility mode; the Server-first target requires Server for business reads and writes,
 while Local Agent execution can continue an already leased Run during a bounded outage.
 
@@ -112,10 +114,10 @@ only against the local or explicitly designated controlled-test database.
 ## Repository layout
 
 ```text
-src/                 React App UI, stores, platform abstraction and global styles
+src/                 transitional Desktop Companion UI, stores, platform abstraction and global styles
 backend/             temporary Local Agent Python source/import compatibility path
 server/              independent FastAPI control plane and hosted Console assets
-console/             React + Ant Design Console source
+console/             React + Ant Design Server Workspace and Console source
 src-tauri/           Tauri 2 shell, sidecar, tray and updater scaffolding
 docs/                current designs, WorkBuddy references and issue ledger
 ```

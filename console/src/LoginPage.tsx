@@ -94,16 +94,16 @@ export default function LoginPage({ onAuthenticated, themeMode, onToggleTheme }:
         {themeMode === "dark" ? "浅色" : "深色"}
       </Button>
       <section className="login-brand">
-        <div className="brand-mark brand-mark-large">C</div>
-        <Typography.Title level={1}>AgentMate Console</Typography.Title>
+        <div className="brand-mark brand-mark-large">A</div>
+        <Typography.Title level={1}>AgentMate</Typography.Title>
         <Typography.Paragraph>
-          AgentMate Server 的专业管理控制台
+          Server Workspace 与管理控制台的统一入口
         </Typography.Paragraph>
       </section>
       <Card className="login-card" variant="borderless">
         <LoginForm<{ name: string; password: string; bootstrap_secret?: string }>
           title="欢迎回来"
-          subTitle="管理项目、成员与 AgentMate 平台能力"
+          subTitle="继续个人 Agent 工作，或管理 AgentMate 平台"
           submitter={{ searchConfig: { submitText: mode === "login" ? "登录" : mode === "bootstrap" ? "初始化管理员" : "创建账号" } }}
           onFinish={submit}
         >

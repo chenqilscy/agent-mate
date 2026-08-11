@@ -16,6 +16,7 @@ import LoginPage from "./LoginPage";
 import { navigate, usePathname } from "./router";
 import type { Account, ThemeMode } from "./types";
 
+const WorkspacePage = lazy(() => import("./pages/WorkspacePage"));
 const OverviewPage = lazy(() => import("./pages/OverviewPage"));
 const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
 const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage"));
@@ -30,9 +31,9 @@ const PlatformSettingsPage = lazy(() => import("./pages/PlatformSettingsPage"));
 const SkillsPage = lazy(() => import("./SkillsPage"));
 
 const THEME_KEY = "agentmate.console.theme";
-const ADMIN_PREFIXES = ["/catalog/", "/users", "/settings/"];
+const ADMIN_PREFIXES = ["/admin", "/catalog/", "/users", "/settings/"];
 const PAGE_TITLES: Record<string, string> = {
-  "/": "概览", "/projects": "项目", "/organizations": "组织与成员",
+  "/": "我的工作台", "/admin": "管理总览", "/projects": "项目", "/organizations": "组织与成员",
   "/notifications": "通知", "/automations": "自动化", "/local-agents": "Local Agent", "/catalog/experts": "专家", "/catalog/connectors": "连接器",
   "/catalog/skills": "技能", "/catalog/knowledge": "知识库模板", "/users": "用户",
   "/settings/platform": "平台设置", "/settings/catalog": "能力定义 JSON",
@@ -40,7 +41,7 @@ const PAGE_TITLES: Record<string, string> = {
 
 const baseRoutes = [
   { path: "/workspace", name: "工作区", icon: <DashboardOutlined />, children: [
-    { path: "/", name: "概览", icon: <DashboardOutlined /> },
+    { path: "/", name: "我的工作台", icon: <DashboardOutlined /> },
     { path: "/projects", name: "项目", icon: <ProjectOutlined /> },
     { path: "/organizations", name: "组织与成员", icon: <TeamOutlined /> },
     { path: "/local-agents", name: "Local Agent", icon: <DesktopOutlined /> },
@@ -55,6 +56,7 @@ const adminRoutes = [
     { path: "/catalog/knowledge", name: "知识库模板", icon: <BookOutlined /> },
   ] },
   { path: "/administration", name: "系统管理", icon: <SettingOutlined />, children: [
+    { path: "/admin", name: "管理总览", icon: <DashboardOutlined /> },
     { path: "/users", name: "用户与权限", icon: <UserOutlined /> },
     { path: "/settings/platform", name: "平台设置", icon: <SettingOutlined /> },
     { path: "/settings/catalog", name: "能力定义 JSON", icon: <ToolOutlined /> },
@@ -67,7 +69,8 @@ function CurrentPage({ account, pathname, onUnreadChange }: { account: Account; 
   if (pathname === "/projects/new") return <ProjectsPage createOnMount />;
   if (projectMatch) return <ProjectDetailPage projectId={decodeURIComponent(projectMatch[1])} />;
   switch (pathname) {
-    case "/": return <OverviewPage account={account} />;
+    case "/": return <WorkspacePage account={account} />;
+    case "/admin": return <OverviewPage account={account} />;
     case "/projects": return <ProjectsPage />;
     case "/organizations": return <OrganizationsPage />;
     case "/local-agents": return <LocalAgentsPage />;
@@ -88,15 +91,17 @@ function ConsoleContent({ account, mode, onToggleTheme, onLogout }: { account: A
   const pathname = usePathname();
   const [unread, setUnread] = useState(0);
   const routes = useMemo(() => account.is_platform_admin ? [...baseRoutes, ...adminRoutes] : baseRoutes, [account.is_platform_admin]);
+  const adminSurface = ADMIN_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  const productTitle = adminSurface ? "AgentMate Console" : "AgentMate Workspace";
   useEffect(() => {
     const key = pathname.match(/^\/projects\/[^/]+$/) ? "/projects" : pathname;
-    document.title = `${PAGE_TITLES[key] || (key === "/projects" ? "项目" : "AgentMate Console")} · AgentMate Console`;
-  }, [pathname]);
+    document.title = `${PAGE_TITLES[key] || (key === "/projects" ? "项目" : productTitle)} · ${productTitle}`;
+  }, [pathname, productTitle]);
   useEffect(() => { consoleApi.notifications().then((result) => setUnread(result.unread || 0)).catch(() => undefined); }, [pathname]);
   return (
     <ProLayout
-      title="AgentMate Console"
-      logo={<div className="brand-mark">C</div>}
+      title={productTitle}
+      logo={<div className="brand-mark">{adminSurface ? "C" : "W"}</div>}
       layout="mix"
       fixedHeader
       fixSiderbar

@@ -94,6 +94,10 @@ body {
 .page-loading { min-height: 55vh; display: grid; place-items: center; }
 .section-row, .section-card { margin-top: 16px; }
 .overview-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; }
+.workspace-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.workspace-main-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, .85fr); gap: 16px; margin-top: 16px; align-items: start; }
+.workspace-trust-alert { margin-top: 16px; }
+.workspace-device-note { margin: 14px 0 0 !important; }
 .overview-health-progress { width: 150px; margin-inline-start: 20px; }
 .overview-health-progress .ant-progress { margin: 4px 0 0; }
 .table-scroll-hint { display: none; margin: 0 0 8px !important; }
@@ -533,6 +537,8 @@ body {
   .file-list-panel { border-right: 0; border-bottom: 1px solid var(--console-border); max-height: 240px; overflow: auto; }
   .file-content-editor { min-height: 280px !important; }
   .overview-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workspace-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workspace-main-grid { grid-template-columns: 1fr; }
   .table-scroll-hint { display: block; }
   .project-plan-toolbar { position: static; }
   .project-plan-toolbar-row { grid-template-columns: 1fr; }
@@ -569,6 +575,7 @@ body {
   .login-theme-toggle { top: 14px; right: 14px; min-height: 40px; }
   .console-create-action-label { display: none; }
   .overview-stat-grid { grid-template-columns: 1fr; }
+  .workspace-stat-grid { grid-template-columns: 1fr; }
   .project-capability-summary,
   .project-capability-grid { grid-template-columns: 1fr; }
   .work-item-run-summary { grid-template-columns: 1fr; }

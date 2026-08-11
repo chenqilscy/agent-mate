@@ -20,6 +20,7 @@ import { toast } from '../stores/toastStore'
 import { useUIStore } from '../stores/uiStore'
 import { useWorkbenchStore } from '../stores/workbenchStore'
 import { useWorkItemStore } from '../stores/workItemStore'
+import { openServerConsole } from '../lib/console'
 
 const MORE_SHORTCUTS: [ViewId, string, string, string][] = [
   ['skills', '✨', '已安装技能', '管理这台设备可执行的技能'],
@@ -279,13 +280,16 @@ export function HomeView() {
         <div className="home-inner">
           <div className="home-page-head">
             <div className="home-page-copy">
-              <b>个人 Agent 工作台</b>
-              <span>决定下一步、介入关键节点，并验收 Agent 交付</span>
+              <b>Desktop Companion</b>
+              <span>本机 Agent 执行、可信授权、文件与能力控制</span>
             </div>
-            <div className={`reward ${localAgentChecked && !localAgent ? 'is-offline' : ''}`} role="status">
-              <span className="ri">{localAgent ? '●' : '○'}</span>
-              {localAgentChecked ? (localAgent ? 'Local Agent 在线' : 'Local Agent 离线') : '正在检查 Local Agent…'}
-            </div>
+            <Space size={8} wrap>
+              <WbButton className="btn-ghost" onClick={() => void openServerConsole('/')}>打开 Server Workspace</WbButton>
+              <div className={`reward ${localAgentChecked && !localAgent ? 'is-offline' : ''}`} role="status">
+                <span className="ri">{localAgent ? '●' : '○'}</span>
+                {localAgentChecked ? (localAgent ? 'Local Agent 在线' : 'Local Agent 离线') : '正在检查 Local Agent…'}
+              </div>
+            </Space>
           </div>
 
           <div className="home-layout home-workbench-layout">
