@@ -140,7 +140,7 @@ export default function SkillCategories({
       toolBarRender={() => [<Button key="new" type="primary" icon={<PlusOutlined />} onClick={() => open(null)}>新增分类</Button>]}
     />
     <Drawer
-      width={620}
+      size={620}
       open={editing !== undefined}
       title={editing ? `编辑分类 · ${editing.data.name}` : "新增技能分类"}
       onClose={() => setEditing(undefined)}

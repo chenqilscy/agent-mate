@@ -17,6 +17,21 @@ class ConsoleAntDesignEntryTests(unittest.TestCase):
         # Pro Components stable 2.x does not declare antd 6 support; pin the compatible 3.x prerelease.
         self.assertEqual(dependencies["@ant-design/pro-components"], "3.1.14-2")
 
+    def test_console_sources_avoid_known_antd6_deprecated_props(self) -> None:
+        sources = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (ROOT / "console" / "src").rglob("*.tsx")
+        )
+        deprecated_patterns = {
+            "Card bordered": r"<Card\b[^>]*\bbordered\s*=",
+            "Space direction": r"<Space\b[^>]*\bdirection\s*=",
+            "Drawer width": r"<Drawer\b[^>]*\bwidth\s*=",
+            "Drawer/Modal maskClosable": r"\bmaskClosable\s*=",
+            "Alert message": r"<Alert\b[^>]*\bmessage\s*=",
+        }
+        for label, pattern in deprecated_patterns.items():
+            self.assertIsNone(re.search(pattern, sources), f"deprecated Ant Design prop remains: {label}")
+
     def test_server_serves_react_entry_for_every_console_route(self) -> None:
         main = (ROOT / "server" / "main.py").read_text(encoding="utf-8")
         built_index = (ROOT / "server" / "web" / "console-dist" / "index.html").read_text(encoding="utf-8")

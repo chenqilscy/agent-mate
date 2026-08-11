@@ -74,7 +74,7 @@ export default function LocalAgentsPage() {
         }}
         scroll={{ x: 940 }}
         columns={[
-          { title: "设备", dataIndex: "name", width: 200, render: (_value, device) => <Space direction="vertical" size={0}><Typography.Text strong>{device.name}</Typography.Text><Typography.Text type="secondary">{device.platform || "未知平台"} {device.arch} · App {device.app_version || "—"}</Typography.Text></Space> },
+          { title: "设备", dataIndex: "name", width: 200, render: (_value, device) => <Space orientation="vertical" size={0}><Typography.Text strong>{device.name}</Typography.Text><Typography.Text type="secondary">{device.platform || "未知平台"} {device.arch} · App {device.app_version || "—"}</Typography.Text></Space> },
           { title: "状态", dataIndex: "readiness", width: 150, render: (_value, device) => { const readiness = localAgentReadiness(device); return <Tag color={readiness.color}>{readiness.label}</Tag>; } },
           { title: "最近心跳", dataIndex: "last_seen_at", width: 180, render: (value) => formatTime(Number(value)) },
           { title: "并行容量", width: 180, render: (_value, device) => { const capacity = localAgentCapacity(device); return <Progress size="small" percent={Math.min(100, Math.round(capacity.active / capacity.parallel * 100))} format={() => `${capacity.active}/${capacity.parallel}`} />; } },

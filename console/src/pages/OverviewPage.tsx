@@ -92,7 +92,7 @@ export default function OverviewPage({ account }: { account: Account }) {
         </Col>
         <Col xs={24} lg={9}>
           <Card title="服务状态">
-            <Space direction="vertical" size={18} className="full-width">
+            <Space orientation="vertical" size={18} className="full-width">
               <Space><span className="status-dot online" /><Typography.Text strong>AgentMate Server 在线</Typography.Text></Space>
               <div><Typography.Text type="secondary">账号权限</Typography.Text><div><Tag color={account.is_platform_admin ? "blue" : "default"}>{account.is_platform_admin ? "平台管理员" : "普通成员"}</Tag></div></div>
               <div><Typography.Text type="secondary">能力数据迁移</Typography.Text><Progress percent={100} status="success" /></div>

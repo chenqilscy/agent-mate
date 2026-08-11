@@ -207,8 +207,8 @@ export default function AutomationsPage() {
 
   const projectNames = useMemo(() => new Map(projects.map((item) => [item.id, item.name])), [projects]);
   const columns: ProColumns<AutomationRecord>[] = [
-    { title: "名称", dataIndex: "name", width: 220, render: (_value, item) => <Space direction="vertical" size={0}><Typography.Text strong>{item.name}</Typography.Text><Typography.Text type="secondary">{item.project_id ? projectNames.get(item.project_id) || "项目" : "个人"}</Typography.Text></Space> },
-    { title: "触发方式", dataIndex: "trigger_kind", width: 200, render: (_value, item) => <Space direction="vertical" size={0}><Tag>{triggerLabels[item.trigger_kind]}</Tag><Typography.Text type="secondary">{item.trigger_kind === "interval" ? `每 ${item.interval_min} 分钟` : ["daily", "health_daily"].includes(item.trigger_kind) ? `${item.at_time} · ${item.timezone}` : "签名请求"}</Typography.Text></Space> },
+    { title: "名称", dataIndex: "name", width: 220, render: (_value, item) => <Space orientation="vertical" size={0}><Typography.Text strong>{item.name}</Typography.Text><Typography.Text type="secondary">{item.project_id ? projectNames.get(item.project_id) || "项目" : "个人"}</Typography.Text></Space> },
+    { title: "触发方式", dataIndex: "trigger_kind", width: 200, render: (_value, item) => <Space orientation="vertical" size={0}><Tag>{triggerLabels[item.trigger_kind]}</Tag><Typography.Text type="secondary">{item.trigger_kind === "interval" ? `每 ${item.interval_min} 分钟` : ["daily", "health_daily"].includes(item.trigger_kind) ? `${item.at_time} · ${item.timezone}` : "签名请求"}</Typography.Text></Space> },
     { title: "执行设备", dataIndex: "routing_mode", width: 180, render: (_value, item) => item.routing_mode === "specific" ? devices.find((device) => device.id === item.target_device_id)?.name || "指定设备（不可用）" : "任一兼容设备" },
     { title: "下次执行", dataIndex: "next_run_at", width: 180, render: (value) => formatTime(Number(value) || null) },
     { title: "最近状态", dataIndex: "last_status", width: 120, render: (value) => value ? <Tag color={statusColors[String(value)] || "default"}>{String(value)}</Tag> : "—" },
@@ -275,7 +275,7 @@ export default function AutomationsPage() {
       </Modal>
 
       <Modal width={760} open={Boolean(webhookOf)} title={`${webhookOf?.name || "自动化"} · Webhook`} footer={null} onCancel={() => { setWebhookOf(null); setWebhook(null); }} destroyOnHidden loading={webhookLoading}>
-        {!webhook?.configured ? <Alert type="info" showIcon title="尚未创建 Webhook" description="创建后 Server 会生成签名密钥；密钥只显示一次。" action={<Button type="primary" onClick={() => void createOrRotateWebhook(false)}>创建</Button>} /> : <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        {!webhook?.configured ? <Alert type="info" showIcon title="尚未创建 Webhook" description="创建后 Server 会生成签名密钥；密钥只显示一次。" action={<Button type="primary" onClick={() => void createOrRotateWebhook(false)}>创建</Button>} /> : <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           {webhook.secret && <Alert type="warning" showIcon title="立即保存签名密钥" description={<Typography.Text copyable code>{webhook.secret}</Typography.Text>} />}
           <Descriptions bordered size="small" column={1} items={[
             { key: "endpoint", label: "入口", children: <Typography.Text copyable code>{webhook.endpoint}</Typography.Text> },

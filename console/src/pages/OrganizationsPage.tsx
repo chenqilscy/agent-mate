@@ -37,7 +37,7 @@ export default function OrganizationsPage() {
           <Form.Item name="name" label="组织名称" rules={[{ required: true, whitespace: true }]}><Input autoFocus maxLength={120} /></Form.Item>
         </Form>
       </Modal>
-      <Drawer width={560} open={Boolean(selected)} title={selected ? `${selected.name} · 成员` : "成员"} onClose={() => setSelected(null)} destroyOnHidden>
+      <Drawer size={560} open={Boolean(selected)} title={selected ? `${selected.name} · 成员` : "成员"} onClose={() => setSelected(null)} destroyOnHidden>
         <List dataSource={members} locale={{ emptyText: "还没有成员" }} renderItem={(member) => <List.Item><List.Item.Meta title={member.name} description={member.email} /><Tag>{member.role}</Tag></List.Item>} />
         {selected && ["Owner", "Admin"].includes(selected.role) && (
           <Form form={memberForm} layout="vertical" className="drawer-form" initialValues={{ role: "Member" }} onFinish={async ({ name, role }) => { try { await consoleApi.addOrganizationMember(selected.id, name, role); message.success("成员已加入"); memberForm.resetFields(); await loadMembers(selected.id); } catch (reason) { message.error(reason instanceof Error ? reason.message : "加入失败"); } }}>

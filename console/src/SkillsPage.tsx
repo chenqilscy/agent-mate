@@ -342,8 +342,8 @@ function SkillReleaseConsole({
       rowKey="id" columns={columns} dataSource={releases} loading={loading} search={false}
       pagination={{ pageSize: 20 }} scroll={{ x: 1320 }} options={{ reload: () => void reload(), density: true, setting: true }}
     />
-    <Drawer width={720} open={Boolean(detail)} title={detail ? `${detail.data.name} · v${detail.version}` : "发布详情"} onClose={() => setDetail(null)}>
-      {detail && <Space direction="vertical" size="large" className="full-width">
+    <Drawer size={720} open={Boolean(detail)} title={detail ? `${detail.data.name} · v${detail.version}` : "发布详情"} onClose={() => setDetail(null)}>
+      {detail && <Space orientation="vertical" size="large" className="full-width">
         <Descriptions bordered size="small" column={2} items={[
           { key: "state", label: "状态", children: RELEASE_STATE[detail.state].label },
           { key: "hash", label: "内容哈希", children: <Typography.Text code copyable>{detail.content_hash.slice(0, 16)}</Typography.Text> },
@@ -500,11 +500,11 @@ function ToolCatalogManager({
       ]}
     />
     <Drawer
-      width={780} open={Boolean(editing)} title={creating ? "新增 Shell 工具" : editing ? `管理内置工具 · ${editing.name}` : "管理内置工具"}
+      size={780} open={Boolean(editing)} title={creating ? "新增 Shell 工具" : editing ? `管理内置工具 · ${editing.name}` : "管理内置工具"}
       onClose={() => { setEditing(null); setCreating(false); }} destroyOnHidden
       extra={<Button type="primary" loading={saving} onClick={() => form.submit()}>保存</Button>}
     >
-      {editing && <Space direction="vertical" size="large" className="full-width">
+      {editing && <Space orientation="vertical" size="large" className="full-width">
         <Descriptions bordered size="small" column={2} items={[
           { key: "name", label: "实现类型", children: editing.implementation_type === "shell" ? <Tag color="purple">Server Shell</Tag> : <Tag>App 原生</Tag> },
           { key: "exposure", label: "注入方式", children: TOOL_EXPOSURE[editing.exposure || "skill"] },
@@ -676,7 +676,7 @@ function SkillRecommendations({
       options={{ reload: () => void load(), density: true }}
       toolBarRender={() => [<Button key="new" type="primary" icon={<PlusOutlined />} onClick={() => open(null)}>新增推荐位</Button>]}
     />
-    <Drawer width={580} open={editing !== undefined} title={editing ? "编辑推荐位" : "新增推荐位"} onClose={() => setEditing(undefined)} destroyOnHidden extra={<Button type="primary" onClick={() => form.submit()}>保存</Button>}>
+    <Drawer size={580} open={editing !== undefined} title={editing ? "编辑推荐位" : "新增推荐位"} onClose={() => setEditing(undefined)} destroyOnHidden extra={<Button type="primary" onClick={() => form.submit()}>保存</Button>}>
       <Form form={form} layout="vertical" onFinish={async (values) => {
         const { sort, ...valuesData } = values;
         const selectedCategory = categories.find((category) => category.data.slug === values.category_slug);

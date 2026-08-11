@@ -61,7 +61,7 @@ export function ProjectGovernance({ project }: { project: Project }) {
     catch (reason) { message.error(reason instanceof Error ? reason.message : "删除失败"); }
   }
 
-  return <Card bordered={false}>
+  return <Card variant="borderless">
     <Space wrap style={{ width: "100%", justifyContent: "space-between", marginBottom: 16 }}>
       <Segmented value={kind} onChange={(value) => setKind(value as GovernanceRecordType)} options={[
         { value: "risk", label: `风险 ${records.filter((record) => record.record_type === "risk").length}` },

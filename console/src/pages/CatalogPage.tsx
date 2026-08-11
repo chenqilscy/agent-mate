@@ -215,7 +215,7 @@ function StringListField({ name, label, placeholder, help }: { name: "launchArgs
     <Form.Item label={label} extra={help}>
       <Form.List name={name}>
         {(fields, { add, remove }) => (
-          <Space direction="vertical" className="full-width" size={8}>
+          <Space orientation="vertical" className="full-width" size={8}>
             {fields.map((field) => (
               <Space key={field.key} className="full-width" align="baseline">
                 <Form.Item {...field} noStyle rules={rules}><Input placeholder={placeholder} /></Form.Item>
@@ -235,7 +235,7 @@ function SecretEnvField() {
     <Form.Item label="凭据变量映射" extra="这里只填写环境变量名，不填写 token、密码或 OAuth 值。">
       <Form.List name="secretEnv">
         {(fields, { add, remove }) => (
-          <Space direction="vertical" className="full-width" size={8}>
+          <Space orientation="vertical" className="full-width" size={8}>
             {fields.map((field) => (
               <Space key={field.key} className="full-width" align="baseline">
                 <Form.Item name={[field.name, "target"]} rules={[{ pattern: ENV_NAME_PATTERN, message: "仅允许大写环境变量名" }]}><Input placeholder="MCP 进程变量名" /></Form.Item>
@@ -349,12 +349,12 @@ export default function CatalogPage({ section }: { section: Section }) {
           {visible.length ? <Row gutter={[16, 16]}>{visible.map((item) => <Col xs={24} md={12} xl={8} key={item.id}><Card size="small" className="catalog-card"><Space align="start"><Avatar shape="square" size={44}>{String(objectData(item).icon || objectData(item).avatar || titleOf(item).slice(0, 1))}</Avatar><div><Typography.Title level={5}>{titleOf(item)}</Typography.Title><Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }}>{descriptionOf(item)}</Typography.Paragraph><Space wrap>{slugOf(item) && <Tag>{slugOf(item)}</Tag>}<Tag color="green">已启用</Tag></Space></div></Space></Card></Col>)}</Row> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`暂无可用${config.itemLabel}`} />}
         </Card>
       ) : <ProTable<CatalogItem<CatalogData>> rowKey="id" columns={columns} dataSource={visible} loading={loading} search={false} options={{ reload: () => void load(), density: true, setting: true }} toolBarRender={() => [<Input.Search key="search" allowClear placeholder="搜索名称、标识或简介" value={query} onChange={(event) => setQuery(event.target.value)} />]} />}
-      <Drawer width={760} open={Boolean(editor)} title={editor?.item ? `编辑 ${titleOf(editor.item)}` : `新增${activeItemLabel}`} onClose={() => setEditor(null)} destroyOnHidden extra={<Button type="primary" onClick={() => form.submit()}>保存</Button>}>
+      <Drawer size={760} open={Boolean(editor)} title={editor?.item ? `编辑 ${titleOf(editor.item)}` : `新增${activeItemLabel}`} onClose={() => setEditor(null)} destroyOnHidden extra={<Button type="primary" onClick={() => form.submit()}>保存</Button>}>
         <Form form={form} layout="vertical" onFinish={(values) => void save(values)} onValuesChange={syncJsonFromForm}>
           <Form.Item name="category" label="定义类型" rules={[{ required: true }]}><Select disabled={Boolean(editor?.item)} options={categories.map((value) => ({ value, label: categoryLabel(value) }))} /></Form.Item>
           <Form.Item name="sort" label="排序"><InputNumber min={0} precision={0} className="full-width" /></Form.Item>
           {currentCategory === "EXPERT_DEFS" && <>
-            <Alert type="info" showIcon message="专家定义会影响运行时 Persona；slug 创建后不可修改。" />
+            <Alert type="info" showIcon title="专家定义会影响运行时 Persona；slug 创建后不可修改。" />
             <Divider />
             <Row gutter={16}>
               <Col xs={24} md={16}><Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, message: "请输入专家名称" }]}><Input maxLength={120} placeholder="创业伙伴" /></Form.Item></Col>
@@ -369,7 +369,7 @@ export default function CatalogPage({ section }: { section: Section }) {
             <Form.Item name="functional" label="运行状态" valuePropName="checked"><Switch checkedChildren="可运行" unCheckedChildren="仅展示" /></Form.Item>
           </>}
           {currentCategory === "CONN_DEFS" && <>
-            <Alert type="info" showIcon message="连接器只维护公开启动定义；真实 token 和密码永远保存在本机 backend。" />
+            <Alert type="info" showIcon title="连接器只维护公开启动定义；真实 token 和密码永远保存在本机 backend。" />
             <Divider />
             <Row gutter={16}>
               <Col xs={24} md={16}><Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, message: "请输入连接器名称" }]}><Input maxLength={120} placeholder="GitHub" /></Form.Item></Col>
@@ -395,8 +395,8 @@ export default function CatalogPage({ section }: { section: Section }) {
               </>}
             </Form.Item>}
           </>}
-          {!typed && <Alert type="info" showIcon message="该目录类型暂使用高级 JSON 编辑；专家和连接器定义已提供字段化表单。" />}
-          <Collapse className="drawer-form" items={[{ key: "advanced", label: typed ? "高级 JSON（可选）" : "定义 JSON", children: <Space direction="vertical" className="full-width" size={10}>
+          {!typed && <Alert type="info" showIcon title="该目录类型暂使用高级 JSON 编辑；专家和连接器定义已提供字段化表单。" />}
+          <Collapse className="drawer-form" items={[{ key: "advanced", label: typed ? "高级 JSON（可选）" : "定义 JSON", children: <Space orientation="vertical" className="full-width" size={10}>
             <Typography.Text type="secondary">{typed ? "表单修改会自动生成 JSON；如需维护扩展字段，可编辑 JSON 后点击“应用到表单”。" : "该目录类型由 Server 按真实定义结构校验。"}</Typography.Text>
             <Input.TextArea value={advancedJson} status={jsonError ? "error" : undefined} onChange={(event) => { setAdvancedJson(event.target.value); setJsonDirty(true); setJsonError(""); }} rows={typed ? 12 : 22} className="code-input" spellCheck={false} />
             {jsonError && <Typography.Text type="danger">{jsonError}</Typography.Text>}

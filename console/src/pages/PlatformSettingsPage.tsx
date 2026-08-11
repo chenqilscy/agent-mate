@@ -186,11 +186,11 @@ export default function PlatformSettingsPage() {
             description="Client Secret 只写不回显并在 Server 数据库中加密；生产环境必须配置独立主密钥。未启用或凭据不完整的入口不会显示在 App/Console 登录页。"
             style={{ marginBottom: 16 }}
           />
-          {ssoReadiness ? <Alert type={ssoReadiness.ready ? "success" : "warning"} showIcon title={ssoReadiness.ready ? "SSO 部署自检通过" : "SSO 仍有部署前置条件"} description={<Space direction="vertical"><Typography.Text>公开地址：{ssoReadiness.public_base_url} · 密钥保护：{ssoReadiness.secret_protection}</Typography.Text>{[...ssoReadiness.blockers, ...ssoReadiness.warnings].map((item) => <Typography.Text key={item} type="secondary">{item}</Typography.Text>)}</Space>} style={{ marginBottom: 16 }} /> : null}
-          <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          {ssoReadiness ? <Alert type={ssoReadiness.ready ? "success" : "warning"} showIcon title={ssoReadiness.ready ? "SSO 部署自检通过" : "SSO 仍有部署前置条件"} description={<Space orientation="vertical"><Typography.Text>公开地址：{ssoReadiness.public_base_url} · 密钥保护：{ssoReadiness.secret_protection}</Typography.Text>{[...ssoReadiness.blockers, ...ssoReadiness.warnings].map((item) => <Typography.Text key={item} type="secondary">{item}</Typography.Text>)}</Space>} style={{ marginBottom: 16 }} /> : null}
+          <Space orientation="vertical" size={12} style={{ width: "100%" }}>
             {ssoProviders.map((provider) => (
               <Card key={provider.id} size="small">
-                <Space direction="vertical" style={{ width: "100%" }}>
+                <Space orientation="vertical" style={{ width: "100%" }}>
                   <Space>
                     <Switch checked={provider.enabled} onChange={(enabled) => patchSso(provider.id, { enabled })} />
                     <Typography.Text strong>{provider.label}</Typography.Text>

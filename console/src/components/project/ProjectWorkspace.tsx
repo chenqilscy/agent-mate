@@ -936,7 +936,7 @@ export function ProjectWorkProvider({
     <ProjectWorkContext.Provider value={value}>
       {children}
       <Drawer
-        width="min(1120px, 100vw)"
+        size="min(1120px, 100vw)"
         open={editing !== undefined}
         title={
           <Space size={8} wrap>
@@ -955,7 +955,7 @@ export function ProjectWorkProvider({
           </Space>
         }
         onClose={closeTaskEditor}
-        maskClosable={!taskSaving}
+        mask={{ closable: !taskSaving }}
         closable={!taskSaving}
         destroyOnHidden
         extra={
@@ -1072,7 +1072,7 @@ export function ProjectWorkProvider({
                       <Alert
                         type="info"
                         showIcon
-                        message="先写清任务，再安排计划"
+                        title="先写清任务，再安排计划"
                         description="标题和内容用于说明要做什么；负责人和优先级用于明确当前执行责任。"
                       />
                     </Card>
@@ -1089,7 +1089,7 @@ export function ProjectWorkProvider({
                       className="task-plan-summary"
                       type="info"
                       showIcon
-                      message="当前计划摘要"
+                      title="当前计划摘要"
                       description={
                         <Space size={[6, 6]} wrap>
                           {watchedMilestoneId && (
@@ -1144,7 +1144,7 @@ export function ProjectWorkProvider({
                       <Alert
                         type="warning"
                         showIcon
-                        message="计划范围需要确认"
+                        title="计划范围需要确认"
                         description={
                           <ul className="task-plan-warning-list">
                             {taskPlanWarnings.map((warning) => (
@@ -1623,7 +1623,7 @@ export function ProjectWorkProvider({
         onCancel={() => setQuickPlanKind(null)}
         onOk={() => quickPlanForm.submit()}
         confirmLoading={quickPlanSaving}
-        maskClosable={!quickPlanSaving}
+        mask={{ closable: !quickPlanSaving }}
         closable={!quickPlanSaving}
         destroyOnHidden
       >
@@ -3626,7 +3626,7 @@ export function ProjectIterations({
                     className="project-sprint-current"
                     type="success"
                     showIcon
-                    message={
+                    title={
                       <Space size={6} wrap>
                         <Typography.Text strong>当前 Sprint</Typography.Text>
                         <Tag color="processing">{activeSprint.name}</Tag>
@@ -3661,7 +3661,7 @@ export function ProjectIterations({
                     className="project-sprint-current"
                     type="warning"
                     showIcon
-                    message="尚无当前 Sprint"
+                    title="尚无当前 Sprint"
                     description="开始一个计划中的 Sprint 后，任务看板才会建立明确的执行范围。"
                     action={
                       suggestedSprint && canWrite(project) ? (
@@ -4247,7 +4247,7 @@ export function ProjectIterations({
         </Form>
       </Modal>
       <Drawer
-        width={680}
+        size={680}
         open={Boolean(burn)}
         title={burn ? `${burn.sprint.name} · 燃尽` : "燃尽"}
         onClose={() => setBurn(null)}

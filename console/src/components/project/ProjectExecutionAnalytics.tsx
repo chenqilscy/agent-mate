@@ -80,7 +80,7 @@ export function ProjectExecutionAnalyticsPanel({
       title: "任务 / Run",
       key: "run",
       render: (_: unknown, item: ProjectExecutionRunMetric) => (
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           <Button type="link" size="small" disabled={!item.work_item_id} onClick={() => drilldown(item)}>{item.work_item_title}</Button>
           <Typography.Text code>{item.run_id.slice(0, 8)}</Typography.Text>
         </Space>
@@ -99,13 +99,13 @@ export function ProjectExecutionAnalyticsPanel({
       loading={loading && !data}
       extra={<Space><Tag>{data?.metric_version || "project-execution-v2"}</Tag><Select value={days} onChange={setDays} options={[{ value: 7, label: "近 7 天" }, { value: 30, label: "近 30 天" }, { value: 90, label: "近 90 天" }]} /><Button aria-label="刷新执行分析" icon={<ReloadOutlined />} onClick={() => void load()} loading={loading} /></Space>}
     >
-      {error && <Alert type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon title={error} />}
       {!data ? (!loading && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无执行分析" />) : (
-        <Space direction="vertical" size={16} className="full-width">
+        <Space orientation="vertical" size={16} className="full-width">
           <Alert
             type="info"
             showIcon
-            message={`统计窗口：${new Date(data.window.start * 1000).toLocaleString()} 至 ${new Date(data.window.end * 1000).toLocaleString()}（${data.window.timezone}）`}
+            title={`统计窗口：${new Date(data.window.start * 1000).toLocaleString()} 至 ${new Date(data.window.end * 1000).toLocaleString()}（${data.window.timezone}）`}
             description="只统计当前项目的 Server Run、交付和用量；取消不计入成功率，未定价模型不按零成本处理，未验收交付仍计入首次验收分母。"
           />
           <Row gutter={[12, 12]}>
@@ -117,7 +117,7 @@ export function ProjectExecutionAnalyticsPanel({
           <Row gutter={[12, 12]}>
             <Col xs={24} xl={12}>
               <Card size="small" title="交付质量">
-                <Space direction="vertical" className="full-width">
+                <Space orientation="vertical" className="full-width">
                   <Typography.Text>首次验收 {data.delivery.first_pass_accepted}/{data.delivery.first_pass_total} · 返工 Run {data.delivery.rework_runs}</Typography.Text>
                   <Progress percent={percent(data.delivery.first_pass_acceptance_rate)} status="active" />
                   <Typography.Text>产物校验 {data.delivery.verified_artifacts}/{data.delivery.artifacts}</Typography.Text>
@@ -127,7 +127,7 @@ export function ProjectExecutionAnalyticsPanel({
             </Col>
             <Col xs={24} xl={12}>
               <Card size="small" title="成本与失败">
-                <Space direction="vertical">
+                <Space orientation="vertical">
                   <Typography.Text>已记录预估成本：{cost(data.summary.estimated_cost)}</Typography.Text>
                   <Typography.Text>重试 Run：{data.summary.retry_runs}；取消：{data.summary.cancelled}；活跃：{data.summary.active}</Typography.Text>
                   <Space wrap>{data.failures.length ? data.failures.map((item) => <Tag color="error" key={item.error_code}>{item.error_code} · {item.runs}</Tag>) : <Tag color="success">无失败</Tag>}</Space>

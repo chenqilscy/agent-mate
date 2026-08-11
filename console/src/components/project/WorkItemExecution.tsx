@@ -226,7 +226,7 @@ function RunCard({
           type="info"
           showIcon
           className="work-item-run-alert"
-          message="当前排队原因"
+          title="当前排队原因"
           description={run.queue_context.message}
         />
       )}
@@ -235,7 +235,7 @@ function RunCard({
           type="warning"
           showIcon
           className="work-item-run-alert"
-          message="需要在 App 端处理"
+          title="需要在 App 端处理"
           description="此 Run 正在等待回答或授权。Console 仅展示状态，请由执行负责人在 App 中继续。"
         />
       )}
@@ -244,7 +244,7 @@ function RunCard({
           type="error"
           showIcon
           className="work-item-run-alert"
-          message={run.error_code || "执行失败"}
+          title={run.error_code || "执行失败"}
           description={run.error_message}
         />
       )}
@@ -372,7 +372,7 @@ function RunCard({
           type="success"
           showIcon
           className="work-item-run-alert"
-          message="交付已验收"
+          title="交付已验收"
           description={`验收时间：${timestamp(delivery.acceptance.accepted_at)}；产物 ${delivery.acceptance.artifact_count} 个。`}
         />
       )}
@@ -565,21 +565,21 @@ export function WorkItemExecution({
     >
       {delivery && policy && (
         <Card size="small" title="一次性自动执行策略" className="work-item-run-card">
-          <Space direction="vertical" size={12} className="full-width">
+          <Space orientation="vertical" size={12} className="full-width">
             <Alert
               showIcon
               type={(POLICY_STATE_META[policy.state] || POLICY_STATE_META.manual).type}
-              message={(POLICY_STATE_META[policy.state] || POLICY_STATE_META.manual).label}
+              title={(POLICY_STATE_META[policy.state] || POLICY_STATE_META.manual).label}
               description={policy.blocker_message || (policy.mode === "auto" ? `执行负责人：${policy.execution_owner_name || policy.execution_owner_id}；成功交付后仍需人工验收。` : "任务仅在用户显式发起时执行。")}
             />
             {delivery.can_write && (
               <Space wrap size="middle" align="end">
-                <Space direction="vertical" size={4}>
+                <Space orientation="vertical" size={4}>
                   <Typography.Text type="secondary">自动执行一次</Typography.Text>
                   <Switch checked={policyDraft.mode === "auto"} onChange={(checked) => setPolicyDraft((current) => ({ ...current, mode: checked ? "auto" : "manual" }))} />
                 </Space>
                 {policyDraft.mode === "auto" && <>
-                  <Space direction="vertical" size={4}>
+                  <Space orientation="vertical" size={4}>
                     <Typography.Text type="secondary">设备路由</Typography.Text>
                     <Select
                       value={policyDraft.routing_mode}
@@ -588,7 +588,7 @@ export function WorkItemExecution({
                       onChange={(value) => setPolicyDraft((current) => ({ ...current, routing_mode: value }))}
                     />
                   </Space>
-                  {policyDraft.routing_mode === "specific" && <Space direction="vertical" size={4}>
+                  {policyDraft.routing_mode === "specific" && <Space orientation="vertical" size={4}>
                     <Typography.Text type="secondary">目标 Local Agent</Typography.Text>
                     <Select
                       value={policyDraft.target_device_id || undefined}
@@ -598,11 +598,11 @@ export function WorkItemExecution({
                       onChange={(value) => setPolicyDraft((current) => ({ ...current, target_device_id: value }))}
                     />
                   </Space>}
-                  <Space direction="vertical" size={4}>
+                  <Space orientation="vertical" size={4}>
                     <Typography.Text type="secondary">超时（秒）</Typography.Text>
                     <InputNumber min={1} max={3600} value={policyDraft.timeout_sec} onChange={(value) => setPolicyDraft((current) => ({ ...current, timeout_sec: Number(value) || 300 }))} />
                   </Space>
-                  <Space direction="vertical" size={4}>
+                  <Space orientation="vertical" size={4}>
                     <Typography.Text type="secondary">最多尝试</Typography.Text>
                     <InputNumber min={1} max={10} value={policyDraft.max_attempts} onChange={(value) => setPolicyDraft((current) => ({ ...current, max_attempts: Number(value) || 1 }))} />
                   </Space>
@@ -618,7 +618,7 @@ export function WorkItemExecution({
         <Alert
           type="error"
           showIcon
-          message="执行信息暂不可用"
+          title="执行信息暂不可用"
           description={error}
           action={<Button onClick={() => void load()}>重试</Button>}
         />
@@ -633,7 +633,7 @@ export function WorkItemExecution({
           description="尚未产生关联 Run；任务交给 Local Agent 后会在这里显示真实进度。"
         />
       ) : (
-        <Space direction="vertical" size={12} className="full-width">
+        <Space orientation="vertical" size={12} className="full-width">
           {delivery.runs.map((run) => (
             <RunCard
               key={run.id}

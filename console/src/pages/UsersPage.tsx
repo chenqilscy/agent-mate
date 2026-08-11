@@ -42,7 +42,7 @@ export default function UsersPage({ current }: { current: Account }) {
   return (
     <PageContainer title="用户" subTitle="平台账号、套餐与管理员权限" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); form.setFieldsValue({ plan: "体验版", is_platform_admin: false }); }}>新建用户</Button>} header={{ breadcrumb: { items: [{ title: "系统" }, { title: "用户" }] } }}>
       <ProTable<Account> rowKey="id" columns={columns} dataSource={items} loading={loading} search={false} scroll={{ x: 1500 }} options={{ reload: () => void load(), density: true }} />
-      <Drawer width={520} open={editing !== undefined} title={editing ? `编辑 ${editing.name}` : "新建用户"} onClose={() => setEditing(undefined)} destroyOnHidden extra={<Button type="primary" onClick={() => form.submit()}>保存</Button>}>
+      <Drawer size={520} open={editing !== undefined} title={editing ? `编辑 ${editing.name}` : "新建用户"} onClose={() => setEditing(undefined)} destroyOnHidden extra={<Button type="primary" onClick={() => form.submit()}>保存</Button>}>
         <Form form={form} layout="vertical" onFinish={async (values) => { try { if (editing) await consoleApi.updateAccount(editing.id, values); else await consoleApi.createAccount({ ...values, password: values.password || "" }); message.success(editing ? "用户已更新" : "用户已创建"); setEditing(undefined); await load(); } catch (reason) { message.error(reason instanceof Error ? reason.message : "保存失败"); } }}>
           <Form.Item name="name" label="用户名" rules={[{ required: true, whitespace: true }]}><Input maxLength={60} /></Form.Item>
           <Form.Item name="email" label="邮箱"><Input type="email" maxLength={120} /></Form.Item>
@@ -51,7 +51,7 @@ export default function UsersPage({ current }: { current: Account }) {
           <Form.Item name="is_platform_admin" label="平台管理员" valuePropName="checked"><Switch /></Form.Item>
         </Form>
       </Drawer>
-      <Drawer width={420} open={Boolean(passwordFor)} title={passwordFor ? `重置 ${passwordFor.name} 的密码` : "重置密码"} onClose={() => setPasswordFor(null)} destroyOnHidden extra={<Button type="primary" onClick={() => passwordForm.submit()}>重置</Button>}>
+      <Drawer size={420} open={Boolean(passwordFor)} title={passwordFor ? `重置 ${passwordFor.name} 的密码` : "重置密码"} onClose={() => setPasswordFor(null)} destroyOnHidden extra={<Button type="primary" onClick={() => passwordForm.submit()}>重置</Button>}>
         <Form form={passwordForm} layout="vertical" onFinish={async ({ password }) => { if (!passwordFor) return; try { await consoleApi.resetPassword(passwordFor.id, password); message.success("密码已设置、密码登录已启用，现有会话已撤销"); setPasswordFor(null); passwordForm.resetFields(); await load(); } catch (reason) { message.error(reason instanceof Error ? reason.message : "重置失败"); } }}><Form.Item name="password" label="新密码" extra="至少 12 位；设置后会启用密码登录并撤销现有会话。" rules={[{ required: true, min: 12 }]}><Input.Password autoFocus /></Form.Item></Form>
       </Drawer>
       <Card title="认证操作审计" style={{ marginTop: 16 }}>

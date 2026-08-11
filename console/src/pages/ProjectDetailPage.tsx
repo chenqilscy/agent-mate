@@ -839,7 +839,7 @@ function KnowledgeTab({ project }: { project: Project }) {
         </Form>
       </Modal>
       <Drawer
-        width={720}
+        size={720}
         open={Boolean(selected)}
         title={
           selected ? `${selected.icon || "📚"} ${selected.name}` : "知识库"
@@ -918,7 +918,7 @@ function KnowledgeTab({ project }: { project: Project }) {
                 )
               }
             >
-              <Space direction="vertical" size={12} className="full-width">
+              <Space orientation="vertical" size={12} className="full-width">
                 <Input.Search
                   value={docSearch}
                   allowClear
@@ -1024,7 +1024,7 @@ function KnowledgeTab({ project }: { project: Project }) {
             </Card>
             {selected.provider_status === "ready" && (
               <Card className="drawer-card" title="检索测试">
-                <Space direction="vertical" size={12} className="full-width">
+                <Space orientation="vertical" size={12} className="full-width">
                   <Typography.Text type="secondary">
                     用真实项目检索链路验证当前知识库是否能召回正确内容。
                   </Typography.Text>
@@ -1204,7 +1204,7 @@ function CollaborationTab({ project }: { project: Project }) {
         </Card>
         <Card title="邀请码" className="section-card">
           {canManage(project) ? (
-            <Space direction="vertical" className="full-width">
+            <Space orientation="vertical" className="full-width">
               <Space>
                 <Select
                   value={inviteRole}
@@ -1534,7 +1534,7 @@ function ConfigTab({
       </Card>
       {owner && (
         <Card title="所有权与生命周期">
-          <Space direction="vertical" size={16} className="full-width">
+          <Space orientation="vertical" size={16} className="full-width">
             {active ? (
               <>
                 <div>

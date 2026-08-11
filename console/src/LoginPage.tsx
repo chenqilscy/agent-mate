@@ -100,7 +100,7 @@ export default function LoginPage({ onAuthenticated, themeMode, onToggleTheme }:
           AgentMate Server 的专业管理控制台
         </Typography.Paragraph>
       </section>
-      <Card className="login-card" bordered={false}>
+      <Card className="login-card" variant="borderless">
         <LoginForm<{ name: string; password: string; bootstrap_secret?: string }>
           title="欢迎回来"
           subTitle="管理项目、成员与 AgentMate 平台能力"

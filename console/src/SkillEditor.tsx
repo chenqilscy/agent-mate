@@ -393,11 +393,11 @@ export default function SkillEditor({ open, item, tools, categories, initialTab,
   return (
     <Drawer
       open={open}
-      width={960}
+      size={960}
       title={item ? `编辑技能 · ${item.data.name}` : "新建技能草稿"}
       onClose={requestClose}
       destroyOnHidden
-      maskClosable={false}
+      mask={{ closable: false }}
       extra={(
         <Space>
           <Button onClick={requestClose}>取消</Button>
