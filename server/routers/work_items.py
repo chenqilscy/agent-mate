@@ -11,13 +11,14 @@ import re
 import time
 from datetime import date
 from math import isfinite
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 import business_store
 import db
+import run_protocol_store
 from auth import CurrentAccount
 from models import Account, Role, can_write
 from project_health_service import observe_project_health
@@ -116,6 +117,174 @@ def _decorate(item: dict, by_id: dict) -> dict:
     item["attachments"] = []
     item["delivery_accepted"] = db.get_work_item_acceptance(item["id"]) is not None
     return item
+
+
+_CONSOLE_EVENT_TYPES = {
+    "run.started", "run.waiting_user", "run.paused", "run.pause_ack",
+    "run.completed", "run.failed", "run.cancelled", "run.cancel_ack",
+    "ui.step", "ui.todo", "ui.plan_snapshot", "ui.plan_patch",
+    "ui.error", "ui.usage", "ui.artifact",
+}
+_WINDOWS_PATH_RE = re.compile(r"(?i)\b[A-Z]:[\\/][^\r\n\t\"'<>|]+")
+_UNIX_PRIVATE_PATH_RE = re.compile(
+    r"(?i)(?<![\w:])/(?:Users|home|root|tmp|var|etc|opt|workspace|mnt)/[^\s\"'<>]+",
+)
+_SECRET_VALUE_RE = re.compile(
+    r"(?i)(?:Bearer\s+|sk-[A-Za-z0-9_-]{8,}|(?:token|secret|password|api[_-]?key)=)[^\s&]+",
+)
+
+
+def _console_text(value: Any, *, limit: int = 2000) -> str:
+    """Redact device-local paths and credential-like values from Console views."""
+    text = str(value or "")[:limit]
+    text = _WINDOWS_PATH_RE.sub("[本机路径]", text)
+    text = _UNIX_PRIVATE_PATH_RE.sub("[本机路径]", text)
+    return _SECRET_VALUE_RE.sub("[已脱敏]", text)
+
+
+def _console_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _console_plan_items(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    projected: list[dict[str, Any]] = []
+    for item in value[:200]:
+        if not isinstance(item, dict):
+            continue
+        dependencies = item.get("depends_on")
+        if not isinstance(dependencies, list):
+            dependencies = []
+        projected.append({
+            "id": _console_text(item.get("id"), limit=200),
+            "title": _console_text(item.get("title"), limit=1000),
+            "status": _console_text(item.get("status"), limit=80),
+            "order": _console_int(item.get("order")),
+            "depends_on": [
+                _console_text(dep, limit=200) for dep in dependencies
+                if isinstance(dep, (str, int))
+            ][:100],
+            "work_item_id": _console_text(item.get("work_item_id"), limit=200),
+        })
+    return projected
+
+
+def _console_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    event_type = str(event.get("type") or "")
+    if event_type not in _CONSOLE_EVENT_TYPES:
+        return None
+    raw = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    payload: dict[str, Any] = {}
+    if event_type == "run.waiting_user":
+        questions = raw.get("questions")
+        if not isinstance(questions, list):
+            questions = []
+        payload["questions"] = [{
+            "q": _console_text(question.get("q"), limit=2000),
+            "options": [
+                _console_text(option, limit=500)
+                for option in (
+                    question.get("options") if isinstance(question.get("options"), list) else []
+                )
+            ][:20],
+        } for question in questions[:20] if isinstance(question, dict)]
+    elif event_type in {"ui.plan_snapshot", "ui.plan_patch"}:
+        payload = {
+            "version": _console_int(raw.get("version")),
+            "items": _console_plan_items(raw.get("items")),
+        }
+    elif event_type == "ui.step":
+        payload = {
+            "tool": _console_text(raw.get("tool"), limit=200),
+            "label": _console_text(raw.get("label"), limit=1000),
+        }
+    elif event_type == "ui.todo":
+        payload = {"text": _console_text(raw.get("text"), limit=2000)}
+    elif event_type in {"ui.error", "run.failed"}:
+        payload = {
+            "error_code": _console_text(raw.get("error_code"), limit=200),
+            "message": _console_text(raw.get("message") or raw.get("error_message"), limit=4000),
+        }
+    elif event_type == "ui.usage":
+        detail = raw.get("detail") if isinstance(raw.get("detail"), dict) else {}
+        payload = {
+            "used": _console_int(raw.get("used")),
+            "limit": _console_int(raw.get("limit")),
+            "prompt_tokens": _console_int(detail.get("prompt_tokens")),
+            "completion_tokens": _console_int(detail.get("completion_tokens")),
+        }
+    elif event_type == "ui.artifact":
+        payload = {
+            "id": _console_text(raw.get("id"), limit=200),
+            "name": _console_text(raw.get("name"), limit=500),
+            "mime_type": _console_text(raw.get("mime_type"), limit=200),
+            "size": raw.get("size") if isinstance(raw.get("size"), (int, float, str)) else "",
+        }
+    else:
+        payload = {
+            key: _console_text(raw.get(key), limit=1000)
+            for key in ("source", "resumed_from", "reason", "summary") if raw.get(key)
+        }
+    return {
+        "event_id": str(event.get("event_id") or ""),
+        "sequence": _console_int(event.get("sequence")),
+        "type": event_type,
+        "occurred_at": float(event.get("occurred_at") or 0),
+        "device_id": str(event.get("device_id") or ""),
+        "lease_epoch": _console_int(event.get("lease_epoch")),
+        "payload": payload,
+    }
+
+
+def _console_queue_context(run: dict[str, Any], account: Account) -> dict[str, Any] | None:
+    context = run_protocol_store.queue_context(run)
+    if not context:
+        return None
+    blocker = context.get("blocking_run")
+    if isinstance(blocker, dict):
+        blocker_project_id = str(blocker.get("project_id") or "")
+        visible = (
+            (not blocker_project_id and str(run.get("owner_id") or "") == account.id)
+            or (bool(blocker_project_id) and db.project_access_role(blocker_project_id, account.id) is not None)
+        )
+        if not visible:
+            context = {**context}
+            context.pop("blocking_run", None)
+    return context
+
+
+def _console_run_view(
+    run: dict[str, Any], *, account: Account, artifacts: list[dict[str, Any]],
+    events: list[dict[str, Any]], device: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Allow-list the shared execution projection; never expose local input keys/checkpoints."""
+    return {
+        "id": run["id"], "session_id": run["session_id"], "owner_id": run["owner_id"],
+        "project_id": run.get("project_id"), "work_item_id": run.get("work_item_id"),
+        "mode": run.get("mode") or "exec", "status": run.get("status") or "queued",
+        "retry_of": run.get("retry_of"), "model_ref": run.get("model_ref"),
+        "model_id": run.get("model_id"), "estimated_cost": run.get("estimated_cost"),
+        "cost_currency": run.get("cost_currency"),
+        "plan": _console_plan_items(run.get("plan")), "plan_version": int(run.get("plan_version") or 0),
+        "error_code": _console_text(run.get("error_code"), limit=200),
+        "error_message": _console_text(run.get("error_message"), limit=4000),
+        "prompt_tokens": int(run.get("prompt_tokens") or 0),
+        "cached_prompt_tokens": int(run.get("cached_prompt_tokens") or 0),
+        "completion_tokens": int(run.get("completion_tokens") or 0),
+        "tool_calls": int(run.get("tool_calls") or 0),
+        "target_device_id": run.get("target_device_id") or "",
+        "required_capabilities": list(run.get("required_capabilities") or []),
+        "lease_epoch": int(run.get("lease_epoch") or 0),
+        "recovery_count": int(run.get("recovery_count") or 0),
+        "started_at": run.get("started_at"), "ended_at": run.get("ended_at"),
+        "created_at": run.get("created_at") or 0, "updated_at": run.get("updated_at") or 0,
+        "queue_context": _console_queue_context(run, account),
+        "device": device, "artifacts": artifacts, "events": events,
+    }
 
 
 def _action_signals(item: dict, as_of: date) -> list[str]:
@@ -371,14 +540,17 @@ def _run_artifact_view(asset: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("/projects/{project_id}/work-items/{wid}/delivery")
-def item_delivery(project_id: str, wid: str, account: Account = CurrentAccount) -> dict:
+def item_delivery(
+    project_id: str, wid: str, account: Account = CurrentAccount,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20, cursor: str = "",
+) -> dict:
     role = _access(project_id, account)
     item = db.get_work_item(wid)
     if not item or item["project_id"] != project_id:
         raise HTTPException(404, "work item not found")
-    runs, _ = business_store.list_scoped(
+    runs, next_cursor = business_store.list_scoped(
         "business_runs", account_id=account.id, project_id=project_id,
-        parent=("work_item_id", wid), limit=100,
+        parent=("work_item_id", wid), limit=limit, cursor=cursor,
     )
     launches: list[dict[str, Any]] = []
     values: list[dict[str, Any]] = []
@@ -400,13 +572,31 @@ def item_delivery(project_id: str, wid: str, account: Account = CurrentAccount) 
             "created_at": run.get("created_at") or 0, "updated_at": run.get("updated_at") or 0,
             "finished_at": run.get("ended_at"),
         })
-        values.append({**run, "artifacts": [_run_artifact_view(asset) for asset in assets]})
+        raw_events = run_protocol_store.list_events(run_id=str(run["id"]), limit=500)
+        events = [projected for event in raw_events if (projected := _console_event(event)) is not None]
+        lease = db.get_conn().execute(
+            "SELECT l.device_id,d.name FROM run_leases l LEFT JOIN agent_devices d ON d.id=l.device_id "
+            "WHERE l.run_id=? ORDER BY l.lease_epoch DESC LIMIT 1", (run["id"],),
+        ).fetchone()
+        device = ({"id": str(lease["device_id"]), "name": str(lease["name"] or "Local Agent")}
+                  if lease is not None else None)
+        values.append(_console_run_view(
+            run, account=account,
+            artifacts=[_run_artifact_view(asset) for asset in assets],
+            events=events, device=device,
+        ))
     by_id, _ = _members_maps(project_id)
+    acceptance = db.get_work_item_acceptance(wid)
     return {
         "work_item": _decorate(item, by_id),
         "can_write": can_write(role) and not db.project_is_archived(project_id),
         "launches": launches,
         "runs": values,
+        "acceptance": ({
+            key: acceptance[key] for key in
+            ("run_id", "artifact_count", "accepted_by", "accepted_at")
+        } if acceptance else None),
+        "next_cursor": next_cursor,
     }
 
 

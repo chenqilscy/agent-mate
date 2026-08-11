@@ -338,6 +338,121 @@ export interface WorkItem {
   updated_at?: number;
 }
 
+export type WorkItemRunStatus =
+  | "queued"
+  | "leased"
+  | "planning"
+  | "running"
+  | "waiting_user"
+  | "paused"
+  | "recoverable"
+  | "completed"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export interface WorkItemRunPlanItem {
+  id: string;
+  title: string;
+  status: "pending" | "in_progress" | "completed" | "blocked" | string;
+  order: number;
+  depends_on: string[];
+  work_item_id?: string;
+}
+
+export interface WorkItemRunQueueContext {
+  reason: string;
+  message: string;
+  blocking_run?: {
+    id: string;
+    session_id: string;
+    project_id?: string;
+    status: WorkItemRunStatus;
+  };
+}
+
+export interface WorkItemRunEvent {
+  event_id: string;
+  sequence: number;
+  type: string;
+  occurred_at: number;
+  device_id: string;
+  lease_epoch: number;
+  payload: Record<string, unknown>;
+}
+
+export interface WorkItemRunArtifact extends AssetRecord {
+  path: string;
+  preview_path?: string | null;
+  is_primary: boolean;
+  display_order: number;
+  verification: { exists: boolean; hash_matches: boolean };
+}
+
+export interface WorkItemRun {
+  id: string;
+  session_id: string;
+  owner_id: string;
+  project_id?: string | null;
+  work_item_id?: string | null;
+  mode: "ask" | "plan" | "exec";
+  status: WorkItemRunStatus;
+  retry_of?: string | null;
+  model_ref?: string | null;
+  model_id?: string | null;
+  estimated_cost?: number | null;
+  cost_currency?: string | null;
+  plan: WorkItemRunPlanItem[];
+  plan_version: number;
+  error_code?: string | null;
+  error_message?: string | null;
+  prompt_tokens: number;
+  cached_prompt_tokens: number;
+  completion_tokens: number;
+  tool_calls: number;
+  target_device_id: string;
+  required_capabilities: string[];
+  lease_epoch: number;
+  recovery_count: number;
+  started_at?: number | null;
+  ended_at?: number | null;
+  created_at: number;
+  updated_at: number;
+  queue_context?: WorkItemRunQueueContext | null;
+  device?: { id: string; name: string } | null;
+  artifacts: WorkItemRunArtifact[];
+  events: WorkItemRunEvent[];
+}
+
+export interface WorkItemLaunch {
+  id: string;
+  work_item_id: string;
+  owner_id: string;
+  idempotency_key: string;
+  session_id: string | null;
+  run_id: string | null;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  error_code: string | null;
+  error_message: string | null;
+  created_at: number;
+  updated_at: number;
+  finished_at: number | null;
+}
+
+export interface WorkItemDelivery {
+  work_item: WorkItem;
+  can_write: boolean;
+  launches: WorkItemLaunch[];
+  runs: WorkItemRun[];
+  acceptance: {
+    run_id: string;
+    artifact_count: number;
+    accepted_by: string;
+    accepted_at: number;
+  } | null;
+  next_cursor: string;
+}
+
 export interface ProjectCustomField {
   id: string;
   project_id: string;

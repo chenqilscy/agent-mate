@@ -47,6 +47,7 @@ import type { ProColumns } from "@ant-design/pro-components";
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -68,6 +69,7 @@ import type {
 } from "../../types";
 import { CompatList as List } from "../CompatList";
 import { MarkdownEditor } from "../MarkdownEditor";
+import { WorkItemExecution } from "./WorkItemExecution";
 
 const STATUS_OPTIONS = [
   { value: "todo", label: "待办" },
@@ -499,6 +501,20 @@ export function ProjectWorkProvider({
       // 行内保存已经成功时，活动流刷新失败不应反向覆盖任务状态。
     }
   }
+
+  const syncWorkItemProjection = useCallback(
+    (updated: WorkItem) => {
+      setItems((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setEditing((current) =>
+        current?.id === updated.id ? updated : current,
+      );
+      if (editing?.id === updated.id)
+        form.setFieldValue("status", updated.status);
+    },
+    [editing?.id, form],
+  );
 
   useEffect(() => {
     void reload();
@@ -1575,6 +1591,13 @@ export function ProjectWorkProvider({
             </Card>
           )}
         </Form>
+        {editing && (
+          <WorkItemExecution
+            project={project}
+            workItem={editing}
+            onWorkItemUpdated={syncWorkItemProjection}
+          />
+        )}
       </Drawer>
       <Modal
         title="存为任务模板"

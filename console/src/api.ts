@@ -31,6 +31,7 @@ import type {
   TimelineEvent,
   ToolCatalogAudit,
   WorkItem,
+  WorkItemDelivery,
   BurndownPoint,
 } from "./types";
 
@@ -429,6 +430,22 @@ export const consoleApi = {
     apiRequest<{ items: WorkItem[] }>(
       "GET",
       `/projects/${encodeURIComponent(id)}/work-items`,
+    ),
+  workItemDelivery: (id: string, workId: string, cursor = "") =>
+    apiRequest<WorkItemDelivery>(
+      "GET",
+      `/projects/${encodeURIComponent(id)}/work-items/${encodeURIComponent(workId)}/delivery?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
+  acceptWorkItemDelivery: (
+    id: string,
+    workId: string,
+    runId: string,
+    artifactCount: number,
+  ) =>
+    apiRequest<WorkItem>(
+      "POST",
+      `/projects/${encodeURIComponent(id)}/work-items/${encodeURIComponent(workId)}/accept`,
+      { run_id: runId, artifact_count: artifactCount },
     ),
   createWorkItem: (id: string, body: Partial<WorkItem> & { title: string }) =>
     apiRequest<WorkItem>(

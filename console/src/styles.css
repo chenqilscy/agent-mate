@@ -263,6 +263,15 @@ body {
 .task-blocks-summary { display: grid; gap: 6px; margin: -4px 0 14px; }
 .task-plan-warning-list { margin: 0; padding-inline-start: 18px; }
 .task-plan-warning-list li + li { margin-top: 4px; }
+.work-item-execution .ant-card-body { display: grid; gap: 12px; }
+.work-item-execution-loading { display: grid; min-height: 120px; place-items: center; }
+.work-item-run-card { border-color: var(--console-border); background: var(--console-panel); }
+.work-item-run-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.work-item-run-summary > div { display: grid; gap: 3px; min-width: 0; }
+.work-item-run-alert { margin-top: 12px; }
+.work-item-run-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 12px; }
+.work-item-run-columns > section { min-width: 0; }
+.work-item-run-columns .ant-typography { overflow-wrap: anywhere; }
 
 .markdown-editor {
   overflow: hidden;
@@ -437,6 +446,8 @@ body {
   .task-editor-content-layout,
   .task-editor-plan-grid { grid-template-columns: 1fr; }
   .task-editor-advanced-grid { grid-template-columns: 1fr; }
+  .work-item-run-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .work-item-run-columns { grid-template-columns: 1fr; }
   .markdown-editor-body.is-split { grid-template-columns: 1fr; }
   .markdown-editor-body.is-split .markdown-editor-preview { border-inline-start: 0; border-top: 1px solid var(--console-border); }
   .project-settings-panel .ant-card-head-wrapper { align-items: stretch; flex-direction: column; padding-block: 12px; }
@@ -453,6 +464,7 @@ body {
   .login-theme-toggle { top: 14px; right: 14px; min-height: 40px; }
   .console-create-action-label { display: none; }
   .overview-stat-grid { grid-template-columns: 1fr; }
+  .work-item-run-summary { grid-template-columns: 1fr; }
   .overview-health-progress { display: none; }
   .skill-search, .skill-filter { width: 100%; }
   .ant-pro-table-list-toolbar-container { align-items: stretch; }
