@@ -817,10 +817,24 @@ def _list_work_items_run(args: dict[str, Any]) -> ToolOutcome:
             return ToolOutcome(text="本项目暂无计划项（待办）。")
         lines = [
             f"- [{_WI_LABEL.get(str(item.get('status') or ''), str(item.get('status') or ''))}] "
-            f"{str(item.get('title') or '')}（id={str(item.get('id') or '')}）"
+            f"{str(item.get('title') or '')}（id={str(item.get('id') or '')}；"
+            f"version={int(item.get('version') or 1)}；sprint_id={str(item.get('sprint_id') or '未分配')}；"
+            f"milestone_id={str(item.get('milestone_id') or '未分配')}）"
             for item in items
         ]
-        return ToolOutcome(text="本项目计划项：\n" + "\n".join(lines))
+        sprints = server_client.list_project_sprints(server_token, ctx["project_id"])
+        if sprints is None:
+            return ToolOutcome(text="Server Sprint 当前不可用；为避免使用猜测 ID，本次只返回任务：\n" + "\n".join(lines))
+        sprint_lines = [
+            f"- {str(sprint.get('name') or '')}（id={str(sprint.get('id') or '')}；"
+            f"status={str(sprint.get('status') or '')}；milestone_id={str(sprint.get('milestone_id') or '未分配')}）"
+            for sprint in sprints
+        ]
+        return ToolOutcome(
+            text="本项目计划项：\n" + "\n".join(lines)
+            + "\n\n本项目 Sprint（closed 只读）：\n"
+            + ("\n".join(sprint_lines) if sprint_lines else "- 暂无 Sprint")
+        )
     items = db.list_work_items(ctx["project_id"])
     if not items:
         return ToolOutcome(text="本项目暂无计划项（待办）。")
@@ -895,13 +909,103 @@ set_work_item_status = Tool(
 )
 
 
+def _update_work_item_planning_run(args: dict[str, Any]) -> ToolOutcome:
+    ctx = _work_ctx.get()
+    if not ctx or not ctx.get("project_id"):
+        return ToolOutcome(text="当前不在项目中，无法修改 WorkItem 计划字段。")
+    token = str(ctx.get("server_token") or "")
+    if not token:
+        return ToolOutcome(text="该操作只写入 Server 权威项目；当前未连接 Server，未修改本地镜像。")
+    item_id = str(args.get("item_id") or "").strip()
+    sprint_id = str(args.get("sprint_id") or "").strip()
+    try:
+        expected_version = int(args.get("expected_version"))
+    except (TypeError, ValueError):
+        return ToolOutcome(text="expected_version 必须来自 list_work_items 返回的正整数版本。")
+    if expected_version < 1:
+        return ToolOutcome(text="expected_version 必须来自 list_work_items 返回的正整数版本。")
+    sync_milestone = bool(args.get("sync_milestone", True))
+    try:
+        updated = server_client.update_work_item_planning(
+            token, str(ctx["project_id"]), item_id, sprint_id=sprint_id,
+            expected_version=expected_version, sync_milestone=sync_milestone,
+        )
+    except server_client.ServerRejected as exc:
+        detail = str(exc.detail or "Server 拒绝请求")
+        return ToolOutcome(
+            text=f"Server 拒绝更新 WorkItem 计划（{exc.status_code}）：{detail}。未发生部分写入；请重新调用 list_work_items 获取最新 ID 和版本。"
+        )
+    if updated is None:
+        return ToolOutcome(text="AgentMate Server 当前不可达，WorkItem 计划未更新。")
+    title = str(updated.get("title") or item_id)
+    old_version = expected_version
+    new_version = int(updated.get("version") or old_version + 1)
+    new_sprint = str(updated.get("sprint_id") or "")
+    new_milestone = str(updated.get("milestone_id") or "")
+    old_sprint = str(updated.get("previous_sprint_id") or "")
+    old_milestone = str(updated.get("previous_milestone_id") or "")
+    sprint_name = str(updated.get("sprint_name") or new_sprint or "未分配 Sprint")
+    action_text = f"加入「{sprint_name}」" if new_sprint else "移出 Sprint"
+    return ToolOutcome(
+        text=(
+            f"已将 WorkItem「{title}」{action_text}。"
+            f"sprint_id={new_sprint or '未分配'}；milestone_id={new_milestone or '未分配'}；"
+            f"version={old_version}→{new_version}。"
+        ),
+        trace=[{
+            "kind": "step", "tool": "update_work_item_planning",
+            "label": f"WorkItem「{title}」→ Sprint「{sprint_name}」",
+            "actor_id": str(ctx.get("owner_id") or ""),
+            "project_id": str(ctx["project_id"]), "work_item_id": item_id,
+            "old_sprint_id": old_sprint, "old_milestone_id": old_milestone,
+            "new_sprint_id": new_sprint, "new_milestone_id": new_milestone,
+            "from_version": old_version, "to_version": new_version,
+        }],
+        live=[{
+            "id": item_id, "project_id": str(ctx["project_id"]), "title": title,
+            "status": str(updated.get("status") or "todo"), "sprint_id": new_sprint,
+            "milestone_id": new_milestone, "version": new_version,
+        }],
+    )
+
+
+update_work_item_planning = Tool(
+    name="update_work_item_planning",
+    description=(
+        "仅更新当前 Server 项目 WorkItem 的 sprint_id，并可同步 Sprint 的 milestone_id。"
+        "item_id、sprint_id 和 expected_version 必须来自本轮最新 list_work_items；"
+        "禁止猜测 ID。已关闭 Sprint、跨项目引用、Viewer 和过期版本会被 Server 原子拒绝。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "item_id": {"type": "string", "description": "list_work_items 返回的 WorkItem id"},
+            "sprint_id": {"type": "string", "description": "list_work_items 返回的 planned/active Sprint id；空字符串表示移出 Sprint"},
+            "expected_version": {"type": "integer", "minimum": 1, "description": "list_work_items 返回的 WorkItem version"},
+            "sync_milestone": {"type": "boolean", "description": "同步为 Sprint 的 milestone_id，默认 true"},
+        },
+        "required": ["item_id", "sprint_id", "expected_version"],
+    },
+    pre=lambda a: {
+        "kind": "step", "tool": "update_work_item_planning",
+        "label": f"准备更新 WorkItem {str(a.get('item_id') or '')} 的 Sprint",
+    },
+    run=_update_work_item_planning_run,
+    permissions=("project.write",),
+    timeout_seconds=20.0,
+)
+
+
 def work_item_tools(plan: bool = False, *, include_project: bool = True) -> list[Tool]:
     """Work-item tools for a run. Plan mode is read-only, so no status writes."""
     values = [list_my_action_items]
     if not plan:
         values.append(start_work_item_run)
     if include_project:
-        values.extend([list_work_items] if plan else [list_work_items, set_work_item_status])
+        values.extend(
+            [list_work_items]
+            if plan else [list_work_items, set_work_item_status, update_work_item_planning]
+        )
     return [tool for tool in values if server_tool_enabled(tool.name)]
 
 

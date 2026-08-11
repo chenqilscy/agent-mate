@@ -369,6 +369,7 @@ export interface WorkItem {
   sort?: number;
   created_at?: number;
   updated_at?: number;
+  version: number;
   execution_policy: WorkItemExecutionPolicy;
 }
 

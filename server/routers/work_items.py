@@ -730,6 +730,12 @@ class ExecutionPolicyBody(BaseModel):
         default_factory=lambda: ["run_events_v1", "llm.chat", "agent.tools"],
         max_length=100,
     )
+
+
+class PlanningUpdateBody(BaseModel):
+    sprint_id: str = Field(default="", max_length=200)
+    expected_version: int = Field(ge=1)
+    sync_milestone: bool = True
     model_ref: str | None = Field(default=None, max_length=200)
     timeout_sec: int = Field(default=300, ge=1, le=3600)
     max_attempts: int = Field(default=1, ge=1, le=10)
@@ -798,6 +804,29 @@ def set_execution_policy(
             ),
         )
     return {"policy": policy, "work_item": _decorate(db.get_work_item(wid) or item, _members_maps(project_id)[0])}
+
+
+@router.patch("/projects/{project_id}/work-items/{wid}/planning")
+def update_item_planning(
+    project_id: str, wid: str, body: PlanningUpdateBody,
+    account: Account = CurrentAccount,
+) -> dict:
+    """Narrow CAS endpoint for Agent planning; never accepts arbitrary WorkItem fields."""
+    _require_write(project_id, account)
+    try:
+        updated = db.update_work_item_planning(
+            project_id=project_id, work_item_id=wid, sprint_id=body.sprint_id.strip(),
+            expected_version=body.expected_version, sync_milestone=body.sync_milestone,
+            actor_id=account.id, actor_name=account.name,
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "work item not found") from exc
+    except db.WorkItemVersionConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    observe_project_health(project_id, actor_name=account.name)
+    return _decorate(updated, _members_maps(project_id)[0])
 
 
 @router.post("/projects/{project_id}/work-items/{wid}/execution-policy/trigger")

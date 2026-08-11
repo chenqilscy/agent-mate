@@ -249,6 +249,7 @@ def assert_server_schema(conn: sqlite3.Connection) -> None:
         "work_item_acceptances": {
             "work_item_id", "project_id", "run_id", "artifact_count", "accepted_by", "accepted_at",
         },
+        "work_items": {"version"},
         "work_item_execution_policies": {
             "work_item_id", "project_id", "execution_owner_id", "mode", "routing_mode",
             "required_capabilities", "preauthorized_permissions", "version", "state",
@@ -978,3 +979,10 @@ def migrate_work_item_auto_execution(conn: sqlite3.Connection) -> None:
     for statement in schema.split(";"):
         if statement.strip():
             conn.execute(statement)
+
+
+def migrate_work_item_planning_version(conn: sqlite3.Connection) -> None:
+    """Optimistic version used by narrow Agent planning writes (WB-504)."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(work_items)")}
+    if "version" not in columns:
+        conn.execute("ALTER TABLE work_items ADD COLUMN version INTEGER NOT NULL DEFAULT 1")

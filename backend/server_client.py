@@ -792,6 +792,24 @@ def update_work_item(token: str, project_id: str, wid: str, body: dict[str, Any]
     return d if isinstance(d, dict) else None
 
 
+def update_work_item_planning(
+    token: str, project_id: str, wid: str, *, sprint_id: str,
+    expected_version: int, sync_milestone: bool = True,
+) -> Optional[dict[str, Any]]:
+    """CAS-protected narrow Sprint write; 4xx responses stay observable to the Agent."""
+    d = _patch(
+        f"/api/projects/{project_id}/work-items/{wid}/planning",
+        token,
+        {
+            "sprint_id": sprint_id,
+            "expected_version": expected_version,
+            "sync_milestone": sync_milestone,
+        },
+        strict=True,
+    )
+    return d if isinstance(d, dict) else None
+
+
 def accept_work_item(
     token: str, project_id: str, wid: str, *, run_id: str, artifact_count: int,
 ) -> Optional[dict[str, Any]]:

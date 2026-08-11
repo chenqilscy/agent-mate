@@ -701,7 +701,8 @@ async def _run_chat_inner(
         else:
             context_layers.add(
                 "work_items", "本项目的待办可用工具管理：list_work_items 查看、"
-                "set_work_item_status 更新状态。若用户把某个待办「添加到输入框」交给你处理，"
+                "set_work_item_status 更新状态；用户明确要求调整 Sprint 时，先用 list_work_items "
+                "获取真实任务、Sprint 与 version，再用 update_work_item_planning。若用户把某个待办「添加到输入框」交给你处理，"
                 "完成或推进后请调用 set_work_item_status 回写；Agent 完成只能提交「待验收」，不得自行验收。",
                 source=f"project:{session.project_id}:work_items", authority="project",
                 priority=110, heading="项目计划项（待办）",

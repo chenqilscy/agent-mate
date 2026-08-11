@@ -34,6 +34,7 @@ from migrations import (
     migrate_server_automation_timezone,
     migrate_automation_device_routing,
     migrate_work_item_auto_execution,
+    migrate_work_item_planning_version,
     migrate_relay_retention,
     migrate_single_active_sprint,
     migrate_work_item_acceptance_idempotency,
@@ -733,6 +734,7 @@ def init_db() -> None:
         Migration(15, "server-automation-timezone", migrate_server_automation_timezone),
         Migration(16, "automation-device-routing", migrate_automation_device_routing),
         Migration(17, "work-item-auto-execution", migrate_work_item_auto_execution),
+        Migration(18, "work-item-planning-version", migrate_work_item_planning_version),
     ))
     assert_server_schema(conn)
     # 新 App 版本可补充真实实现，但绝不覆盖 Console 已管理的运营字段。
@@ -2574,11 +2576,81 @@ def update_work_item(wid: str, **fields: Any) -> Optional[dict]:
             sets.append(f"{k}=?"); vals.append(v)
     if not sets:
         return get_work_item(wid)
-    sets.append("updated_at=?"); vals.append(time.time())
+    sets.extend(["updated_at=?", "version=version+1"]); vals.append(time.time())
     vals.append(wid)
     cur = get_conn().execute(f"UPDATE work_items SET {', '.join(sets)} WHERE id=?", vals)
     get_conn().commit()
     return get_work_item(wid) if cur.rowcount else None
+
+
+class WorkItemVersionConflict(ValueError):
+    """The caller planned against an older WorkItem projection."""
+
+
+def update_work_item_planning(
+    *, project_id: str, work_item_id: str, sprint_id: str, expected_version: int,
+    sync_milestone: bool, actor_id: str, actor_name: str,
+) -> dict:
+    """Atomically update only sprint/milestone with scope, lifecycle and CAS gates."""
+    conn = get_conn()
+    now = time.time()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        item = conn.execute(
+            "SELECT * FROM work_items WHERE id=? AND project_id=?", (work_item_id, project_id),
+        ).fetchone()
+        if item is None:
+            raise KeyError("work item not found")
+        old_version = int(item["version"] or 1)
+        if old_version != int(expected_version):
+            raise WorkItemVersionConflict(
+                f"work item version conflict: expected {expected_version}, current {old_version}"
+            )
+        old_sprint = str(item["sprint_id"] or "")
+        old_milestone = str(item["milestone_id"] or "")
+        new_milestone = old_milestone
+        sprint_name = "未分配 Sprint"
+        if sprint_id:
+            sprint = conn.execute(
+                "SELECT * FROM sprints WHERE id=? AND project_id=?", (sprint_id, project_id),
+            ).fetchone()
+            if sprint is None:
+                raise ValueError("sprint not found in current project")
+            if str(sprint["status"] or "") not in {"planned", "active"}:
+                raise ValueError("closed sprint is read-only")
+            sprint_name = str(sprint["name"] or sprint_id)
+            if sync_milestone:
+                new_milestone = str(sprint["milestone_id"] or "")
+        result = conn.execute(
+            "UPDATE work_items SET sprint_id=?,milestone_id=?,version=version+1,updated_at=? "
+            "WHERE id=? AND project_id=? AND version=?",
+            (sprint_id, new_milestone, now, work_item_id, project_id, old_version),
+        )
+        if result.rowcount != 1:
+            raise WorkItemVersionConflict("work item version changed during update")
+        new_version = old_version + 1
+        conn.execute(
+            "INSERT INTO work_item_activity "
+            "(id,project_id,work_item_id,actor,kind,detail,created_at) VALUES (?,?,?,?,?,?,?)",
+            (
+                new_uuid(), project_id, work_item_id, actor_name, "planning_updated",
+                f"actor_id={actor_id}; old_sprint={old_sprint}; new_sprint={sprint_id}; "
+                f"old_milestone={old_milestone}; new_milestone={new_milestone}; "
+                f"from_version={old_version}; to_version={new_version}",
+                now,
+            ),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    updated = get_work_item(work_item_id)
+    assert updated is not None
+    updated["sprint_name"] = sprint_name
+    updated["previous_sprint_id"] = old_sprint
+    updated["previous_milestone_id"] = old_milestone
+    updated["previous_version"] = old_version
+    return updated
 
 
 def accept_work_item_delivery(
@@ -2613,7 +2685,7 @@ def accept_work_item_delivery(
             raise ValueError("work item is not awaiting acceptance")
         now = time.time()
         conn.execute(
-            "UPDATE work_items SET status='done',updated_at=? WHERE id=?",
+            "UPDATE work_items SET status='done',version=version+1,updated_at=? WHERE id=?",
             (now, work_item_id),
         )
         conn.execute(
@@ -2698,7 +2770,7 @@ def accept_server_work_item_delivery(
                 raise ValueError("work item is not awaiting acceptance")
             now = time.time()
             conn.execute(
-                "UPDATE work_items SET status='done',updated_at=? WHERE id=?", (now, work_item_id),
+                "UPDATE work_items SET status='done',version=version+1,updated_at=? WHERE id=?", (now, work_item_id),
             )
             conn.execute(
                 "INSERT INTO work_item_acceptances "
@@ -2972,7 +3044,7 @@ def update_sprint(sprint_id: str, **fields: Any) -> Optional[dict]:
 
 def delete_sprint(sprint_id: str, project_id: str) -> bool:
     conn = get_conn()
-    conn.execute("UPDATE work_items SET sprint_id='',updated_at=? WHERE sprint_id=? AND project_id=?",
+    conn.execute("UPDATE work_items SET sprint_id='',version=version+1,updated_at=? WHERE sprint_id=? AND project_id=?",
                  (time.time(), sprint_id, project_id))
     cur = conn.execute("DELETE FROM sprints WHERE id=? AND project_id=?", (sprint_id, project_id))
     conn.commit()

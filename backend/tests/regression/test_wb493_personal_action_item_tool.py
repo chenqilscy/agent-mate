@@ -74,7 +74,10 @@ class PersonalActionItemToolTest(unittest.TestCase):
             plan_names = [tool.name for tool in tools.work_item_tools(plan=True, include_project=True)]
         self.assertEqual(["list_my_action_items", "start_work_item_run"], global_names)
         self.assertEqual(
-            ["list_my_action_items", "start_work_item_run", "list_work_items", "set_work_item_status"],
+            [
+                "list_my_action_items", "start_work_item_run", "list_work_items",
+                "set_work_item_status", "update_work_item_planning",
+            ],
             project_names,
         )
         self.assertEqual(["list_my_action_items", "list_work_items"], plan_names)

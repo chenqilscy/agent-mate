@@ -92,7 +92,7 @@ export interface RunPlanItem {
   work_item_id?: string
 }
 export interface RunPlanEvent {
-  version: number
+  version?: number
   items: RunPlanItem[]
   project_id?: string | null
 }
@@ -117,7 +117,12 @@ export interface ArtifactEvent {
   acceptance_status?: 'pending' | 'accepted' | 'rejected'
 }
 export interface RunEvent { run: AgentRun; user_message_id?: string }
-export interface WorkItemEvent { item: { id: string; project_id: string; status: WorkStatus; title: string } }
+export interface WorkItemEvent {
+  item: {
+    id: string; project_id: string; status: WorkStatus; title: string;
+    sprint_id?: string; milestone_id?: string; version?: number;
+  }
+}
 export interface UsageEvent { pct: number; used: number; detail: Record<string, number> }
 export interface ErrorEvent { message: string }
 export interface SessionEvent { id: string; title: string }
@@ -851,6 +856,7 @@ export interface WorkItem {
   ago?: string
   created_at?: number
   updated_at?: number
+  version: number
 }
 
 export type WorkActionSignal =

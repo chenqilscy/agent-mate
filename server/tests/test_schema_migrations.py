@@ -30,7 +30,7 @@ class ServerSchemaMigrationTest(unittest.TestCase):
                     "SELECT version,name FROM schema_migrations WHERE scope='server' ORDER BY version"
                 ).fetchall()
                 self.assertEqual(
-                    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+                    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
                     [row["version"] for row in rows],
                 )
             finally:
