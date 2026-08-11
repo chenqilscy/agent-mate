@@ -14,6 +14,11 @@ export type ServerConnectionState = {
   error: string
 }
 
+export type ServerReadOptions = {
+  cache?: boolean
+  onResolvedState?: (state: ServerConnectionState) => void
+}
+
 type ChannelSnapshot = {
   server: ServerConnectionState
   localAgent: LocalAgentStatus | null
@@ -171,7 +176,7 @@ export function serverAuthHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-export async function serverGet<T>(path: string, options: { cache?: boolean } = {}): Promise<T> {
+export async function serverGet<T>(path: string, options: ServerReadOptions = {}): Promise<T> {
   const useCache = options.cache !== false
   try {
     const base = await serverApiBase()
@@ -184,6 +189,7 @@ export async function serverGet<T>(path: string, options: { cache?: boolean } = 
     const value = await response.json() as T
     if (useCache) writeCache(path, value)
     markServer('online')
+    options.onResolvedState?.(channelSnapshot().server)
     return value
   } catch (error) {
     const status = error instanceof ChannelUnavailableError ? error.status : null
@@ -191,6 +197,7 @@ export async function serverGet<T>(path: string, options: { cache?: boolean } = 
       const cached = readCache<T>(path)
       if (cached) {
         markServer('cached', error instanceof Error ? error.message : String(error), cached.cachedAt)
+        options.onResolvedState?.(channelSnapshot().server)
         return cached.value
       }
     }
@@ -205,7 +212,7 @@ export async function serverGetAll<T>(
   path: string,
   key: string,
   limit = 200,
-  options: { cache?: boolean } = {},
+  options: ServerReadOptions = {},
 ): Promise<T[]> {
   const items: T[] = []
   let cursor = ''

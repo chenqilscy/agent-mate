@@ -9,6 +9,7 @@ import { Popover } from '../components/ui/Popover'
 import { WbButton } from '../components/ui/Primitives'
 import { startWorkItemRun } from '../lib/sse'
 import type { AgentRun, PersonalActionItem, RunStatus, SessionInfo, ViewId, WorkActionSignal, WorkPriority } from '../lib/types'
+import { selectCurrentWorkbenchRuns } from '../lib/workbench'
 import { useAuthStore } from '../stores/authStore'
 import { useCatalog } from '../stores/catalogStore'
 import { useChatStore } from '../stores/chatStore'
@@ -48,17 +49,6 @@ const RUNNING_RUNS = new Set<RunStatus>(['queued', 'leased', 'planning', 'runnin
 const ATTENTION_RUNS = new Set<RunStatus>(['waiting_user', 'waiting_approval', 'paused', 'recoverable'])
 type RunFilter = 'all' | 'running' | 'attention' | 'failed'
 
-function latestBySession(runs: AgentRun[]): AgentRun[] {
-  const seen = new Set<string>()
-  return [...runs]
-    .sort((left, right) => (right.updated_at || right.created_at) - (left.updated_at || left.created_at))
-    .filter((run) => {
-      if (seen.has(run.session_id)) return false
-      seen.add(run.session_id)
-      return true
-    })
-}
-
 function relativeTime(value?: number | null): string {
   if (!value) return '刚刚'
   const seconds = Math.max(0, Date.now() / 1000 - value)
@@ -66,6 +56,11 @@ function relativeTime(value?: number | null): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`
   return `${Math.floor(seconds / 86400)} 天前`
+}
+
+function syncTime(value: number | null): string {
+  if (!value) return '未知时间'
+  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(value)
 }
 
 function runTone(status: RunStatus): string {
@@ -93,7 +88,6 @@ export function HomeView() {
   const loggedIn = useAuthStore((state) => state.loggedIn)
   const localAgent = useConnectivityStore((state) => state.localAgent)
   const localAgentChecked = useConnectivityStore((state) => state.localAgentChecked)
-  const serverState = useConnectivityStore((state) => state.server)
   const projects = useProjectStore((state) => state.projects)
   const loadProjects = useProjectStore((state) => state.load)
   const setActiveProject = useProjectStore((state) => state.setActive)
@@ -107,7 +101,10 @@ export function HomeView() {
   const workbenchLoading = useWorkbenchStore((state) => state.loading)
   const actionError = useWorkbenchStore((state) => state.actionError)
   const runError = useWorkbenchStore((state) => state.runError)
-  const workbenchUpdatedAt = useWorkbenchStore((state) => state.updatedAt)
+  const actionSource = useWorkbenchStore((state) => state.actionSource)
+  const runSource = useWorkbenchStore((state) => state.runSource)
+  const actionUpdatedAt = useWorkbenchStore((state) => state.actionUpdatedAt)
+  const runUpdatedAt = useWorkbenchStore((state) => state.runUpdatedAt)
   const loadWorkbench = useWorkbenchStore((state) => state.load)
   const clearWorkbench = useWorkbenchStore((state) => state.clear)
 
@@ -116,6 +113,7 @@ export function HomeView() {
   const [pop, setPop] = useState<'ws' | 'perm' | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
   const [runFilter, setRunFilter] = useState<RunFilter>('all')
+  const [keyboardNavigation, setKeyboardNavigation] = useState(false)
   const [startingItemId, setStartingItemId] = useState<string | null>(null)
   const [detail, setDetail] = useState<{ itemId: string; canWrite: boolean } | null>(null)
   const wsAnchor = useRef<HTMLButtonElement | null>(null)
@@ -130,18 +128,28 @@ export function HomeView() {
     if (loggedIn) void loadWorkbench()
     else clearWorkbench()
   }, [clearWorkbench, loadWorkbench, loggedIn])
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Tab') setKeyboardNavigation(true) }
+    const onPointerDown = () => setKeyboardNavigation(false)
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('pointerdown', onPointerDown)
+    }
+  }, [])
 
   const sessionsById = useMemo(() => new Map(sessions.map((session) => [session.id, session])), [sessions])
   const projectsById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])
-  const latestRuns = useMemo(() => latestBySession(runs), [runs])
+  const currentRuns = useMemo(() => selectCurrentWorkbenchRuns(runs), [runs])
   const latestRunByWorkItem = useMemo(() => {
     const result = new Map<string, AgentRun>()
-    latestRuns.forEach((run) => { if (run.work_item_id && !result.has(run.work_item_id)) result.set(run.work_item_id, run) })
+    currentRuns.forEach((run) => { if (run.work_item_id) result.set(run.work_item_id, run) })
     return result
-  }, [latestRuns])
+  }, [currentRuns])
   const sevenDaysAgo = Date.now() / 1000 - 7 * 86400
-  const recentFailedRuns = latestRuns.filter((run) => run.status === 'failed' && run.updated_at >= sevenDaysAgo)
-  const activeRuns = latestRuns.filter((run) => ACTIVE_RUNS.has(run.status))
+  const recentFailedRuns = currentRuns.filter((run) => run.status === 'failed' && run.updated_at >= sevenDaysAgo)
+  const activeRuns = currentRuns.filter((run) => ACTIVE_RUNS.has(run.status))
   const attentionRuns = activeRuns.filter((run) => ATTENTION_RUNS.has(run.status))
   const reviewItems = actionItems.filter((item) => item.status === 'review')
   const attentionWorkItemIds = new Set(reviewItems.map((item) => item.id))
@@ -149,12 +157,21 @@ export function HomeView() {
   const needsAttention = reviewItems.length + attentionRunRows.length + recentFailedRuns.length
 
   const filteredRuns = useMemo(() => {
-    const candidate = latestRuns.filter((run) => ACTIVE_RUNS.has(run.status) || (run.status === 'failed' && run.updated_at >= sevenDaysAgo))
+    const candidate = currentRuns.filter((run) => ACTIVE_RUNS.has(run.status) || (run.status === 'failed' && run.updated_at >= sevenDaysAgo))
     if (runFilter === 'running') return candidate.filter((run) => RUNNING_RUNS.has(run.status))
     if (runFilter === 'attention') return candidate.filter((run) => ATTENTION_RUNS.has(run.status))
     if (runFilter === 'failed') return candidate.filter((run) => run.status === 'failed')
     return candidate
-  }, [latestRuns, runFilter, sevenDaysAgo])
+  }, [currentRuns, runFilter, sevenDaysAgo])
+
+  const workbenchWarnings = [
+    actionError
+      ? actionUpdatedAt ? `行动项同步失败，显示 ${syncTime(actionUpdatedAt)} 的上次结果` : actionError
+      : actionSource === 'cache' ? `行动项使用 ${syncTime(actionUpdatedAt)} 的缓存结果` : null,
+    runError
+      ? runUpdatedAt ? `Run 同步失败，显示 ${syncTime(runUpdatedAt)} 的上次结果` : runError
+      : runSource === 'cache' ? `Run 使用 ${syncTime(runUpdatedAt)} 的缓存结果` : null,
+  ].filter((value): value is string => Boolean(value))
 
   const selectedProjectName = selProject ? projectsById.get(selProject)?.name : null
   const promptSuggestions = (QUICK.day || []).filter(([, label]) => label !== '更多').slice(0, 3)
@@ -285,9 +302,9 @@ export function HomeView() {
                       <div><b>需要我处理</b><span>回答、授权、恢复或验收后，Agent 才能继续</span></div>
                       <span className={`home-count ${needsAttention ? 'is-attention' : ''}`}>{needsAttention}</span>
                     </div>
-                    {(actionError || runError || serverState.state === 'cached') && (
+                    {workbenchWarnings.length > 0 && (
                       <div className="home-data-warning" role="status">
-                        <span>{serverState.state === 'cached' || workbenchUpdatedAt ? 'Server 暂不可达，显示上次同步结果' : actionError || runError}</span>
+                        <span>{workbenchWarnings.join('；')}</span>
                         <WbButton onClick={refresh}>重新同步</WbButton>
                       </div>
                     )}
@@ -328,7 +345,7 @@ export function HomeView() {
                   <ProCard className="home-work-card home-actions-card" styles={{ body: { display: 'contents' } }}>
                     <div className="home-card-head">
                       <div><b>我的行动项</b><span>来自 Server 的跨项目 WorkItem，按行动信号排序</span></div>
-                      <Space size={8}><span className="home-source-state">{serverState.state === 'cached' ? '缓存' : 'Server 实时'}</span><WbButton className="home-refresh" disabled={workbenchLoading} onClick={refresh}>{workbenchLoading ? '同步中…' : '刷新'}</WbButton></Space>
+                      <Space size={8}><span className="home-source-state">{actionSource === 'cache' ? `缓存 ${syncTime(actionUpdatedAt)}` : actionSource === 'live' ? 'Server 实时' : actionError ? '读取失败' : '等待同步'}</span><WbButton className="home-refresh" disabled={workbenchLoading} onClick={refresh}>{workbenchLoading ? '同步中…' : '刷新'}</WbButton></Space>
                     </div>
                     <div className="home-action-list">
                       {actionItems.slice(0, 8).map((item) => {
@@ -366,7 +383,7 @@ export function HomeView() {
                 </>
               )}
 
-              <ProCard className="home-command home-quick-start" styles={{ body: { display: 'contents' } }}>
+              <ProCard className={`home-command home-quick-start ${keyboardNavigation ? 'is-keyboard-navigation' : ''}`} styles={{ body: { display: 'contents' } }}>
                 <div className="home-card-head"><div><b>快速开始</b><span>提出一个目标，或从真实项目上下文开始</span></div></div>
                 <div className="comp-zone">
                   <Composer variant="home" onSend={launch} autoFocus />
@@ -398,7 +415,7 @@ export function HomeView() {
 
             <aside className="home-console home-run-panel" aria-label="正在执行">
               <div className="home-console-head">
-                <div><b>正在执行</b><span>真实 Session / Run 状态</span></div>
+                <div><b>正在执行</b><span>真实 Session / Run 状态{runSource === 'cache' ? ` · 缓存 ${syncTime(runUpdatedAt)}` : runError ? ' · 读取失败' : ''}</span></div>
                 <Space size={4}><WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'diagnostics')}>执行诊断</WbButton><WbButton className="home-console-action" onClick={() => setSettingsOpen(true, 'runtime')}>运行设置</WbButton></Space>
               </div>
               <div className="home-run-filters" role="group" aria-label="运行状态筛选">
@@ -418,7 +435,7 @@ export function HomeView() {
       </div>
       {detail && <TodoDetailModal itemId={detail.itemId} canWrite={detail.canWrite} mode="execute" onClose={() => setDetail(null)} onOpenRun={async (sessionId) => {
         const session = sessionsById.get(sessionId) as SessionInfo | undefined
-        const run = latestRuns.find((candidate) => candidate.session_id === sessionId)
+        const run = currentRuns.find((candidate) => candidate.session_id === sessionId)
         if (run) await openRun(run)
         else {
           await openSession(sessionId)

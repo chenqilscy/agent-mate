@@ -3,7 +3,7 @@
 // execution stay on the loopback Local Agent. Provider API keys never enter UI state.
 
 import type { AgentRun, AgentSettings, AppNotification, AppSettings, ArtifactManifest, AuditEntry, Automation, AutomationFire, AutomationWebhookConfig, BackgroundHealth, CreateAutomationInput, CustomExpert, CustomModelInput, DataSummary, DeviceDiagnostics, DeviceSettingsPayload, EmbedStatus, Idea, IdeaDetail, IdeaRelationType, IdeaSettlementType, InstalledSkill, KbDocument, KbRetrieveHit, KdocsFile, KnowledgeBase, KnowledgeConfig, LocalConnectorInstance, LocalConnectorPayload, Me, MemoryData, MemoryItem, MemorySearchResult, MemoryStats, MemoryTrace, Milestone, ModelGovernance, ModelOption, ModelPolicy, ModelsResponse, OpsSummary, Orchestration, PersonalActionItemsResponse, ProjectGovernanceRecord, ProjectHealth, ProjectHealthPortfolio, ProjectHealthTransition, ProjectInfo, RunStatus, SessionInfo, SharedPmPreferences, SharedPmPreferencesPatch, SkillBundle, SkillCard, SkillDetail, SkillSecurityReport, SystemSettings, WorkAttachment, WorkItem, WorkItemDelivery, WorkPriority, WorkStatus, WorkspaceMemory } from './types'
-import { LOCAL_API_BASE, channelSnapshot, serverApiBase, serverGet, serverGetAll, serverSend } from './channels'
+import { LOCAL_API_BASE, channelSnapshot, serverApiBase, serverGet, serverGetAll, serverSend, type ServerReadOptions } from './channels'
 
 // In the browser, /api is proxied to the backend by Vite. Inside the Tauri shell
 // there's no proxy and the app is served from tauri://localhost, so hit the local
@@ -453,12 +453,12 @@ export const api = {
     }
   },
 
-  listRuns: (filters?: { sessionId?: string; projectId?: string; workItemId?: string }) => {
+  listRuns: (filters?: { sessionId?: string; projectId?: string; workItemId?: string }, options: ServerReadOptions = {}) => {
     const query = new URLSearchParams()
     if (filters?.sessionId) query.set('session_id', filters.sessionId)
     if (filters?.projectId) query.set('project_id', filters.projectId)
     if (filters?.workItemId) query.set('work_item_id', filters.workItemId)
-    return serverGetAll<AgentRun>(`/runs${query.size ? `?${query}` : ''}`, 'runs')
+    return serverGetAll<AgentRun>(`/runs${query.size ? `?${query}` : ''}`, 'runs', 200, options)
       .then((runs) => ({ runs }))
   },
   getRun: (id: string) => serverGet<AgentRun>(`/runs/${id}`),
@@ -708,8 +708,8 @@ export const api = {
 
   listWorkItems: (project: string) => serverGet<{ items: WorkItem[] }>(`/projects/${project}/work-items`),
 
-  listPersonalActionItems: (asOf: string) =>
-    serverGet<PersonalActionItemsResponse>(`/work-items/action-items?as_of=${encodeURIComponent(asOf)}`),
+  listPersonalActionItems: (asOf: string, options: ServerReadOptions = {}) =>
+    serverGet<PersonalActionItemsResponse>(`/work-items/action-items?as_of=${encodeURIComponent(asOf)}`, options),
 
   createWorkItem: (body: {
     project_id: string; title: string; status?: WorkStatus

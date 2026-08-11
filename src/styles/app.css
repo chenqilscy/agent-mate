@@ -2318,6 +2318,10 @@ body.dark .project-health-tag.ant-tag.is-attention { background: #43351F; color:
   outline: none;
   box-shadow: none;
 }
+.home-quick-start.is-keyboard-navigation .composer:focus-within {
+  border-color: var(--text-2);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-2) 48%, transparent), var(--shadow-sm);
+}
 .home-prompt-suggestions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
 .home-prompt-suggestions .qchip.ant-btn { height: 34px; padding: 0 12px; }
 .home-run-panel { position: sticky; top: 0; align-self: start; }

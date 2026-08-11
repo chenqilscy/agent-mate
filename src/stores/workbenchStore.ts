@@ -1,11 +1,26 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
+import type { ServerConnectionState } from '../lib/channels'
 import type { AgentRun, PersonalActionItem, PersonalActionItemsResponse } from '../lib/types'
+import { mergeWorkbenchDomains, type WorkbenchDataSource, type WorkbenchDomainRead } from '../lib/workbench'
 
 function localDate(): string {
   const value = new Date()
   const pad = (part: number) => String(part).padStart(2, '0')
   return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
+}
+
+async function readServerDomain<T>(
+  load: (onResolvedState: (state: ServerConnectionState) => void) => Promise<T>,
+): Promise<WorkbenchDomainRead<T>> {
+  let resolvedState: ServerConnectionState | null = null
+  const value = await load((state) => { resolvedState = state })
+  const server = resolvedState
+  return {
+    value,
+    source: server?.state === 'cached' ? 'cache' : 'live',
+    updatedAt: server?.state === 'cached' && server.cachedAt ? server.cachedAt : Date.now(),
+  }
 }
 
 interface WorkbenchState {
@@ -17,7 +32,10 @@ interface WorkbenchState {
   loading: boolean
   actionError: string | null
   runError: string | null
-  updatedAt: number | null
+  actionSource: WorkbenchDataSource | null
+  runSource: WorkbenchDataSource | null
+  actionUpdatedAt: number | null
+  runUpdatedAt: number | null
   load: () => Promise<void>
   clear: () => void
 }
@@ -31,29 +49,28 @@ export const useWorkbenchStore = create<WorkbenchState>((set) => ({
   loading: false,
   actionError: null,
   runError: null,
-  updatedAt: null,
+  actionSource: null,
+  runSource: null,
+  actionUpdatedAt: null,
+  runUpdatedAt: null,
 
   load: async () => {
     set({ loading: true, actionError: null, runError: null })
     const [actions, runs] = await Promise.allSettled([
-      api.listPersonalActionItems(localDate()),
-      api.listRuns(),
+      readServerDomain((onResolvedState) => api.listPersonalActionItems(localDate(), { onResolvedState })),
+      readServerDomain((onResolvedState) => api.listRuns(undefined, { onResolvedState })),
     ])
     set((current) => ({
-      actionItems: actions.status === 'fulfilled' ? actions.value.items : current.actionItems,
-      unassignedItems: actions.status === 'fulfilled' ? actions.value.unassigned : current.unassignedItems,
-      summary: actions.status === 'fulfilled' ? actions.value.summary : current.summary,
-      computedAt: actions.status === 'fulfilled' ? actions.value.computed_at : current.computedAt,
-      runs: runs.status === 'fulfilled' ? runs.value.runs : current.runs,
+      ...mergeWorkbenchDomains(current, actions, runs),
       loading: false,
       actionError: actions.status === 'rejected' ? 'Server 行动项读取失败' : null,
       runError: runs.status === 'rejected' ? 'Server Run 读取失败' : null,
-      updatedAt: actions.status === 'fulfilled' || runs.status === 'fulfilled' ? Date.now() : current.updatedAt,
     }))
   },
 
   clear: () => set({
     actionItems: [], unassignedItems: [], summary: null, computedAt: null, runs: [],
-    loading: false, actionError: null, runError: null, updatedAt: null,
+    loading: false, actionError: null, runError: null,
+    actionSource: null, runSource: null, actionUpdatedAt: null, runUpdatedAt: null,
   }),
 }))

@@ -9,6 +9,7 @@ class PersonalWorkbenchActionCenterContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.home = (ROOT / "src/views/HomeView.tsx").read_text(encoding="utf-8")
         self.store = (ROOT / "src/stores/workbenchStore.ts").read_text(encoding="utf-8")
+        self.workbench = (ROOT / "src/lib/workbench.ts").read_text(encoding="utf-8")
         self.api = (ROOT / "src/lib/api.ts").read_text(encoding="utf-8")
         self.types = (ROOT / "src/lib/types.ts").read_text(encoding="utf-8")
         self.css = (ROOT / "src/styles/app.css").read_text(encoding="utf-8")
@@ -17,16 +18,18 @@ class PersonalWorkbenchActionCenterContractTests(unittest.TestCase):
         self.assertIn("export interface PersonalActionItemsResponse", self.types)
         self.assertIn("export interface PersonalActionItem extends WorkItem", self.types)
         self.assertIn("serverGet<PersonalActionItemsResponse>(`/work-items/action-items?as_of=", self.api)
-        self.assertIn("api.listPersonalActionItems(localDate())", self.store)
+        self.assertIn("api.listPersonalActionItems(localDate(), { onResolvedState })", self.store)
         self.assertNotIn("/api/ideas", self.store)
 
     def test_partial_failures_preserve_each_last_successful_domain(self) -> None:
         self.assertIn("Promise.allSettled", self.store)
-        self.assertIn("actions.status === 'fulfilled' ? actions.value.items : current.actionItems", self.store)
-        self.assertIn("runs.status === 'fulfilled' ? runs.value.runs : current.runs", self.store)
+        self.assertIn("mergeWorkbenchDomains(current, actions, runs)", self.store)
+        self.assertIn("actions.status === 'fulfilled' ? actions.value.value.items : current.actionItems", self.workbench)
+        self.assertIn("runs.status === 'fulfilled' ? runs.value.value.runs : current.runs", self.workbench)
         self.assertIn("actionError", self.store)
         self.assertIn("runError", self.store)
-        self.assertIn("Server 暂不可达，显示上次同步结果", self.home)
+        self.assertIn("行动项同步失败，显示", self.home)
+        self.assertIn("Run 同步失败，显示", self.home)
 
     def test_home_prioritizes_intervention_actions_and_real_runs(self) -> None:
         for label in ("需要我处理", "我的行动项", "快速开始", "正在执行"):
@@ -46,6 +49,7 @@ class PersonalWorkbenchActionCenterContractTests(unittest.TestCase):
         self.assertIn("@media (max-width: 640px)", self.css)
         self.assertIn(".home-workbench-layout", self.css)
         self.assertIn("var(--bg-surface)", self.css)
+        self.assertIn(".home-quick-start.is-keyboard-navigation .composer:focus-within", self.css)
 
 
 if __name__ == "__main__":
