@@ -369,6 +369,33 @@ export interface WorkItem {
   sort?: number;
   created_at?: number;
   updated_at?: number;
+  execution_policy: WorkItemExecutionPolicy;
+}
+
+export interface WorkItemExecutionPolicy {
+  work_item_id: string;
+  project_id: string;
+  execution_owner_id: string;
+  execution_owner_name?: string;
+  mode: "manual" | "auto";
+  routing_mode: "any_compatible" | "specific";
+  target_device_id: string;
+  required_capabilities: string[];
+  model_ref?: string | null;
+  timeout_sec: number;
+  max_attempts: number;
+  retry_backoff_sec: number;
+  max_total_tokens: number;
+  notify_policy: string;
+  preauthorized_permissions: string[];
+  version: number;
+  state: "manual" | "evaluating" | "blocked" | "queued" | "running" | "waiting_retry" | "failed" | "awaiting_acceptance" | "accepted";
+  blocker_code: string;
+  blocker_message: string;
+  last_run_id: string;
+  last_trigger_key: string;
+  last_attempt: number;
+  updated_at: number;
 }
 
 export type WorkItemRunStatus =

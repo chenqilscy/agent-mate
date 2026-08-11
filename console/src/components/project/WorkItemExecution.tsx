@@ -4,9 +4,12 @@ import {
   Button,
   Card,
   Empty,
+  InputNumber,
   List,
+  Select,
   Space,
   Spin,
+  Switch,
   Tag,
   Timeline,
   Typography,
@@ -20,8 +23,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { consoleApi } from "../../api";
 import type {
   Project,
+  LocalAgentDevice,
   WorkItem,
   WorkItemDelivery,
+  WorkItemExecutionPolicy,
   WorkItemRun,
   WorkItemRunEvent,
   WorkItemRunPlanItem,
@@ -58,6 +63,18 @@ const PLAN_STATUS_META: Record<string, { label: string; color: string }> = {
   in_progress: { label: "进行中", color: "processing" },
   completed: { label: "已完成", color: "success" },
   blocked: { label: "已阻塞", color: "error" },
+};
+
+const POLICY_STATE_META: Record<string, { label: string; type: "info" | "success" | "warning" | "error" }> = {
+  manual: { label: "手动执行", type: "info" },
+  evaluating: { label: "检查门禁", type: "info" },
+  blocked: { label: "门禁未通过", type: "warning" },
+  queued: { label: "已自动入队", type: "info" },
+  running: { label: "自动执行中", type: "info" },
+  waiting_retry: { label: "等待重试", type: "warning" },
+  failed: { label: "自动执行失败", type: "error" },
+  awaiting_acceptance: { label: "等待人工验收", type: "success" },
+  accepted: { label: "交付已验收", type: "success" },
 };
 
 function timestamp(value?: number | null): string {
@@ -386,6 +403,13 @@ export function WorkItemExecution({
   const [loadingMore, setLoadingMore] = useState(false);
   const [acceptingRunId, setAcceptingRunId] = useState("");
   const [error, setError] = useState("");
+  const [devices, setDevices] = useState<LocalAgentDevice[]>([]);
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  const [triggeringPolicy, setTriggeringPolicy] = useState(false);
+  const [policyDraft, setPolicyDraft] = useState<Pick<
+    WorkItemExecutionPolicy,
+    "mode" | "routing_mode" | "target_device_id" | "timeout_sec" | "max_attempts"
+  >>({ mode: "manual", routing_mode: "any_compatible", target_device_id: "", timeout_sec: 300, max_attempts: 1 });
 
   const load = useCallback(
     async (quiet = false) => {
@@ -411,6 +435,23 @@ export function WorkItemExecution({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    consoleApi.devices().then((value) => setDevices(value.devices)).catch(() => setDevices([]));
+  }, []);
+
+  const policy = delivery?.work_item.execution_policy || workItem.execution_policy;
+
+  useEffect(() => {
+    if (!policy) return;
+    setPolicyDraft({
+      mode: policy.mode,
+      routing_mode: policy.routing_mode,
+      target_device_id: policy.target_device_id,
+      timeout_sec: policy.timeout_sec,
+      max_attempts: policy.max_attempts,
+    });
+  }, [policy]);
 
   const active = useMemo(
     () =>
@@ -464,6 +505,46 @@ export function WorkItemExecution({
     }
   }
 
+  async function savePolicy() {
+    setSavingPolicy(true);
+    try {
+      const result = await consoleApi.updateWorkItemExecutionPolicy(
+        project.id,
+        workItem.id,
+        {
+          ...policyDraft,
+          target_device_id: policyDraft.routing_mode === "specific" ? policyDraft.target_device_id : "",
+          required_capabilities: ["run_events_v1", "llm.chat", "agent.tools"],
+          retry_backoff_sec: 30,
+          max_total_tokens: 0,
+          notify_policy: "failure,recovery",
+          preauthorized_permissions: ["workspace.write"],
+        },
+      );
+      onWorkItemUpdated(result.work_item);
+      message.success(result.policy.mode === "auto" ? "自动执行策略已保存并检查门禁" : "已切换为手动执行");
+      await load(true);
+    } catch (reason) {
+      message.error(reason instanceof Error ? reason.message : "执行策略保存失败");
+    } finally {
+      setSavingPolicy(false);
+    }
+  }
+
+  async function triggerPolicy() {
+    setTriggeringPolicy(true);
+    try {
+      const result = await consoleApi.triggerWorkItemExecutionPolicy(project.id, workItem.id);
+      onWorkItemUpdated(result.work_item);
+      message.success(result.policy.state === "queued" ? "已创建新的自动执行 Run" : "已重新检查执行门禁");
+      await load(true);
+    } catch (reason) {
+      message.error(reason instanceof Error ? reason.message : "自动执行触发失败");
+    } finally {
+      setTriggeringPolicy(false);
+    }
+  }
+
   return (
     <Card
       size="small"
@@ -480,6 +561,57 @@ export function WorkItemExecution({
         </Button>
       }
     >
+      {delivery && policy && (
+        <Card size="small" title="一次性自动执行策略" className="work-item-run-card">
+          <Space direction="vertical" size={12} className="full-width">
+            <Alert
+              showIcon
+              type={(POLICY_STATE_META[policy.state] || POLICY_STATE_META.manual).type}
+              message={(POLICY_STATE_META[policy.state] || POLICY_STATE_META.manual).label}
+              description={policy.blocker_message || (policy.mode === "auto" ? `执行负责人：${policy.execution_owner_name || policy.execution_owner_id}；成功交付后仍需人工验收。` : "任务仅在用户显式发起时执行。")}
+            />
+            {delivery.can_write && (
+              <Space wrap size="middle" align="end">
+                <Space direction="vertical" size={4}>
+                  <Typography.Text type="secondary">自动执行一次</Typography.Text>
+                  <Switch checked={policyDraft.mode === "auto"} onChange={(checked) => setPolicyDraft((current) => ({ ...current, mode: checked ? "auto" : "manual" }))} />
+                </Space>
+                {policyDraft.mode === "auto" && <>
+                  <Space direction="vertical" size={4}>
+                    <Typography.Text type="secondary">设备路由</Typography.Text>
+                    <Select
+                      value={policyDraft.routing_mode}
+                      style={{ width: 180 }}
+                      options={[{ value: "any_compatible", label: "任一兼容设备" }, { value: "specific", label: "指定设备" }]}
+                      onChange={(value) => setPolicyDraft((current) => ({ ...current, routing_mode: value }))}
+                    />
+                  </Space>
+                  {policyDraft.routing_mode === "specific" && <Space direction="vertical" size={4}>
+                    <Typography.Text type="secondary">目标 Local Agent</Typography.Text>
+                    <Select
+                      value={policyDraft.target_device_id || undefined}
+                      placeholder="选择已验证设备"
+                      style={{ width: 230 }}
+                      options={devices.filter((device) => device.verified && device.status === "active").map((device) => ({ value: device.id, label: `${device.name} · ${device.readiness}` }))}
+                      onChange={(value) => setPolicyDraft((current) => ({ ...current, target_device_id: value }))}
+                    />
+                  </Space>}
+                  <Space direction="vertical" size={4}>
+                    <Typography.Text type="secondary">超时（秒）</Typography.Text>
+                    <InputNumber min={1} max={3600} value={policyDraft.timeout_sec} onChange={(value) => setPolicyDraft((current) => ({ ...current, timeout_sec: Number(value) || 300 }))} />
+                  </Space>
+                  <Space direction="vertical" size={4}>
+                    <Typography.Text type="secondary">最多尝试</Typography.Text>
+                    <InputNumber min={1} max={10} value={policyDraft.max_attempts} onChange={(value) => setPolicyDraft((current) => ({ ...current, max_attempts: Number(value) || 1 }))} />
+                  </Space>
+                </>}
+                <Button type="primary" loading={savingPolicy} disabled={policyDraft.mode === "auto" && policyDraft.routing_mode === "specific" && !policyDraft.target_device_id} onClick={() => void savePolicy()}>保存策略</Button>
+                {policy.mode === "auto" && ["blocked", "failed", "waiting_retry"].includes(policy.state) && <Button loading={triggeringPolicy} onClick={() => void triggerPolicy()}>重新检查并触发</Button>}
+              </Space>
+            )}
+          </Space>
+        </Card>
+      )}
       {error && (
         <Alert
           type="error"

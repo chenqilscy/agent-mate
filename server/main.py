@@ -29,6 +29,7 @@ import db  # noqa: E402
 import relay_store  # noqa: E402
 import asset_object_store  # noqa: E402
 import automation_scheduler  # noqa: E402
+import work_item_auto_scheduler  # noqa: E402
 import sso_store  # noqa: E402
 from config import settings  # noqa: E402
 from routers import accounts, assets, auth, automation_webhooks, business, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, relay, run_protocol, sso, timeline, work_items  # noqa: E402
@@ -69,13 +70,18 @@ async def _lifespan(_app: FastAPI):
     cleanup_task = asyncio.create_task(_relay_retention_loop())
     asset_cleanup_task = asyncio.create_task(_asset_cleanup_loop())
     automation_task = asyncio.create_task(automation_scheduler.run_forever())
+    work_item_auto_task = asyncio.create_task(work_item_auto_scheduler.run_forever())
     try:
         yield
     finally:
         cleanup_task.cancel()
         asset_cleanup_task.cancel()
         automation_task.cancel()
-        await asyncio.gather(cleanup_task, asset_cleanup_task, automation_task, return_exceptions=True)
+        work_item_auto_task.cancel()
+        await asyncio.gather(
+            cleanup_task, asset_cleanup_task, automation_task, work_item_auto_task,
+            return_exceptions=True,
+        )
 
 
 app = FastAPI(title="AgentMate Server API", version="1.0.0", lifespan=_lifespan)

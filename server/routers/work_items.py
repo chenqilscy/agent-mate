@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 import business_store
 import db
 import run_protocol_store
+import work_item_auto_scheduler
 from auth import CurrentAccount
 from models import Account, Role, can_write
 from project_health_service import observe_project_health
@@ -116,6 +117,9 @@ def _decorate(item: dict, by_id: dict) -> dict:
     # requires a list so opening a Server-created task never dereferences undefined.
     item["attachments"] = []
     item["delivery_accepted"] = db.get_work_item_acceptance(item["id"]) is not None
+    item["execution_policy"] = work_item_auto_scheduler.get_policy(
+        str(item["id"]), str(item["project_id"]),
+    )
     return item
 
 
@@ -718,6 +722,25 @@ class CreateBody(BaseModel):
     sprint_id: str = ""
 
 
+class ExecutionPolicyBody(BaseModel):
+    mode: str = "manual"
+    routing_mode: str = "any_compatible"
+    target_device_id: str = Field(default="", max_length=200)
+    required_capabilities: list[str] = Field(
+        default_factory=lambda: ["run_events_v1", "llm.chat", "agent.tools"],
+        max_length=100,
+    )
+    model_ref: str | None = Field(default=None, max_length=200)
+    timeout_sec: int = Field(default=300, ge=1, le=3600)
+    max_attempts: int = Field(default=1, ge=1, le=10)
+    retry_backoff_sec: int = Field(default=30, ge=1, le=86400)
+    max_total_tokens: int = Field(default=0, ge=0, le=10_000_000)
+    notify_policy: str = Field(default="failure,recovery", max_length=200)
+    preauthorized_permissions: list[str] = Field(
+        default_factory=lambda: ["workspace.write"], max_length=100,
+    )
+
+
 @router.post("/projects/{project_id}/work-items")
 def create_item(project_id: str, body: CreateBody, account: Account = CurrentAccount) -> dict:
     _require_write(project_id, account)
@@ -746,6 +769,52 @@ def create_item(project_id: str, body: CreateBody, account: Account = CurrentAcc
                               actor=account.name, kind="created", detail=item["title"])
     observe_project_health(project_id, actor_name=account.name)
     return _decorate(item, by_id)
+
+
+@router.put("/projects/{project_id}/work-items/{wid}/execution-policy")
+def set_execution_policy(
+    project_id: str, wid: str, body: ExecutionPolicyBody,
+    account: Account = CurrentAccount,
+) -> dict:
+    _require_write(project_id, account)
+    item = db.get_work_item(wid)
+    if not item or item["project_id"] != project_id:
+        raise HTTPException(404, "work item not found")
+    try:
+        policy, changed = work_item_auto_scheduler.configure_policy(
+            work_item=item, execution_owner_id=account.id, values=body.model_dump(),
+        )
+        if policy["mode"] == "auto":
+            policy = work_item_auto_scheduler.trigger_one(wid)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if changed:
+        db.log_work_item_activity(
+            project_id=project_id, work_item_id=wid, actor=account.name,
+            kind="execution_policy",
+            detail=(
+                f"mode={policy['mode']}; routing={policy['routing_mode']}; "
+                f"version={policy['version']}; state={policy['state']}"
+            ),
+        )
+    return {"policy": policy, "work_item": _decorate(db.get_work_item(wid) or item, _members_maps(project_id)[0])}
+
+
+@router.post("/projects/{project_id}/work-items/{wid}/execution-policy/trigger")
+def trigger_execution_policy(
+    project_id: str, wid: str, account: Account = CurrentAccount,
+) -> dict:
+    _require_write(project_id, account)
+    item = db.get_work_item(wid)
+    if not item or item["project_id"] != project_id:
+        raise HTTPException(404, "work item not found")
+    policy = work_item_auto_scheduler.get_policy(wid, project_id)
+    if policy["mode"] != "auto":
+        raise HTTPException(409, "work item auto execution is not enabled")
+    if policy["execution_owner_id"] != account.id:
+        raise HTTPException(403, "only the execution owner can trigger this policy")
+    policy = work_item_auto_scheduler.trigger_one(wid, force_retry=True)
+    return {"policy": policy, "work_item": _decorate(db.get_work_item(wid) or item, _members_maps(project_id)[0])}
 
 
 class UpdateBody(BaseModel):
@@ -801,6 +870,10 @@ def update_item(project_id: str, wid: str, body: UpdateBody, account: Account = 
     if "status" in changes:
         _sync_linked_risk(project_id, wid, str(changes["status"]), account)
     observe_project_health(project_id, actor_name=account.name)
+    policy = work_item_auto_scheduler.get_policy(wid, project_id)
+    if policy["mode"] == "auto":
+        work_item_auto_scheduler.trigger_one(wid)
+        updated = db.get_work_item(wid) or updated
     return _decorate(updated, by_id)
 
 

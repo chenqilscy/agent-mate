@@ -466,6 +466,21 @@ export const consoleApi = {
       `/projects/${encodeURIComponent(id)}/work-items/${encodeURIComponent(workId)}`,
       body,
     ),
+  updateWorkItemExecutionPolicy: (
+    id: string,
+    workId: string,
+    body: Partial<WorkItem["execution_policy"]>,
+  ) => apiRequest<{ policy: WorkItem["execution_policy"]; work_item: WorkItem }>(
+    "PUT",
+    `/projects/${encodeURIComponent(id)}/work-items/${encodeURIComponent(workId)}/execution-policy`,
+    body,
+  ),
+  triggerWorkItemExecutionPolicy: (id: string, workId: string) =>
+    apiRequest<{ policy: WorkItem["execution_policy"]; work_item: WorkItem }>(
+      "POST",
+      `/projects/${encodeURIComponent(id)}/work-items/${encodeURIComponent(workId)}/execution-policy/trigger`,
+      {},
+    ),
   deleteWorkItem: (id: string, workId: string) =>
     apiRequest<{ ok: boolean }>(
       "DELETE",

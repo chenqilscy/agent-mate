@@ -33,6 +33,7 @@ from migrations import (
     migrate_server_automation_webhooks,
     migrate_server_automation_timezone,
     migrate_automation_device_routing,
+    migrate_work_item_auto_execution,
     migrate_relay_retention,
     migrate_single_active_sprint,
     migrate_work_item_acceptance_idempotency,
@@ -731,6 +732,7 @@ def init_db() -> None:
         Migration(14, "server-automation-webhooks", migrate_server_automation_webhooks),
         Migration(15, "server-automation-timezone", migrate_server_automation_timezone),
         Migration(16, "automation-device-routing", migrate_automation_device_routing),
+        Migration(17, "work-item-auto-execution", migrate_work_item_auto_execution),
     ))
     assert_server_schema(conn)
     # 新 App 版本可补充真实实现，但绝不覆盖 Console 已管理的运营字段。

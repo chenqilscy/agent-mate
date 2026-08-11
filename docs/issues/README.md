@@ -7,7 +7,7 @@
 
 - 活动状态 `open` / `in-progress` / `deferred`：每个问题一个 `WB-<编号>-<slug>.md` 文件。
 - 终态 `fixed` / `wontfix`：运行 `python scripts/archive_issues.py --apply` 后进入 [`archive/`](archive/README.md)。
-- 编号全局递增且不复用；当前最大编号是 `WB-501`，可用 `python scripts/archive_issues.py --next-id` 查询。
+- 编号全局递增且不复用；当前最大编号是 `WB-502`，可用 `python scripts/archive_issues.py --next-id` 查询。
 - 活动文件 frontmatter 是权威状态；下表是活动状态镜像。
 
 ## 活动台账
@@ -22,5 +22,5 @@
 
 ## 已关闭归档
 
-共 490 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 491 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。

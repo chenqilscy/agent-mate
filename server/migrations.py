@@ -249,6 +249,11 @@ def assert_server_schema(conn: sqlite3.Connection) -> None:
         "work_item_acceptances": {
             "work_item_id", "project_id", "run_id", "artifact_count", "accepted_by", "accepted_at",
         },
+        "work_item_execution_policies": {
+            "work_item_id", "project_id", "execution_owner_id", "mode", "routing_mode",
+            "required_capabilities", "preauthorized_permissions", "version", "state",
+            "blocker_code", "last_run_id", "last_trigger_key",
+        },
         "org_model_policies": {"policy", "revision", "updated_by", "updated_at"},
         "tool_catalog": {
             "implementation_type", "parameters", "scripts", "timeout_seconds", "output_limit",
@@ -932,3 +937,44 @@ def migrate_automation_device_routing(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE business_automations ADD COLUMN target_device_id TEXT NOT NULL DEFAULT ''"
         )
+
+
+def migrate_work_item_auto_execution(conn: sqlite3.Connection) -> None:
+    """Durable one-shot WorkItem execution policy and observable gate state (WB-502)."""
+    schema = """
+        CREATE TABLE IF NOT EXISTS work_item_execution_policies (
+            work_item_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            execution_owner_id TEXT NOT NULL,
+            mode TEXT NOT NULL DEFAULT 'manual',
+            routing_mode TEXT NOT NULL DEFAULT 'any_compatible',
+            target_device_id TEXT NOT NULL DEFAULT '',
+            required_capabilities TEXT NOT NULL DEFAULT '[]',
+            model_ref TEXT,
+            timeout_sec INTEGER NOT NULL DEFAULT 300,
+            max_attempts INTEGER NOT NULL DEFAULT 1,
+            retry_backoff_sec INTEGER NOT NULL DEFAULT 30,
+            max_total_tokens INTEGER NOT NULL DEFAULT 0,
+            notify_policy TEXT NOT NULL DEFAULT 'failure,recovery',
+            preauthorized_permissions TEXT NOT NULL DEFAULT '[]',
+            version INTEGER NOT NULL DEFAULT 1,
+            state TEXT NOT NULL DEFAULT 'manual',
+            blocker_code TEXT NOT NULL DEFAULT '',
+            blocker_message TEXT NOT NULL DEFAULT '',
+            last_run_id TEXT NOT NULL DEFAULT '',
+            last_trigger_key TEXT NOT NULL DEFAULT '',
+            last_attempt INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY(execution_owner_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_work_item_execution_policy_scan
+            ON work_item_execution_policies(mode,state,updated_at,work_item_id);
+        CREATE INDEX IF NOT EXISTS idx_work_item_execution_policy_project
+            ON work_item_execution_policies(project_id,updated_at,work_item_id);
+    """
+    for statement in schema.split(";"):
+        if statement.strip():
+            conn.execute(statement)
