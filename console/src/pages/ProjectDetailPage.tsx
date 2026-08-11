@@ -39,6 +39,7 @@ import { consoleApi } from "../api";
 import {
   ProjectGantt,
   ProjectIterations,
+  ProjectAnalytics,
   ProjectOverview,
   ProjectPlan,
   ProjectTasks,
@@ -68,6 +69,7 @@ const ROLE_OPTIONS = ["Admin", "Member", "Viewer"].map((value) => ({
 }));
 const PROJECT_TABS: readonly ProjectWorkspaceTab[] = [
   "overview",
+  "analytics",
   "plan",
   "backlog",
   "tasks",
@@ -84,6 +86,7 @@ const PROJECT_TABS: readonly ProjectWorkspaceTab[] = [
 ];
 type ProjectWorkspaceSection =
   | "overview"
+  | "analytics"
   | "work"
   | "planning"
   | "team"
@@ -96,6 +99,7 @@ const PROJECT_SECTION_BY_TAB: Record<
   ProjectWorkspaceSection
 > = {
   overview: "overview",
+  analytics: "analytics",
   plan: "work",
   backlog: "work",
   tasks: "work",
@@ -115,6 +119,7 @@ const PROJECT_SECTION_DEFAULT: Record<
   ProjectWorkspaceTab
 > = {
   overview: "overview",
+  analytics: "analytics",
   work: "plan",
   planning: "milestones",
   team: "workload",
@@ -199,6 +204,8 @@ export default function ProjectDetailPage({
     switch (view) {
       case "overview":
         return <ProjectOverview />;
+      case "analytics":
+        return <ProjectAnalytics />;
       case "plan":
         return <ProjectPlan />;
       case "backlog":
@@ -300,6 +307,13 @@ export default function ProjectDetailPage({
                 label: "概览",
                 children: renderProjectSection([
                   { key: "overview", label: "概览" },
+                ]),
+              },
+              {
+                key: "analytics",
+                label: "数据",
+                children: renderProjectSection([
+                  { key: "analytics", label: "执行分析" },
                 ]),
               },
               {

@@ -137,6 +137,7 @@ type CustomFieldOptionEditorProps = {
 };
 export type ProjectWorkspaceTab =
   | "overview"
+  | "analytics"
   | "plan"
   | "backlog"
   | "tasks"
@@ -1727,6 +1728,7 @@ export function ProjectWorkspaceActions({
     activeTab === "plan" ||
     activeTab === "backlog" ||
     activeTab === "tasks" ||
+    activeTab === "analytics" ||
     activeTab === "milestones" ||
     activeTab === "sprints" ||
     activeTab === "iterations" ||
@@ -1748,14 +1750,12 @@ export function ProjectWorkspaceActions({
 export function ProjectOverview() {
   const {
     project,
-    items,
     roots,
     milestones,
     health,
     activity,
     loading,
     navigateToTab,
-    openTask,
   } = useProjectWork();
   const [liveHealth, setLiveHealth] = useState<ProjectHealth | null>(health);
   useEffect(() => {
@@ -1819,11 +1819,6 @@ export function ProjectOverview() {
           ) : "正在读取项目健康数据"}
         />
       </Card>
-      <ProjectExecutionAnalyticsPanel
-        project={project}
-        items={items}
-        onOpenTask={(item) => openTask(item, {}, project.role === "Viewer")}
-      />
       <Row gutter={[16, 16]}>
         <Col xs={12} xl={6}>
           <Card loading={loading}>
@@ -1917,6 +1912,17 @@ export function ProjectOverview() {
         </Col>
       </Row>
     </div>
+  );
+}
+
+export function ProjectAnalytics() {
+  const { project, items, openTask } = useProjectWork();
+  return (
+    <ProjectExecutionAnalyticsPanel
+      project={project}
+      items={items}
+      onOpenTask={(item) => openTask(item, {}, project.role === "Viewer")}
+    />
   );
 }
 
