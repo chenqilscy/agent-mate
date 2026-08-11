@@ -231,7 +231,13 @@ export default function ProjectDetailPage({
       case "collab":
         return project ? <CollaborationTab project={project} /> : null;
       case "config":
-        return project ? <ConfigTab project={project} onSaved={load} /> : null;
+        return project ? (
+          <ConfigTab
+            project={project}
+            onSaved={load}
+            onNavigateKnowledge={() => selectProjectTab("knowledge")}
+          />
+        ) : null;
     }
   };
   const renderProjectSection = (
@@ -1369,12 +1375,209 @@ function CollaborationTab({ project }: { project: Project }) {
   );
 }
 
+type ProjectCapabilityOption = {
+  value: string;
+  label: string;
+  icon: string;
+  description: string;
+  meta: string;
+  tags: string[];
+  status?: { label: string; color: string };
+};
+
+function catalogField(data: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number") return String(value);
+  }
+  return "";
+}
+
+function catalogTags(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string | number =>
+      typeof item === "string" || typeof item === "number",
+    )
+    .map(String)
+    .filter(Boolean);
+}
+
+function mapProjectCapabilityOptions(
+  items: CatalogItem<CatalogData>[],
+  kind: "connector" | "expert" | "skill",
+): ProjectCapabilityOption[] {
+  return items.map((item) => {
+    const data: Record<string, unknown> =
+      typeof item.data === "object" && item.data
+        ? item.data
+        : { value: item.data };
+    const label = catalogField(data, "name", "title", "slug", "value") || item.id;
+    const value =
+      kind === "skill"
+        ? catalogField(data, "slug", "key") || label
+        : label;
+    const description =
+      catalogField(data, "description", "desc", "intro", "subtitle") ||
+      "目录暂未提供详细说明";
+    const category = catalogField(data, "category");
+    const tags = [
+      ...catalogTags(data.tags),
+      ...(kind === "skill" ? catalogTags(data.tools) : []),
+    ];
+    const connectorStatus = catalogField(data, "status");
+    return {
+      value,
+      label,
+      icon: catalogField(data, "icon", "avatar") || label.slice(0, 1),
+      description,
+      meta:
+        category ||
+        (kind === "connector"
+          ? "连接器目录"
+          : kind === "expert"
+            ? "项目专家"
+            : "项目技能"),
+      tags: [...new Set(tags)].slice(0, 4),
+      status:
+        kind === "connector" && connectorStatus
+          ? connectorStatus === "tok"
+            ? { label: "需本机配置", color: "gold" }
+            : { label: "目录内置", color: "green" }
+          : undefined,
+    };
+  });
+}
+
+function ProjectCapabilityPicker({
+  value = [],
+  onChange,
+  options,
+  disabled = false,
+  searchPlaceholder,
+  emptyDescription,
+}: {
+  value?: string[];
+  onChange?: (value: string[]) => void;
+  options: ProjectCapabilityOption[];
+  disabled?: boolean;
+  searchPlaceholder: string;
+  emptyDescription: string;
+}) {
+  const [query, setQuery] = useState("");
+  const selected = new Set(value);
+  const knownValues = new Set(options.map((option) => option.value));
+  const missing = value.filter((item) => !knownValues.has(item));
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visible = options.filter((option) =>
+    [option.label, option.description, option.meta, ...option.tags]
+      .join(" ")
+      .toLocaleLowerCase()
+      .includes(normalizedQuery),
+  );
+  const toggle = (item: string) => {
+    if (disabled) return;
+    onChange?.(
+      selected.has(item)
+        ? value.filter((current) => current !== item)
+        : [...value, item],
+    );
+  };
+  return (
+    <div className="project-capability-picker">
+      <div className="project-capability-picker-toolbar">
+        <Input.Search
+          allowClear
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={searchPlaceholder}
+          aria-label={searchPlaceholder}
+        />
+        <Typography.Text type="secondary">
+          已选 {value.length} / 目录 {options.length}
+        </Typography.Text>
+      </div>
+      {missing.length ? (
+        <Alert
+          type="warning"
+          showIcon
+          title={`${missing.length} 个历史能力已不在当前目录`}
+          description={
+            <Space size={[4, 6]} wrap>
+              {missing.map((item) => (
+                <Tag
+                  key={item}
+                  closable={!disabled}
+                  onClose={(event) => {
+                    event.preventDefault();
+                    toggle(item);
+                  }}
+                >
+                  {item}
+                </Tag>
+              ))}
+            </Space>
+          }
+        />
+      ) : null}
+      {visible.length ? (
+        <div className="project-capability-grid">
+          {visible.map((option) => {
+            const active = selected.has(option.value);
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={`project-capability-option${active ? " is-selected" : ""}`}
+                aria-pressed={active}
+                disabled={disabled}
+                onClick={() => toggle(option.value)}
+              >
+                <span className="project-capability-option-icon" aria-hidden="true">
+                  {option.icon}
+                </span>
+                <span className="project-capability-option-copy">
+                  <span className="project-capability-option-head">
+                    <Typography.Text strong>{option.label}</Typography.Text>
+                    {option.status ? (
+                      <Tag color={option.status.color}>{option.status.label}</Tag>
+                    ) : active ? (
+                      <Tag color="green">已选择</Tag>
+                    ) : null}
+                  </span>
+                  <Typography.Text type="secondary" className="project-capability-option-description">
+                    {option.description}
+                  </Typography.Text>
+                  <span className="project-capability-option-meta">
+                    <Tag>{option.meta}</Tag>
+                    {option.tags.map((tag) => (
+                      <Tag key={tag}>{tag}</Tag>
+                    ))}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={normalizedQuery ? "没有匹配的能力" : emptyDescription}
+        />
+      )}
+    </div>
+  );
+}
+
 function ConfigTab({
   project,
   onSaved,
+  onNavigateKnowledge,
 }: {
   project: Project;
   onSaved: () => Promise<void>;
+  onNavigateKnowledge: () => void;
 }) {
   const { message } = App.useApp();
   const [basicForm] = Form.useForm<{ name: string; org_id?: string }>();
@@ -1392,10 +1595,19 @@ function ConfigTab({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteName, setDeleteName] = useState("");
   const [options, setOptions] = useState({
-    connectors: [] as { value: string; label: string }[],
-    experts: [] as { value: string; label: string }[],
-    skills: [] as { value: string; label: string }[],
+    connectors: [] as ProjectCapabilityOption[],
+    experts: [] as ProjectCapabilityOption[],
+    skills: [] as ProjectCapabilityOption[],
   });
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState("");
+  const [catalogReload, setCatalogReload] = useState(0);
+  const [configDirty, setConfigDirty] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
+  const instruction = Form.useWatch("instruction", form) || "";
+  const selectedConnectors = Form.useWatch("connectors", form) || [];
+  const selectedExperts = Form.useWatch("experts", form) || [];
+  const selectedSkills = Form.useWatch("skills", form) || [];
   useEffect(() => {
     basicForm.setFieldsValue({
       name: project.name,
@@ -1407,37 +1619,50 @@ function ConfigTab({
       experts: project.experts || [],
       skills: project.skills || [],
     });
+    setConfigDirty(false);
+  }, [project.id, project.updated_at]);
+  useEffect(() => {
+    let current = true;
+    setCatalogLoading(true);
+    setCatalogError("");
     Promise.all([
-      consoleApi.catalog<CatalogData>("NP_CONNS"),
+      consoleApi.catalog<CatalogData>("CONN_DEFS"),
       consoleApi.catalog<CatalogData>("EXPERT_DEFS"),
       consoleApi.catalog<CatalogData>("APP_SKILLS"),
+    ])
+      .then(([connectors, experts, skills]) => {
+        if (!current) return;
+        setOptions({
+          connectors: mapProjectCapabilityOptions(connectors.items, "connector"),
+          experts: mapProjectCapabilityOptions(experts.items, "expert"),
+          skills: mapProjectCapabilityOptions(skills.items, "skill"),
+        });
+      })
+      .catch((reason) => {
+        if (current) setCatalogError(errorText(reason, "项目能力目录加载失败"));
+      })
+      .finally(() => {
+        if (current) setCatalogLoading(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [project.id, project.updated_at, catalogReload]);
+  useEffect(() => {
+    let current = true;
+    Promise.all([
       consoleApi.organizations(),
       consoleApi.projectMembers(project.id),
     ])
-      .then(([connectors, experts, skills, orgResult, memberResult]) => {
-        const map = (items: CatalogItem<CatalogData>[], stable = false) =>
-          items.map((item) => {
-            const data =
-              typeof item.data === "object" && item.data
-                ? item.data
-                : { value: item.data };
-            const label = String(
-              data.name || data.title || data.slug || data.value || item.id,
-            );
-            const value = stable
-              ? String(data.slug || data.key || label)
-              : label;
-            return { value, label };
-          });
-        setOptions({
-          connectors: map(connectors.items),
-          experts: map(experts.items),
-          skills: map(skills.items, true),
-        });
+      .then(([orgResult, memberResult]) => {
+        if (!current) return;
         setOrganizations(orgResult.orgs || []);
         setMembers(memberResult.members || []);
       })
-      .catch((reason) => message.error(errorText(reason, "项目能力选项加载失败")));
+      .catch((reason) => message.error(errorText(reason, "项目管理信息加载失败")));
+    return () => {
+      current = false;
+    };
   }, [project.id, project.updated_at]);
   const governs = project.role === "Owner" || project.role === "Admin";
   const owner = project.role === "Owner";
@@ -1496,53 +1721,187 @@ function ConfigTab({
       <Card
         title="项目能力配置"
         extra={
-          <Typography.Text type="secondary">
-            仅 Admin / Owner 可管理
-          </Typography.Text>
+          <Space wrap>
+            <Tag color={configDirty ? "gold" : "green"}>
+              {configDirty ? "有未保存变更" : "已同步"}
+            </Tag>
+            <Typography.Text type="secondary">仅 Admin / Owner 可管理</Typography.Text>
+          </Space>
         }
+        className="project-capability-config"
       >
+        {!active ? (
+          <Alert
+            type="warning"
+            showIcon
+            title="归档项目的能力配置只读"
+            description="恢复项目后才能调整默认指令与能力装载。"
+          />
+        ) : !governs ? (
+          <Alert
+            type="info"
+            showIcon
+            title={`当前角色为 ${project.role}，能力配置只读`}
+            description="项目 Owner 或 Admin 可以调整项目默认能力。"
+          />
+        ) : null}
+        <Alert
+          type="info"
+          showIcon
+          title="这里配置项目的默认能力装载"
+          description="新会话会合并这些项目默认项与会话级装载。连接器在目录中可选不代表设备已经就绪；安装、授权与兼容性由 Local Agent 管理，本页不保存连接器凭据。"
+        />
+        <div className="project-capability-summary" aria-label="当前能力配置摘要">
+          <div className="project-capability-summary-item">
+            <Typography.Text type="secondary">项目指令</Typography.Text>
+            <Typography.Text strong>{instruction.trim() ? "已配置" : "未配置"}</Typography.Text>
+          </div>
+          <div className="project-capability-summary-item">
+            <Typography.Text type="secondary">连接器</Typography.Text>
+            <Typography.Text strong>{selectedConnectors.length} 项</Typography.Text>
+          </div>
+          <div className="project-capability-summary-item">
+            <Typography.Text type="secondary">专家 / 技能</Typography.Text>
+            <Typography.Text strong>
+              {selectedExperts.length} / {selectedSkills.length} 项
+            </Typography.Text>
+          </div>
+          <div className="project-capability-summary-item">
+            <Typography.Text type="secondary">关联知识库</Typography.Text>
+            <Space size={8} wrap>
+              <Typography.Text strong>{project.knowledge_ids.length} 个</Typography.Text>
+              <Button type="link" size="small" onClick={onNavigateKnowledge}>
+                管理
+              </Button>
+            </Space>
+          </div>
+        </div>
         <Form
           form={form}
           layout="vertical"
           disabled={!governs || !active}
+          onValuesChange={() => setConfigDirty(true)}
           onFinish={async (values) => {
+            setConfigSaving(true);
             try {
               await consoleApi.updateProject(project.id, values);
-              message.success("项目配置已保存");
+              message.success("项目能力配置已保存");
               await onSaved();
+              setConfigDirty(false);
             } catch (reason) {
               message.error(errorText(reason, "保存失败"));
+            } finally {
+              setConfigSaving(false);
             }
           }}
         >
-          <Form.Item name="instruction" label="项目指令">
-            <Input.TextArea rows={6} />
-          </Form.Item>
-          <Form.Item name="connectors" label="连接器">
-            <Select
-              mode="multiple"
-              options={options.connectors}
-              placeholder="选择连接器"
-            />
-          </Form.Item>
-          <Form.Item name="experts" label="专家">
-            <Select
-              mode="multiple"
-              options={options.experts}
-              placeholder="选择专家"
-            />
-          </Form.Item>
-          <Form.Item name="skills" label="技能">
-            <Select
-              mode="multiple"
-              options={options.skills}
-              placeholder="选择技能"
-            />
-          </Form.Item>
+          <section className="project-capability-section" aria-labelledby="project-instruction-title">
+            <div className="project-capability-section-head">
+              <div>
+                <Typography.Title level={5} id="project-instruction-title">
+                  项目默认指令
+                </Typography.Title>
+                <Typography.Text type="secondary">
+                  约束项目内 Agent 的工作方式、交付标准与边界，不要在此填写密钥或个人隐私。
+                </Typography.Text>
+              </div>
+              <Tag>{instruction.length.toLocaleString()} / 20,000</Tag>
+            </div>
+            <Form.Item name="instruction" className="project-capability-instruction">
+              <Input.TextArea
+                rows={5}
+                maxLength={20_000}
+                placeholder="例如：先读取项目规范；涉及生产变更必须给出回滚方案；交付前运行项目验证。"
+              />
+            </Form.Item>
+          </section>
+          <section className="project-capability-section" aria-labelledby="project-loadout-title">
+            <div className="project-capability-section-head">
+              <div>
+                <Typography.Title level={5} id="project-loadout-title">
+                  默认能力装载
+                </Typography.Title>
+                <Typography.Text type="secondary">
+                  按用途搜索并选择。项目仍引用但目录已不可用的历史项会单独提示。
+                </Typography.Text>
+              </div>
+              <Typography.Text type="secondary">
+                共选择 {selectedConnectors.length + selectedExperts.length + selectedSkills.length} 项
+              </Typography.Text>
+            </div>
+            {catalogError ? (
+              <Alert
+                type="error"
+                showIcon
+                title="能力目录暂时不可用"
+                description={catalogError}
+                action={<Button onClick={() => setCatalogReload((value) => value + 1)}>重试</Button>}
+              />
+            ) : null}
+            <Spin spinning={catalogLoading} description="正在加载能力目录…">
+              <Tabs
+                className="project-capability-tabs"
+                items={[
+                  {
+                    key: "connectors",
+                    label: `连接器 ${selectedConnectors.length}`,
+                    children: (
+                      <Form.Item name="connectors" noStyle>
+                        <ProjectCapabilityPicker
+                          options={options.connectors}
+                          disabled={!governs || !active || Boolean(catalogError)}
+                          searchPlaceholder="搜索连接器名称、说明或配置状态"
+                          emptyDescription="目录中没有可用连接器"
+                        />
+                      </Form.Item>
+                    ),
+                  },
+                  {
+                    key: "experts",
+                    label: `专家 ${selectedExperts.length}`,
+                    children: (
+                      <Form.Item name="experts" noStyle>
+                        <ProjectCapabilityPicker
+                          options={options.experts}
+                          disabled={!governs || !active || Boolean(catalogError)}
+                          searchPlaceholder="搜索专家名称、领域或说明"
+                          emptyDescription="目录中没有可用专家"
+                        />
+                      </Form.Item>
+                    ),
+                  },
+                  {
+                    key: "skills",
+                    label: `技能 ${selectedSkills.length}`,
+                    children: (
+                      <Form.Item name="skills" noStyle>
+                        <ProjectCapabilityPicker
+                          options={options.skills}
+                          disabled={!governs || !active || Boolean(catalogError)}
+                          searchPlaceholder="搜索技能名称、分类、工具或说明"
+                          emptyDescription="目录中没有可用技能"
+                        />
+                      </Form.Item>
+                    ),
+                  },
+                ]}
+              />
+            </Spin>
+          </section>
           {governs && active && (
-            <Button type="primary" htmlType="submit">
-              保存配置
-            </Button>
+            <div className="project-capability-actions">
+              <Typography.Text type="secondary">
+                保存后作为本项目的新会话默认值；已打开会话的临时装载不会被覆盖。
+              </Typography.Text>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={configSaving}
+                disabled={!configDirty || catalogLoading || Boolean(catalogError)}
+              >
+                保存能力配置
+              </Button>
+            </div>
           )}
         </Form>
       </Card>

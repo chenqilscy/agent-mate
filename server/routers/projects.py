@@ -94,7 +94,7 @@ def _catalog_values(category: str) -> set[str]:
 
 
 def _validate_loadout(patch: dict) -> None:
-    categories = {"connectors": "NP_CONNS", "experts": "EXPERT_DEFS", "skills": "APP_SKILLS"}
+    categories = {"connectors": "CONN_DEFS", "experts": "EXPERT_DEFS", "skills": "APP_SKILLS"}
     for key, category in categories.items():
         if key not in patch:
             continue
