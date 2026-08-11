@@ -21,6 +21,7 @@ import {
 } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { consoleApi } from "../../api";
+import { desktopCompanionRunUrl } from "../../desktopHandoff";
 import { localAgentReadiness, localAgentVerified } from "../../localAgentPresentation";
 import type {
   Project,
@@ -237,6 +238,17 @@ function RunCard({
           className="work-item-run-alert"
           title="需要在执行节点处理"
           description="此 Run 正在等待回答或本机授权。Server Workspace 展示权威状态；请由执行负责人在 Desktop Companion 中继续。"
+          action={(
+            <Button
+              type="primary"
+              href={desktopCompanionRunUrl({
+                sessionId: run.session_id,
+                projectId: run.project_id,
+              })}
+            >
+              在执行节点打开
+            </Button>
+          )}
         />
       )}
       {run.error_message && (

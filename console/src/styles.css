@@ -98,6 +98,11 @@ body {
 .workspace-main-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, .85fr); gap: 16px; margin-top: 16px; align-items: start; }
 .workspace-trust-alert { margin-top: 16px; }
 .workspace-device-note { margin: 14px 0 0 !important; }
+.workspace-run-composer { margin-bottom: 16px; }
+.workspace-run-controls { display: grid; grid-template-columns: 120px minmax(170px, 1fr) minmax(210px, 1fr) auto; gap: 10px; margin-top: 12px; }
+.workspace-run-controls > .ant-select { width: 100%; }
+.workspace-run-note { margin: 10px 0 0 !important; }
+.workspace-run-created { margin-bottom: 16px; }
 .overview-health-progress { width: 150px; margin-inline-start: 20px; }
 .overview-health-progress .ant-progress { margin: 4px 0 0; }
 .table-scroll-hint { display: none; margin: 0 0 8px !important; }
@@ -539,6 +544,7 @@ body {
   .overview-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workspace-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workspace-main-grid { grid-template-columns: 1fr; }
+  .workspace-run-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .table-scroll-hint { display: block; }
   .project-plan-toolbar { position: static; }
   .project-plan-toolbar-row { grid-template-columns: 1fr; }
@@ -576,6 +582,8 @@ body {
   .console-create-action-label { display: none; }
   .overview-stat-grid { grid-template-columns: 1fr; }
   .workspace-stat-grid { grid-template-columns: 1fr; }
+  .workspace-run-controls { grid-template-columns: 1fr; }
+  .workspace-run-created .ant-alert-action { margin-inline-start: 0; padding-top: 10px; }
   .project-capability-summary,
   .project-capability-grid { grid-template-columns: 1fr; }
   .work-item-run-summary { grid-template-columns: 1fr; }

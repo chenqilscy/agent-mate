@@ -327,15 +327,22 @@ fn toggle_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default().plugin(tauri_plugin_shell::init());
+    let mut builder = tauri::Builder::default();
 
-    // Desktop-only: auto-update + relaunch-after-update.
+    // Single-instance must be registered before deep-link so an already-running
+    // Companion receives the URL instead of opening a second execution window.
     #[cfg(desktop)]
     {
         builder = builder
+            .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+                show_window(app);
+            }))
+            .plugin(tauri_plugin_deep_link::init())
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_process::init());
     }
+
+    builder = builder.plugin(tauri_plugin_shell::init());
 
     builder
         .manage(LocalAgentProcess(Mutex::new(None)))
@@ -352,6 +359,14 @@ pub fn run() {
             local_agent_download_asset
         ])
         .setup(|app| {
+            // Bundles register the scheme at install time. Development builds
+            // on Windows and Linux register the same static scheme at runtime.
+            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                app.deep_link().register_all()?;
+            }
+
             // ---- Local Agent sidecar: spawn + drain its output ----
             let ipc_token = app.state::<LocalAgentIpc>().token.clone();
             match app

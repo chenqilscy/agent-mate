@@ -15,6 +15,7 @@ import { PageContainer, ProLayout } from '@ant-design/pro-components'
 import { Spin } from 'antd'
 import { ConnectivityBanner } from './components/layout/ConnectivityBanner'
 import { useConnectivityStore } from './stores/connectivityStore'
+import { startDesktopDeepLinks } from './platform/deepLinks'
 
 const HomeView = lazy(() => import('./views/HomeView').then((module) => ({ default: module.HomeView })))
 const ChatView = lazy(() => import('./views/ChatView').then((module) => ({ default: module.ChatView })))
@@ -91,6 +92,16 @@ export function App() {
   const setNavOpen = useUIStore((s) => s.setNavOpen)
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed)
+
+  useEffect(() => {
+    let disposed = false
+    let stop = () => {}
+    void startDesktopDeepLinks().then((unlisten) => {
+      if (disposed) unlisten()
+      else stop = unlisten
+    }).catch(() => {})
+    return () => { disposed = true; stop() }
+  }, [])
 
   useEffect(() => {
     return useConnectivityStore.getState().start()

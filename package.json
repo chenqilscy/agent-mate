@@ -25,6 +25,7 @@
     "@ant-design/icons": "^6.3.2",
     "@ant-design/pro-components": "3.1.14-2",
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-deep-link": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "antd": "6.5.1",

@@ -1,5 +1,5 @@
 import {
-  Alert, App, Button, Card, Empty, Space, Statistic, Tag, Typography,
+  Alert, App, Button, Card, Empty, Input, Select, Space, Statistic, Tag, Typography,
 } from "antd";
 import { CompatList as List } from "../components/CompatList";
 import {
@@ -9,13 +9,16 @@ import {
 import { PageContainer } from "@ant-design/pro-components";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { navigate } from "../router";
-import type { Account, LocalAgentDevice } from "../types";
+import { desktopCompanionRunUrl } from "../desktopHandoff";
+import type { Account, LocalAgentDevice, Project } from "../types";
 import {
   workspaceApi,
   type WorkspaceActionItem,
   type WorkspaceActionItemsResponse,
   type WorkspaceRun,
   type WorkspaceSession,
+  type WorkspaceTurnMode,
+  type WorkspaceTurnResponse,
 } from "../workspaceApi";
 
 const ACTIVE_RUNS = new Set(["queued", "leased", "planning", "running", "waiting_user", "waiting_approval", "paused", "recoverable"]);
@@ -90,21 +93,30 @@ export default function WorkspacePage({ account }: { account: Account }) {
   const [runs, setRuns] = useState<WorkspaceRun[]>([]);
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]);
   const [devices, setDevices] = useState<LocalAgentDevice[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [prompt, setPrompt] = useState("");
+  const [mode, setMode] = useState<WorkspaceTurnMode>("exec");
+  const [projectId, setProjectId] = useState("");
+  const [targetDeviceId, setTargetDeviceId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [createdTurn, setCreatedTurn] = useState<WorkspaceTurnResponse | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [actionResult, runResult, sessionResult, deviceResult] = await Promise.all([
+      const [actionResult, runResult, sessionResult, deviceResult, projectResult] = await Promise.all([
         workspaceApi.actionItems(localDate()),
         workspaceApi.runs(),
         workspaceApi.sessions(),
         workspaceApi.devices(),
+        workspaceApi.projects(),
       ]);
       setActions(actionResult);
       setRuns(runResult.runs || []);
       setSessions(sessionResult.sessions || []);
       setDevices(deviceResult.devices || []);
+      setProjects(projectResult.projects || []);
     } catch (reason) {
       message.error(reason instanceof Error ? reason.message : "个人工作台加载失败");
     } finally {
@@ -122,6 +134,11 @@ export default function WorkspacePage({ account }: { account: Account }) {
   const activeRuns = sortedRuns.filter((run) => ACTIVE_RUNS.has(run.status));
   const attentionRuns = sortedRuns.filter((run) => ATTENTION_RUNS.has(run.status));
   const recentFailed = sortedRuns.filter((run) => FAILED_RUNS.has(run.status) && run.updated_at >= Date.now() / 1000 - 7 * 86400);
+  const writableProjects = projects.filter((project) => project.role !== "Viewer" && !project.archived_at);
+  const compatibleDevices = devices.filter((device) =>
+    device.status === "active" && device.verified && device.compatible
+    && ["ready", "busy"].includes(device.readiness || ""),
+  );
 
   const runTitle = (run: WorkspaceRun): string => {
     const action = run.work_item_id ? actionById.get(run.work_item_id) : undefined;
@@ -136,6 +153,43 @@ export default function WorkspacePage({ account }: { account: Account }) {
     const projectId = runProject(run);
     if (projectId) navigate(`/projects/${encodeURIComponent(projectId)}`);
     else message.info("此 Run 没有关联项目，请在 Desktop Companion 中查看会话详情");
+  };
+  const startRun = async () => {
+    const text = prompt.trim();
+    if (!text) return;
+    setSubmitting(true);
+    try {
+      const turn = await workspaceApi.createTurn({
+        text,
+        title: text.slice(0, 500),
+        project_id: projectId || null,
+        kind: projectId ? "projexec" : "chat",
+        mode,
+        workspace: projectId ? `project:${projectId}` : "default",
+        target_device_id: targetDeviceId,
+        required_capabilities: [
+          "run_events_v1",
+          "llm.chat",
+          ...(mode === "ask" ? [] : ["agent.tools"]),
+        ],
+        request_snapshot: {
+          launched_from: "server_workspace",
+          loadout: {
+            experts: [], skills: [], skill_bundles: [], connectors: [], knowledge_ids: [],
+          },
+          refs: [],
+          local_input_key: null,
+        },
+      }, crypto.randomUUID());
+      setCreatedTurn(turn);
+      setPrompt("");
+      message.success(turn.duplicate ? "已定位到同一执行请求" : "Run 已提交给执行节点");
+      await load();
+    } catch (reason) {
+      message.error(reason instanceof Error ? reason.message : "Run 创建失败");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const renderAction = (item: WorkspaceActionItem) => (
@@ -153,7 +207,16 @@ export default function WorkspacePage({ account }: { account: Account }) {
   const renderRun = (run: WorkspaceRun) => (
     <List.Item
       key={run.id}
-      actions={[<Button type="link" key="open" onClick={() => openRun(run)}>查看执行</Button>]}
+      actions={[
+        <Button type="link" key="open" onClick={() => openRun(run)}>查看执行</Button>,
+        <Button
+          type="link"
+          key="desktop"
+          href={desktopCompanionRunUrl({ sessionId: run.session_id, projectId: runProject(run) })}
+        >
+          在执行节点打开
+        </Button>,
+      ]}
     >
       <List.Item.Meta
         title={<Space size={[6, 6]} wrap><span>{runTitle(run)}</span><Tag color={runColor(run.status)}>{RUN_LABEL[run.status] || run.status}</Tag></Space>}
@@ -169,6 +232,86 @@ export default function WorkspacePage({ account }: { account: Account }) {
       header={{ breadcrumb: { items: [{ title: "工作区" }, { title: "我的工作台" }] } }}
       extra={<Space><Button onClick={() => void load()} loading={loading}>刷新</Button>{account.is_platform_admin && <Button onClick={() => navigate("/admin")}>管理总览</Button>}</Space>}
     >
+      <Card
+        className="workspace-run-composer"
+        title="发起执行"
+        extra={<Tag color="blue">Server 原子创建 · Local Agent 执行</Tag>}
+      >
+        <Input.TextArea
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          placeholder="描述要完成的工作。Server 保存业务上下文，本机文件、命令、MCP 与凭据只在所选执行节点处理。"
+          autoSize={{ minRows: 3, maxRows: 8 }}
+          maxLength={200000}
+        />
+        <div className="workspace-run-controls">
+          <Select
+            aria-label="执行模式"
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: "exec", label: "执行" },
+              { value: "plan", label: "规划" },
+              { value: "ask", label: "问答" },
+            ]}
+          />
+          <Select
+            aria-label="关联项目"
+            value={projectId}
+            onChange={setProjectId}
+            options={[
+              { value: "", label: "不关联项目" },
+              ...writableProjects.map((project) => ({ value: project.id, label: project.name })),
+            ]}
+          />
+          <Select
+            aria-label="执行节点"
+            value={targetDeviceId}
+            onChange={setTargetDeviceId}
+            options={[
+              { value: "", label: "自动选择兼容节点" },
+              ...compatibleDevices.map((device) => ({
+                value: device.id,
+                label: `${device.name || "Local Agent"} · ${deviceLabel(device)}`,
+              })),
+            ]}
+          />
+          <Button
+            type="primary"
+            icon={<PlayCircleOutlined />}
+            loading={submitting}
+            disabled={!prompt.trim()}
+            onClick={() => void startRun()}
+          >
+            提交 Run
+          </Button>
+        </div>
+        <Typography.Paragraph type="secondary" className="workspace-run-note">
+          未指定节点时由 Server 按协议、能力与容量分配；涉及本机输入的任务，请先在 Desktop Companion 中准备对应工作区。
+        </Typography.Paragraph>
+      </Card>
+
+      {createdTurn && (
+        <Alert
+          className="workspace-run-created"
+          type="success"
+          showIcon
+          title={`Run ${createdTurn.run.id.slice(0, 8)} 已进入队列`}
+          description="业务记录已经由 Server 原子提交。你可以留在 Workspace 观察权威状态，或打开 Desktop Companion 查看本机执行过程。"
+          action={(
+            <Button
+              type="primary"
+              href={desktopCompanionRunUrl({
+                sessionId: createdTurn.session.id,
+                projectId: createdTurn.session.project_id,
+              })}
+            >
+              在执行节点打开
+            </Button>
+          )}
+        />
+      )}
+
       <div className="workspace-stat-grid">
         <Card loading={loading}><Statistic title="我的行动项" value={actions?.summary.assigned || 0} prefix={<CheckCircleOutlined />} /></Card>
         <Card loading={loading}><Statistic title="等待我处理" value={attentionRuns.length} prefix={<ClockCircleOutlined />} /></Card>
