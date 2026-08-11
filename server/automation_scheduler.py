@@ -157,6 +157,8 @@ def enqueue_automation(
             "automation_id": automation_id, "fire_key": fire_key,
             "prompt": automation["prompt"], "model_ref": automation.get("model_ref"),
             "project_id": project_id, "trigger_payload": trigger_payload,
+            "routing_mode": automation.get("routing_mode") or "any_compatible",
+            "target_device_id": automation.get("target_device_id") or "",
         }
         user_text = str(automation["prompt"])
         if trigger_payload:
@@ -180,7 +182,11 @@ def enqueue_automation(
                     "timeout_sec": int(automation.get("timeout_sec") or 300),
                     "max_total_tokens": int(automation.get("max_total_tokens") or 0),
                 },
-                "target_device_id": "",
+                "target_device_id": (
+                    str(automation.get("target_device_id") or "")
+                    if str(automation.get("routing_mode") or "any_compatible") == "specific"
+                    else ""
+                ),
                 "required_capabilities": ["run_events_v1", "llm.chat", "agent.tools"],
                 "request_snapshot": request_snapshot, "max_recoveries": 3,
             },

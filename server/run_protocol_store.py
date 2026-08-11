@@ -240,6 +240,7 @@ def heartbeat(principal: DevicePrincipal, capabilities: dict[str, Any]) -> dict[
 
 
 def list_devices(owner_id: str) -> list[dict[str, Any]]:
+    now = time.time()
     rows = db.get_conn().execute(
         "SELECT id,name,protocol_version,app_version,platform,arch,capabilities,status,created_at,"
         "authenticated_at,last_seen_at,revoked_at FROM agent_devices WHERE owner_id=? ORDER BY created_at",
@@ -248,7 +249,71 @@ def list_devices(owner_id: str) -> list[dict[str, Any]]:
     result = []
     for row in rows:
         item = dict(row)
-        item["capabilities"] = _decode_json(item["capabilities"], {})
+        capabilities = _decode_json(item["capabilities"], {})
+        item["capabilities"] = capabilities
+        device_id = str(item["id"])
+        active_runs = int(db.get_conn().execute(
+            "SELECT COUNT(*) FROM run_leases l JOIN business_runs r ON r.id=l.run_id "
+            "WHERE l.owner_id=? AND l.device_id=? AND l.status='active' AND l.expires_at>? "
+            "AND r.status IN ('leased','running')",
+            (owner_id, device_id, now),
+        ).fetchone()[0])
+        resident_runs = int(db.get_conn().execute(
+            "SELECT COUNT(*) FROM run_leases l JOIN business_runs r ON r.id=l.run_id "
+            "WHERE l.owner_id=? AND l.device_id=? AND l.status='active' AND l.expires_at>? "
+            "AND r.status IN ('leased','running','waiting_user','paused')",
+            (owner_id, device_id, now),
+        ).fetchone()[0])
+        latest_error = db.get_conn().execute(
+            "SELECT r.error_code,r.error_message,r.ended_at FROM run_leases l "
+            "JOIN business_runs r ON r.id=l.run_id "
+            "WHERE l.owner_id=? AND l.device_id=? AND r.status='failed' "
+            "ORDER BY r.ended_at DESC,r.id DESC LIMIT 1",
+            (owner_id, device_id),
+        ).fetchone()
+        parallel_capacity = _parallel_capacity(capabilities)
+        resident_capacity = _resident_capacity(capabilities)
+        verified = float(item.get("authenticated_at") or 0) > 0
+        online = (
+            str(item.get("status") or "") == "active"
+            and float(item.get("revoked_at") or 0) <= 0
+            and float(item.get("last_seen_at") or 0) >= now - DEVICE_ONLINE_WINDOW_SECONDS
+        )
+        compatible = {"run_events_v1", "llm.chat", "agent.tools"}.issubset(
+            _capability_set(capabilities)
+        )
+        if str(item.get("status") or "") == "revoked" or float(item.get("revoked_at") or 0) > 0:
+            readiness = "revoked"
+        elif not verified:
+            readiness = "unverified"
+        elif not compatible:
+            readiness = "incompatible"
+        elif not online:
+            readiness = "offline"
+        elif active_runs >= parallel_capacity or resident_runs >= resident_capacity:
+            readiness = "busy"
+        else:
+            readiness = "ready"
+        item.update({
+            "verified": verified,
+            "online": online,
+            "compatible": compatible,
+            "readiness": readiness,
+            "capacity": {
+                "active": active_runs,
+                "parallel": parallel_capacity,
+                "resident": resident_runs,
+                "resident_limit": resident_capacity,
+            },
+            "latest_error": (
+                {
+                    "code": str(latest_error["error_code"] or ""),
+                    "message": str(latest_error["error_message"] or "")[:500],
+                    "occurred_at": float(latest_error["ended_at"] or 0),
+                }
+                if latest_error is not None else None
+            ),
+        })
         result.append(item)
     return result
 

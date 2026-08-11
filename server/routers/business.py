@@ -138,7 +138,7 @@ def _validate_channel_config(config: dict[str, Any], credential_ref: str) -> Non
         raise HTTPException(400, "credential_ref must be an opaque local/device URI")
 
 
-def _validate_automation(values: dict[str, Any]) -> None:
+def _validate_automation(values: dict[str, Any], owner_id: str) -> None:
     kind = values.get("trigger_kind")
     if kind not in _TRIGGER_KINDS:
         raise HTTPException(400, "unsupported trigger_kind")
@@ -166,6 +166,26 @@ def _validate_automation(values: dict[str, Any]) -> None:
             raise HTTPException(400, f"{key} must be between {low} and {high}")
     if values.get("concurrency_policy") != "skip":
         raise HTTPException(400, "concurrency_policy must be 'skip'")
+    routing_mode = str(values.get("routing_mode") or "any_compatible")
+    target_device_id = str(values.get("target_device_id") or "")
+    if routing_mode not in {"any_compatible", "specific"}:
+        raise HTTPException(400, "routing_mode must be 'any_compatible' or 'specific'")
+    if routing_mode == "any_compatible" and target_device_id:
+        raise HTTPException(400, "target_device_id must be empty for any_compatible routing")
+    if routing_mode == "specific":
+        if not target_device_id:
+            raise HTTPException(400, "specific routing requires target_device_id")
+        target = db.get_conn().execute(
+            "SELECT owner_id,status,authenticated_at,revoked_at FROM agent_devices WHERE id=?",
+            (target_device_id,),
+        ).fetchone()
+        if (
+            target is None or str(target["owner_id"]) != owner_id
+            or str(target["status"]) != "active"
+            or float(target["authenticated_at"] or 0) <= 0
+            or float(target["revoked_at"] or 0) > 0
+        ):
+            raise HTTPException(400, "target device must be an active verified device owned by the execution owner")
 
 
 class SessionCreate(BaseModel):
@@ -811,6 +831,8 @@ class AutomationCreate(BaseModel):
     at_time: str = Field(default="09:00", max_length=5)
     timezone: str = Field(default="server_local", min_length=1, max_length=100)
     model_ref: str | None = Field(default=None, max_length=200)
+    routing_mode: str = Field(default="any_compatible", max_length=40)
+    target_device_id: str = Field(default="", max_length=200)
     enabled: bool = True
     timeout_sec: int = 300
     max_attempts: int = 3
@@ -831,6 +853,8 @@ class AutomationPatch(BaseModel):
     at_time: str | None = Field(default=None, max_length=5)
     timezone: str | None = Field(default=None, min_length=1, max_length=100)
     model_ref: str | None = Field(default=None, max_length=200)
+    routing_mode: str | None = Field(default=None, max_length=40)
+    target_device_id: str | None = Field(default=None, max_length=200)
     enabled: bool | None = None
     next_run_at: float | None = None
     last_run_at: float | None = None
@@ -868,7 +892,7 @@ def create_automation(
     idempotency_key: str = Header(default="", alias="Idempotency-Key"),
 ) -> dict:
     values = body.model_dump()
-    _validate_automation(values)
+    _validate_automation(values, account.id)
     if body.trigger_kind == "health_daily" and not body.project_id:
         raise HTTPException(400, "health_daily requires project_id")
     if body.project_id:
@@ -908,7 +932,7 @@ def update_automation(
     if {"next_run_at", "last_run_at", "last_session_id", "last_status"} & patch.keys():
         raise HTTPException(403, "automation runtime state is Server-owned")
     merged = {**item, **patch}
-    _validate_automation(merged)
+    _validate_automation(merged, str(item["owner_id"]))
     if "project_id" in patch and patch["project_id"]:
         _project_role(str(patch["project_id"]), account, write=True, manage=True)
     if {"enabled", "trigger_kind", "interval_min", "at_time", "timezone"} & patch.keys():

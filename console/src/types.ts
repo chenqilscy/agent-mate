@@ -37,6 +37,8 @@ export interface AutomationRecord {
   at_time: string;
   timezone: string;
   model_ref?: string | null;
+  routing_mode: "any_compatible" | "specific";
+  target_device_id: string;
   enabled: boolean;
   timeout_sec: number;
   max_attempts: number;
@@ -52,6 +54,37 @@ export interface AutomationRecord {
   version: number;
   created_at: number;
   updated_at: number;
+}
+
+export interface LocalAgentDevice {
+  id: string;
+  name: string;
+  protocol_version: number;
+  app_version: string;
+  platform: string;
+  arch: string;
+  capabilities: {
+    capabilities?: string[];
+    supported_tools?: Record<string, string>;
+    max_parallel_runs?: number;
+    max_resident_runs?: number;
+  };
+  status: string;
+  verified: boolean;
+  online: boolean;
+  compatible: boolean;
+  readiness: "ready" | "busy" | "offline" | "incompatible" | "unverified" | "revoked";
+  capacity: {
+    active: number;
+    parallel: number;
+    resident: number;
+    resident_limit: number;
+  };
+  latest_error?: { code: string; message: string; occurred_at: number } | null;
+  created_at: number;
+  authenticated_at: number;
+  last_seen_at: number;
+  revoked_at: number;
 }
 
 export interface AutomationFireRecord {

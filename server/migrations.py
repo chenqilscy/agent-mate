@@ -263,7 +263,10 @@ def assert_server_schema(conn: sqlite3.Connection) -> None:
         "business_run_steps": {"run_id", "sequence", "client_request_id"},
         "business_assistants": {"owner_id", "project_id", "version", "client_request_id"},
         "business_channels": {"assistant_id", "public_config", "credential_ref", "version"},
-        "business_automations": {"owner_id", "project_id", "version", "client_request_id", "timezone"},
+        "business_automations": {
+            "owner_id", "project_id", "version", "client_request_id", "timezone",
+            "routing_mode", "target_device_id",
+        },
         "business_assets": {"owner_id", "project_id", "object_ref", "storage_state", "version"},
         "asset_object_versions": {"asset_id", "version_number", "storage_key", "sha256", "size"},
         "asset_uploads": {"asset_id", "expected_sha256", "expected_size", "state", "expires_at"},
@@ -520,6 +523,8 @@ def migrate_durable_business_plane(conn: sqlite3.Connection) -> None:
             interval_min INTEGER NOT NULL DEFAULT 60,
             at_time TEXT NOT NULL DEFAULT '09:00',
             model_ref TEXT,
+            routing_mode TEXT NOT NULL DEFAULT 'any_compatible',
+            target_device_id TEXT NOT NULL DEFAULT '',
             enabled INTEGER NOT NULL DEFAULT 1,
             next_run_at REAL,
             last_run_at REAL,
@@ -913,4 +918,17 @@ def migrate_server_automation_timezone(conn: sqlite3.Connection) -> None:
     if "timezone" not in columns:
         conn.execute(
             "ALTER TABLE business_automations ADD COLUMN timezone TEXT NOT NULL DEFAULT 'server_local'"
+        )
+
+
+def migrate_automation_device_routing(conn: sqlite3.Connection) -> None:
+    """Persist Console-selected Local Agent routing without changing execution ownership."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(business_automations)")}
+    if "routing_mode" not in columns:
+        conn.execute(
+            "ALTER TABLE business_automations ADD COLUMN routing_mode TEXT NOT NULL DEFAULT 'any_compatible'"
+        )
+    if "target_device_id" not in columns:
+        conn.execute(
+            "ALTER TABLE business_automations ADD COLUMN target_device_id TEXT NOT NULL DEFAULT ''"
         )

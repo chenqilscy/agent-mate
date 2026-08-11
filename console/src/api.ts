@@ -12,6 +12,7 @@ import type {
   KnowledgeBase,
   KnowledgeDocument,
   KnowledgeSearchHit,
+  LocalAgentDevice,
   Member,
   Milestone,
   NotificationRecord,
@@ -330,6 +331,12 @@ export const consoleApi = {
     apiRequest<{ projects: Project[] }>(
       "GET",
       `/projects${includeArchived ? "?include_archived=true" : ""}`,
+    ),
+  devices: () =>
+    apiRequest<{ devices: LocalAgentDevice[]; protocol_version: number }>("GET", "/devices"),
+  revokeDevice: (id: string) =>
+    apiRequest<{ revoked: boolean; device_id: string }>(
+      "DELETE", `/devices/${encodeURIComponent(id)}`,
     ),
   automations: () =>
     apiRequest<{ automations: AutomationRecord[] }>("GET", "/automations"),

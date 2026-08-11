@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import { consoleApi } from "../api";
 import type {
   AutomationFireRecord, AutomationRecord, AutomationTriggerKind,
-  AutomationWebhookRecord, Project,
+  AutomationWebhookRecord, LocalAgentDevice, Project,
 } from "../types";
 
 type AutomationForm = {
@@ -24,6 +24,8 @@ type AutomationForm = {
   at_time: string;
   timezone: string;
   model_ref?: string;
+  routing_mode: "any_compatible" | "specific";
+  target_device_id?: string;
   enabled: boolean;
   timeout_sec: number;
   max_attempts: number;
@@ -37,6 +39,7 @@ const defaults: AutomationForm = {
   name: "", prompt: "", trigger_kind: "interval", interval_min: 60,
   at_time: "09:00", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "server_local",
   enabled: true, timeout_sec: 300, max_attempts: 3,
+  routing_mode: "any_compatible", target_device_id: undefined,
   retry_backoff_sec: 30, max_total_tokens: 0,
   notify_policy: ["failure", "recovery"], preauthorized_permissions: [],
 };
@@ -48,6 +51,11 @@ const triggerLabels: Record<AutomationTriggerKind, string> = {
 const statusColors: Record<string, string> = {
   succeeded: "success", running: "processing", queued: "blue", retry_wait: "warning",
   dead_letter: "error", ignored: "default", cancelled: "default", failed: "error",
+};
+
+const agentReadinessLabels: Record<LocalAgentDevice["readiness"], string> = {
+  ready: "就绪", busy: "容量已满", offline: "离线", incompatible: "能力不兼容",
+  unverified: "未验证", revoked: "已撤销",
 };
 
 function formatTime(value?: number | null): string {
@@ -62,6 +70,7 @@ export default function AutomationsPage() {
   const { message } = App.useApp();
   const [items, setItems] = useState<AutomationRecord[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [devices, setDevices] = useState<LocalAgentDevice[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<AutomationRecord | null | undefined>(undefined);
   const [historyOf, setHistoryOf] = useState<AutomationRecord | null>(null);
@@ -73,15 +82,17 @@ export default function AutomationsPage() {
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<AutomationForm>();
   const triggerKind = Form.useWatch("trigger_kind", form);
+  const routingMode = Form.useWatch("routing_mode", form);
 
   async function load() {
     setLoading(true);
     try {
-      const [automationResult, projectResult] = await Promise.all([
-        consoleApi.automations(), consoleApi.projects(),
+      const [automationResult, projectResult, deviceResult] = await Promise.all([
+        consoleApi.automations(), consoleApi.projects(), consoleApi.devices(),
       ]);
       setItems(automationResult.automations);
       setProjects(projectResult.projects);
+      setDevices(deviceResult.devices);
     } catch (reason) {
       message.error(errorText(reason, "自动化加载失败"));
     } finally {
@@ -97,6 +108,7 @@ export default function AutomationsPage() {
       ...item,
       project_id: item.project_id || undefined,
       model_ref: item.model_ref || undefined,
+      target_device_id: item.target_device_id || undefined,
       notify_policy: item.notify_policy.split(",").filter(Boolean),
       preauthorized_permissions: item.preauthorized_permissions || [],
     } : defaults);
@@ -108,6 +120,7 @@ export default function AutomationsPage() {
       ...values,
       project_id: values.project_id || null,
       model_ref: values.model_ref?.trim() || null,
+      target_device_id: values.routing_mode === "specific" ? values.target_device_id || "" : "",
       name: values.name.trim(), prompt: values.prompt.trim(),
       notify_policy: values.notify_policy.join(","),
       concurrency_policy: "skip" as const,
@@ -200,6 +213,7 @@ export default function AutomationsPage() {
   const columns: ProColumns<AutomationRecord>[] = [
     { title: "名称", dataIndex: "name", width: 220, render: (_value, item) => <Space direction="vertical" size={0}><Typography.Text strong>{item.name}</Typography.Text><Typography.Text type="secondary">{item.project_id ? projectNames.get(item.project_id) || "项目" : "个人"}</Typography.Text></Space> },
     { title: "触发方式", dataIndex: "trigger_kind", width: 200, render: (_value, item) => <Space direction="vertical" size={0}><Tag>{triggerLabels[item.trigger_kind]}</Tag><Typography.Text type="secondary">{item.trigger_kind === "interval" ? `每 ${item.interval_min} 分钟` : ["daily", "health_daily"].includes(item.trigger_kind) ? `${item.at_time} · ${item.timezone}` : "签名请求"}</Typography.Text></Space> },
+    { title: "执行设备", dataIndex: "routing_mode", width: 180, render: (_value, item) => item.routing_mode === "specific" ? devices.find((device) => device.id === item.target_device_id)?.name || "指定设备（不可用）" : "任一兼容设备" },
     { title: "下次执行", dataIndex: "next_run_at", width: 180, render: (value) => formatTime(Number(value) || null) },
     { title: "最近状态", dataIndex: "last_status", width: 120, render: (value) => value ? <Tag color={statusColors[String(value)] || "default"}>{String(value)}</Tag> : "—" },
     { title: "启用", dataIndex: "enabled", width: 90, fixed: "right", render: (_value, item) => <Switch checked={item.enabled} aria-label={`${item.name}启用状态`} onChange={(checked) => void setEnabled(item, checked)} /> },
@@ -215,7 +229,7 @@ export default function AutomationsPage() {
   return (
     <PageContainer title="自动化" subTitle="由 Server 统一调度，Local Agent 领取并执行" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => openEditor(null)}>新建自动化</Button>} header={{ breadcrumb: { items: [{ title: "工作区" }, { title: "自动化" }] } }}>
       <Alert type="info" showIcon title="控制面与执行面已分离" description="定义、调度、重试和审计保存在 Server；模型调用、本机文件和需要本机权限的工具只在已绑定的 Local Agent 上执行。" style={{ marginBottom: 16 }} />
-      <ProTable<AutomationRecord> rowKey="id" columns={columns} dataSource={items} loading={loading} search={false} scroll={{ x: 1100 }} options={{ reload: () => void load(), density: true, setting: true }} />
+      <ProTable<AutomationRecord> rowKey="id" columns={columns} dataSource={items} loading={loading} search={false} scroll={{ x: 1280 }} options={{ reload: () => void load(), density: true, setting: true }} />
 
       <Drawer size={640} open={editing !== undefined} title={editing ? `编辑 ${editing.name}` : "新建自动化"} onClose={() => setEditing(undefined)} destroyOnHidden extra={<Button type="primary" loading={saving} onClick={() => form.submit()}>保存</Button>}>
         <Form<AutomationForm> form={form} layout="vertical" onFinish={(values) => void save(values)} initialValues={defaults}>
@@ -228,6 +242,20 @@ export default function AutomationsPage() {
           {["daily", "health_daily"].includes(triggerKind || "") && <Form.Item name="timezone" label="时区" tooltip="使用 IANA 时区；新建时自动读取当前浏览器时区" rules={[{ required: true, whitespace: true }]}><Input placeholder="Asia/Shanghai" maxLength={100} /></Form.Item>}
           {triggerKind === "health_daily" && <Alert type="warning" showIcon title="项目健康检查必须选择项目" style={{ marginBottom: 16 }} />}
           <Form.Item name="model_ref" label="模型引用" tooltip="留空时由 Local Agent 使用当前默认模型"><Input allowClear maxLength={200} /></Form.Item>
+          <Form.Item name="routing_mode" label="设备路由" rules={[{ required: true }]} tooltip="执行归属始终是自动化创建者；这里只决定由哪台已验证设备领取">
+            <Select options={[{ value: "any_compatible", label: "任一在线兼容设备" }, { value: "specific", label: "指定 Local Agent" }]} />
+          </Form.Item>
+          {routingMode === "specific" && <Form.Item name="target_device_id" label="目标 Local Agent" rules={[{ required: true, message: "请选择一台已验证设备" }]}>
+            <Select
+              placeholder="选择已验证设备"
+              options={devices.filter((device) => device.verified && device.status === "active" && device.readiness !== "revoked").map((device) => ({
+                value: device.id,
+                label: `${device.name} · ${agentReadinessLabels[device.readiness]}`,
+                disabled: !device.compatible,
+              }))}
+            />
+          </Form.Item>}
+          {routingMode === "specific" && <Alert type="info" showIcon title="离线设备仍可被指定" description="Run 会保持排队并明确显示离线、容量不足或工作区写锁等原因，设备恢复后继续领取。" style={{ marginBottom: 16 }} />}
           <Space size="middle" wrap style={{ width: "100%" }}>
             <Form.Item name="timeout_sec" label="超时（秒）"><InputNumber min={1} max={3600} precision={0} /></Form.Item>
             <Form.Item name="max_attempts" label="最大尝试次数"><InputNumber min={1} max={10} precision={0} /></Form.Item>

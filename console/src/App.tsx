@@ -5,7 +5,7 @@ import {
 import { uiPalette, uiThemeColorToken } from "../../src/theme/palette";
 import { UI_CONTROL_FONT_WEIGHT, uiTypographyToken } from "../../src/theme/typography";
 import {
-  AppstoreOutlined, BellOutlined, BookOutlined, DashboardOutlined, LogoutOutlined,
+  AppstoreOutlined, BellOutlined, BookOutlined, DashboardOutlined, DesktopOutlined, LogoutOutlined,
   MoonOutlined, PlusOutlined, ProjectOutlined, SafetyCertificateOutlined, SettingOutlined, SunOutlined,
   TeamOutlined, ToolOutlined, UserOutlined, ScheduleOutlined,
 } from "@ant-design/icons";
@@ -22,6 +22,7 @@ const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage"));
 const OrganizationsPage = lazy(() => import("./pages/OrganizationsPage"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const AutomationsPage = lazy(() => import("./pages/AutomationsPage"));
+const LocalAgentsPage = lazy(() => import("./pages/LocalAgentsPage"));
 const UsersPage = lazy(() => import("./pages/UsersPage"));
 const CatalogPage = lazy(() => import("./pages/CatalogPage"));
 const RawCatalogPage = lazy(() => import("./pages/RawCatalogPage"));
@@ -32,7 +33,7 @@ const THEME_KEY = "agentmate.console.theme";
 const ADMIN_PREFIXES = ["/catalog/", "/users", "/settings/"];
 const PAGE_TITLES: Record<string, string> = {
   "/": "概览", "/projects": "项目", "/organizations": "组织与成员",
-  "/notifications": "通知", "/automations": "自动化", "/catalog/experts": "专家", "/catalog/connectors": "连接器",
+  "/notifications": "通知", "/automations": "自动化", "/local-agents": "Local Agent", "/catalog/experts": "专家", "/catalog/connectors": "连接器",
   "/catalog/skills": "技能", "/catalog/knowledge": "知识库模板", "/users": "用户",
   "/settings/platform": "平台设置", "/settings/catalog": "能力定义 JSON",
 };
@@ -42,6 +43,7 @@ const baseRoutes = [
     { path: "/", name: "概览", icon: <DashboardOutlined /> },
     { path: "/projects", name: "项目", icon: <ProjectOutlined /> },
     { path: "/organizations", name: "组织与成员", icon: <TeamOutlined /> },
+    { path: "/local-agents", name: "Local Agent", icon: <DesktopOutlined /> },
     { path: "/automations", name: "自动化", icon: <ScheduleOutlined /> },
   ] },
 ];
@@ -68,6 +70,7 @@ function CurrentPage({ account, pathname, onUnreadChange }: { account: Account; 
     case "/": return <OverviewPage account={account} />;
     case "/projects": return <ProjectsPage />;
     case "/organizations": return <OrganizationsPage />;
+    case "/local-agents": return <LocalAgentsPage />;
     case "/automations": return <AutomationsPage />;
     case "/notifications": return <NotificationsPage onUnreadChange={onUnreadChange} />;
     case "/catalog/experts": return <CatalogPage section="experts" />;
