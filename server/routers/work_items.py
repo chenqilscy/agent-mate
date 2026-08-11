@@ -730,12 +730,6 @@ class ExecutionPolicyBody(BaseModel):
         default_factory=lambda: ["run_events_v1", "llm.chat", "agent.tools"],
         max_length=100,
     )
-
-
-class PlanningUpdateBody(BaseModel):
-    sprint_id: str = Field(default="", max_length=200)
-    expected_version: int = Field(ge=1)
-    sync_milestone: bool = True
     model_ref: str | None = Field(default=None, max_length=200)
     timeout_sec: int = Field(default=300, ge=1, le=3600)
     max_attempts: int = Field(default=1, ge=1, le=10)
@@ -745,6 +739,12 @@ class PlanningUpdateBody(BaseModel):
     preauthorized_permissions: list[str] = Field(
         default_factory=lambda: ["workspace.write"], max_length=100,
     )
+
+
+class PlanningUpdateBody(BaseModel):
+    sprint_id: str = Field(default="", max_length=200)
+    expected_version: int = Field(ge=1)
+    sync_milestone: bool = True
 
 
 @router.post("/projects/{project_id}/work-items")
@@ -936,6 +936,10 @@ def accept_item(project_id: str, wid: str, body: AcceptBody, account: Account = 
         raise HTTPException(409, str(exc)) from exc
     _sync_linked_risk(project_id, wid, "done", account, run_id=body.run_id)
     observe_project_health(project_id, actor_name=account.name)
+    policy = work_item_auto_scheduler.get_policy(wid, project_id)
+    if policy["mode"] == "auto":
+        work_item_auto_scheduler.trigger_one(wid)
+        updated = db.get_work_item(wid) or updated
     return _decorate(updated, _members_maps(project_id)[0])
 
 

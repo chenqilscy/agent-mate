@@ -16,6 +16,12 @@ import business_store  # noqa: E402
 import db  # noqa: E402
 import work_item_auto_scheduler as scheduler  # noqa: E402
 from config import settings  # noqa: E402
+from routers.work_items import (  # noqa: E402
+    AcceptBody,
+    ExecutionPolicyBody,
+    accept_item,
+    set_execution_policy,
+)
 
 
 CORE = ["run_events_v1", "llm.chat", "agent.tools"]
@@ -148,6 +154,47 @@ class WorkItemAutoExecutionTest(unittest.TestCase):
         self.assertEqual("awaiting_acceptance", terminal["state"])
         self.assertEqual("review", db.get_work_item(self.item["id"])["status"])
         self.assertEqual(1, len(self._runs()))
+
+        accepted = accept_item(
+            self.project.id, self.item["id"],
+            AcceptBody(run_id=run["id"], artifact_count=1), self.owner,
+        )
+        self.assertEqual("done", accepted["status"])
+        self.assertTrue(accepted["delivery_accepted"])
+        self.assertEqual("accepted", accepted["execution_policy"]["state"])
+
+    def test_policy_api_preserves_timeout_retry_and_budget_fields(self) -> None:
+        response = set_execution_policy(
+            self.project.id,
+            self.item["id"],
+            ExecutionPolicyBody(
+                mode="auto",
+                routing_mode="any_compatible",
+                required_capabilities=CORE,
+                model_ref="provider/model-502",
+                timeout_sec=77,
+                max_attempts=4,
+                retry_backoff_sec=19,
+                max_total_tokens=4321,
+                notify_policy="failure",
+                preauthorized_permissions=["workspace.write"],
+            ),
+            self.owner,
+        )
+        policy = response["policy"]
+        self.assertEqual("provider/model-502", policy["model_ref"])
+        self.assertEqual(77, policy["timeout_sec"])
+        self.assertEqual(4, policy["max_attempts"])
+        self.assertEqual(19, policy["retry_backoff_sec"])
+        self.assertEqual(4321, policy["max_total_tokens"])
+
+    def test_manual_done_is_not_reported_as_delivery_acceptance(self) -> None:
+        self._policy()
+        db.update_work_item(self.item["id"], status="done")
+        policy = scheduler.trigger_one(self.item["id"])
+        self.assertEqual("completed_without_acceptance", policy["state"])
+        self.assertEqual("completed_without_acceptance", policy["blocker_code"])
+        self.assertIsNone(db.get_work_item_acceptance(self.item["id"]))
 
     def test_dependency_sprint_device_capability_and_permission_gates_are_observable(self) -> None:
         dependency = db.create_work_item(project_id=self.project.id, title="前置任务")

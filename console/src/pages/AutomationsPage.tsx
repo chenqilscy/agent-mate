@@ -10,6 +10,7 @@ import { PageContainer, ProTable } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { useEffect, useMemo, useState } from "react";
 import { consoleApi } from "../api";
+import { localAgentReadiness, localAgentVerified } from "../localAgentPresentation";
 import type {
   AutomationFireRecord, AutomationRecord, AutomationTriggerKind,
   AutomationWebhookRecord, LocalAgentDevice, Project,
@@ -51,11 +52,6 @@ const triggerLabels: Record<AutomationTriggerKind, string> = {
 const statusColors: Record<string, string> = {
   succeeded: "success", running: "processing", queued: "blue", retry_wait: "warning",
   dead_letter: "error", ignored: "default", cancelled: "default", failed: "error",
-};
-
-const agentReadinessLabels: Record<LocalAgentDevice["readiness"], string> = {
-  ready: "就绪", busy: "容量已满", offline: "离线", incompatible: "能力不兼容",
-  unverified: "未验证", revoked: "已撤销",
 };
 
 function formatTime(value?: number | null): string {
@@ -248,10 +244,10 @@ export default function AutomationsPage() {
           {routingMode === "specific" && <Form.Item name="target_device_id" label="目标 Local Agent" rules={[{ required: true, message: "请选择一台已验证设备" }]}>
             <Select
               placeholder="选择已验证设备"
-              options={devices.filter((device) => device.verified && device.status === "active" && device.readiness !== "revoked").map((device) => ({
+              options={devices.filter((device) => localAgentVerified(device) && device.status === "active" && localAgentReadiness(device).key !== "revoked").map((device) => ({
                 value: device.id,
-                label: `${device.name} · ${agentReadinessLabels[device.readiness]}`,
-                disabled: !device.compatible,
+                label: `${device.name} · ${localAgentReadiness(device).label}`,
+                disabled: device.compatible === false,
               }))}
             />
           </Form.Item>}

@@ -13,7 +13,7 @@ import db
 import run_protocol_store
 
 
-METRIC_VERSION = "project-execution-v1"
+METRIC_VERSION = "project-execution-v2"
 SUCCESS = {"completed", "succeeded"}
 TERMINAL = SUCCESS | {"failed", "cancelled"}
 ACTIVE = {"queued", "recoverable", "leased", "running", "planning", "waiting_user", "paused"}
@@ -49,8 +49,14 @@ def _p95(values: list[float]) -> float | None:
     return _round(ordered[max(0, math.ceil(len(ordered) * 0.95) - 1)])
 
 
-def _run_view(run: dict[str, Any], titles: dict[str, str]) -> dict[str, Any]:
+def _run_view(
+    run: dict[str, Any], titles: dict[str, str], *, as_of: float,
+) -> dict[str, Any]:
     queue_seconds = _seconds(run.get("created_at"), run.get("started_at"))
+    queue_live = False
+    if queue_seconds is None and str(run.get("status") or "") in {"queued", "recoverable"}:
+        queue_seconds = _seconds(run.get("created_at"), as_of)
+        queue_live = queue_seconds is not None
     execution_seconds = _seconds(run.get("started_at"), run.get("ended_at"))
     return {
         "run_id": str(run["id"]),
@@ -59,6 +65,7 @@ def _run_view(run: dict[str, Any], titles: dict[str, str]) -> dict[str, Any]:
         "status": str(run.get("status") or "queued"),
         "error_code": str(run.get("error_code") or ""),
         "queue_seconds": queue_seconds,
+        "queue_live": queue_live,
         "execution_seconds": execution_seconds,
         "tokens": int(run.get("prompt_tokens") or 0) + int(run.get("completion_tokens") or 0),
         "estimated_cost": (float(run["estimated_cost"]) if run.get("estimated_cost") is not None else None),
@@ -102,8 +109,6 @@ def build_project_execution_analytics(
         "SELECT id,title FROM work_items WHERE project_id=?", (project_id,),
     ).fetchall()
     titles = {str(row["id"]): str(row["title"]) for row in title_rows}
-    run_ids = {str(run["id"]) for run in runs}
-
     queue_values = [
         value for run in runs
         if (value := _seconds(run.get("created_at"), run.get("started_at"))) is not None
@@ -130,25 +135,39 @@ def build_project_execution_analytics(
         and str(asset.get("validation_status")) == "verified"
     ]
     acceptance_rows = conn.execute(
-        "SELECT a.* FROM work_item_acceptances a JOIN business_runs r ON r.id=a.run_id "
-        "WHERE a.project_id=? AND r.created_at>=? AND r.created_at<?",
+        "SELECT a.* FROM work_item_acceptances a "
+        "WHERE a.project_id=? AND a.accepted_at>=? AND a.accepted_at<?",
         (project_id, window_start, window_end),
     ).fetchall()
     acceptance_by_item = {str(row["work_item_id"]): str(row["run_id"]) for row in acceptance_rows}
 
-    successful_by_item: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for run in completed:
-        work_item_id = str(run.get("work_item_id") or "")
-        if work_item_id:
-            successful_by_item[work_item_id].append(run)
-    first_pass_total = len(successful_by_item)
-    first_pass_accepted = 0
-    rework_runs = 0
-    for work_item_id, item_runs in successful_by_item.items():
-        item_runs.sort(key=lambda run: (float(run.get("ended_at") or run.get("created_at") or 0), str(run["id"])))
-        if acceptance_by_item.get(work_item_id) == str(item_runs[0]["id"]):
-            first_pass_accepted += 1
-        rework_runs += max(0, len(item_runs) - 1)
+    # Delivery quality is an event-time cohort, not a slice of runs created in
+    # the window. Looking at the complete success history prevents a retry just
+    # inside the window from being relabelled as the WorkItem's first success.
+    success_history = [dict(row) for row in conn.execute(
+        "SELECT id,work_item_id,created_at,ended_at FROM business_runs "
+        "WHERE project_id=? AND deleted_at=0 AND work_item_id IS NOT NULL AND work_item_id!='' "
+        "AND status IN ('completed','succeeded') "
+        "ORDER BY COALESCE(ended_at,created_at),id",
+        (project_id,),
+    ).fetchall()]
+    first_success_by_item: dict[str, dict[str, Any]] = {}
+    for run in success_history:
+        first_success_by_item.setdefault(str(run["work_item_id"]), run)
+    first_pass_cohort = {
+        work_item_id: run for work_item_id, run in first_success_by_item.items()
+        if window_start <= float(run.get("ended_at") or run.get("created_at") or 0) < window_end
+    }
+    first_pass_total = len(first_pass_cohort)
+    first_pass_accepted = sum(
+        acceptance_by_item.get(work_item_id) == str(run["id"])
+        for work_item_id, run in first_pass_cohort.items()
+    )
+    rework_runs = sum(
+        first_success_by_item.get(str(run["work_item_id"]), {}).get("id") != run["id"]
+        and window_start <= float(run.get("ended_at") or run.get("created_at") or 0) < window_end
+        for run in success_history
+    )
 
     blocker_counter: Counter[tuple[str, str]] = Counter()
     for run in runs:
@@ -214,7 +233,7 @@ def build_project_execution_analytics(
         })
     devices.sort(key=lambda item: (-int(item["runs"]), str(item["device_name"])))
 
-    run_views = [_run_view(run, titles) for run in runs]
+    run_views = [_run_view(run, titles, as_of=window_end) for run in runs]
     slow_runs = sorted(
         [view for view in run_views if view["queue_seconds"] is not None or view["execution_seconds"] is not None],
         key=lambda view: float(view["queue_seconds"] or 0) + float(view["execution_seconds"] or 0),
@@ -234,10 +253,10 @@ def build_project_execution_analytics(
             "success_rate": "成功或完成 Run /（成功或完成 Run + 失败 Run）；取消不进入分母",
             "queue_seconds": "started_at - created_at；尚未启动的排队 Run 不进入耗时分位数",
             "execution_seconds": "仅终态 Run 计算 ended_at - started_at",
-            "first_pass_acceptance": "验收 Run 等于首次成功 Run 的任务 / 有成功 Run 的任务；未验收交付保留在分母",
-            "rework_runs": "同一 WorkItem 首次成功之后的成功 Run 数",
+            "first_pass_acceptance": "全历史首次成功发生在窗口内的任务中，且验收也在窗口内并指向该首次成功 Run 的任务占比；后续验收不回写历史窗口",
+            "rework_runs": "成功完成时间落在窗口内、且不是该 WorkItem 全历史首次成功的 Run 数",
             "cost": "按记录币种汇总 estimated_cost；空成本单独计为未定价，不按零成本处理",
-            "queue_blockers": "当前持久化队列、设备和租约快照，不回推历史阻塞时长",
+            "queue_blockers": "当前持久化队列、设备和租约快照；活跃排队 Run 的明细时长按窗口结束时刻计算，但不进入已启动 Run 的耗时分位数",
             "privacy": "不聚合凭据、提示词、消息、事件载荷、本机路径或私密文件内容",
         },
         "summary": {

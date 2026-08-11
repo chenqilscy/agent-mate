@@ -63,18 +63,18 @@ export interface LocalAgentDevice {
   app_version: string;
   platform: string;
   arch: string;
-  capabilities: {
+  capabilities?: {
     capabilities?: string[];
     supported_tools?: Record<string, string>;
     max_parallel_runs?: number;
     max_resident_runs?: number;
   };
   status: string;
-  verified: boolean;
-  online: boolean;
-  compatible: boolean;
-  readiness: "ready" | "busy" | "offline" | "incompatible" | "unverified" | "revoked";
-  capacity: {
+  verified?: boolean;
+  online?: boolean;
+  compatible?: boolean;
+  readiness?: "ready" | "busy" | "offline" | "incompatible" | "unverified" | "revoked";
+  capacity?: {
     active: number;
     parallel: number;
     resident: number;
@@ -390,7 +390,7 @@ export interface WorkItemExecutionPolicy {
   notify_policy: string;
   preauthorized_permissions: string[];
   version: number;
-  state: "manual" | "evaluating" | "blocked" | "queued" | "running" | "waiting_retry" | "failed" | "awaiting_acceptance" | "accepted";
+  state: "manual" | "evaluating" | "blocked" | "queued" | "running" | "waiting_retry" | "failed" | "awaiting_acceptance" | "completed_without_acceptance" | "accepted";
   blocker_code: string;
   blocker_message: string;
   last_run_id: string;
@@ -406,6 +406,7 @@ export interface ProjectExecutionRunMetric {
   status: string;
   error_code: string;
   queue_seconds: number | null;
+  queue_live: boolean;
   execution_seconds: number | null;
   tokens: number;
   estimated_cost: number | null;

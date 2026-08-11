@@ -1748,6 +1748,7 @@ export function ProjectWorkspaceActions({
 export function ProjectOverview() {
   const {
     project,
+    items,
     roots,
     milestones,
     health,
@@ -1820,7 +1821,7 @@ export function ProjectOverview() {
       </Card>
       <ProjectExecutionAnalyticsPanel
         project={project}
-        items={roots}
+        items={items}
         onOpenTask={(item) => openTask(item, {}, project.role === "Viewer")}
       />
       <Row gutter={[16, 16]}>

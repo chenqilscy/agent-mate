@@ -87,7 +87,7 @@ export function ProjectExecutionAnalyticsPanel({
       ),
     },
     { title: "状态", dataIndex: "status", render: (value: string) => <Tag>{value}</Tag> },
-    { title: "排队", dataIndex: "queue_seconds", render: duration },
+    { title: "排队", key: "queue", render: (_: unknown, item: ProjectExecutionRunMetric) => `${duration(item.queue_seconds)}${item.queue_live ? "（当前）" : ""}` },
     { title: "执行", dataIndex: "execution_seconds", render: duration },
     { title: "Token", dataIndex: "tokens" },
     { title: "预估成本", key: "cost", render: (_: unknown, item: ProjectExecutionRunMetric) => item.estimated_cost === null ? "未定价" : `${item.cost_currency || "?"} ${item.estimated_cost.toFixed(4)}` },
@@ -97,7 +97,7 @@ export function ProjectExecutionAnalyticsPanel({
     <Card
       title="Agent 执行分析"
       loading={loading && !data}
-      extra={<Space><Tag>{data?.metric_version || "project-execution-v1"}</Tag><Select value={days} onChange={setDays} options={[{ value: 7, label: "近 7 天" }, { value: 30, label: "近 30 天" }, { value: 90, label: "近 90 天" }]} /><Button aria-label="刷新执行分析" icon={<ReloadOutlined />} onClick={() => void load()} loading={loading} /></Space>}
+      extra={<Space><Tag>{data?.metric_version || "project-execution-v2"}</Tag><Select value={days} onChange={setDays} options={[{ value: 7, label: "近 7 天" }, { value: 30, label: "近 30 天" }, { value: 90, label: "近 90 天" }]} /><Button aria-label="刷新执行分析" icon={<ReloadOutlined />} onClick={() => void load()} loading={loading} /></Space>}
     >
       {error && <Alert type="error" showIcon message={error} />}
       {!data ? (!loading && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无执行分析" />) : (

@@ -307,7 +307,17 @@ def trigger_one(work_item_id: str, *, now: float | None = None, force_retry: boo
             conn.commit()
             return get_policy(work_item_id, str(item["project_id"]))
         if str(item.get("status") or "") == "done":
-            _update_state(conn, work_item_id, state="accepted")
+            acceptance = conn.execute(
+                "SELECT run_id FROM work_item_acceptances WHERE work_item_id=? AND project_id=?",
+                (work_item_id, item["project_id"]),
+            ).fetchone()
+            _update_state(
+                conn, work_item_id,
+                state="accepted" if acceptance is not None else "completed_without_acceptance",
+                blocker_code="" if acceptance is not None else "completed_without_acceptance",
+                blocker_message="" if acceptance is not None else "任务已手工完成，但没有交付验收记录",
+                last_run_id=str(acceptance["run_id"]) if acceptance is not None else None,
+            )
             conn.commit()
             return get_policy(work_item_id, str(item["project_id"]))
         latest = conn.execute(

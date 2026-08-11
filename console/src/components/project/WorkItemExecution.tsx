@@ -21,6 +21,7 @@ import {
 } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { consoleApi } from "../../api";
+import { localAgentReadiness, localAgentVerified } from "../../localAgentPresentation";
 import type {
   Project,
   LocalAgentDevice,
@@ -74,6 +75,7 @@ const POLICY_STATE_META: Record<string, { label: string; type: "info" | "success
   waiting_retry: { label: "等待重试", type: "warning" },
   failed: { label: "自动执行失败", type: "error" },
   awaiting_acceptance: { label: "等待人工验收", type: "success" },
+  completed_without_acceptance: { label: "任务已完成（无交付验收）", type: "warning" },
   accepted: { label: "交付已验收", type: "success" },
 };
 
@@ -592,7 +594,7 @@ export function WorkItemExecution({
                       value={policyDraft.target_device_id || undefined}
                       placeholder="选择已验证设备"
                       style={{ width: 230 }}
-                      options={devices.filter((device) => device.verified && device.status === "active").map((device) => ({ value: device.id, label: `${device.name} · ${device.readiness}` }))}
+                      options={devices.filter((device) => localAgentVerified(device) && device.status === "active").map((device) => ({ value: device.id, label: `${device.name} · ${localAgentReadiness(device).label}` }))}
                       onChange={(value) => setPolicyDraft((current) => ({ ...current, target_device_id: value }))}
                     />
                   </Space>}

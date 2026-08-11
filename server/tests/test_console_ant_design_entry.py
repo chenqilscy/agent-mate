@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +24,11 @@ class ConsoleAntDesignEntryTests(unittest.TestCase):
         self.assertIn('app.mount("/console-assets", StaticFiles(directory=_CONSOLE_DIST)', main)
         self.assertIn("return _console_next_html()", main)
         self.assertIn('src="/console-assets/assets/', built_index)
+        for asset in re.findall(r'(?:src|href)="/console-assets/([^\"]+)"', built_index):
+            self.assertTrue(
+                (ROOT / "server" / "web" / "console-dist" / asset).is_file(),
+                f"console entry references missing asset: {asset}",
+            )
         self.assertNotIn("console.html", main)
         self.assertFalse((ROOT / "server" / "web" / "console.html").exists())
 
@@ -38,7 +44,7 @@ class ConsoleAntDesignEntryTests(unittest.TestCase):
     def test_all_stable_routes_have_react_pages(self) -> None:
         app = (ROOT / "console" / "src" / "App.tsx").read_text(encoding="utf-8")
         for route in (
-            "/", "/projects", "/organizations", "/notifications", "/catalog/experts",
+            "/", "/projects", "/organizations", "/local-agents", "/notifications", "/catalog/experts",
             "/catalog/connectors", "/catalog/skills", "/catalog/knowledge", "/users",
             "/settings/platform", "/settings/catalog",
         ):

@@ -6,16 +6,8 @@ import { DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
 import { PageContainer } from "@ant-design/pro-components";
 import { useEffect, useState } from "react";
 import { consoleApi } from "../api";
+import { localAgentCapacity, localAgentReadiness, localAgentVerified } from "../localAgentPresentation";
 import type { LocalAgentDevice } from "../types";
-
-const readinessLabels: Record<LocalAgentDevice["readiness"], { label: string; color: string }> = {
-  ready: { label: "就绪", color: "success" },
-  busy: { label: "容量已满", color: "processing" },
-  offline: { label: "离线", color: "default" },
-  incompatible: { label: "能力不兼容", color: "warning" },
-  unverified: { label: "未验证", color: "warning" },
-  revoked: { label: "已撤销", color: "error" },
-};
 
 function formatTime(value: number): string {
   return value ? new Date(value * 1000).toLocaleString() : "—";
@@ -72,10 +64,10 @@ export default function LocalAgentsPage() {
           expandedRowRender: (device) => (
             <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }} items={[
               { key: "id", label: "设备 ID", children: <Typography.Text copyable code>{device.id}</Typography.Text> },
-              { key: "verified", label: "身份验证", children: device.verified ? "已验证" : "未完成挑战验证" },
+              { key: "verified", label: "身份验证", children: localAgentVerified(device) ? "已验证" : "未完成挑战验证" },
               { key: "heartbeat", label: "最近心跳", children: formatTime(device.last_seen_at) },
-              { key: "tools", label: "可用工具", children: Object.keys(device.capabilities.supported_tools || {}).join("、") || "—" },
-              { key: "capabilities", label: "协议能力", children: (device.capabilities.capabilities || []).join("、") || "—" },
+              { key: "tools", label: "可用工具", children: Object.keys(device.capabilities?.supported_tools || {}).join("、") || "—" },
+              { key: "capabilities", label: "协议能力", children: (device.capabilities?.capabilities || []).join("、") || "—" },
               { key: "error", label: "最近失败", span: 2, children: device.latest_error ? `${device.latest_error.code || "执行失败"} · ${device.latest_error.message || "无详情"} · ${formatTime(device.latest_error.occurred_at)}` : "—" },
             ]} />
           ),
@@ -83,11 +75,11 @@ export default function LocalAgentsPage() {
         scroll={{ x: 940 }}
         columns={[
           { title: "设备", dataIndex: "name", width: 200, render: (_value, device) => <Space direction="vertical" size={0}><Typography.Text strong>{device.name}</Typography.Text><Typography.Text type="secondary">{device.platform || "未知平台"} {device.arch} · App {device.app_version || "—"}</Typography.Text></Space> },
-          { title: "状态", dataIndex: "readiness", width: 130, render: (_value, device) => <Tag color={readinessLabels[device.readiness].color}>{readinessLabels[device.readiness].label}</Tag> },
+          { title: "状态", dataIndex: "readiness", width: 150, render: (_value, device) => { const readiness = localAgentReadiness(device); return <Tag color={readiness.color}>{readiness.label}</Tag>; } },
           { title: "最近心跳", dataIndex: "last_seen_at", width: 180, render: (value) => formatTime(Number(value)) },
-          { title: "并行容量", width: 180, render: (_value, device) => <Progress size="small" percent={Math.min(100, Math.round(device.capacity.active / device.capacity.parallel * 100))} format={() => `${device.capacity.active}/${device.capacity.parallel}`} /> },
-          { title: "驻留容量", width: 180, render: (_value, device) => `${device.capacity.resident}/${device.capacity.resident_limit}` },
-          { title: "操作", width: 110, fixed: "right", render: (_value, device) => device.readiness === "revoked" ? "—" : <Popconfirm title={`撤销 ${device.name}？`} description="设备令牌会立即失效，活跃租约将进入恢复。" onConfirm={() => void revoke(device)}><Button danger type="link" icon={<DeleteOutlined />}>撤销</Button></Popconfirm> },
+          { title: "并行容量", width: 180, render: (_value, device) => { const capacity = localAgentCapacity(device); return <Progress size="small" percent={Math.min(100, Math.round(capacity.active / capacity.parallel * 100))} format={() => `${capacity.active}/${capacity.parallel}`} />; } },
+          { title: "驻留容量", width: 180, render: (_value, device) => { const capacity = localAgentCapacity(device); return `${capacity.resident}/${capacity.resident_limit}`; } },
+          { title: "操作", width: 110, fixed: "right", render: (_value, device) => localAgentReadiness(device).key === "revoked" ? "—" : <Popconfirm title={`撤销 ${device.name}？`} description="设备令牌会立即失效，活跃租约将进入恢复。" onConfirm={() => void revoke(device)}><Button danger type="link" icon={<DeleteOutlined />}>撤销</Button></Popconfirm> },
         ]}
       />
     </PageContainer>

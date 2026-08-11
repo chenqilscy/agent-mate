@@ -116,7 +116,7 @@ class ProjectExecutionAnalyticsTest(unittest.TestCase):
 
     def test_metrics_are_recomputable_and_keep_unknown_cost_separate(self) -> None:
         result = build_project_execution_analytics(self.project.id, days=7, timezone_name="UTC")
-        self.assertEqual("project-execution-v1", result["metric_version"])
+        self.assertEqual("project-execution-v2", result["metric_version"])
         self.assertEqual(3, result["summary"]["runs"])
         self.assertEqual(1, result["summary"]["completed"])
         self.assertEqual(1, result["summary"]["failed"])
@@ -128,8 +128,76 @@ class ProjectExecutionAnalyticsTest(unittest.TestCase):
         self.assertEqual(1.0, result["delivery"]["first_pass_acceptance_rate"])
         self.assertEqual("device_offline", result["queue_blockers"][0]["reason"])
         self.assertEqual("tool_failed", result["failures"][0]["error_code"])
+        queued = next(run for run in result["slow_runs"] if run["run_id"] == "run-queued-503")
+        self.assertTrue(queued["queue_live"])
+        self.assertGreaterEqual(queued["queue_seconds"], 9)
         self.assertNotIn("error_message", result["slow_runs"][0])
         self.assertNotIn("request_snapshot", str(result))
+
+    def test_retry_inside_window_is_not_relabelled_as_first_success(self) -> None:
+        anchor = time.time()
+        item = db.create_work_item(project_id=self.project.id, title="跨窗口返工")
+        common = {
+            "session_id": "session-503", "work_item_id": item["id"], "mode": "exec",
+            "workspace": f"project:{self.project.id}",
+        }
+        first, _ = business_store.create_record(
+            "business_runs", entity_type="run", actor_id=self.owner.id,
+            owner_id=self.owner.id, project_id=self.project.id,
+            fields={**common, "status": "completed"}, record_id="run-before-window-506",
+        )
+        retry, _ = business_store.create_record(
+            "business_runs", entity_type="run", actor_id=self.owner.id,
+            owner_id=self.owner.id, project_id=self.project.id,
+            fields={**common, "status": "completed", "retry_of": first["id"]},
+            record_id="run-rework-window-506",
+        )
+        db.get_conn().execute(
+            "UPDATE business_runs SET created_at=?,started_at=?,ended_at=? WHERE id=?",
+            (anchor - 8 * 86400 - 20, anchor - 8 * 86400 - 10, anchor - 8 * 86400, first["id"]),
+        )
+        db.get_conn().execute(
+            "UPDATE business_runs SET created_at=?,started_at=?,ended_at=? WHERE id=?",
+            (anchor - 200, anchor - 190, anchor - 100, retry["id"]),
+        )
+        db.get_conn().commit()
+
+        result = build_project_execution_analytics(
+            self.project.id, days=7, timezone_name="UTC", now=anchor,
+        )
+        self.assertEqual(1, result["delivery"]["first_pass_total"])
+        self.assertEqual(1, result["delivery"]["first_pass_accepted"])
+        self.assertEqual(1, result["delivery"]["rework_runs"])
+
+    def test_acceptance_after_window_end_does_not_rewrite_window(self) -> None:
+        cutoff = time.time() - 3600
+        item = db.create_work_item(project_id=self.project.id, title="窗口后验收")
+        run, _ = business_store.create_record(
+            "business_runs", entity_type="run", actor_id=self.owner.id,
+            owner_id=self.owner.id, project_id=self.project.id,
+            fields={
+                "session_id": "session-503", "work_item_id": item["id"], "mode": "exec",
+                "workspace": f"project:{self.project.id}", "status": "completed",
+            },
+            record_id="run-late-acceptance-506",
+        )
+        db.get_conn().execute(
+            "UPDATE business_runs SET created_at=?,started_at=?,ended_at=? WHERE id=?",
+            (cutoff - 200, cutoff - 150, cutoff - 100, run["id"]),
+        )
+        db.get_conn().commit()
+        db.update_work_item(item["id"], status="review")
+        db.accept_work_item_delivery(
+            project_id=self.project.id, work_item_id=item["id"], run_id=run["id"],
+            artifact_count=1, actor_id=self.owner.id, actor_name=self.owner.name,
+        )
+
+        result = build_project_execution_analytics(
+            self.project.id, days=7, timezone_name="UTC", now=cutoff,
+        )
+        self.assertEqual(1, result["delivery"]["first_pass_total"])
+        self.assertEqual(0, result["delivery"]["first_pass_accepted"])
+        self.assertEqual(0, result["delivery"]["accepted_deliveries"])
 
     def test_viewer_can_read_project_but_outsider_cannot(self) -> None:
         viewer_result = execution_analytics(self.project.id, 7, "Asia/Shanghai", self.viewer)
