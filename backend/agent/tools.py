@@ -16,6 +16,7 @@ commands behind ask_user authorization.
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import json
 import mimetypes
 import re
@@ -50,6 +51,10 @@ class ToolOutcome:
     # Files truthfully produced by this tool. Runtime turns these descriptors into
     # hashed Artifact manifests tied to the active Run (WB-242).
     artifacts: list[dict[str, Any]] = field(default_factory=list)
+    # A successful authority handoff ends the current agent loop.  The runtime
+    # streams `text` as the deterministic final answer and does not let the
+    # global/default workspace continue executing the delegated project task.
+    terminal: bool = False
 
 
 @dataclass
@@ -581,7 +586,7 @@ _WI_LABEL = {"todo": "待开始", "doing": "进行中", "paused": "暂停", "rev
 
 def set_work_context(
     project_id: str | None, owner_id: str | None, *, server_token: str = "",
-    account_server_token: str = "",
+    account_server_token: str = "", session_id: str = "",
 ) -> None:
     """Set the active project/member authority for work-item tools."""
     _work_ctx.set(
@@ -590,6 +595,7 @@ def set_work_context(
             "owner_id": owner_id,
             "server_token": server_token,
             "account_server_token": account_server_token or server_token,
+            "session_id": session_id,
         }
         if owner_id else None
     )
@@ -612,7 +618,7 @@ _ACTION_LABEL = {
 }
 
 
-def _format_action_item(item: dict[str, Any]) -> str:
+def _format_action_item(item: dict[str, Any], ordinal: str = "-") -> str:
     project = item.get("project") if isinstance(item.get("project"), dict) else {}
     signals = item.get("action_signals") if isinstance(item.get("action_signals"), list) else []
     signal_text = "、".join(_ACTION_LABEL.get(str(value), str(value)) for value in signals) or "需关注"
@@ -622,9 +628,10 @@ def _format_action_item(item: dict[str, Any]) -> str:
     due = str(item.get("due_date") or "无")
     status = _WI_LABEL.get(str(item.get("status") or ""), str(item.get("status") or ""))
     return (
-        f"- [{signal_text}] {str(item.get('title') or '')}"
+        f"{ordinal} [{signal_text}] {str(item.get('title') or '')}"
         f"｜项目={str(project.get('name') or '')}"
         f"｜状态={status}｜优先级={priority}｜截止={due}"
+        f"｜project_id={str(project.get('id') or '')}"
         f"｜work_item_id={str(item.get('id') or '')}"
     )
 
@@ -653,12 +660,12 @@ def _list_my_action_items_run(_args: dict[str, Any]) -> ToolOutcome:
     ]
     if assigned:
         lines.append("分配给我的任务：")
-        lines.extend(_format_action_item(item) for item in assigned)
+        lines.extend(_format_action_item(item, f"{index}.") for index, item in enumerate(assigned, 1))
     else:
         lines.append("没有分配给我且属于逾期、今天到期/开始、进行中、阻塞或待验收的任务。")
     if unassigned:
         lines.append("项目中尚未分配的需关注任务（不计入我的任务）：")
-        lines.extend(_format_action_item(item) for item in unassigned)
+        lines.extend(_format_action_item(item, f"U{index}.") for index, item in enumerate(unassigned, 1))
     backlog = int(summary.get("backlog") or 0)
     if backlog:
         lines.append(f"另有 {backlog} 项分配给我的未完成任务尚未到开始/截止日期或未设置日期，不计入今日行动项。")
@@ -680,6 +687,120 @@ list_my_action_items = Tool(
     run=_list_my_action_items_run,
     plan_safe=True,
     permissions=("project.read",),
+)
+
+
+def _start_work_item_run_run(args: dict[str, Any]) -> ToolOutcome:
+    ctx = _work_ctx.get()
+    token = str((ctx or {}).get("account_server_token") or "")
+    owner_id = str((ctx or {}).get("owner_id") or "")
+    project_id = str(args.get("project_id") or "").strip()
+    work_item_id = str(args.get("work_item_id") or "").strip()
+    if not ctx or not token:
+        return ToolOutcome(text="尚未连接 AgentMate Server，无法启动 Console 任务。")
+    if not project_id or not work_item_id:
+        return ToolOutcome(text="缺少 project_id 或 work_item_id；请先调用 list_my_action_items 获取稳定 ID。")
+
+    items = server_client.list_work_items(token, project_id)
+    if items is None:
+        return ToolOutcome(text="AgentMate Server 当前不可达，任务未启动。")
+    item = next((value for value in items if str(value.get("id") or "") == work_item_id), None)
+    if item is None:
+        return ToolOutcome(text="未找到该 Server WorkItem，或当前账号无权访问它；任务未启动。")
+    if str(item.get("status") or "") == "done":
+        return ToolOutcome(text="该 WorkItem 已完成，不能再次启动执行。")
+    assignee = str(item.get("assignee") or "")
+    if assignee and assignee != owner_id:
+        return ToolOutcome(text="该 WorkItem 已分配给其他成员，未替对方启动执行。")
+
+    # Reuse one idempotency key for the same source conversation and WorkItem.
+    # A model retry therefore resolves to the same authoritative Server Run.
+    source_session_id = str(ctx.get("session_id") or owner_id)
+    digest = hashlib.sha256(
+        f"{source_session_id}:{project_id}:{work_item_id}".encode("utf-8")
+    ).hexdigest()[:32]
+    request_key = f"work-action:{digest}"
+    title = str(item.get("title") or work_item_id)
+
+    # Imports stay local to execution: run_transport imports the tool registry,
+    # so importing it while tools.py is initialized would create a cycle.
+    import local_agent_store
+    import run_transport
+
+    if not run_transport.ensure_device(owner_id, token):
+        return ToolOutcome(text="当前 Local Agent 设备无法在 Server 注册，任务未启动。")
+    local_agent_store.stage_run_input(owner_id, request_key, {
+        "refs": [{
+            "name": title,
+            "content": str(item.get("description") or title),
+            "kind": "todo",
+            "itemId": work_item_id,
+        }],
+    })
+    try:
+        started = server_client.execute_server_work_item(
+            token, project_id, work_item_id,
+            target_device_id=run_transport.device_id(owner_id),
+            local_input_key=request_key,
+            idempotency_key=request_key,
+            model_ref=None,
+        )
+    except server_client.ServerRejected as exc:
+        local_agent_store.clear_run_input(owner_id, request_key)
+        detail = str(exc.detail or "Server 拒绝请求")
+        return ToolOutcome(text=f"Server 拒绝启动该任务（{exc.status_code}）：{detail}")
+    if started is None:
+        local_agent_store.clear_run_input(owner_id, request_key)
+        return ToolOutcome(text="AgentMate Server 当前不可达，任务未启动。")
+
+    session = started["session"]
+    run = started["run"]
+    session_id = str(session.get("id") or "")
+    run_id = str(run.get("id") or "")
+    duplicate = bool(started.get("duplicate"))
+    state = "已关联到既有幂等执行" if duplicate else "已创建执行"
+    return ToolOutcome(
+        text=(
+            f"{state}：{title}｜project_id={project_id}｜work_item_id={work_item_id}"
+            f"｜session_id={session_id}｜run_id={run_id}。"
+            "该任务由 Local Agent 在项目工作区执行，完成后进入人工验收，不会自动标记为完成。"
+        ),
+        trace=[{
+            "kind": "step", "tool": "start_work_item_run",
+            "label": f"启动 Server 任务 · {title}",
+            "project_id": project_id, "work_item_id": work_item_id,
+            "session_id": session_id, "run_id": run_id,
+        }],
+        live=[{
+            "id": work_item_id, "project_id": project_id,
+            "status": "doing", "title": title,
+        }],
+        terminal=True,
+    )
+
+
+start_work_item_run = Tool(
+    name="start_work_item_run",
+    description=(
+        "把用户明确选中的真实 Server WorkItem 交给当前 Local Agent 执行。"
+        "project_id 和 work_item_id 必须来自 list_my_action_items；"
+        "仅当用户明确说开始、处理、执行某一项时调用，不得因查询任务而自动启动。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string", "description": "行动项结果中的稳定 project_id"},
+            "work_item_id": {"type": "string", "description": "行动项结果中的稳定 work_item_id"},
+        },
+        "required": ["project_id", "work_item_id"],
+    },
+    pre=lambda a: {
+        "kind": "step", "tool": "start_work_item_run",
+        "label": f"准备启动 WorkItem {str(a.get('work_item_id') or '')}",
+    },
+    run=_start_work_item_run_run,
+    permissions=("project.write",),
+    timeout_seconds=20.0,
 )
 
 
@@ -777,6 +898,8 @@ set_work_item_status = Tool(
 def work_item_tools(plan: bool = False, *, include_project: bool = True) -> list[Tool]:
     """Work-item tools for a run. Plan mode is read-only, so no status writes."""
     values = [list_my_action_items]
+    if not plan:
+        values.append(start_work_item_run)
     if include_project:
         values.extend([list_work_items] if plan else [list_work_items, set_work_item_status])
     return [tool for tool in values if server_tool_enabled(tool.name)]

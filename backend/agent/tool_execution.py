@@ -78,6 +78,11 @@ def _worker_payload(tool: Tool, args: dict[str, Any], owner_id: str) -> bytes:
             "db_path": str(settings.DB_PATH),
             "workspace_root": str(settings.WORKSPACE_ROOT),
             "skills_dir": str(settings.SKILLS_DIR),
+            # Device settings are hot-loaded only in the parent process.  The
+            # isolated one-call worker must receive the non-secret Server
+            # origin explicitly or Server-backed tools silently behave as if
+            # collaboration were disabled.
+            "server_url": str(settings.AGENTMATE_SERVER_URL),
         },
         "context": {
             "owner_id": owner_id,
@@ -136,6 +141,7 @@ async def _run_tool_worker(
                 trace=list(value.get("trace") or []),
                 live=list(value.get("live") or []),
                 artifacts=list(value.get("artifacts") or []),
+                terminal=bool(value.get("terminal")),
             )
         await _kill_process_tree(proc)
         communicate.cancel()

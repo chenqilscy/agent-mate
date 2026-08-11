@@ -66,6 +66,7 @@ from agent.tools import (
 )
 from config import settings
 import server_client
+import server_sync
 from storage import db, model_governance, provider_seed
 from storage.models import Message, Project, Session, User
 
@@ -407,6 +408,7 @@ async def run_chat(
     history_override: list[Message] | None = None,
     project_override: Project | None = None,
     server_token_override: str | None = None,
+    authoritative_run_context: dict[str, str] | None = None,
 ) -> AsyncIterator[str]:
     """Trace one user turn, delegating the unchanged SSE loop to the inner runner."""
     # Server-authoritative mode contract (WB-272): old/direct clients may still
@@ -438,6 +440,7 @@ async def run_chat(
             history_override=history_override,
             project_override=project_override,
             server_token_override=server_token_override,
+            authoritative_run_context=authoritative_run_context,
             chat_trace=chat_trace,
         ):
             yield chunk
@@ -480,6 +483,7 @@ async def _run_chat_inner(
     history_override: list[Message] | None = None,
     project_override: Project | None = None,
     server_token_override: str | None = None,
+    authoritative_run_context: dict[str, str] | None = None,
     chat_trace: telemetry.Observation,
 ) -> AsyncIterator[str]:
     """Async generator of SSE strings for POST /api/chat.
@@ -495,6 +499,19 @@ async def _run_chat_inner(
         context_layers.add(
             "ask_mode", "只回答用户的问题，不要调用任何工具、不执行任何操作。",
             source="run.mode", authority="system", priority=10, heading="仅问答模式",
+        )
+    if authoritative_run_context:
+        server_session_id = str(authoritative_run_context.get("session_id") or "")
+        server_run_id = str(authoritative_run_context.get("run_id") or "")
+        server_work_item_id = str(authoritative_run_context.get("work_item_id") or "")
+        context_layers.add(
+            "authoritative_server_run",
+            f"当前已经是 Server 创建并由 Local Agent 领取的权威项目 Run："
+            f"session_id={server_session_id}，run_id={server_run_id}，"
+            f"work_item_id={server_work_item_id}。不得再次调用 start_work_item_run，也不得声称缺少真实 Run 标识。"
+            "专注生成任务交付物；Run 终态和已校验产物会由 Server 自动把 WorkItem 推进到待验收或暂停，"
+            "无需也不得自行调用 set_work_item_status。",
+            source="server.run", authority="system", priority=11, heading="权威 Server Run",
         )
     # 助理人格注入（WB-077）：外部渠道助理可在设置面板里定名字/风格，这里附加到系统提示。
     if system_extra and system_extra.strip():
@@ -610,11 +627,19 @@ async def _run_chat_inner(
         if is_server_project else None
     )
     account_server_token = server_token_override or db.get_server_identity(user.id) or ""
+    if (
+        account_server_token and not session.project_id and not ask
+        and db.list_server_tool_catalog()
+        and not server_tool_enabled("start_work_item_run")
+    ):
+        # A newly shipped automatic Server tool must not stay hidden behind a
+        # last-known catalog until the user manually opens the sync screen.
+        await asyncio.to_thread(server_sync.pull_catalog, account_server_token)
     # Work-item tools act as the current project member; Server-origin writes
     # retain their Bearer authority instead of mutating a local mirror.
     set_work_context(
         session.project_id, user.id, server_token=server_token or "",
-        account_server_token=account_server_token,
+        account_server_token=account_server_token, session_id=session.id,
     )
     # Console 可能在上次全量 pull 后新增/删除 KB；每次项目执行前轻量读取当前绑定，避免要求
     # 每个成员手动同步。不可达时保留 last-known ids，真正调用仍会诚实失败且不回退本地。
@@ -641,7 +666,7 @@ async def _run_chat_inner(
 
     # Tell the model about the plan-item tools when this run is inside a project
     # (WB-030). Plan mode is read-only, so it only gets the viewing tool.
-    if not ask:
+    if not ask and not session.project_id:
         context_layers.add(
             "personal_action_items",
             "自然语言输入是 AgentMate 工作操作入口。用户询问今天、我的任务、待处理工作或跨项目事项时，"
@@ -650,12 +675,28 @@ async def _run_chat_inner(
             source="server:work-items:personal", authority="project",
             priority=120, heading="个人工作入口",
         )
+        context_layers.add(
+            "personal_action_execution",
+            "用户明确说处理、开始或执行某个行动项时，使用上一轮结果中的 project_id 与 work_item_id "
+            "调用 start_work_item_run；它会创建权威 Server Session/Run。不得在全局默认工作区直接执行该项目任务，"
+            "也不得替其他成员启动任务。向用户返回真实 session_id/run_id，交付完成后仍由人工验收。",
+            source="server:work-items:execute", authority="project",
+            priority=119, heading="任务执行交接",
+        )
     if session.project_id and not ask:
         if plan:
             context_layers.add(
                 "work_items", "可用 list_work_items 查看本项目的待办及其状态与 id（计划模式下只读，不修改）。",
                 source=f"project:{session.project_id}:work_items", authority="project",
                 priority=110, heading="项目计划项（待办）",
+            )
+        elif authoritative_run_context:
+            context_layers.add(
+                "work_items",
+                "这是已启动的 Server WorkItem 项目 Run；可用 list_work_items 只读核对当前计划项。"
+                "不要再次启动任务或手动回写状态，Server 会依据 Run 终态和产物校验结果推进生命周期。",
+                source=f"project:{session.project_id}:work_items", authority="project",
+                priority=110, heading="项目计划项（Server 托管）",
             )
         else:
             context_layers.add(
@@ -857,9 +898,14 @@ async def _run_chat_inner(
             # A 计划「添加到输入框」ref carries the work_item id (WB-030): render it as a
             # task the agent can act on, not a plain file, and point at the status tool.
             if r.get("kind") == "todo" and r.get("itemId"):
+                lifecycle_note = (
+                    "（当前已是权威 Server Run；专注交付，状态由 Server 按 Run 终态自动推进）"
+                    if authoritative_run_context else
+                    "（处理完成或推进后，调用 set_work_item_status(item_id, status) 回写它的状态）"
+                )
                 blocks.append(
                     f"【关联待办任务 {name}（计划项 id={r['itemId']}）】\n{body}{note}\n"
-                    "（处理完成或推进后，调用 set_work_item_status(item_id, status) 回写它的状态）"
+                    f"{lifecycle_note}"
                 )
             else:
                 blocks.append(f"【参考文件 {name}】\n{body}{note}")
@@ -976,6 +1022,7 @@ async def _run_chat_inner(
     tool_call_count = 0
     substantive_actions: list[str] = []
     artifact_paths: list[str] = []
+    terminal_handoff = False
     persisted_message_id: str | None = None
     t0 = time.time()
 
@@ -1809,9 +1856,18 @@ async def _run_chat_inner(
                 llm_messages.append(
                     {"role": "tool", "tool_call_id": call["id"], "content": outcome.text}
                 )
+                if tool_completed and outcome.terminal:
+                    # start_work_item_run is an authority transfer, not another
+                    # reasoning step.  End the global Run immediately so sibling
+                    # or later model calls cannot execute the project task in the
+                    # default workspace after the Server Run has been created.
+                    terminal_handoff = True
+                    assistant_text += outcome.text
+                    yield events.text(outcome.text)
+                    break
                 if stopped:
                     break
-            if stopped:
+            if stopped or terminal_handoff:
                 break
             # Dynamic Skill tools/resources become visible only in the next LLM
             # round, never to sibling calls from the batch that requested skill_view.

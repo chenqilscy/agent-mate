@@ -741,6 +741,47 @@ def get_personal_action_items(token: str, as_of: str) -> Optional[dict[str, Any]
     return data
 
 
+def execute_server_work_item(
+    token: str, project_id: str, work_item_id: str, *, target_device_id: str,
+    local_input_key: str, idempotency_key: str, model_ref: str | None = None,
+) -> Optional[dict[str, Any]]:
+    """Create the authoritative Server Session/Run for one explicit WorkItem."""
+    if not token or not settings.AGENTMATE_SERVER_URL:
+        return None
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Idempotency-Key": idempotency_key,
+    }
+    # Newer Server-first protocol gates require the version header. Keep this
+    # client compatible with a checkout where that gate has not shipped yet.
+    protocol_version = str(globals().get("SERVER_FIRST_PROTOCOL_VERSION") or "")
+    if protocol_version:
+        headers["X-AgentMate-Protocol-Version"] = protocol_version
+    try:
+        response = _client().post(
+            f"{settings.AGENTMATE_SERVER_URL}/api/projects/{project_id}/work-items/{work_item_id}/execute",
+            headers=headers,
+            json={
+                "target_device_id": target_device_id,
+                "local_input_key": local_input_key,
+                "model_ref": model_ref,
+            },
+            timeout=_TIMEOUT,
+        )
+        if response.status_code != 200:
+            _raise_rejection(response, True)
+            return None
+        data = response.json()
+        if not isinstance(data, dict):
+            return None
+        if not isinstance(data.get("session"), dict) or not isinstance(data.get("run"), dict):
+            return None
+        return data
+    except ServerRejected:
+        raise
+    except Exception:  # noqa: BLE001 - user-facing tool reports Server unavailability
+        return None
+
 def create_work_item(token: str, project_id: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
     d = _post(f"/api/projects/{project_id}/work-items", token, body, strict=True)
     return d if isinstance(d, dict) else None

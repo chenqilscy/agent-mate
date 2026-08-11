@@ -26,6 +26,10 @@ def _configure_paths(payload: dict[str, Any]) -> None:
         value = str(config.get(field.lower()) or "").strip()
         if value:
             setattr(settings, field, Path(value))
+    # AGENTMATE_SERVER_URL belongs to the device-settings database and is
+    # deliberately absent from the child environment.  Restore the parent's
+    # already-validated, non-secret origin for this one tool invocation.
+    settings.AGENTMATE_SERVER_URL = str(config.get("server_url") or "").strip().rstrip("/")
 
 
 def _restore_context(payload: dict[str, Any]) -> None:
@@ -67,6 +71,7 @@ def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "trace": outcome.trace,
         "live": outcome.live,
         "artifacts": outcome.artifacts,
+        "terminal": outcome.terminal,
     }
 
 

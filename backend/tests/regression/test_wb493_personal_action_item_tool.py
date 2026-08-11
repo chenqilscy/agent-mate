@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+import json
 from pathlib import Path
 import tempfile
 import threading
@@ -10,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from agent import runtime, tools
-from agent.llm import Delta
+from agent.llm import Delta, ToolCallDelta
 from config import settings
 from storage import db
 from storage.models import LOCAL_USER_ID
@@ -51,6 +52,7 @@ class PersonalActionItemToolTest(unittest.TestCase):
         remote.assert_called_once()
         self.assertEqual("account-token-493", remote.call_args.args[0])
         self.assertIn("真实 Console 任务", result.text)
+        self.assertIn("project_id=project-493", result.text)
         self.assertIn("work_item_id=assigned-493", result.text)
         self.assertIn("不计入我的任务", result.text)
         self.assertIn("来源=AgentMate Server", result.text)
@@ -70,9 +72,10 @@ class PersonalActionItemToolTest(unittest.TestCase):
             global_names = [tool.name for tool in tools.work_item_tools(plan=False, include_project=False)]
             project_names = [tool.name for tool in tools.work_item_tools(plan=False, include_project=True)]
             plan_names = [tool.name for tool in tools.work_item_tools(plan=True, include_project=True)]
-        self.assertEqual(["list_my_action_items"], global_names)
+        self.assertEqual(["list_my_action_items", "start_work_item_run"], global_names)
         self.assertEqual(
-            ["list_my_action_items", "list_work_items", "set_work_item_status"], project_names,
+            ["list_my_action_items", "start_work_item_run", "list_work_items", "set_work_item_status"],
+            project_names,
         )
         self.assertEqual(["list_my_action_items", "list_work_items"], plan_names)
 
@@ -141,10 +144,123 @@ class PersonalActionItemRuntimeTest(unittest.TestCase):
             asyncio.run(collect())
 
         self.assertIn("list_my_action_items", captured["tools"])
+        self.assertIn("start_work_item_run", captured["tools"])
         self.assertIn("必须先调用 list_my_action_items", captured["system"])
         self.assertIn("不得扫描工作区文件", captured["system"])
+        self.assertIn("不得在全局默认工作区直接执行", captured["system"])
         run = db.list_runs(LOCAL_USER_ID, session_id=session.id)[0]
         self.assertIn("list_my_action_items", run.permission_snapshot["tools"])
+        self.assertIn("start_work_item_run", run.permission_snapshot["tools"])
+
+    def test_authoritative_project_run_knows_its_ids_and_server_managed_lifecycle(self) -> None:
+        project = db.create_project(owner_id=LOCAL_USER_ID, name="Server 项目")
+        project.origin = "server"
+        session = db.create_session(
+            owner_id=LOCAL_USER_ID, title="真实执行", project_id=project.id,
+        )
+        captured: dict[str, object] = {}
+
+        async def fake_stream(messages, **kwargs):
+            captured["system"] = str(messages[0]["content"])
+            captured["user"] = str(messages[-1]["content"])
+            captured["tools"] = {
+                item["function"]["name"] for item in kwargs.get("tools", [])
+                if item.get("function")
+            }
+            yield Delta(content="已交付。", usage={"prompt_tokens": 5, "completion_tokens": 2})
+
+        class NoopObservation:
+            def update(self, **_kwargs):
+                pass
+
+        @contextmanager
+        def noop_observation(**_kwargs):
+            yield NoopObservation()
+
+        async def collect() -> list[str]:
+            return [chunk async for chunk in runtime.run_chat(
+                session, db.get_user(LOCAL_USER_ID), "完成任务",
+                refs=[{"name": "WB-496", "kind": "todo", "itemId": "work-496", "content": "交付"}],
+                execution_source="background",
+                preauthorized_permissions=["workspace.write"],
+                project_override=project,
+                server_token_override="account-token-493",
+                authoritative_run_context={
+                    "session_id": "server-session-496",
+                    "run_id": "server-run-496",
+                    "work_item_id": "work-496",
+                },
+            )]
+
+        with (
+            patch.object(runtime, "stream_chat", side_effect=fake_stream),
+            patch.object(runtime, "resolve_model_config", return_value=("test", "http://test", "key", "/chat")),
+            patch.object(runtime.server_client, "list_project_knowledge", return_value=[]),
+            patch.object(runtime.memory, "capture_enabled", return_value=False),
+            patch.object(runtime.telemetry, "chat_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "generation_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "tool_observation", side_effect=noop_observation),
+        ):
+            asyncio.run(collect())
+
+        self.assertIn("list_work_items", captured["tools"])
+        self.assertNotIn("start_work_item_run", captured["tools"])
+        self.assertNotIn("set_work_item_status", captured["tools"])
+        self.assertIn("session_id=server-session-496", captured["system"])
+        self.assertIn("run_id=server-run-496", captured["system"])
+        self.assertIn("Server 自动把 WorkItem 推进到待验收或暂停", captured["system"])
+        self.assertNotIn("不得在全局默认工作区直接执行", captured["system"])
+        self.assertIn("状态由 Server 按 Run 终态自动推进", captured["user"])
+        self.assertNotIn("调用 set_work_item_status", captured["user"])
+
+    def test_successful_handoff_terminates_global_loop_before_workspace_execution(self) -> None:
+        session = db.create_session(owner_id=LOCAL_USER_ID, title="启动任务")
+        rounds = 0
+
+        async def fake_stream(_messages, **_kwargs):
+            nonlocal rounds
+            rounds += 1
+            if rounds > 1:
+                raise AssertionError("terminal handoff must not request another model round")
+            yield Delta(tool_calls=[ToolCallDelta(
+                index=0, id="call-handoff", name="start_work_item_run",
+                arguments=json.dumps({
+                    "project_id": "project-496", "work_item_id": "work-496",
+                }),
+            )], usage={"prompt_tokens": 8, "completion_tokens": 2})
+
+        class NoopObservation:
+            def update(self, **_kwargs):
+                pass
+
+        @contextmanager
+        def noop_observation(**_kwargs):
+            yield NoopObservation()
+
+        async def collect() -> str:
+            return "".join([chunk async for chunk in runtime.run_chat(
+                session, db.get_user(LOCAL_USER_ID), "开始处理第 2 项",
+            )])
+
+        handoff = tools.ToolOutcome(
+            text="已创建执行｜session_id=server-session-496｜run_id=server-run-496",
+            terminal=True,
+        )
+        with (
+            patch.object(runtime, "stream_chat", side_effect=fake_stream),
+            patch.object(runtime, "execute_tool", return_value=handoff),
+            patch.object(runtime, "resolve_model_config", return_value=("test", "http://test", "key", "/chat")),
+            patch.object(runtime.memory, "capture_enabled", return_value=False),
+            patch.object(runtime.telemetry, "chat_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "generation_observation", side_effect=noop_observation),
+            patch.object(runtime.telemetry, "tool_observation", side_effect=noop_observation),
+        ):
+            payload = asyncio.run(collect())
+
+        self.assertEqual(1, rounds)
+        self.assertIn("session_id=server-session-496", payload)
+        saved = db.list_messages(session.id)
+        self.assertIn("session_id=server-session-496", saved[-1].content)
 
 
 if __name__ == "__main__":

@@ -134,6 +134,38 @@ class ServerWorkItemExecutionTest(unittest.TestCase):
             parent=("work_item_id", self.item["id"]), limit=10,
         )[0])
 
+    def test_execute_claims_an_unassigned_work_item_once(self) -> None:
+        item = db.create_work_item(
+            project_id=self.project.id, title="未分配任务", assignee="",
+        )
+        result = execute_item(
+            self.project.id, item["id"],
+            ExecuteBody(
+                target_device_id=self.device_id, local_input_key="work-item:claim-496",
+            ),
+            self.owner, idempotency_key="claim-496",
+        )
+        self.assertFalse(result["duplicate"])
+        claimed = db.get_work_item(item["id"])
+        self.assertEqual("doing", claimed["status"])
+        self.assertEqual(self.owner.id, claimed["assignee"])
+        activity = db.list_work_item_activity(self.project.id, item["id"])
+        assignments = [value for value in activity if value["kind"] == "assignee"]
+        self.assertEqual(1, len(assignments))
+        self.assertEqual("未指派→owner-461", assignments[0]["detail"])
+
+        replay = execute_item(
+            self.project.id, item["id"],
+            ExecuteBody(
+                target_device_id=self.device_id, local_input_key="work-item:claim-496",
+            ),
+            self.owner, idempotency_key="claim-496",
+        )
+        self.assertTrue(replay["duplicate"])
+        self.assertEqual(result["run"]["id"], replay["run"]["id"])
+        activity = db.list_work_item_activity(self.project.id, item["id"])
+        self.assertEqual(1, len([value for value in activity if value["kind"] == "assignee"]))
+
 
 if __name__ == "__main__":
     unittest.main()

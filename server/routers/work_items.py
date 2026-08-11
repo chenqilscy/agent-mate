@@ -483,7 +483,17 @@ def execute_item(
         )
         if not duplicate:
             now = time.time()
-            conn.execute("UPDATE work_items SET status='doing',updated_at=? WHERE id=?", (now, wid))
+            claimed = not str(item.get("assignee") or "")
+            conn.execute(
+                "UPDATE work_items SET status='doing',assignee=?,updated_at=? WHERE id=?",
+                (account.id if claimed else item["assignee"], now, wid),
+            )
+            if claimed:
+                conn.execute(
+                    "INSERT INTO work_item_activity (id,project_id,work_item_id,actor,kind,detail,created_at) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (db.new_uuid(), project_id, wid, account.name, "assignee", f"未指派→{account.name}", now),
+                )
             conn.execute(
                 "INSERT INTO work_item_activity (id,project_id,work_item_id,actor,kind,detail,created_at) "
                 "VALUES (?,?,?,?,?,?,?)",

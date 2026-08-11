@@ -473,6 +473,11 @@ async def _execute_run(owner_id: str, user_token: str, device_token: str, run: d
                     ],
                     history_override=history, project_override=project_override,
                     server_token_override=user_token,
+                    authoritative_run_context={
+                        "session_id": session_id,
+                        "run_id": run_id,
+                        "work_item_id": server_work_item_id,
+                    },
                 ):
                     for event_type, payload in _frames(chunk):
                         if event_type == "run":
