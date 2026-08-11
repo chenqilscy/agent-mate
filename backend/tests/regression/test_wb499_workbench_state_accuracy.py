@@ -59,14 +59,17 @@ class WorkbenchStateAccuracyTests(unittest.TestCase):
         )
         self.assertEqual(0, result.returncode, result.stderr or result.stdout)
 
-    def test_home_uses_domain_specific_snapshots_and_neutral_visible_focus(self) -> None:
+    def test_desktop_home_uses_connectivity_state_and_neutral_visible_focus(self) -> None:
         home = (ROOT / "src/views/HomeView.tsx").read_text(encoding="utf-8")
         channels = (ROOT / "src/lib/channels.ts").read_text(encoding="utf-8")
         store = (ROOT / "src/stores/workbenchStore.ts").read_text(encoding="utf-8")
         css = (ROOT / "src/styles/app.css").read_text(encoding="utf-8")
-        self.assertIn("actionUpdatedAt ? `行动项同步失败", home)
-        self.assertIn("runUpdatedAt ? `Run 同步失败", home)
-        self.assertNotIn("serverState.state === 'cached' || workbenchUpdatedAt", home)
+        self.assertIn("const server = useConnectivityStore", home)
+        self.assertIn("const localAgent = useConnectivityStore", home)
+        self.assertIn("refreshConnectivity", home)
+        self.assertNotIn("useWorkbenchStore", home)
+        self.assertNotIn("actionUpdatedAt", home)
+        self.assertNotIn("runUpdatedAt", home)
         self.assertIn("event.key === 'Tab'", home)
         self.assertIn("document.addEventListener('pointerdown', onPointerDown)", home)
         self.assertIn(".home-quick-start.is-keyboard-navigation .composer:focus-within", css)

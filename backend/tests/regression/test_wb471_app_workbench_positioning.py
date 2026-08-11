@@ -1,4 +1,4 @@
-"""WB-471 product-surface positioning regressions."""
+"""WB-471 positioning contract, superseded by WB-517/WB-518 boundaries."""
 from pathlib import Path
 import unittest
 
@@ -11,50 +11,42 @@ def read(relative: str) -> str:
 
 
 class AppWorkbenchPositioningContractTest(unittest.TestCase):
-    def test_app_is_the_personal_workbench_across_current_surfaces(self) -> None:
+    def test_workspace_owns_business_and_desktop_owns_local_execution(self) -> None:
         sidebar = read("src/components/layout/Sidebar.tsx")
         home = read("src/views/HomeView.tsx")
         projects = read("src/views/WorkspaceContextsView.tsx")
         handoff = read("src/views/ConsoleHandoffView.tsx")
 
-        self.assertIn("label: '个人工作台'", sidebar)
-        self.assertIn("你的 Agent 工作台", home)
-        self.assertIn("组织任务、发起 Run，并监督和验收 Agent 工作", home)
-        self.assertIn("App 负责推进工作，Console 负责项目治理", projects)
-        self.assertIn("App 是你的个人 Agent 工作台", handoff)
+        self.assertIn("label: '本机执行节点'", sidebar)
+        self.assertIn("label: '执行与授权'", sidebar)
+        self.assertIn("Desktop Companion", home)
+        self.assertIn("执行节点状态", home)
+        self.assertIn("Workspace 负责业务工作", projects)
+        self.assertIn("Desktop Companion 只保留本机执行", handoff)
 
-    def test_local_agent_is_an_execution_node_not_the_app_product_definition(self) -> None:
+    def test_local_agent_is_an_execution_node_not_a_business_api(self) -> None:
         current_surfaces = "\n".join((
             read("README.md"),
             read("docs/agentmate-server-first-架构设计.md"),
             read("src/views/HomeView.tsx"),
-            read("src/views/WorkspaceContextsView.tsx"),
-            read("src/views/ConsoleHandoffView.tsx"),
         ))
 
-        self.assertIn("Console manages the system", current_surfaces)
-        self.assertIn("普通用户的个人 Agent 工作台", current_surfaces)
-        self.assertIn("Console 管系统，App 让用户完成工作，Local Agent 在设备上执行", current_surfaces)
-        self.assertNotIn("Local Agent 的桌面控制面", current_surfaces)
-        self.assertNotIn("Local Agent 工作台", current_surfaces)
-        self.assertNotIn("你的本机 AI 执行工作台", current_surfaces)
-        self.assertNotIn("AgentMate Local Agent** 是安装在用户设备上的桌面客户端", current_surfaces)
-        self.assertIn("提供业务 CRUD、账号权威或 App UI", current_surfaces)
-        self.assertIn('App["App<br/>个人 Agent 工作台"]', current_surfaces)
-        self.assertIn('Local["Local Agent<br/>Runtime · Tools · MCP · WAL"]', current_surfaces)
+        self.assertIn("Workspace is the primary end-user surface", current_surfaces)
+        self.assertIn("Desktop Companion | 执行节点的可信本机控制面", current_surfaces)
+        self.assertIn("Local Agent Core 已就绪", current_surfaces)
+        self.assertIn("提供业务 CRUD、账号权威或用户业务 UI", current_surfaces)
+        self.assertNotIn("App 是你的个人 Agent 工作台", current_surfaces)
 
-    def test_device_configuration_is_secondary_to_the_work_loop(self) -> None:
+    def test_device_configuration_supports_the_local_execution_loop(self) -> None:
         home = read("src/views/HomeView.tsx")
         settings = read("src/components/settings/SettingsModal.tsx")
         architecture = read("docs/agentmate-server-first-架构设计.md")
 
         self.assertIn(">运行设置</WbButton>", home)
         self.assertIn("label: '运行设置'", settings)
-        self.assertNotIn(">此设备</WbButton>", home)
-        self.assertIn("App 的执行诊断中心", architecture)
-        self.assertIn("当前设备运行设置", architecture)
+        self.assertIn("Desktop Companion 的执行诊断中心", architecture)
         self.assertIn("管理模型、Skill、设备运行设置以及本机 MCP/连接器", architecture)
-        self.assertIn("设备上的后台执行节点", architecture)
+        self.assertIn("个人电脑或专用机器上的后台执行节点", architecture)
 
 
 if __name__ == "__main__":

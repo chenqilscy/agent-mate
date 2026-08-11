@@ -1,3 +1,4 @@
+"""WB-497 data contracts remain valid after the business UI moved to Workspace."""
 from pathlib import Path
 import unittest
 
@@ -14,37 +15,31 @@ class PersonalWorkbenchActionCenterContractTests(unittest.TestCase):
         self.types = (ROOT / "src/lib/types.ts").read_text(encoding="utf-8")
         self.css = (ROOT / "src/styles/app.css").read_text(encoding="utf-8")
 
-    def test_personal_action_items_use_server_authority_and_typed_contract(self) -> None:
+    def test_personal_action_items_keep_server_authority_and_typed_contract(self) -> None:
         self.assertIn("export interface PersonalActionItemsResponse", self.types)
         self.assertIn("export interface PersonalActionItem extends WorkItem", self.types)
         self.assertIn("serverGet<PersonalActionItemsResponse>(`/work-items/action-items?as_of=", self.api)
         self.assertIn("api.listPersonalActionItems(localDate(), { onResolvedState })", self.store)
         self.assertNotIn("/api/ideas", self.store)
 
-    def test_partial_failures_preserve_each_last_successful_domain(self) -> None:
+    def test_partial_failure_helpers_preserve_each_last_successful_domain(self) -> None:
         self.assertIn("Promise.allSettled", self.store)
         self.assertIn("mergeWorkbenchDomains(current, actions, runs)", self.store)
         self.assertIn("actions.status === 'fulfilled' ? actions.value.value.items : current.actionItems", self.workbench)
         self.assertIn("runs.status === 'fulfilled' ? runs.value.value.runs : current.runs", self.workbench)
-        self.assertIn("actionError", self.store)
-        self.assertIn("runError", self.store)
-        self.assertIn("行动项同步失败，显示", self.home)
-        self.assertIn("Run 同步失败，显示", self.home)
 
-    def test_home_prioritizes_intervention_actions_and_real_runs(self) -> None:
-        for label in ("需要我处理", "我的行动项", "快速开始", "正在执行"):
-            self.assertIn(label, self.home)
-        self.assertIn("waiting_user", self.home)
-        self.assertIn("waiting_approval", self.home)
-        self.assertIn("awaiting_acceptance", self.home)
-        self.assertIn("startWorkItemRun", self.home)
-        self.assertIn("idempotencyKey: `workbench:${item.id}:${item.updated_at || item.status}`", self.home)
-        self.assertNotIn("<Segmented", self.home)
-        self.assertNotIn("最近完成", self.home)
+    def test_desktop_home_no_longer_consumes_business_workbench_aggregation(self) -> None:
+        self.assertNotIn("useWorkbenchStore", self.home)
+        self.assertNotIn("loadWorkbench", self.home)
+        self.assertNotIn("startWorkItemRun", self.home)
+        self.assertNotIn("我的行动项", self.home)
+        self.assertNotIn("待验收", self.home)
+        for marker in ("执行节点状态", "打开 Server Workspace", "发起本机执行"):
+            self.assertIn(marker, self.home)
 
-    def test_viewer_offline_and_responsive_boundaries_remain_explicit(self) -> None:
-        self.assertIn("item.project.role === 'Viewer'", self.home)
+    def test_offline_and_responsive_boundaries_remain_explicit(self) -> None:
         self.assertIn("Local Agent 离线，暂时不能开始本机执行", self.home)
+        self.assertIn("server.state === 'cached'", self.home)
         self.assertIn("@media (max-width: 1280px)", self.css)
         self.assertIn("@media (max-width: 640px)", self.css)
         self.assertIn(".home-workbench-layout", self.css)

@@ -17,8 +17,8 @@ class ProductBrandContractTest(unittest.TestCase):
     def test_user_facing_surfaces_use_agentmate(self) -> None:
         expected = {
             "index.html": "<title>AgentMate · 你的智能工作伙伴</title>",
-            "src/views/HomeView.tsx": '<span className="g">你的 Agent 工作台</span>',
-            "src/components/layout/Sidebar.tsx": "<b>AgentMate</b>",
+            "src/views/HomeView.tsx": '<b>Desktop Companion</b>',
+            "src/components/layout/Sidebar.tsx": "<b>AgentMate Desktop</b>",
             "src/components/chat/MessageList.tsx": '<div className="bot-nm">AgentMate</div>',
             "src/lib/exportChat.ts": "_由 AgentMate 导出_",
             "backend/agent/runtime.py": "你是 AgentMate",
@@ -69,7 +69,6 @@ class ProductBrandContractTest(unittest.TestCase):
         self.assertEqual(expected, json.loads(read("package.json"))["version"])
         self.assertEqual(expected, json.loads(read("src-tauri/tauri.conf.json"))["version"])
         self.assertIn(f'version = "{expected}"', read("src-tauri/Cargo.toml"))
-        self.assertIn(f'<small>v{expected}</small>', read("src/components/layout/Sidebar.tsx"))
         self.assertIn(f'version="{expected}"', read("backend/main.py"))
         self.assertIn(f'version="{expected}"', read("server/main.py"))
 
