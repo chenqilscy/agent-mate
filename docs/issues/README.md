@@ -7,7 +7,7 @@
 
 - 活动状态 `open` / `in-progress` / `deferred`：每个问题一个 `WB-<编号>-<slug>.md` 文件。
 - 终态 `fixed` / `wontfix`：运行 `python scripts/archive_issues.py --apply` 后进入 [`archive/`](archive/README.md)。
-- 编号全局递增且不复用；当前最大编号是 `WB-511`，可用 `python scripts/archive_issues.py --next-id` 查询。
+- 编号全局递增且不复用；当前最大编号是 `WB-512`，可用 `python scripts/archive_issues.py --next-id` 查询。
 - 活动文件 frontmatter 是权威状态；下表是活动状态镜像。
 
 ## 活动台账
@@ -20,6 +20,7 @@
 | [WB-344](WB-344-v1-controlled-user-pilot.md) | ⏸ | P1 | misc | V1.0 受控真实用户试用缺少参与者、安装版本与连续证据 |
 | [WB-437](WB-437-server-first-data-migration-retirement.md) | ⬜ | P1 | misc | 存量业务数据迁移与旧同步机制退役 |
 | [WB-511](WB-511-console-project-detail-antd6-deprecations.md) | ⬜ | P2 | frontend | Console 项目任务抽屉残留 Ant Design 6 弃用组件与属性 |
+| [WB-512](WB-512-project-task-drawer-nested-form.md) | ⬜ | P2 | frontend | Console 项目任务抽屉将评论表单嵌套在任务编辑表单内 |
 
 ## 已关闭归档
 
