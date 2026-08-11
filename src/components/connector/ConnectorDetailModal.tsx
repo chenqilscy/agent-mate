@@ -4,36 +4,19 @@ import { type ConnMeta } from '../../data/catalog'
 import { useCatalog } from '../../stores/catalogStore'
 import { api } from '../../lib/api'
 import { useLoadoutStore } from '../../stores/loadoutStore'
-import { useChatStore } from '../../stores/chatStore'
-import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
 import { WeKnoraConfigForm } from './WeKnoraConfigForm'
 import { AntModalBridge } from '../ui/AntModalBridge'
 import { Tag } from 'antd'
 import { clickable } from '../../lib/a11y'
+import { openServerConsole } from '../../lib/console'
 
 // 连接器详情弹窗（套现有 .np-overlay/.np-modal 骨架，天然继承暗色覆盖）。
 // OAuth 连接器（如金山文档）走真实授权流：点「连接」→ 后端 spawn `kdocs-cli auth login`
 // → 跳转 WPS 授权页 → 成功后 Token 存本机密钥链；前端轮询状态直到已连接，再展示去试试/添加。
 // 表单型连接器（meta.configKind，如 WeKnora · WB-188）：「启用方式」渲染成真配置表单，
 // 填完存后端 DB（不用改 .env），徽标按真实连接态实时切换。
-// 其余非 OAuth 连接器沿用「添加到本会话 / 去试试」展示型交互。
-
-// 把连接器作为新会话的唯一能力班底，可选携一个试用 prompt 直接发起。
-function engage(name: string, prompt?: string) {
-  useLoadoutStore.getState().summonConnectors([name])
-  const chat = useChatStore.getState()
-  if (prompt) {
-    chat.startDraft(prompt.length > 26 ? prompt.slice(0, 26) + '…' : prompt)
-    useUIStore.getState().setView('chat')
-    void chat.send(prompt)
-    toast('已接入 · ' + name)
-  } else {
-    chat.startDraft('对话')
-    useUIStore.getState().setView('home')
-    toast('已接入 ' + name + ' · 可直接对它下达指令')
-  }
-}
+// 其余非 OAuth 连接器仍可在本机选择，但不会从 Desktop 创建业务 Run。
 
 type ConnState = 'unknown' | 'not_installed' | 'disconnected' | 'connecting' | 'connected'
 
@@ -110,15 +93,20 @@ export function ConnectorDetailModal(
     toast('已断开 · ' + name)
   }
 
-  const doTry = () => { engage(name); onClose() }
-  const doPrompt = (p: string) => { engage(name, p); onClose() }
+  const useInWorkspace = () => {
+    onClose()
+    toast(`请在 Server Workspace 使用「${name}」发起 Run`)
+    void openServerConsole('/')
+  }
+  const doPrompt = (_prompt: string) => useInWorkspace()
   const toggleAdd = () => {
     if (added) {
       useLoadoutStore.getState().toggle('conn', name)
       toast('已移除 · ' + name)
       return
     }
-    engage(name)
+    useLoadoutStore.getState().summonConnectors([name])
+    toast('已选择本机连接器 · ' + name)
     onClose()
   }
 
@@ -236,7 +224,7 @@ export function ConnectorDetailModal(
             <>
               {isOAuth && <WbButton type="button" className="btn-ghost" onClick={doDisconnect}>断开</WbButton>}
               <WbButton type="button" className="btn-ghost" onClick={toggleAdd}>{added ? '移除' : '添加到本会话'}</WbButton>
-              <WbButton type="button" className="btn-dark" style={{ flex: 1, justifyContent: 'center' }} onClick={doTry}>去试试</WbButton>
+              <WbButton type="button" className="btn-dark" style={{ flex: 1, justifyContent: 'center' }} onClick={useInWorkspace}>在 Workspace 使用</WbButton>
             </>
           )}
         </div>

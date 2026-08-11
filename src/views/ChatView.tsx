@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Composer } from '../components/composer/Composer'
 import { MessageList } from '../components/chat/MessageList'
 import { AskUserCard } from '../components/chat/AskUserCard'
+import { RunLaunchHandoff } from '../components/chat/RunLaunchHandoff'
 import { ChatSearch } from '../components/chat/ChatSearch'
 import { OvPanel } from '../components/panel/OvPanel'
 import { Popover } from '../components/ui/Popover'
@@ -17,7 +18,6 @@ export function ChatView() {
   const title = useChatStore((s) => s.title)
   const messages = useChatStore((s) => s.messages)
   const streaming = useChatStore((s) => s.streaming)
-  const send = useChatStore((s) => s.send)
   const pause = useChatStore((s) => s.pause)
   const resume = useChatStore((s) => s.resume)
   const cancel = useChatStore((s) => s.cancel)
@@ -131,8 +131,8 @@ export function ChatView() {
           {messages.length === 0 ? (
             <div className="ov-center" style={{ paddingTop: 120 }}>
               <span style={{ fontSize: 34 }}>💬</span>
-              开始一段新对话
-              <small>输入下方问题，与真实模型流式对话</small>
+              没有可观察的执行
+              <small>新的 Run 请从 Server Workspace 发起</small>
             </div>
           ) : (
             <MessageList messages={messages} streaming={streaming} onRetry={retry} onOpenBlockingRun={(run) => void openBlockingRun(run)} />
@@ -144,8 +144,10 @@ export function ChatView() {
 
         <div className="chat-foot">
           {pending && <AskUserCard questions={pending.questions} onAnswer={answer} />}
-          <Composer variant="chat" streaming={streaming} controlStatus={controlStatus} onSend={send} onPause={pause} onResume={resume} onCancel={cancel} autoFocus />
-          <div className="disc">内容由 AI 生成，请核实重要信息</div>
+          {streaming ? (
+            <Composer variant="chat" streaming controlStatus={controlStatus} onSend={() => toast('新的 Run 请从 Server Workspace 发起')} onPause={pause} onResume={resume} onCancel={cancel} autoFocus />
+          ) : !pending ? <RunLaunchHandoff /> : null}
+          {messages.length > 0 && <div className="disc">内容由 AI 生成，请核实重要信息</div>}
         </div>
       </div>
 

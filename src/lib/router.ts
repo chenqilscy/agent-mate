@@ -44,15 +44,15 @@ export function readRoute(pathname = window.location.pathname): AppRoute {
   const staticEntry = Object.entries(STATIC_ROUTES).find(([, p]) => p === path)
   if (staticEntry) return { view: staticEntry[0] as ViewId, valid: true }
 
-  let m = path.match(/^\/chat\/(new|[^/]+)$/)
-  if (m) return { view: 'chat', sessionId: m[1] === 'new' ? undefined : part(m[1]), valid: true }
+  let m = path.match(/^\/chat\/([^/]+)$/)
+  if (m && m[1] !== 'new') return { view: 'chat', sessionId: part(m[1]), valid: true }
 
-  m = path.match(/^\/projects\/([^/]+)\/runs\/(new|[^/]+)$/)
-  if (m) {
+  m = path.match(/^\/projects\/([^/]+)\/runs\/([^/]+)$/)
+  if (m && m[2] !== 'new') {
     return {
       view: 'projexec',
       projectId: part(m[1]),
-      sessionId: m[2] === 'new' ? undefined : part(m[2]),
+      sessionId: part(m[2]),
       valid: true,
     }
   }
@@ -64,7 +64,7 @@ export function readRoute(pathname = window.location.pathname): AppRoute {
 }
 
 export function pathForView(view: ViewId, opts: RouteOptions = {}): string {
-  if (view === 'chat') return `/chat/${encodeURIComponent(opts.sessionId || 'new')}`
+  if (view === 'chat') return opts.sessionId ? `/chat/${encodeURIComponent(opts.sessionId)}` : '/'
   if (view === 'project') {
     if (!opts.projectId) return '/projects'
     const path = `/projects/${encodeURIComponent(opts.projectId)}`
@@ -72,7 +72,8 @@ export function pathForView(view: ViewId, opts: RouteOptions = {}): string {
   }
   if (view === 'projexec') {
     if (!opts.projectId) return '/projects'
-    return `/projects/${encodeURIComponent(opts.projectId)}/runs/${encodeURIComponent(opts.sessionId || 'new')}`
+    if (!opts.sessionId) return `/projects/${encodeURIComponent(opts.projectId)}`
+    return `/projects/${encodeURIComponent(opts.projectId)}/runs/${encodeURIComponent(opts.sessionId)}`
   }
   return STATIC_ROUTES[view] ?? '/'
 }

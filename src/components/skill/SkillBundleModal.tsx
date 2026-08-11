@@ -2,11 +2,9 @@ import { App as AntApp, Select } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../lib/api'
 import type { SkillBundle } from '../../lib/types'
-import { useChatStore } from '../../stores/chatStore'
 import { useLoadoutStore } from '../../stores/loadoutStore'
 import { useSkillStore } from '../../stores/skillStore'
 import { toast } from '../../stores/toastStore'
-import { useUIStore } from '../../stores/uiStore'
 import { AntModalBridge } from '../ui/AntModalBridge'
 import { WbButton, WbInput, WbTextArea } from '../ui/Primitives'
 
@@ -107,9 +105,7 @@ export function SkillBundleModal({ open, onClose }: { open: boolean; onClose: ()
   const useBundle = () => {
     if (!selected) return
     useLoadoutStore.getState().summonSkillBundle(selected.id)
-    useChatStore.getState().startDraft('技能组合 · ' + selected.name)
-    useUIStore.getState().setView('home')
-    toast(`已挂载「${selected.name}」· 可直接开始对话`)
+    toast(`已选择本机技能组合「${selected.name}」· 新 Run 请从 Server Workspace 发起`)
     onClose()
   }
 
@@ -187,7 +183,7 @@ export function SkillBundleModal({ open, onClose }: { open: boolean; onClose: ()
         <div className="np-foot">
           {selected && <WbButton className="btn-ghost" disabled={busy} onClick={remove}>删除</WbButton>}
           <div style={{ flex: 1 }} />
-          {selected && <WbButton className="btn-ghost" disabled={busy} onClick={useBundle}>用于新对话</WbButton>}
+          {selected && <WbButton className="btn-ghost" disabled={busy} onClick={useBundle}>选择为本机组合</WbButton>}
           <WbButton className="btn-dark" disabled={!name.trim() || skills.length === 0 || busy} onClick={() => { void save() }}>
             {selected ? '保存修改' : '创建组合'}
           </WbButton>

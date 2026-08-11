@@ -2,7 +2,6 @@ import { WbButton } from '../ui/Primitives'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useUIStore } from '../../stores/uiStore'
 import { useChatStore } from '../../stores/chatStore'
-import { useLoadoutStore } from '../../stores/loadoutStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useAuthStore } from '../../stores/authStore'
 import { useNotificationStore } from '../../stores/notificationStore'
@@ -29,7 +28,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: '本机执行节点',
     items: [
       { id: 'home', label: '执行与授权', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg> },
-      { id: 'projects', label: '任务上下文', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg> },
       { id: 'skills', label: '本机能力', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg> },
     ],
   },
@@ -39,7 +37,7 @@ function activeNav(view: ViewId): ViewId | 'more' {
   if (view === 'inspire' || view === 'myfiles' || view === 'kdocs' || view === 'knowledge') return 'more'
   if (view === 'connectors' || view === 'experts') return 'skills'
   if (view === 'chat') return 'home'
-  if (view === 'projexec' || view === 'project') return 'projects'
+  if (view === 'projexec' || view === 'project' || view === 'projects') return 'home'
   return view
 }
 
@@ -171,14 +169,6 @@ export function Sidebar() {
     return () => document.removeEventListener('mousedown', onDown)
   }, [profileOpen, moreOpen])
 
-  // 新建任务: a genuinely fresh start — drop any ad-hoc loadout the previous chat
-  // had so the home composer opens clean.
-  const newTask = () => {
-    useChatStore.getState().startDraft('对话')
-    useLoadoutStore.getState().reset()
-    setView('home')
-  }
-
   const openTask = (id: string) => {
     const session = sessions.find((item) => item.id === id)
     const projectId = session?.project_id ?? undefined
@@ -249,10 +239,6 @@ export function Sidebar() {
       )}
 
       <nav className="nav">
-        <WbButton type="button" className="sb-new-task" onClick={newTask}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-          新建任务
-        </WbButton>
         <Menu
           mode="inline"
           selectedKeys={[String(act)]}

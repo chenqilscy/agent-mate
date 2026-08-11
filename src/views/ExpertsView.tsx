@@ -22,6 +22,7 @@ import { Empty, Input, Spin, Tabs, Tag } from 'antd'
 import { ProCard } from '@ant-design/pro-components'
 import { clickable } from '../lib/a11y'
 import { TeamOrchestrationPanel } from '../components/expert/TeamOrchestrationPanel'
+import { openServerConsole } from '../lib/console'
 
 type CapabilityKind = 'experts' | 'skills' | 'connectors'
 
@@ -48,30 +49,16 @@ type Detail =
   | { type: 'expert'; icon: string; name: string; subtitle: string; badge: string; category: string; intro: string; strengths: string[] }
   | { type: 'team'; team: ExpertTeam }
 
-// 召唤专家/专家团：把班底设进本会话 loadout（团队=全部成员），开一段干净对话。
-// 传 prompt 时直接以该 prompt 发起对话（「试试这样问我」）；否则回首页 composer 待用户输入。
-function summon(names: string[], display: string, prompt?: string) {
-  useLoadoutStore.getState().summon(names)
-  const chat = useChatStore.getState()
-  if (prompt) {
-    chat.startDraft(prompt.length > 26 ? prompt.slice(0, 26) + '…' : prompt)
-    useUIStore.getState().setView('chat')
-    void chat.send(prompt)
-    toast('已召唤 · ' + display)
-  } else {
-    chat.startDraft('对话')
-    useUIStore.getState().setView('home')
-    toast('已召唤 ' + display + ' · 可直接开始对话')
-  }
+// 共享专家是 Server 业务上下文。Desktop 只做本机能力管理，不再创建草稿 Run。
+function summon(_names: string[], display: string, _prompt?: string) {
+  toast(`请在 Server Workspace 选择「${display}」并发起 Run`)
+  void openServerConsole('/')
 }
 
-// 连接器卡片必须直接进入一段已挂载的新草稿。若只在目录页 toggle，用户随后点“新建任务”
-// 会按会话隔离规则 reset loadout，形成“显示已添加、实际无法使用”的假入口（WB-194）。
+// 连接器卡片仅准备本机能力；新的业务 Run 始终由 Server Workspace 发起。
 function summonConnector(name: string) {
   useLoadoutStore.getState().summonConnectors([name])
-  useChatStore.getState().startDraft('试试 · ' + name)
-  useUIStore.getState().setView('home')
-  toast('已挂载「' + name + '」· 去试试')
+  toast('已选择本机连接器「' + name + '」· 新 Run 请从 Server Workspace 发起')
 }
 
 function RecoBtn({ skillKey, displayName }: { skillKey: string; displayName: string }) {
@@ -746,11 +733,8 @@ function CapabilityView({ kind }: { kind: CapabilityKind }) {
   const createSkill = () => {
     setDetailTarget(null)
     setMyInstalled(false)
-    useLoadoutStore.getState().summonSkills(['skill-creator-guide'])
-    useLoadoutStore.getState().setDraft('请帮我创建一个可以实现「……」的 skill')
-    useChatStore.getState().startDraft('创建技能')
-    useUIStore.getState().setView('home')
-    toast('已载入技能创建指南 · 请描述你要创建的技能')
+    toast('由 Agent 创建技能属于新的执行意图，请在 Server Workspace 发起')
+    void openServerConsole('/')
   }
   const returnToExecution = () => {
     if (activeProjectId) {

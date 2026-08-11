@@ -19,12 +19,10 @@ import { startDesktopDeepLinks } from './platform/deepLinks'
 
 const HomeView = lazy(() => import('./views/HomeView').then((module) => ({ default: module.HomeView })))
 const ChatView = lazy(() => import('./views/ChatView').then((module) => ({ default: module.ChatView })))
-const WorkspaceContextsView = lazy(() => import('./views/WorkspaceContextsView').then((module) => ({ default: module.WorkspaceContextsView })))
 const ConsoleHandoffView = lazy(() => import('./views/ConsoleHandoffView').then((module) => ({ default: module.ConsoleHandoffView })))
 const ProjExecView = lazy(() => import('./views/ProjExecView').then((module) => ({ default: module.ProjExecView })))
 const SkillsView = lazy(() => import('./views/ExpertsView').then((module) => ({ default: module.SkillsView })))
 const ConnectorsView = lazy(() => import('./views/ExpertsView').then((module) => ({ default: module.ConnectorsView })))
-const InspireView = lazy(() => import('./views/InspireView').then((module) => ({ default: module.InspireView })))
 const MyFilesView = lazy(() => import('./views/MyFilesView').then((module) => ({ default: module.MyFilesView })))
 const KdocsView = lazy(() => import('./views/KdocsView').then((module) => ({ default: module.KdocsView })))
 const KnowledgeView = lazy(() => import('./views/KnowledgeView').then((module) => ({ default: module.KnowledgeView })))
@@ -43,7 +41,7 @@ function MainView() {
       content = <ConsoleHandoffView />
       break
     case 'projects':
-      content = <WorkspaceContextsView />
+      content = <ConsoleHandoffView />
       break
     case 'project':
       content = <ConsoleHandoffView />
@@ -64,7 +62,7 @@ function MainView() {
       content = <ConsoleHandoffView />
       break
     case 'inspire':
-      content = <InspireView />
+      content = <ConsoleHandoffView />
       break
     case 'myfiles':
       content = <MyFilesView />
@@ -152,11 +150,6 @@ export function App() {
         if (route.sessionId) {
           await useChatStore.getState().openSession(route.sessionId)
           if (cancelled) return
-        } else if (route.view === 'chat') {
-          useChatStore.getState().startDraft('对话')
-        } else if (route.view === 'projexec' && route.projectId) {
-          const project = useProjectStore.getState().active
-          useChatStore.getState().startProject(route.projectId, project?.name ?? '项目执行')
         }
         useUIStore.getState().setView(route.view, { history: false })
       } catch {

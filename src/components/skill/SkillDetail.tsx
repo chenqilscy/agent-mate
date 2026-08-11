@@ -8,12 +8,10 @@ import { api, SkillSecurityError } from '../../lib/api'
 import type { SkillCard, SkillDetail as SkillDetailData } from '../../lib/types'
 import { renderMarkdown } from '../../lib/markdown'
 import { useSkillStore } from '../../stores/skillStore'
-import { useLoadoutStore } from '../../stores/loadoutStore'
-import { useChatStore } from '../../stores/chatStore'
-import { useUIStore } from '../../stores/uiStore'
 import { toast } from '../../stores/toastStore'
 import { Alert, App as AntApp, Empty, Spin } from 'antd'
 import { clickable } from '../../lib/a11y'
+import { openServerConsole } from '../../lib/console'
 
 // 详情入口：已安装用 key；AgentMate 自有目录用 catalog+slug；第三方未安装项必须带商店卡元数据。
 export type SkillTarget = { key?: string; slug?: string; name?: string; catalog?: boolean; card?: SkillCard }
@@ -76,10 +74,8 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
   const localKey = data?.key || installedKey || ''
 
   const tryIt = () => {
-    useLoadoutStore.getState().summonSkills([data?.slug || localKey || name])
-    useChatStore.getState().startDraft('试试 · ' + name)
-    useUIStore.getState().setView('home')
-    toast('已挂载「' + name + '」· 去试试')
+    toast(`请在 Server Workspace 使用「${name}」发起 Run`)
+    void openServerConsole('/')
   }
   const doInstall = async (acceptSecurityWarnings = false) => {
     setInstalling(true)
@@ -207,7 +203,7 @@ export function SkillDetail({ target, onBack }: { target: SkillTarget; onBack: (
                       {installing ? <><IcSpin /> 升级中…</> : `升级${data.catalog_version ? '到 v' + data.catalog_version : ''}`}
                     </WbButton>
                   )}
-                  <WbButton className="cap-act" onClick={tryIt}>去试试</WbButton>
+                  <WbButton className="cap-act" onClick={tryIt}>在 Workspace 使用</WbButton>
                   <div
                     className={`sw ${disabled ? '' : 'on'}`.trim()} role="switch" aria-checked={disabled ? 'false' : 'true'}
                     title={disabled ? '已关闭 · 点击启用' : '已启用 · 点击关闭'}
