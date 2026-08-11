@@ -52,6 +52,7 @@ class ProjectExecutionAnalyticsTest(unittest.TestCase):
             record_id="session-503",
         )
         now = time.time()
+        self.analysis_now = now + 1
         common = {
             "session_id": session["id"], "work_item_id": self.item["id"], "mode": "exec",
             "workspace": f"project:{self.project.id}", "model_ref": "provider/model",
@@ -113,9 +114,19 @@ class ProjectExecutionAnalyticsTest(unittest.TestCase):
             project_id=self.project.id, work_item_id=self.item["id"], run_id=completed["id"],
             artifact_count=1, actor_id=self.owner.id, actor_name=self.owner.name,
         )
+        # The aggregation contract already exposes an explicit as-of boundary.
+        # Anchor the fixture's acceptance event to the same timeline rather than
+        # assuming two adjacent Windows wall-clock reads are monotonic.
+        conn.execute(
+            "UPDATE work_item_acceptances SET accepted_at=? WHERE work_item_id=?",
+            (now - 5, self.item["id"]),
+        )
+        conn.commit()
 
     def test_metrics_are_recomputable_and_keep_unknown_cost_separate(self) -> None:
-        result = build_project_execution_analytics(self.project.id, days=7, timezone_name="UTC")
+        result = build_project_execution_analytics(
+            self.project.id, days=7, timezone_name="UTC", now=self.analysis_now,
+        )
         self.assertEqual("project-execution-v2", result["metric_version"])
         self.assertEqual(3, result["summary"]["runs"])
         self.assertEqual(1, result["summary"]["completed"])
@@ -135,7 +146,7 @@ class ProjectExecutionAnalyticsTest(unittest.TestCase):
         self.assertNotIn("request_snapshot", str(result))
 
     def test_retry_inside_window_is_not_relabelled_as_first_success(self) -> None:
-        anchor = time.time()
+        anchor = self.analysis_now + 100
         item = db.create_work_item(project_id=self.project.id, title="跨窗口返工")
         common = {
             "session_id": "session-503", "work_item_id": item["id"], "mode": "exec",
@@ -170,7 +181,7 @@ class ProjectExecutionAnalyticsTest(unittest.TestCase):
         self.assertEqual(1, result["delivery"]["rework_runs"])
 
     def test_acceptance_after_window_end_does_not_rewrite_window(self) -> None:
-        cutoff = time.time() - 3600
+        cutoff = self.analysis_now - 3600
         item = db.create_work_item(project_id=self.project.id, title="窗口后验收")
         run, _ = business_store.create_record(
             "business_runs", entity_type="run", actor_id=self.owner.id,

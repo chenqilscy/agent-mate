@@ -87,6 +87,10 @@ def build_project_execution_analytics(
     except ZoneInfoNotFoundError as exc:
         raise ValueError("invalid timezone") from exc
 
+    # ``now`` is the authoritative as-of boundary for reproducible reports and
+    # tests. Live queries take exactly one wall-clock reading; records stamped
+    # after that boundary remain future events instead of silently widening the
+    # requested window when the host clock is corrected.
     window_end = float(now if now is not None else time.time())
     window_start = window_end - days * 86400
     conn = db.get_conn()
