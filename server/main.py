@@ -32,7 +32,7 @@ import automation_scheduler  # noqa: E402
 import work_item_auto_scheduler  # noqa: E402
 import sso_store  # noqa: E402
 from config import settings  # noqa: E402
-from routers import accounts, assets, auth, automation_webhooks, business, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_health, projects, relay, run_protocol, sso, timeline, work_items  # noqa: E402
+from routers import accounts, assets, auth, automation_webhooks, business, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_analytics, project_health, projects, relay, run_protocol, sso, timeline, work_items  # noqa: E402
 
 db.init_db()
 sso_store.migrate_plaintext_provider_secrets()
@@ -115,6 +115,7 @@ def health() -> dict:
 
 
 app.include_router(auth.router)
+app.include_router(project_analytics.router)
 app.include_router(sso.router)
 app.include_router(accounts.router)
 app.include_router(orgs.router)

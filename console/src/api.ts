@@ -22,6 +22,7 @@ import type {
   Project,
   ProjectGovernanceRecord,
   ProjectHealth,
+  ProjectExecutionAnalytics,
   ProjectHealthPortfolio,
   ProjectHealthTransition,
   ProjectCustomField,
@@ -525,6 +526,11 @@ export const consoleApi = {
     apiRequest<{ ok: boolean }>("DELETE", `/projects/${encodeURIComponent(id)}/governance/${encodeURIComponent(recordId)}`),
   projectHealth: (id: string) =>
     apiRequest<ProjectHealth>("GET", `/projects/${encodeURIComponent(id)}/health`),
+  projectExecutionAnalytics: (id: string, days: 7 | 30 | 90, timezone: string) =>
+    apiRequest<ProjectExecutionAnalytics>(
+      "GET",
+      `/projects/${encodeURIComponent(id)}/execution-analytics?days=${days}&timezone=${encodeURIComponent(timezone)}`,
+    ),
   projectHealthPortfolio: () =>
     apiRequest<ProjectHealthPortfolio>("GET", "/project-health"),
   projectHealthScan: () =>

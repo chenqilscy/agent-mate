@@ -398,6 +398,52 @@ export interface WorkItemExecutionPolicy {
   updated_at: number;
 }
 
+export interface ProjectExecutionRunMetric {
+  run_id: string;
+  work_item_id: string;
+  work_item_title: string;
+  status: string;
+  error_code: string;
+  queue_seconds: number | null;
+  execution_seconds: number | null;
+  tokens: number;
+  estimated_cost: number | null;
+  cost_currency: string;
+  device_id: string;
+  device_name: string;
+  created_at: number;
+}
+
+export interface ProjectExecutionAnalytics {
+  metric_version: string;
+  project_id: string;
+  window: { days: number; timezone: string; start: number; end: number };
+  definitions: Record<string, string>;
+  summary: {
+    runs: number; completed: number; failed: number; cancelled: number; active: number;
+    success_rate: number | null; retry_runs: number; work_items_executed: number;
+    queue_avg_seconds: number | null; queue_p95_seconds: number | null;
+    execution_avg_seconds: number | null; execution_p95_seconds: number | null;
+    prompt_tokens: number; cached_prompt_tokens: number; completion_tokens: number;
+    estimated_cost: Record<string, number>; unpriced_runs: number;
+  };
+  delivery: {
+    artifacts: number; verified_artifacts: number; artifact_verification_rate: number | null;
+    accepted_deliveries: number; first_pass_total: number; first_pass_accepted: number;
+    first_pass_acceptance_rate: number | null; rework_runs: number;
+  };
+  trend: Array<{ date: string; runs: number; completed: number; failed: number; tokens: number; estimated_cost: Record<string, number> }>;
+  queue_blockers: Array<{ reason: string; message: string; runs: number }>;
+  failures: Array<{ error_code: string; runs: number }>;
+  devices: Array<{
+    device_id: string; device_name: string; readiness: string; runs: number;
+    completed: number; failed: number; tokens: number;
+    capacity: { active: number; parallel: number; resident: number; resident_limit: number };
+  }>;
+  slow_runs: ProjectExecutionRunMetric[];
+  costly_runs: ProjectExecutionRunMetric[];
+}
+
 export type WorkItemRunStatus =
   | "queued"
   | "leased"

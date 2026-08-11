@@ -70,6 +70,7 @@ import type {
 import { CompatList as List } from "../CompatList";
 import { MarkdownEditor } from "../MarkdownEditor";
 import { WorkItemExecution } from "./WorkItemExecution";
+import { ProjectExecutionAnalyticsPanel } from "./ProjectExecutionAnalytics";
 
 const STATUS_OPTIONS = [
   { value: "todo", label: "待办" },
@@ -1753,6 +1754,7 @@ export function ProjectOverview() {
     activity,
     loading,
     navigateToTab,
+    openTask,
   } = useProjectWork();
   const [liveHealth, setLiveHealth] = useState<ProjectHealth | null>(health);
   useEffect(() => {
@@ -1816,6 +1818,11 @@ export function ProjectOverview() {
           ) : "正在读取项目健康数据"}
         />
       </Card>
+      <ProjectExecutionAnalyticsPanel
+        project={project}
+        items={roots}
+        onOpenTask={(item) => openTask(item, {}, project.role === "Viewer")}
+      />
       <Row gutter={[16, 16]}>
         <Col xs={12} xl={6}>
           <Card loading={loading}>
