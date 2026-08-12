@@ -56,9 +56,32 @@ export function subscribeChannels(listener: (value: ChannelSnapshot) => void): (
 
 let serverBasePromise: Promise<string> | null = null
 
+function isCspAllowedHttpServer(hostname: string): boolean {
+  return hostname.toLowerCase() === 'localhost' || hostname === '127.0.0.1'
+}
+
+export function validateServerRoot(value: string): string {
+  const root = value.trim().replace(/\/+$/, '').replace(/\/api$/, '')
+  let parsed: URL
+  try {
+    parsed = new URL(root)
+  } catch {
+    throw new ChannelUnavailableError('server', 'AgentMate Server 地址无效')
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new ChannelUnavailableError('server', 'AgentMate Server 地址必须使用 http(s)')
+  }
+  if (isTauri && parsed.protocol === 'http:' && !isCspAllowedHttpServer(parsed.hostname)) {
+    throw new ChannelUnavailableError(
+      'server',
+      '桌面版仅允许通过 HTTP 连接本机 Server；局域网或公网 Server 必须使用 HTTPS',
+    )
+  }
+  return parsed.toString().replace(/\/$/, '')
+}
+
 function normalizeApiBase(value: string): string {
-  const trimmed = value.trim().replace(/\/+$/, '')
-  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`
+  return `${validateServerRoot(value)}/api`
 }
 
 export async function serverApiBase(): Promise<string> {
@@ -85,21 +108,11 @@ export async function serverConsoleBase(): Promise<string> {
   // reverse proxy. It cannot identify the Console origin. Local Agent status
   // carries the real application-owned Server URL for both web and desktop.
   const status = await refreshLocalAgentStatus()
-  const configured = status?.server_api_url?.trim().replace(/\/+$/, '') || ''
+  const configured = status?.server_api_url?.trim() || ''
   if (!configured) {
     throw new ChannelUnavailableError('server', 'AgentMate Server 尚未配置')
   }
-  const root = configured.replace(/\/api$/, '')
-  let parsed: URL
-  try {
-    parsed = new URL(root)
-  } catch {
-    throw new ChannelUnavailableError('server', 'AgentMate Server 地址无效')
-  }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new ChannelUnavailableError('server', 'AgentMate Server 地址必须使用 http(s)')
-  }
-  return parsed.toString().replace(/\/$/, '')
+  return validateServerRoot(configured)
 }
 
 export function resetServerApiBase(): void {
