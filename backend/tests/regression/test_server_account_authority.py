@@ -153,15 +153,13 @@ class ServerAccountAuthorityTest(unittest.TestCase):
             id="server-account", name="Alice", role=SimpleNamespace(value="Owner"), plan="专业版",
         )
         with (
-            patch.object(me_router, "current_user", return_value=guest),
             patch.object(me_router.model_governance, "account_has_model_configuration", return_value=False),
+            patch.object(me_router.db, "get_default_model", return_value=""),
         ):
-            self.assertFalse(me_router.get_me()["authenticated"])
-        with (
-            patch.object(me_router, "current_user", return_value=account),
-            patch.object(me_router.model_governance, "account_has_model_configuration", return_value=False),
-        ):
-            self.assertTrue(me_router.get_me()["authenticated"])
+            with patch.object(me_router, "current_user", return_value=guest):
+                self.assertFalse(me_router.get_me()["authenticated"])
+            with patch.object(me_router, "current_user", return_value=account):
+                self.assertTrue(me_router.get_me()["authenticated"])
 
 
 if __name__ == "__main__":
