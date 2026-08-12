@@ -28,8 +28,11 @@ fn new_ipc_token() -> String {
     format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
 }
 
-fn local_agent_sidecar_args() -> [&'static str; 2] {
-    ["--local-agent-core", "--ipc-token-stdin"]
+fn local_agent_sidecar_args() -> [&'static str; 1] {
+    // The retained device-management surfaces still use compatibility routes
+    // from main.app.  Keep the protected /api/local-agent/* Core router there,
+    // but do not select the Core-only app until those routes have moved to IPC.
+    ["--ipc-token-stdin"]
 }
 
 #[derive(Serialize)]
@@ -82,11 +85,8 @@ mod tests {
     }
 
     #[test]
-    fn packaged_sidecar_starts_only_the_local_agent_core() {
-        assert_eq!(
-            ["--local-agent-core", "--ipc-token-stdin"],
-            local_agent_sidecar_args()
-        );
+    fn packaged_sidecar_keeps_device_api_compatibility_and_protected_ipc() {
+        assert_eq!(["--ipc-token-stdin"], local_agent_sidecar_args());
     }
 }
 
