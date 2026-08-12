@@ -31,6 +31,7 @@ import asset_object_store  # noqa: E402
 import automation_scheduler  # noqa: E402
 import work_item_auto_scheduler  # noqa: E402
 import sso_store  # noqa: E402
+from request_limits import RawIngressBodyLimitMiddleware  # noqa: E402
 from console_session import ConsoleCsrfMiddleware  # noqa: E402
 from security_headers import SecurityHeadersMiddleware  # noqa: E402
 from config import settings  # noqa: E402
@@ -88,6 +89,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(title="AgentMate Server API", version="1.0.0", lifespan=_lifespan)
 app.add_middleware(ConsoleCsrfMiddleware)
+app.add_middleware(RawIngressBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=False,
     allow_methods=["*"], allow_headers=["*"],

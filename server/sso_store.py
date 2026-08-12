@@ -437,8 +437,18 @@ def resolve_identity(attempt: dict[str, Any], identity: dict[str, Any]) -> str:
             raise ValueError("invalid_signup_invite")
     now = time.time()
     account_id = db.new_uuid()
+    disabled_password_hash = db.hash_password(secrets.token_urlsafe(48))
     try:
         conn.execute("BEGIN IMMEDIATE")
+        if conn.execute(
+            "SELECT 1 FROM external_identities WHERE provider=? AND subject=?",
+            (provider, subject),
+        ).fetchone():
+            raise ValueError("identity_already_linked")
+        if email and conn.execute(
+            "SELECT 1 FROM accounts WHERE lower(email)=? LIMIT 1", (email,),
+        ).fetchone():
+            raise ValueError("explicit_link_required")
         if invite:
             claimed = conn.execute(
                 "UPDATE sso_signup_invites SET consumed_by=?,consumed_at=? "
@@ -447,15 +457,17 @@ def resolve_identity(attempt: dict[str, Any], identity: dict[str, Any]) -> str:
             )
             if claimed.rowcount != 1:
                 raise ValueError("invalid_signup_invite")
+        first_account = int(conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]) == 0
         conn.execute(
             "INSERT INTO accounts "
             "(id,name,email,plan,password_hash,created_at,is_platform_admin,password_login_enabled) "
             "VALUES (?,?,?,?,?,?,?,0)",
             (account_id, _unique_name(display_name, email, provider), email, "体验版",
-             db.hash_password(secrets.token_urlsafe(48)), now, 0),
+             disabled_password_hash, now, int(first_account)),
         )
         db.record_auth_audit(
-            action="account_registered_sso", account_id=account_id, actor_id=account_id,
+            action="bootstrap_first_admin" if first_account else "account_registered_sso",
+            account_id=account_id, actor_id=account_id,
             provider=provider, details={"email_present": bool(email)}, conn=conn,
         )
         db.record_auth_audit(

@@ -273,6 +273,8 @@ class SsoAuthTest(unittest.TestCase):
         upgraded = db.get_account_by_name("admin")
         self.assertTrue(upgraded and upgraded[1].startswith("scrypt$"))
 
+        db.get_conn().execute("DELETE FROM auth_rate_windows")
+        db.get_conn().commit()
         settings.AUTH_RATE_LIMIT_PER_MINUTE = 1
         first = self.client.post("/api/auth/login", json={"name": "rate", "password": "bad"})
         second = self.client.post("/api/auth/login", json={"name": "rate", "password": "bad"})

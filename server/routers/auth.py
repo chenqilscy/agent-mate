@@ -53,19 +53,13 @@ def register(body: RegisterBody, request: Request, response: Response) -> dict:
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "empty name")
-    if db.find_account_by_name(name):
-        raise HTTPException(409, "name already taken")
-    # WB-423: 首个注册用户自动提权为平台管理员，无需额外 bootstrap 步骤。
-    first_account = db.count_accounts() == 0
-    acc = db.create_account(
-        name=name, password=body.password, email=body.email.strip(),
-        is_platform_admin=first_account,
-    )
-    db.record_auth_audit(
-        action="bootstrap_first_admin" if first_account else "password_registered",
-        account_id=acc.id, actor_id=acc.id,
-    )
-    token, expires_at = db.create_token(acc.id)
+    try:
+        # WB-423/WB-543: 首个注册用户自动提权，判定与插入必须同处写事务。
+        acc, token, expires_at = db.register_password_account(
+            name=name, password=body.password, email=body.email.strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     return console_auth_payload(
         request, response, token=token, expires_at=expires_at, account=acc.to_dict(),
     )
@@ -103,7 +97,11 @@ def bootstrap(body: BootstrapBody, request: Request, response: Response) -> dict
 def login(body: LoginBody, request: Request, response: Response) -> dict:
     name = (body.name or "").strip()
     ip = request.client.host if request.client else "unknown"
-    if not sso_store.check_rate_limit(f"login:{ip}:{name.lower()}"):
+    # Independent buckets prevent both a one-IP username sweep and a distributed
+    # attack against one account. Keep the response generic regardless of which fires.
+    source_allowed = sso_store.check_rate_limit(f"login-ip:{ip}")
+    account_allowed = sso_store.check_rate_limit(f"login-account:{name.lower()}")
+    if not source_allowed or not account_allowed:
         raise HTTPException(429, "too_many_attempts")
     rec = db.get_account_by_name(name)
     if not rec or not db.verify_password(body.password, rec[1]):

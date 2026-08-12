@@ -1131,6 +1131,43 @@ def create_account(
     return a
 
 
+def register_password_account(
+    *, name: str, password: str, email: str = "",
+) -> tuple[Account, str, float]:
+    """Atomically create a password account and elect exactly one first admin."""
+    password_hash = hash_password(password)
+    conn = get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if conn.execute("SELECT 1 FROM accounts WHERE name=?", (name,)).fetchone():
+            raise ValueError("name already taken")
+        first_account = int(conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]) == 0
+        account = Account(
+            id=new_uuid(), name=name[:60], email=email[:120], plan="体验版",
+            created_at=time.time(), is_platform_admin=first_account,
+            password_login_enabled=True,
+        )
+        conn.execute(
+            "INSERT INTO accounts "
+            "(id,name,email,plan,password_hash,created_at,is_platform_admin,password_login_enabled) "
+            "VALUES (?,?,?,?,?,?,?,1)",
+            (
+                account.id, account.name, account.email, account.plan, password_hash,
+                account.created_at, int(account.is_platform_admin),
+            ),
+        )
+        record_auth_audit(
+            action="bootstrap_first_admin" if first_account else "password_registered",
+            account_id=account.id, actor_id=account.id, conn=conn,
+        )
+        token, expires_at = create_token(account.id, conn=conn)
+        conn.commit()
+        return account, token, expires_at
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def bootstrap_admin(*, name: str, password: str, email: str = "") -> Account:
     """Create the only first administrator under a database write lock."""
     conn = get_conn()

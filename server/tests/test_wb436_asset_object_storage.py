@@ -18,6 +18,7 @@ sys.path.insert(0, str(SERVER))
 import asset_object_store  # noqa: E402
 import db  # noqa: E402
 from config import settings  # noqa: E402
+from models import Role  # noqa: E402
 from routers import assets, business  # noqa: E402
 
 
@@ -34,9 +35,15 @@ class AssetObjectStorageTest(unittest.TestCase):
         db.init_db()
         self.owner = db.create_account(name="owner-436", password="password123")
         self.other = db.create_account(name="other-436", password="password123")
+        self.member = db.create_account(name="member-542", password="password123")
+        self.viewer = db.create_account(name="viewer-542", password="password123")
         self.project = db.create_project(name="Asset project", owner_id=self.owner.id)
+        db.add_project_member(self.project.id, self.member.id, Role.MEMBER)
+        db.add_project_member(self.project.id, self.viewer.id, Role.VIEWER)
         self.owner_token = db.create_token(self.owner.id)[0]
         self.other_token = db.create_token(self.other.id)[0]
+        self.member_token = db.create_token(self.member.id)[0]
+        self.viewer_token = db.create_token(self.viewer.id)[0]
         app = FastAPI()
         app.include_router(assets.router)
         app.include_router(business.router)
@@ -60,6 +67,10 @@ class AssetObjectStorageTest(unittest.TestCase):
 
     def _headers(self, other: bool = False) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.other_token if other else self.owner_token}"}
+
+    @staticmethod
+    def _token_headers(token: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {token}"}
 
     def _asset(self, data: bytes, key: str) -> str:
         response = self.client.post(
@@ -149,6 +160,81 @@ class AssetObjectStorageTest(unittest.TestCase):
             ).status_code,
         )
         self.assertTrue(asset_object_store.object_path(f"objects/{sha256[:2]}/{sha256}").is_file())
+
+    def test_project_member_upload_uses_real_actor_and_preserves_asset_owner(self) -> None:
+        data = b"member-delivery"
+        sha256 = hashlib.sha256(data).hexdigest()
+        asset_id = self._asset(data, "member-actor")
+        member_headers = self._token_headers(self.member_token)
+
+        started = self.client.post(
+            "/api/assets/uploads", headers=member_headers,
+            json={"asset_id": asset_id, "size": len(data), "sha256": sha256},
+        )
+        self.assertEqual(200, started.status_code, started.text)
+        upload = started.json()["upload"]
+        self.assertEqual(
+            self.member.id,
+            db.get_conn().execute(
+                "SELECT owner_id FROM asset_uploads WHERE id=?", (upload["id"],),
+            ).fetchone()[0],
+        )
+        self.assertEqual(
+            404,
+            self.client.get(
+                f"/api/assets/uploads/{upload['id']}", headers=self._headers(),
+            ).status_code,
+        )
+
+        for number, offset in enumerate(range(0, len(data), upload["part_size"])):
+            part = data[offset:offset + upload["part_size"]]
+            response = self.client.put(
+                f"/api/assets/uploads/{upload['id']}/parts/{number}",
+                headers={**member_headers, "X-Part-SHA256": hashlib.sha256(part).hexdigest()},
+                content=part,
+            )
+            self.assertEqual(200, response.status_code, response.text)
+        completed = self.client.post(
+            f"/api/assets/uploads/{upload['id']}/complete", headers=member_headers,
+        )
+        self.assertEqual(200, completed.status_code, completed.text)
+        self.assertEqual(self.owner.id, completed.json()["object_version"]["owner_id"])
+
+        audit_rows = db.get_conn().execute(
+            "SELECT actor_id,owner_id,action FROM business_audit "
+            "WHERE entity_id=? AND action IN ('asset.upload.begin','asset.object.commit') "
+            "ORDER BY created_at",
+            (asset_id,),
+        ).fetchall()
+        self.assertEqual(
+            [(self.member.id, self.owner.id, "asset.upload.begin"),
+             (self.member.id, self.owner.id, "asset.object.commit")],
+            [(row["actor_id"], row["owner_id"], row["action"]) for row in audit_rows],
+        )
+        grant = self.client.post(
+            f"/api/assets/{asset_id}/download-grant", headers=member_headers,
+        )
+        self.assertEqual(200, grant.status_code, grant.text)
+        downloaded = self.client.get(
+            f"/api/assets/{asset_id}/content",
+            headers={"X-Asset-Token": grant.json()["token"]},
+        )
+        self.assertEqual(data, downloaded.content)
+
+        request_body = {"asset_id": asset_id, "size": len(data), "sha256": sha256}
+        self.assertEqual(
+            403,
+            self.client.post(
+                "/api/assets/uploads", headers=self._token_headers(self.viewer_token),
+                json=request_body,
+            ).status_code,
+        )
+        self.assertEqual(
+            404,
+            self.client.post(
+                "/api/assets/uploads", headers=self._headers(True), json=request_body,
+            ).status_code,
+        )
 
     def test_hash_mismatch_and_expired_multipart_cleanup(self) -> None:
         data = b"abcdefgh"

@@ -40,13 +40,15 @@ def object_path(storage_key: str) -> Path:
     return path
 
 
-def _audit(conn, asset: dict[str, Any], action: str, details: dict[str, Any]) -> None:
+def _audit(
+    conn, asset: dict[str, Any], actor_id: str, action: str, details: dict[str, Any],
+) -> None:
     conn.execute(
         "INSERT INTO business_audit "
         "(id,actor_id,owner_id,project_id,action,entity_type,entity_id,details,created_at) "
         "VALUES (?,?,?,?,?,?,?,?,?)",
         (
-            db.new_uuid(), asset["owner_id"], asset["owner_id"], asset.get("project_id"),
+            db.new_uuid(), actor_id, asset["owner_id"], asset.get("project_id"),
             action, "asset", asset["id"], business_store._json(details), time.time(),
         ),
     )
@@ -59,7 +61,9 @@ def _version_row(conn, version_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def _commit_version(conn, asset: dict[str, Any], *, storage_key: str, size: int, sha256: str) -> dict[str, Any]:
+def _commit_version(
+    conn, asset: dict[str, Any], *, actor_id: str, storage_key: str, size: int, sha256: str,
+) -> dict[str, Any]:
     number = int(conn.execute(
         "SELECT COALESCE(MAX(version_number),0)+1 FROM asset_object_versions WHERE asset_id=?",
         (asset["id"],),
@@ -86,11 +90,16 @@ def _commit_version(conn, asset: dict[str, Any], *, storage_key: str, size: int,
             now, asset["id"],
         ),
     )
-    _audit(conn, asset, "asset.object.commit", {"object_version_id": version_id, "sha256": sha256, "size": size})
+    _audit(
+        conn, asset, actor_id, "asset.object.commit",
+        {"object_version_id": version_id, "sha256": sha256, "size": size},
+    )
     return dict(conn.execute("SELECT * FROM asset_object_versions WHERE id=?", (version_id,)).fetchone())
 
 
-def begin_upload(asset: dict[str, Any], *, expected_size: int, expected_sha256: str) -> dict[str, Any]:
+def begin_upload(
+    asset: dict[str, Any], *, actor_id: str, expected_size: int, expected_sha256: str,
+) -> dict[str, Any]:
     expected_sha256 = expected_sha256.lower()
     if expected_size < 0 or len(expected_sha256) != 64:
         raise ValueError("invalid object size or sha256")
@@ -105,7 +114,7 @@ def begin_upload(asset: dict[str, Any], *, expected_size: int, expected_sha256: 
         active = conn.execute(
             "SELECT * FROM asset_uploads WHERE asset_id=? AND owner_id=? AND state='uploading' "
             "AND expected_size=? AND expected_sha256=? AND expires_at>? ORDER BY created_at DESC LIMIT 1",
-            (asset["id"], asset["owner_id"], expected_size, expected_sha256, now),
+            (asset["id"], actor_id, expected_size, expected_sha256, now),
         ).fetchone()
         if active:
             conn.commit()
@@ -118,7 +127,7 @@ def begin_upload(asset: dict[str, Any], *, expected_size: int, expected_sha256: 
         ).fetchone()
         if duplicate and object_path(str(duplicate["storage_key"])).is_file():
             version = _commit_version(
-                conn, asset, storage_key=str(duplicate["storage_key"]),
+                conn, asset, actor_id=actor_id, storage_key=str(duplicate["storage_key"]),
                 size=expected_size, sha256=expected_sha256,
             )
             upload_id = db.new_uuid()
@@ -128,7 +137,7 @@ def begin_upload(asset: dict[str, Any], *, expected_size: int, expected_sha256: 
                 "object_version_id,created_at,updated_at,expires_at,completed_at) "
                 "VALUES (?,?,?,?,?,?,?,'committed',?,?,?,?,?)",
                 (
-                    upload_id, asset["id"], asset["owner_id"], asset.get("project_id"),
+                    upload_id, asset["id"], actor_id, asset.get("project_id"),
                     expected_size, expected_sha256, settings.ASSET_UPLOAD_PART_BYTES,
                     version["id"], now, now, now, now,
                 ),
@@ -146,12 +155,15 @@ def begin_upload(asset: dict[str, Any], *, expected_size: int, expected_sha256: 
             "(id,asset_id,owner_id,project_id,expected_size,expected_sha256,part_size,state,"
             "created_at,updated_at,expires_at) VALUES (?,?,?,?,?,?,?,'uploading',?,?,?)",
             (
-                upload_id, asset["id"], asset["owner_id"], asset.get("project_id"),
+                upload_id, asset["id"], actor_id, asset.get("project_id"),
                 expected_size, expected_sha256, settings.ASSET_UPLOAD_PART_BYTES,
                 now, now, now + settings.ASSET_UPLOAD_TTL_SECONDS,
             ),
         )
-        _audit(conn, asset, "asset.upload.begin", {"upload_id": upload_id, "size": expected_size})
+        _audit(
+            conn, asset, actor_id, "asset.upload.begin",
+            {"upload_id": upload_id, "size": expected_size},
+        )
         conn.commit()
         _upload_dir(upload_id).mkdir(parents=True, exist_ok=True)
         return {
@@ -270,7 +282,9 @@ def complete_upload(upload_id: str, owner_id: str) -> dict[str, Any]:
         if not asset_row:
             raise KeyError(str(upload["asset_id"]))
         asset = dict(asset_row)
-        version = _commit_version(conn, asset, storage_key=storage_key, size=size, sha256=actual)
+        version = _commit_version(
+            conn, asset, actor_id=owner_id, storage_key=storage_key, size=size, sha256=actual,
+        )
         now = time.time()
         conn.execute(
             "UPDATE asset_uploads SET state='committed',object_version_id=?,updated_at=?,completed_at=? "

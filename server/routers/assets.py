@@ -53,7 +53,12 @@ class UploadStart(BaseModel):
 def start_upload(body: UploadStart, account: Account = CurrentAccount) -> dict[str, Any]:
     asset = _asset(body.asset_id, account, write=True)
     try:
-        return {"upload": objects.begin_upload(asset, expected_size=body.size, expected_sha256=body.sha256)}
+        return {
+            "upload": objects.begin_upload(
+                asset, actor_id=account.id,
+                expected_size=body.size, expected_sha256=body.sha256,
+            ),
+        }
     except Exception as exc:
         _error(exc)
         raise
