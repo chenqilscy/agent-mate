@@ -1346,7 +1346,7 @@ function CollaborationTab({ project }: { project: Project }) {
           {timeline.length ? (
             <Timeline
               items={timeline.map((event) => ({
-                children: (
+                content: (
                   <>
                     <Typography.Text strong>
                       {event.actor_name || event.actor || "成员"}

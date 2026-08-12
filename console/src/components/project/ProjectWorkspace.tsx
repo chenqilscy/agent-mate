@@ -1369,21 +1369,23 @@ export function ProjectWorkProvider({
                       <div>
                         <Row gutter={12}>
                           <Col xs={24} sm={12}>
-                            <Form.Item name="estimate_h" label="预估工时">
-                              <InputNumber
-                                min={0}
-                                className="full-width"
-                                addonAfter="h"
-                              />
+                            <Form.Item label="预估工时">
+                              <Space.Compact block>
+                                <Form.Item name="estimate_h" noStyle>
+                                  <InputNumber min={0} className="full-width" />
+                                </Form.Item>
+                                <Button disabled>h</Button>
+                              </Space.Compact>
                             </Form.Item>
                           </Col>
                           <Col xs={24} sm={12}>
-                            <Form.Item name="spent_h" label="投入工时">
-                              <InputNumber
-                                min={0}
-                                className="full-width"
-                                addonAfter="h"
-                              />
+                            <Form.Item label="投入工时">
+                              <Space.Compact block>
+                                <Form.Item name="spent_h" noStyle>
+                                  <InputNumber min={0} className="full-width" />
+                                </Form.Item>
+                                <Button disabled>h</Button>
+                              </Space.Compact>
                             </Form.Item>
                           </Col>
                         </Row>
@@ -1598,7 +1600,7 @@ export function ProjectWorkProvider({
                 <Timeline
                   className="section-card"
                   items={taskActivity.slice(0, 12).map((event) => ({
-                    children: `${event.actor || "系统"} ${event.detail || event.kind}`,
+                    content: `${event.actor || "系统"} ${event.detail || event.kind}`,
                   }))}
                 />
               )}
@@ -1895,7 +1897,7 @@ export function ProjectOverview() {
             {activity.length ? (
               <Timeline
                 items={activity.slice(0, 12).map((item) => ({
-                  children: (
+                  content: (
                     <>
                       <Typography.Text strong>
                         {item.actor || "系统"}

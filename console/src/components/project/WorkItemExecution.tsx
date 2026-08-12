@@ -5,7 +5,6 @@ import {
   Card,
   Empty,
   InputNumber,
-  List,
   Select,
   Space,
   Spin,
@@ -14,6 +13,7 @@ import {
   Timeline,
   Typography,
 } from "antd";
+import { CompatList as List } from "../CompatList";
 import {
   CheckCircleOutlined,
   DownloadOutlined,
@@ -301,7 +301,7 @@ function RunCard({
                   event.type.includes("failed") || event.type === "ui.error"
                     ? "red"
                     : "blue",
-                children: (
+                content: (
                   <div>
                     <Typography.Text>{eventLabel(event)}</Typography.Text>
                     <br />
