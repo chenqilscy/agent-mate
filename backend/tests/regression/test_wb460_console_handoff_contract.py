@@ -20,7 +20,7 @@ class ConsoleHandoffContractTest(unittest.TestCase):
         block = source[source.index("export async function serverConsoleBase"):source.index("export function resetServerApiBase")]
         self.assertIn("await refreshLocalAgentStatus()", block)
         self.assertIn("status?.server_api_url", block)
-        self.assertIn("parsed = new URL(root)", block)
+        self.assertIn("return validateServerRoot(configured)", block)
         self.assertNotIn("'/server-api'", block)
 
     def test_project_console_url_uses_same_resolver(self) -> None:

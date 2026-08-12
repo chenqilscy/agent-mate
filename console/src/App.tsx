@@ -11,7 +11,7 @@ import {
 } from "@ant-design/icons";
 import { ProLayout } from "@ant-design/pro-components";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { ApiError, consoleApi, getToken, setToken } from "./api";
+import { consoleApi } from "./api";
 import LoginPage from "./LoginPage";
 import { navigate, usePathname } from "./router";
 import type { Account, ThemeMode } from "./types";
@@ -165,7 +165,7 @@ export default function ConsoleApp() {
   const [booting, setBooting] = useState(true);
   const [mode, setMode] = useState<ThemeMode>(() => localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark");
   useLayoutEffect(() => { document.body.classList.toggle("dark", mode === "dark"); document.documentElement.style.colorScheme = mode; localStorage.setItem(THEME_KEY, mode); }, [mode]);
-  useEffect(() => { let active = true; async function boot() { if (!getToken()) { setBooting(false); return; } try { const response = await consoleApi.me(); if (active) setAccount(response.account); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) setToken(""); } finally { if (active) setBooting(false); } } void boot(); return () => { active = false; }; }, []);
+  useEffect(() => { let active = true; async function boot() { try { const response = await consoleApi.me(); if (active) setAccount(response.account); } catch { /* Missing/expired cookie shows the login page. */ } finally { if (active) setBooting(false); } } void boot(); return () => { active = false; }; }, []);
   const themeConfig = useMemo(() => ({
     algorithm: mode === "dark" ? theme.darkAlgorithm : theme.defaultAlgorithm,
     token: { colorPrimary: "#16b37a", borderRadius: 8, controlHeight: 32, ...uiTypographyToken, ...uiThemeColorToken(mode) },
@@ -180,7 +180,7 @@ export default function ConsoleApp() {
       Modal: { borderRadiusLG: 10 },
     },
   }), [mode]);
-  async function logout() { try { await consoleApi.logout(); } catch { /* browser token removal is authoritative */ } setToken(""); setAccount(null); navigate("/", true); }
+  async function logout() { try { await consoleApi.logout(); } catch { /* Session expiry already leaves the Console signed out. */ } setAccount(null); navigate("/", true); }
   const toggleTheme = () => setMode((current) => current === "dark" ? "light" : "dark");
   return <ConfigProvider componentSize="small" theme={themeConfig}><AntApp>{booting ? <div className="boot-screen"><Spin size="large" description="正在连接 AgentMate Server…" /></div> : account ? <ConsoleContent account={account} mode={mode} onToggleTheme={toggleTheme} onLogout={() => void logout()} /> : <LoginPage onAuthenticated={setAccount} themeMode={mode} onToggleTheme={toggleTheme} />}</AntApp></ConfigProvider>;
 }

@@ -2,7 +2,7 @@ import { LockOutlined, MoonOutlined, SunOutlined, UserOutlined } from "@ant-desi
 import { LoginForm, ProFormText } from "@ant-design/pro-components";
 import { Alert, Button, Card, Divider, Input, Segmented, Space, Typography } from "antd";
 import { useEffect, useState } from "react";
-import { consoleApi, setToken } from "./api";
+import { consoleApi } from "./api";
 import type { Account, ThemeMode } from "./types";
 
 interface LoginPageProps {
@@ -50,8 +50,7 @@ export default function LoginPage({ onAuthenticated, themeMode, onToggleTheme }:
         await new Promise((resolve) => window.setTimeout(resolve, 1000));
         const result = await consoleApi.ssoPoll(attempt.attempt_id, attempt.attempt_token);
         if (result.status === "error") throw new Error(result.error_code || "联合登录失败");
-        if (result.status === "completed" && result.token && result.account) {
-          setToken(result.token);
+        if (result.status === "completed" && result.account) {
           popup.close();
           onAuthenticated(result.account);
           return;
@@ -74,7 +73,6 @@ export default function LoginPage({ onAuthenticated, themeMode, onToggleTheme }:
         : mode === "register"
           ? await consoleApi.register(values.name, values.password)
           : await consoleApi.bootstrapAdmin(values.name, values.password, values.bootstrap_secret || "");
-      setToken(response.token);
       onAuthenticated(response.account);
       return true;
     } catch (reason) {

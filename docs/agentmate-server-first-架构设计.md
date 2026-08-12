@@ -266,31 +266,32 @@ automation_policy     超时、重试、token 上限、通知和预授权
 
 自动 Run 成功后仍进入人工验收，不自动把 WorkItem 标记为 `done`。重试为新 Run，到达上限后显示根因、候选设备和下一操作。
 
-## 17. 当前完成度与缺口（2026-08-11）
+## 17. 当前完成度与缺口（2026-08-12）
 
 | 使用场景 | 当前状态 | 当前边界 / 下一缺口 |
 |---|---|---|
 | Console 管理里程碑、Sprint、任务 | 已有 | Server 权威 CRUD、看板/列表/甘特、协作与项目健康已存在 |
 | Workspace 查看个人行动项和执行 | 已有第一阶段 | Server 首页聚合真实行动项、需人工介入、最近 Run 和执行节点；高风险授权仍在 Desktop Companion |
 | Console 查看任务执行情况和结果 | 已有 | Server 已保存 WorkItem 关联 Run/产物，项目页消费真实执行投影 |
-| Console 项目统计分析 | 部分已有 | 已有项目健康、负载和 Sprint 燃尽；缺 Run 效率、交付质量、成本和设备指标 |
+| Console 项目统计分析 | 已有 | WB-503 已交付 `project-execution-v1`：Run 效率、首次验收/返工、产物质量、token/成本、队列瓶颈和设备容量均可按项目权限下钻 |
 | Console 配置专家、Skill、连接器 | 已有 | 定义、推荐、Skill 发布治理已有；项目页仍需显示每台设备的实际 readiness |
 | Desktop Companion/Local Agent 使用 Console 能力 | 已有条件化链路 | 客户端读 Server 目录，Runtime 执行前拉取/加载；安装、兼容、凭据、健康或权限缺失时不可用 |
 | Desktop Companion 配置本机私有 Skill | 已有 | 支持创建/上传/安装/编辑/启停/卸载；默认不跨设备、不进 Console |
 | 多 Local Agent 设备注册和领取 | 协议已有 | Server 已支持多设备、能力匹配、容量和 `target_device_id`；同数据目录多进程不支持 |
-| Console 指定 Local Agent | 数据契约已有，产品入口缺失 | Desktop Companion 手动 Run 会锁定当前设备；Console 缺任务/自动化选路 UI |
+| Console 指定 Local Agent | 已有 | WB-501 已交付设备 readiness 投影与 Automation 的 `specific | any_compatible` 选路；WorkItem 自动执行复用同一设备契约 |
 | Workspace 查看里程碑、Sprint、任务 | 已有 | 读取 Server 数据，并可在创建任务时绑定 Sprint |
-| Agent 把已有任务加入 Sprint | 未完整 | 现有对话工具能查任务、改状态和启动 Run，缺受限的计划字段更新工具 |
+| Agent 把已有任务加入 Sprint | 已有 | WB-504 已交付带项目/Sprint/角色、生命周期、CAS 版本与审计门禁的 `update_work_item_planning` 窄工具 |
 | Workspace 通过 Agent 对话执行指定任务 | 迁移中 | Desktop Companion 已能用 `list_my_action_items` / `start_work_item_run` 创建真实 Server Run；完整对话 UI 待迁移到 Workspace |
 | Workspace 随时查看任务执行 | 已有第一阶段 | 首页与项目页基于 Server Run 投影查看状态、过程、错误、用量和产物 |
-| Console 任务标记为自动执行 | 未实现 | 现有 Automation 能定时/Webhook 创建 Run，但没有 WorkItem 执行策略和一次性触发门禁 |
+| Console 任务标记为自动执行 | 已有 | WB-502/505 已交付 WorkItem 一次性自动执行策略、依赖/Sprint/设备/权限门禁、幂等重试、通知与人工验收闭环 |
 
-## 18. 建议实施顺序
+## 18. 已完成实施轨迹与剩余顺序
+
+设备 readiness/选路（WB-501）、WorkItem 自动执行（WB-502/505）、项目执行分析（WB-503）和受限计划字段工具（WB-504）已经分别登记、实现和验证，不再作为未来缺口重复规划。
 
 1. **P0：Workspace 对话迁移** —— 把 Session/Run 对话、普通回答与验收迁到 Server Workspace；高风险本机授权继续由 Desktop Companion 承担。
-2. **P0：设备与选路** —— Workspace/Console 使用当前账号设备列表、在线/协议/能力/readiness；任务和 Automation 增加 `specific | any_compatible` 策略，先不引入企业共享设备池。
-3. **P1：WorkItem 自动执行** —— 实现执行策略、依赖/readiness 门禁、幂等创建、后台权限约束、重试/通知和人工验收。
-4. **P1：项目执行分析** —— 先发布统一口径的项目 Run 摘要、阻塞和交付质量，再扩展趋势、成本与设备利用率。
-5. **P2：对话式项目操作** —— 增加受限的 WorkItem 计划字段更新工具，首先覆盖“加入 Sprint”，保留权限、关闭 Sprint 只读、版本冲突和审计门禁。
+2. **P1：企业级设备与同步扩展** —— 在现有账号私有设备选路上增加受控共享设备池、主动目录失效、跨设备审计和更严格的租户隔离；不把同 SQLite/工作目录多进程当成多节点。
+3. **P1：生产 SaaS 验收** —— 完成真实 SSO provider、生产域名/证书/密钥、可观测性、备份恢复和受控用户试用；仓库内测试不能替代这些部署证据。
+4. **P2：分析与对话能力扩展** —— 在 `project-execution-v1` 和 Sprint 窄工具之上按真实需求增加长期趋势、成本归因及更多受限计划字段，继续保留权限、CAS 和审计门禁。
 
-每一期单独登记 issue 并交付，不将上述顺序当成“当前已完成”的声称。
+后续每一期仍需单独登记 issue 并交付；本节只陈述当前已验证边界与尚未完成的工作。

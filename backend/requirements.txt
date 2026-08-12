@@ -10,6 +10,10 @@ mcp==1.2.0
 # We use MCP's stdio CLIENT only (not its SSE server), so pin starlette to the
 # FastAPI-compatible version — mcp's newer-starlette pin is for a feature we skip.
 starlette==0.41.3
+# mcp's SSE server is unused, but it requires this package transitively.  Newer
+# 3.x releases require Starlette >=0.49; pin the compatible line so installs
+# remain consistent with FastAPI 0.115.6 and pass `pip check` (WB-541).
+sse-starlette==2.1.3
 # 本地语音输入 ASR（WB-139）。CTranslate2 后端的 Whisper，CPU int8 秒级；自带 PyAV 解 webm/opus。
 # 首次使用会下载模型到 ASR_MODEL_DIR（需联网一次）。可选：不用语音就不必装（端点会诚实 503）。
 faster-whisper==1.1.1

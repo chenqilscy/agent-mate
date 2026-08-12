@@ -63,7 +63,7 @@ from agent import background_worker, scheduler, server_run_worker, skills as age
 from auth.middleware import AuthMiddleware
 from channels import manager as channel_manager
 from config import FROZEN, settings
-from routers import asr, auth, automations, catalog, channels, chat, data, device_diagnostics, device_settings, experts, files, governance, ideas, server, kdocs, knowledge, local_connectors, me, memory, milestones, models, notifications, ops, orchestrations, prefs, project_health, projects, runs, security, sessions, skills, work_items
+from routers import asr, auth, automations, catalog, channels, chat, data, device_diagnostics, device_settings, experts, files, governance, ideas, kdocs, knowledge, local_connectors, me, memory, milestones, models, notifications, ops, orchestrations, prefs, project_health, projects, runs, security, sessions, skills, work_items
 from storage import db, orchestration_store
 import local_agent_core
 import local_agent_store
@@ -202,31 +202,30 @@ class BodySizeLimitMiddleware:
         await self.app(scope, receive, send)
 
 
-app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_JSON_BODY)
-# Resolve the Bearer token → current user (M7 C1). Pure ASGI, so SSE stays intact.
-app.add_middleware(AuthMiddleware)
+def _add_local_agent_middleware(target: FastAPI) -> None:
+    target.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_JSON_BODY)
+    # Resolve the Bearer token → current user (M7 C1). Pure ASGI, so SSE stays intact.
+    target.add_middleware(AuthMiddleware)
+    # During development the UI is served by Vite on :8102 and proxies /api.
+    target.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:8102",
+            "http://127.0.0.1:8102",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+            "tauri://localhost",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    # Only /api/local-agent/* requires the per-launch native token. Retained
+    # device pages continue to use the Server Bearer/anonymous device scope.
+    target.add_middleware(local_agent_core.LocalAgentIpcMiddleware)
 
-# During M0–M4 the UI is served by Vite on :8102 and proxies /api. CORS stays
-# permissive for localhost so direct-origin dev (no proxy) also works.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8102",
-        "http://127.0.0.1:8102",
-        # Tauri desktop shell webview origins (A2): Windows serves the app from
-        # http(s)://tauri.localhost, other platforms from tauri://localhost.
-        "http://tauri.localhost",
-        "https://tauri.localhost",
-        "tauri://localhost",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-# Native-only control surface. Browser calls cannot obtain the per-launch token;
-# Tauri exposes only narrow commands rather than a generic authenticated proxy.
-app.add_middleware(local_agent_core.LocalAgentIpcMiddleware)
+_add_local_agent_middleware(app)
 
 
 @app.get("/api/health")
@@ -257,7 +256,6 @@ app.include_router(automations.router)
 app.include_router(notifications.router)
 app.include_router(ops.router)
 app.include_router(catalog.router)
-app.include_router(server.router)
 app.include_router(channels.router)
 app.include_router(asr.router)
 app.include_router(knowledge.router)
@@ -272,6 +270,40 @@ app.include_router(security.router)
 app.include_router(local_agent_core.router)
 
 
+# The packaged Desktop Companion still needs device configuration routes that
+# have not moved behind native IPC (WB-530), but it must not expose the retired
+# local business control plane. Explicit local development keeps ``app`` above;
+# the Tauri sidecar selects this allow-listed compatibility target.
+compatibility_app = FastAPI(
+    title="AgentMate Local Agent Compatibility API",
+    version="1.0.0",
+    lifespan=_lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+compatibility_app.add_exception_handler(server_client.ServerRejected, _server_rejected)
+_add_local_agent_middleware(compatibility_app)
+compatibility_app.add_api_route("/api/health", health, methods=["GET"])
+for _device_router in (
+    models.router,
+    files.router,
+    skills.router,
+    channels.router,
+    asr.router,
+    knowledge.router,
+    local_connectors.router,
+    prefs.router,
+    device_settings.router,
+    device_diagnostics.router,
+    memory.router,
+    data.router,
+    security.router,
+    local_agent_core.router,
+):
+    compatibility_app.include_router(_device_router)
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -281,11 +313,14 @@ if __name__ == "__main__":
     # in-process keeps the Proactor loop (and matches the project's hard-restart
     # workflow). Elsewhere reload is fine.
     core_mode = "--local-agent-core" in sys.argv[1:]
-    reload = sys.platform != "win32" and not FROZEN and not core_mode
+    compatibility_mode = "--ipc-token-stdin" in sys.argv[1:] and not core_mode
+    reload = sys.platform != "win32" and not FROZEN and not core_mode and not compatibility_mode
     # Reload needs the "main:app" import string; without it (frozen bundle, or
     # Windows) pass the app object directly — a bundle can't re-import `main`
     # (it's __main__, not an importable module).
-    target = "main:app" if reload else (local_agent_core.app if core_mode else app)
+    target = "main:app" if reload else (
+        local_agent_core.app if core_mode else compatibility_app if compatibility_mode else app
+    )
     # The Core is never allowed to honor a configurable LAN bind address.
     host = (
         local_agent_core.bind_host()

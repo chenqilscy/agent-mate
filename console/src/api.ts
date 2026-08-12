@@ -37,8 +37,6 @@ import type {
   BurndownPoint,
 } from "./types";
 
-const TOKEN_KEY = "agentmate.console.token";
-
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -49,25 +47,16 @@ export class ApiError extends Error {
   }
 }
 
-export function getToken(): string {
-  return localStorage.getItem(TOKEN_KEY) || "";
-}
-
-export function setToken(token: string): void {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
-}
-
 export async function apiRequest<T>(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const token = getToken();
   const response = await fetch(`/api${path}`, {
     method,
+    credentials: "same-origin",
     headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "X-AgentMate-Console-Session": "1",
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -97,14 +86,14 @@ export async function apiRequest<T>(
 }
 
 export async function apiUpload<T>(path: string, file: File): Promise<T> {
-  const token = getToken();
   const separator = path.includes("?") ? "&" : "?";
   const response = await fetch(
     `/api${path}${separator}filename=${encodeURIComponent(file.name)}`,
     {
       method: "POST",
+      credentials: "same-origin",
       headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "X-AgentMate-Console-Session": "1",
       },
       body: file,
     },
@@ -132,10 +121,10 @@ export async function apiDownload(
   path: string,
   filename: string,
 ): Promise<void> {
-  const token = getToken();
   const response = await fetch(`/api${path}`, {
+    credentials: "same-origin",
     headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "X-AgentMate-Console-Session": "1",
     },
   });
   if (!response.ok)

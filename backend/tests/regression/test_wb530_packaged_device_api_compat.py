@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 class PackagedDeviceApiCompatibilityTests(unittest.TestCase):
     def test_compatibility_app_contains_every_retained_device_route(self) -> None:
-        routes = {getattr(route, "path", "") for route in main.app.routes}
+        routes = {getattr(route, "path", "") for route in main.compatibility_app.routes}
         for path in (
             "/api/settings/runtime",
             "/api/device-diagnostics",
@@ -26,8 +26,8 @@ class PackagedDeviceApiCompatibilityTests(unittest.TestCase):
         self.assertIn('["--ipc-token-stdin"]', rust)
         self.assertNotIn('["--local-agent-core", "--ipc-token-stdin"]', rust)
         backend = (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
-        self.assertIn("app.add_middleware(local_agent_core.LocalAgentIpcMiddleware)", backend)
-        self.assertIn("app.include_router(local_agent_core.router)", backend)
+        self.assertIn("compatibility_app if compatibility_mode else app", backend)
+        self.assertIn("local_agent_core.router", backend)
 
 
 if __name__ == "__main__":

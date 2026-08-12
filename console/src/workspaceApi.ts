@@ -1,4 +1,4 @@
-import { apiRequest, consoleApi, getToken } from "./api";
+import { apiRequest, consoleApi } from "./api";
 import type { LocalAgentDevice, Project } from "./types";
 
 export interface WorkspaceActionItem {
@@ -73,14 +73,14 @@ async function createTurn(
   body: WorkspaceTurnRequest,
   idempotencyKey: string,
 ): Promise<WorkspaceTurnResponse> {
-  const token = getToken();
   const response = await fetch("/api/turns", {
     method: "POST",
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       "Idempotency-Key": idempotencyKey,
       "X-AgentMate-Protocol-Version": "2",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "X-AgentMate-Console-Session": "1",
     },
     body: JSON.stringify(body),
   });

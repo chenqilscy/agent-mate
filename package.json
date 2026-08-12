@@ -12,7 +12,8 @@
     "build": "tsc -b && vite build && pnpm build:console",
     "build:console": "tsc -p tsconfig.console.json --noEmit && vite build --config vite.console.config.ts",
     "check:console-dist": "node scripts/check-console-dist.mjs",
-    "test:regression": "backend\\.venv\\Scripts\\python.exe -m unittest discover -s backend/tests/regression -p \"test_*.py\" && tsc -b --pretty false",
+    "test:frontend": "vitest run",
+    "test:regression": "pnpm test:frontend && backend\\.venv\\Scripts\\python.exe -m unittest discover -s backend/tests/regression -p \"test_*.py\" && tsc -b --pretty false",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
@@ -29,7 +30,7 @@
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "antd": "6.5.1",
-    "dompurify": "^3.2.4",
+    "dompurify": "^3.4.13",
     "highlight.js": "^11.11.1",
     "marked": "^15.0.6",
     "react": "^19.0.0",
@@ -45,6 +46,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "openapi-typescript": "^7.5.2",
     "typescript": "~5.7.3",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "vitest": "^4.1.10"
   }
 }

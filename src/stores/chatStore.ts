@@ -229,8 +229,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
         })
       }
-    } catch {
-      /* ignore */
+    } catch (error) {
+      // Route restoration and navigation own the fallback UI.  A successful
+      // resolution here would make them switch views while the requested
+      // session was never loaded, leaving stale messages under a new URL.
+      throw error
     }
   },
 

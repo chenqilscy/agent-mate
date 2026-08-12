@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import html
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,7 @@ import sso_protocol
 import sso_store
 import secret_crypto
 from auth import CurrentAccount, bearer_token
+from console_session import console_auth_payload, wants_console_session
 from models import Account
 
 router = APIRouter(prefix="/api", tags=["sso"])
@@ -163,12 +164,23 @@ class PollBody(BaseModel):
 
 
 @router.post("/auth/sso/poll")
-def poll_sso(body: PollBody) -> dict:
+def poll_sso(body: PollBody, request: Request, response: Response) -> dict:
     result = sso_store.poll_attempt(body.attempt_id, body.attempt_token)
     if result is None:
         raise HTTPException(401, "invalid_attempt")
     if result["status"] in ("expired", "consumed"):
         raise HTTPException(409, result["status"])
+    if result.get("status") == "completed" and wants_console_session(request):
+        return {
+            "status": "completed",
+            **console_auth_payload(
+                request,
+                response,
+                token=str(result["token"]),
+                expires_at=float(result["expires_at"]),
+                account=result["account"],
+            ),
+        }
     return result
 
 

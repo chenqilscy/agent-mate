@@ -5,9 +5,10 @@ Server 是中心服务，**强制鉴权**——无/错 token 一律 401（不同
 """
 from __future__ import annotations
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 
 import db
+from console_session import session_token
 from models import Account, Role
 
 
@@ -17,8 +18,8 @@ def bearer_token(authorization: str = Header(default="")) -> str:
     return ""
 
 
-def current_account(authorization: str = Header(default="")) -> Account:
-    token = bearer_token(authorization)
+def current_account(request: Request, authorization: str = Header(default="")) -> Account:
+    token = session_token(request, authorization)
     aid = db.account_id_for_token(token) if token else None
     acc = db.get_account(aid) if aid else None
     if acc is None or acc.suspended_at > 0:

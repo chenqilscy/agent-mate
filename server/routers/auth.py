@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import secrets
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 import db
 import sso_store
 from auth import CurrentAccount, bearer_token
+from console_session import clear_console_session, console_auth_payload, session_token
 from config import settings
 from models import Account
 
@@ -42,7 +43,7 @@ def _validate_password(password: str) -> None:
 
 
 @router.post("/auth/register")
-def register(body: RegisterBody, request: Request) -> dict:
+def register(body: RegisterBody, request: Request, response: Response) -> dict:
     ip = request.client.host if request.client else "unknown"
     if not sso_store.check_rate_limit(f"register:{ip}"):
         raise HTTPException(429, "too_many_attempts")
@@ -65,7 +66,9 @@ def register(body: RegisterBody, request: Request) -> dict:
         account_id=acc.id, actor_id=acc.id,
     )
     token, expires_at = db.create_token(acc.id)
-    return {"token": token, "expires_at": expires_at, "account": acc.to_dict()}
+    return console_auth_payload(
+        request, response, token=token, expires_at=expires_at, account=acc.to_dict(),
+    )
 
 
 class BootstrapBody(BaseModel):
@@ -76,7 +79,7 @@ class BootstrapBody(BaseModel):
 
 
 @router.post("/auth/bootstrap")
-def bootstrap(body: BootstrapBody, request: Request) -> dict:
+def bootstrap(body: BootstrapBody, request: Request, response: Response) -> dict:
     ip = request.client.host if request.client else "unknown"
     if not sso_store.check_rate_limit(f"bootstrap:{ip}"):
         raise HTTPException(429, "too_many_attempts")
@@ -91,11 +94,13 @@ def bootstrap(body: BootstrapBody, request: Request) -> dict:
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     token, expires_at = db.create_token(account.id)
-    return {"token": token, "expires_at": expires_at, "account": account.to_dict()}
+    return console_auth_payload(
+        request, response, token=token, expires_at=expires_at, account=account.to_dict(),
+    )
 
 
 @router.post("/auth/login")
-def login(body: LoginBody, request: Request) -> dict:
+def login(body: LoginBody, request: Request, response: Response) -> dict:
     name = (body.name or "").strip()
     ip = request.client.host if request.client else "unknown"
     if not sso_store.check_rate_limit(f"login:{ip}:{name.lower()}"):
@@ -107,17 +112,20 @@ def login(body: LoginBody, request: Request) -> dict:
         db.upgrade_password_hash(rec[0].id, body.password)
     token, expires_at = db.create_token(rec[0].id)
     db.record_auth_audit(action="password_login", account_id=rec[0].id, actor_id=rec[0].id)
-    return {"token": token, "expires_at": expires_at, "account": rec[0].to_dict()}
+    return console_auth_payload(
+        request, response, token=token, expires_at=expires_at, account=rec[0].to_dict(),
+    )
 
 
 @router.post("/auth/logout")
-def logout(authorization: str = Header(default="")) -> dict:
-    tok = bearer_token(authorization)
+def logout(request: Request, response: Response, authorization: str = Header(default="")) -> dict:
+    tok = session_token(request, authorization)
     if tok:
         account_id = db.account_id_for_token(tok) or ""
         db.delete_token(tok)
         if account_id:
             db.record_auth_audit(action="logout", account_id=account_id, actor_id=account_id)
+    clear_console_session(response)
     return {"ok": True}
 
 

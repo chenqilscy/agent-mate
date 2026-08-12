@@ -31,6 +31,8 @@ import asset_object_store  # noqa: E402
 import automation_scheduler  # noqa: E402
 import work_item_auto_scheduler  # noqa: E402
 import sso_store  # noqa: E402
+from console_session import ConsoleCsrfMiddleware  # noqa: E402
+from security_headers import SecurityHeadersMiddleware  # noqa: E402
 from config import settings  # noqa: E402
 from routers import accounts, assets, auth, automation_webhooks, business, catalog, comments, desktop_updates, governance, invites, knowledge, milestones, notifications, orgs, platform_settings, pm, project_analytics, project_health, projects, relay, run_protocol, sso, timeline, work_items  # noqa: E402
 
@@ -85,10 +87,12 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="AgentMate Server API", version="1.0.0", lifespan=_lifespan)
+app.add_middleware(ConsoleCsrfMiddleware)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=False,
     allow_methods=["*"], allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
 if _CONSOLE_DIST.is_dir():
     # Vite index 使用 /console-assets/assets/*；挂载构建根而不是 assets 子目录。
     app.mount("/console-assets", StaticFiles(directory=_CONSOLE_DIST), name="console-assets")

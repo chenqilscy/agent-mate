@@ -2301,9 +2301,14 @@ body.dark .project-health-tag.ant-tag.is-attention { background: #43351F; color:
 }
 
 @media (max-width: 640px) {
+  .shell-nav-toggle { width: 44px; }
   .home-work-card.ant-pro-card, .home-run-panel { padding: 14px; border-radius: 14px; }
   .home-page-copy { align-items: flex-start; flex-direction: column; gap: 2px; }
   .home-login-card.ant-pro-card { align-items: flex-start; flex-direction: column; }
+  .home-login-card .btn-dark,
+  .home-refresh.ant-btn,
+  .home-data-warning-action.ant-btn,
+  .home-console-action.ant-btn { min-height: 44px; }
   .home-action-row { align-items: stretch; flex-wrap: wrap; }
   .home-action-primary.ant-btn { min-height: 44px; flex: 1 1 100%; margin-left: 0; }
   .home-action-signal { width: 54px; flex-basis: 54px; }
