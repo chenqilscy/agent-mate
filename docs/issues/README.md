@@ -20,10 +20,9 @@
 | [WB-344](WB-344-v1-controlled-user-pilot.md) | ⏸ | P1 | misc | V1.0 受控真实用户试用缺少参与者、安装版本与连续证据 |
 | [WB-437](WB-437-server-first-data-migration-retirement.md) | ⬜ | P1 | misc | 存量业务数据迁移与旧同步机制退役 |
 | [WB-511](WB-511-console-project-detail-antd6-deprecations.md) | ⬜ | P2 | frontend | Console 项目任务抽屉残留 Ant Design 6 弃用组件与属性 |
-| [WB-524](WB-524-release-gate-drift-and-main-ci.md) | 🟡 | P1 | misc | 发布回归契约漂移且 main 分支推送不触发 CI |
 | [WB-527](WB-527-retired-desktop-dead-surfaces.md) | 🟡 | P2 | frontend | Desktop 业务面退役后遗留不可达 View 与陈旧契约 |
 
 ## 已关闭归档
 
-共 515 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 516 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。
