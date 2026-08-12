@@ -25,5 +25,5 @@
 
 ## 已关闭归档
 
-共 514 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
+共 515 条 `fixed` / `wontfix` 记录，按年份和编号段合并保存。详情、处理记录和原始文件名见
 [`archive/README.md`](archive/README.md)。Git 历史仍可追溯迁移前的独立文件。
