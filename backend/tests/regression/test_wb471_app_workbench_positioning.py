@@ -14,15 +14,15 @@ class AppWorkbenchPositioningContractTest(unittest.TestCase):
     def test_workspace_owns_business_and_desktop_owns_local_execution(self) -> None:
         sidebar = read("src/components/layout/Sidebar.tsx")
         home = read("src/views/HomeView.tsx")
-        projects = read("src/views/WorkspaceContextsView.tsx")
         handoff = read("src/views/ConsoleHandoffView.tsx")
 
         self.assertIn("label: '本机执行节点'", sidebar)
         self.assertIn("label: '执行与授权'", sidebar)
         self.assertIn("Desktop Companion", home)
         self.assertIn("执行节点状态", home)
-        self.assertIn("Workspace 负责业务工作", projects)
         self.assertIn("Desktop Companion 只保留本机执行", handoff)
+        self.assertFalse((ROOT / "src/views/WorkspaceContextsView.tsx").exists())
+        self.assertFalse((ROOT / "src/views/ProjectHomeView.tsx").exists())
 
     def test_local_agent_is_an_execution_node_not_a_business_api(self) -> None:
         current_surfaces = "\n".join((

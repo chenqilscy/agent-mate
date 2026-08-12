@@ -33,8 +33,10 @@ class ServerWorkspaceHandoffRegressionTest(unittest.TestCase):
         self.assertIn("SAFE_ID.test(sessionId)", consumer)
         self.assertIn("/projects/${encodeURIComponent(projectId)}/runs/", consumer)
         self.assertIn("/chat/${encodeURIComponent(sessionId)}", consumer)
-        self.assertIn(r"/^\/chat\/(new|[^/]+)$/", router)
-        self.assertIn(r"/^\/projects\/([^/]+)\/runs\/(new|[^/]+)$/", router)
+        self.assertIn(r"/^\/chat\/([^/]+)$/", router)
+        self.assertIn("m[1] !== 'new'", router)
+        self.assertIn(r"/^\/projects\/([^/]+)\/runs\/([^/]+)$/", router)
+        self.assertIn("m[2] !== 'new'", router)
         self.assertIn('"schemes": ["agentmate"]', config)
 
     def test_installed_app_receives_handoff_in_a_single_instance(self) -> None:

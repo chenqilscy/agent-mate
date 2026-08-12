@@ -11,15 +11,16 @@ class HomeWorkbenchHierarchyContractTests(unittest.TestCase):
         settings = (ROOT / "src/components/settings/SettingsModal.tsx").read_text(encoding="utf-8")
 
         self.assertIn("{ id: 'home', label: '执行与授权'", sidebar)
-        self.assertIn('className="sb-new-task" onClick={newTask}', sidebar)
+        self.assertNotIn('className="sb-new-task"', sidebar)
         self.assertIn("onClick={({ key }) => setView(key as ViewId)}", sidebar)
-        self.assertIn('<option value="home">执行与授权</option>', settings)
+        self.assertNotIn("即将上线", settings)
 
     def test_home_prioritizes_real_execution_node_state(self) -> None:
         home = (ROOT / "src/views/HomeView.tsx").read_text(encoding="utf-8")
 
-        for marker in ("执行节点状态", "活动租约", "待回执事件", "发起本机执行"):
+        for marker in ("执行节点状态", "活动租约", "待回执事件", "打开 Server Workspace"):
             self.assertIn(marker, home)
+        self.assertNotIn("发起本机执行", home)
         self.assertIn('className="home-status-empty is-muted"', home)
         self.assertNotIn("我的行动项", home)
         self.assertNotIn("需要我处理", home)

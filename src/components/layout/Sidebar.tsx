@@ -256,12 +256,12 @@ export function Sidebar() {
         </div>
         {contextProjectId && (
           <div className="sb-run-scope" role="group" aria-label="最近执行范围">
-            <button type="button" className={recentScope === 'project' ? 'active' : ''} aria-pressed={recentScope === 'project'} onClick={() => { setRecentScope('project'); setShowAllTasks(false) }}>
+            <WbButton className={recentScope === 'project' ? 'sb-run-scope-button active' : 'sb-run-scope-button'} aria-pressed={recentScope === 'project'} onClick={() => { setRecentScope('project'); setShowAllTasks(false) }}>
               当前项目 <small>{projectSessions.length}</small>
-            </button>
-            <button type="button" className={recentScope === 'all' ? 'active' : ''} aria-pressed={recentScope === 'all'} onClick={() => { setRecentScope('all'); setShowAllTasks(false) }}>
+            </WbButton>
+            <WbButton className={recentScope === 'all' ? 'sb-run-scope-button active' : 'sb-run-scope-button'} aria-pressed={recentScope === 'all'} onClick={() => { setRecentScope('all'); setShowAllTasks(false) }}>
               全部 <small>{sessions.length}</small>
-            </button>
+            </WbButton>
           </div>
         )}
         {sessionsError && (

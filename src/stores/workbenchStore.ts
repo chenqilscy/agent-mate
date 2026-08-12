@@ -13,13 +13,14 @@ function localDate(): string {
 async function readServerDomain<T>(
   load: (onResolvedState: (state: ServerConnectionState) => void) => Promise<T>,
 ): Promise<WorkbenchDomainRead<T>> {
-  let resolvedState: ServerConnectionState | null = null
-  const value = await load((state) => { resolvedState = state })
-  const server = resolvedState
+  const resolved: { current: ServerConnectionState | null } = { current: null }
+  const value = await load((state) => { resolved.current = state })
+  const server = resolved.current
+  if (!server) throw new Error('Server read completed without a resolved connection state')
   return {
     value,
-    source: server?.state === 'cached' ? 'cache' : 'live',
-    updatedAt: server?.state === 'cached' && server.cachedAt ? server.cachedAt : Date.now(),
+    source: server.state === 'cached' ? 'cache' : 'live',
+    updatedAt: server.state === 'cached' && server.cachedAt ? server.cachedAt : Date.now(),
   }
 }
 

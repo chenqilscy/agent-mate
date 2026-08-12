@@ -30,7 +30,7 @@ class RecentExecutionProjectContextContractTest(unittest.TestCase):
         self.assertIn("LEFT JOIN work_items", self.business)
         self.assertIn("session.work_item_title", self.sidebar)
         self.assertIn("任务 · ${session.work_item_title}", self.sidebar)
-        self.assertIn(".sb-run-scope button.active", self.styles)
+        self.assertIn(".sb-run-scope-button.active", self.styles)
 
 
 if __name__ == "__main__":

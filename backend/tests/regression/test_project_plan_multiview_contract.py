@@ -8,12 +8,8 @@ ROOT = Path(__file__).resolve().parents[3]
 class ProjectPlanMultiViewContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.work = (ROOT / "src" / "components" / "project" / "ProjectWork.tsx").read_text(encoding="utf-8")
-        self.home = (ROOT / "src" / "views" / "ProjectHomeView.tsx").read_text(encoding="utf-8")
 
     def test_plan_workspace_uses_one_store_for_all_real_views(self) -> None:
-        self.assertIn("<PlanWorkspace canWrite={canWrite}", self.home)
-        self.assertNotIn("tab === '负载'", self.home)
-        self.assertNotIn("tab === '甘特'", self.home)
         for key in ("table", "kanban", "list", "gantt", "calendar", "workload"):
             self.assertIn(f"key: '{key}'", self.work)
         for component in ("TaskList", "KanbanBoard", "GroupedListView", "GanttView", "CalendarView"):

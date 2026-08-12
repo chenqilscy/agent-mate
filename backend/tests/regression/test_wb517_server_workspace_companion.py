@@ -52,11 +52,9 @@ class ServerWorkspaceCompanionContractTest(unittest.TestCase):
         settings = (ROOT / "src" / "components" / "settings" / "SettingsModal.tsx").read_text(
             encoding="utf-8"
         )
-        contexts = (ROOT / "src" / "views" / "WorkspaceContextsView.tsx").read_text(
-            encoding="utf-8"
-        )
         self.assertIn("Desktop Companion 只使用登录身份", settings)
-        self.assertIn("Workspace 负责业务工作", contexts)
+        self.assertFalse((ROOT / "src" / "views" / "WorkspaceContextsView.tsx").exists())
+        self.assertFalse((ROOT / "src" / "views" / "ProjectHomeView.tsx").exists())
 
 
 if __name__ == "__main__":

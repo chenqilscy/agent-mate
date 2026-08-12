@@ -28,6 +28,10 @@ fn new_ipc_token() -> String {
     format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
 }
 
+fn local_agent_sidecar_args() -> [&'static str; 2] {
+    ["--local-agent-core", "--ipc-token-stdin"]
+}
+
 #[derive(Serialize)]
 struct DesktopUpdateResult {
     status: &'static str,
@@ -58,7 +62,7 @@ fn update_endpoint(base: &str, channel: &str) -> Result<Url, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{new_ipc_token, update_endpoint};
+    use super::{local_agent_sidecar_args, new_ipc_token, update_endpoint};
 
     #[test]
     fn desktop_update_endpoint_requires_https_and_known_channel() {
@@ -75,6 +79,14 @@ mod tests {
         assert_eq!(64, first.len());
         assert!(first.chars().all(|value| value.is_ascii_hexdigit()));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn packaged_sidecar_starts_only_the_local_agent_core() {
+        assert_eq!(
+            ["--local-agent-core", "--ipc-token-stdin"],
+            local_agent_sidecar_args()
+        );
     }
 }
 
@@ -373,7 +385,7 @@ pub fn run() {
                 .handle()
                 .shell()
                 .sidecar("agentmate-local-agent")
-                .map(|command| command.arg("--ipc-token-stdin"))
+                .map(|command| command.args(local_agent_sidecar_args()))
             {
                 Ok(cmd) => match cmd.spawn() {
                     Ok((mut rx, mut child)) => {

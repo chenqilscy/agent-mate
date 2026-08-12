@@ -1,7 +1,7 @@
 import { WbButton, WbInput, WbTextArea, WbSelect } from '../ui/Primitives'
 // 统一「设置中心」弹窗（WB-146/WB-202）。左侧按语义分组的功能导航 + 右侧内容区。
 // 套现有 .np-overlay/.np-modal（token 化天然暗色，铁律#2/#3）；设置中心专属布局用 set- 前缀类。
-// 有真实执行链路的设置直接接后端；尚未落地的入口继续诚实标注「即将上线」（铁律#1）。
+// 有真实执行链路的设置直接接后端；无执行链路的占位入口不进入产品导航（铁律#1）。
 import { useEffect, useState, type ReactNode } from 'react'
 import { useUIStore, type SettingsTab } from '../../stores/uiStore'
 import { useAuthStore } from '../../stores/authStore'
@@ -29,7 +29,6 @@ const TAB_GROUPS: TabGroup[] = [
   { label: '应用设置', items: [
     { id: 'system', label: '通用设置', icon: <><circle cx="12" cy="12" r="3.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18" /></> },
     { id: 'personalize', label: '个性化', icon: <><circle cx="13" cy="7" r="3" /><path d="M4 21c0-3 2.5-5 6-5M15 15l2 2 4-4" /></> },
-    { id: 'shortcuts', label: '快捷键', icon: <><rect x="3" y="7" width="18" height="11" rx="2" /><path d="M7 11h.01M11 11h.01M15 11h.01M7 15h10" /></> },
   ] },
   { label: 'AI 与能力', items: [
     { id: 'agent', label: '智能体设置', icon: <><rect x="5" y="7" width="14" height="11" rx="2" /><path d="M12 3v4M9 12h.01M15 12h.01M9 16h6" /></> },
@@ -42,28 +41,10 @@ const TAB_GROUPS: TabGroup[] = [
     { id: 'data', label: '数据管理', icon: <><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" /></> },
     { id: 'security', label: '安全中心', icon: <path d="M12 3l7 3v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6l7-3z" /> },
   ] },
-  { label: '支持', items: [
-    { id: 'help', label: '帮助与反馈', icon: <><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 115 1c0 1.5-2.5 2-2.5 3.5M12 17h.01" /></> },
-  ] },
 ]
 
 function Icon({ children }: { children: ReactNode }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
-}
-
-// 未接后端的标签：诚实占位，说明「即将上线」，不造假数据/开关（铁律#1）。
-function Soon({ title, desc, bullets }: { title: string; desc: string; bullets?: string[] }) {
-  return (
-    <div className="set-soon">
-      <div className="set-ptitle">{title}<span className="set-soon-pill">即将上线</span></div>
-      <div className="set-pdesc">{desc}</div>
-      {bullets && (
-        <ul className="set-soon-list">
-          {bullets.map((b) => <li key={b}>{b}</li>)}
-        </ul>
-      )}
-    </div>
-  )
 }
 
 // 个性化 panel（WB-147）：外观 + 回复风格 + 自定义指令，接 /api/settings 真持久化、注入 agent。
@@ -626,7 +607,6 @@ function DataPanel() {
           : <WbButton className="btn-ghost danger-b" disabled={busy || !sum} onClick={() => setConfirming(true)}>清空</WbButton>}
       </div>
 
-      <Soon title="删除保护 · 批量删除审批" desc="需要执行层接管删除行为才能真正生效，暂不做以免成为「存了不生效」的假开关。" />
     </div>
   )
 }
@@ -750,7 +730,6 @@ function SecurityPanel() {
         ))}
       </div>
 
-      <Soon title="文件安全 · 网络域名规则 · 数据网关" desc="路径白/黑名单、网络访问域名规则、数据流转网关需执行层进一步接管，暂不做以免成为「存了不生效」的假开关。" />
     </div>
   )
 }
@@ -761,10 +740,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const me = useAuthStore((s) => s.me)
   const loggedIn = useAuthStore((s) => s.loggedIn)
   const logout = useAuthStore((s) => s.logout)
-
-  useEffect(() => {
-    if (tab === 'assistant') setTab('account')
-  }, [setTab, tab])
 
   return (
     <AntModalBridge onClose={onClose} zIndex={175}>
@@ -841,29 +816,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             {tab === 'runtime' && <DeviceRuntimeSettings />}
             {tab === 'diagnostics' && <DeviceDiagnosticsPanel />}
 
-            {tab === 'shortcuts' && (
-              <Soon
-                title="快捷键"
-                desc="常用操作的键盘快捷键一览与自定义。"
-              />
-            )}
-
             {tab === 'memory' && <MemoryPanel />}
 
             {tab === 'data' && <DataPanel />}
 
             {tab === 'security' && <SecurityPanel />}
 
-            {tab === 'help' && (
-              <div className="set-body">
-                <div className="set-ptitle">帮助与反馈</div>
-                <div className="set-pdesc">遇到问题或有建议？下面是常用入口。</div>
-                <div className="set-actions" style={{ flexWrap: 'wrap', gap: 10 }}>
-                  <WbButton className="btn-ghost" onClick={() => toast('反馈渠道即将上线')}>提交反馈</WbButton>
-                  <WbButton className="btn-ghost" onClick={() => toast('帮助文档即将上线')}>查看帮助文档</WbButton>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

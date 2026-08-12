@@ -84,7 +84,7 @@ export function HomeView() {
                 {(localAgentError || server.error) && (
                   <div className="home-data-warning" role="status">
                     <span>{localAgentError || server.error}</span>
-                    <WbButton onClick={() => void refreshConnectivity()}>重新检查</WbButton>
+                    <WbButton className="home-data-warning-action" onClick={() => void refreshConnectivity()}>重新检查</WbButton>
                   </div>
                 )}
                 <div className="home-run-filters" role="group" aria-label="执行节点状态">

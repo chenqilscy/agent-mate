@@ -85,10 +85,19 @@ class TokenLifecycleHttpTest(unittest.TestCase):
         env.update({
             "AGENTMATE_DB": str(self.base / "app.db"),
             "AGENTMATE_WORKSPACE": str(self.base / "workspace"),
-            "AGENTMATE_SERVER_URL": self.server_url,
             "HOST": "127.0.0.1",
             "PORT": str(self.backend_port),
         })
+        subprocess.run(
+            [
+                sys.executable, "-c",
+                "import sys; from storage import db; db.init_db(); "
+                "db.set_device_setting('collaboration.server_url', sys.argv[1])",
+                self.server_url,
+            ],
+            cwd=ROOT / "backend", env=env, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
         process = self._spawn(ROOT / "backend", env)
         self._wait_health(f"{self.backend_url}/api/health")
         return process

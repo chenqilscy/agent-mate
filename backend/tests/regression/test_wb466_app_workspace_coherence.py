@@ -12,9 +12,11 @@ class AppWorkspaceCoherenceContractTest(unittest.TestCase):
         self.capabilities = (ROOT / "src" / "views" / "ExpertsView.tsx").read_text(encoding="utf-8")
 
     def test_primary_navigation_has_one_task_and_capability_model(self) -> None:
-        self.assertIn("label: '项目任务'", self.sidebar)
+        self.assertIn("label: '本机执行节点'", self.sidebar)
+        self.assertIn("label: '执行与授权'", self.sidebar)
         self.assertIn("label: '本机能力'", self.sidebar)
         self.assertIn('aria-label="最近执行"', self.sidebar)
+        self.assertNotIn("label: '项目任务'", self.sidebar)
         self.assertNotIn("label: '项目上下文'", self.sidebar)
         self.assertNotIn('aria-label="Server 管理"', self.sidebar)
         self.assertNotIn("label: `任务 (", self.sidebar)
@@ -45,11 +47,9 @@ class AppWorkspaceCoherenceContractTest(unittest.TestCase):
         self.assertIn("updatedAt: Date.now()", work_item_store)
 
     def test_task_inbox_and_run_workbench_are_one_round_trip(self) -> None:
-        self.assertIn("const hasExecution = Boolean(activeId || messages.length)", self.execution)
-        self.assertIn("setPanel(hasExecution)", self.execution)
-        self.assertIn("Server 权威任务 · 已同步", self.execution)
         self.assertIn("executionReadOnly", self.execution)
-        self.assertIn("hasExecution && !panelOpen", self.execution)
+        self.assertIn("<RunLaunchHandoff", self.execution)
+        self.assertIn("<PePanel messages={messages}", self.execution)
         self.assertIn("← 返回当前执行", self.capabilities)
         self.assertIn("setView('projexec'", self.capabilities)
 

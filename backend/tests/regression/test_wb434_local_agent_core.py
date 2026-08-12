@@ -99,7 +99,8 @@ class LocalAgentCoreBoundaryTest(unittest.TestCase):
         repository = Path(__file__).resolve().parents[3]
         rust = (repository / "src-tauri" / "src" / "lib.rs").read_text(encoding="utf-8")
         platform = (repository / "src" / "platform" / "index.ts").read_text(encoding="utf-8")
-        self.assertIn('command.arg("--ipc-token-stdin")', rust)
+        self.assertIn('["--local-agent-core", "--ipc-token-stdin"]', rust)
+        self.assertIn("command.args(local_agent_sidecar_args())", rust)
         self.assertIn("child.write(bootstrap.as_bytes())", rust)
         self.assertNotIn("AGENTMATE_LOCAL_AGENT_IPC_TOKEN", rust)
         self.assertNotIn("X-AgentMate-IPC-Token", platform)

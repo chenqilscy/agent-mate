@@ -31,12 +31,11 @@ class DesktopHomeBoundaryContractTest(unittest.TestCase):
             "待回执事件",
             "Local Agent Core",
             "打开 Server Workspace",
-            "发起本机执行",
-            "选择任务上下文",
+            "本机能力",
         ):
             self.assertIn(marker, home)
-        self.assertIn("<Composer", home)
-        self.assertIn("setView('chat')", home)
+        self.assertNotIn("<Composer", home)
+        self.assertNotIn("发起本机执行", home)
 
 
 if __name__ == "__main__":

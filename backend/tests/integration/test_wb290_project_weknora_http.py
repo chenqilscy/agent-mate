@@ -93,7 +93,7 @@ class ProjectWeKnoraHttpTest(unittest.TestCase):
         self.provider = ThreadingHTTPServer(("127.0.0.1", 0), _FakeWeKnora)
         self.provider_thread = threading.Thread(target=self.provider.serve_forever, daemon=True)
         self.provider_thread.start()
-        self.server_port = _free_port(); self.backend_port = _free_port()
+        self.server_port = _free_port()
         self.server = self._spawn(ROOT / "server", {
             "AGENTMATE_SERVER_DB": str(self.base / "server.db"),
             "AGENTMATE_SERVER_STORAGE": str(self.base / "server-storage"),
@@ -104,26 +104,15 @@ class ProjectWeKnoraHttpTest(unittest.TestCase):
             "AGENTMATE_SERVER_WEKNORA_EMBEDDING_MODEL_ID": "embedding-1",
         })
         self._wait(f"{self.server_url}/api/health")
-        self.backend = self._spawn(ROOT / "backend", {
-            "AGENTMATE_DB": str(self.base / "app.db"),
-            "AGENTMATE_WORKSPACE": str(self.base / "workspace"),
-            "AGENTMATE_SERVER_URL": self.server_url,
-            "HOST": "127.0.0.1", "PORT": str(self.backend_port),
-        })
-        self._wait(f"{self.backend_url}/api/health")
 
     def tearDown(self) -> None:
-        self.client.close(); self._stop(self.backend); self._stop(self.server)
+        self.client.close(); self._stop(self.server)
         self.provider.shutdown(); self.provider.server_close(); self.provider_thread.join(timeout=3)
         time.sleep(0.2); self.tmp.cleanup()
 
     @property
     def server_url(self) -> str:
         return f"http://127.0.0.1:{self.server_port}"
-
-    @property
-    def backend_url(self) -> str:
-        return f"http://127.0.0.1:{self.backend_port}"
 
     @staticmethod
     def _spawn(cwd: Path, values: dict[str, str]) -> subprocess.Popen[bytes]:
@@ -162,7 +151,7 @@ class ProjectWeKnoraHttpTest(unittest.TestCase):
         self.assertEqual(200, response.status_code, response.text)
         data = response.json(); self.assertIsInstance(data, dict); return data
 
-    def test_create_upload_search_and_backend_downlink(self) -> None:
+    def test_create_upload_search_and_server_authority(self) -> None:
         registered = self._ok(self.client.post(
             f"{self.server_url}/api/auth/register",
             json={"name": "wb290-owner", "password": "owner-pass-123"},
@@ -191,16 +180,10 @@ class ProjectWeKnoraHttpTest(unittest.TestCase):
         ))
         self.assertEqual("central knowledge", searched["hits"][0]["text"])
 
-        login = self._ok(self.client.post(
-            f"{self.backend_url}/api/auth/login",
-            json={"name": "wb290-owner", "password": "owner-pass-123"},
+        authoritative = self._ok(self.client.get(
+            f"{self.server_url}/api/projects/{project['id']}", headers=headers,
         ))
-        app_headers = {"Authorization": f"Bearer {login['token']}"}
-        self._ok(self.client.post(f"{self.backend_url}/api/server/pull", headers=app_headers))
-        mirrored = self._ok(self.client.get(
-            f"{self.backend_url}/api/projects/{project['id']}", headers=app_headers,
-        ))
-        self.assertEqual([kb["id"]], mirrored["knowledge_ids"])
+        self.assertEqual([kb["id"]], authoritative["knowledge_ids"])
 
 
 if __name__ == "__main__":

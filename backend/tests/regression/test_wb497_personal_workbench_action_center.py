@@ -34,17 +34,18 @@ class PersonalWorkbenchActionCenterContractTests(unittest.TestCase):
         self.assertNotIn("startWorkItemRun", self.home)
         self.assertNotIn("我的行动项", self.home)
         self.assertNotIn("待验收", self.home)
-        for marker in ("执行节点状态", "打开 Server Workspace", "发起本机执行"):
+        for marker in ("执行节点状态", "打开 Server Workspace", "本机能力"):
             self.assertIn(marker, self.home)
+        self.assertNotIn("发起本机执行", self.home)
 
     def test_offline_and_responsive_boundaries_remain_explicit(self) -> None:
-        self.assertIn("Local Agent 离线，暂时不能开始本机执行", self.home)
+        self.assertIn("Local Agent 离线时，本机能力不可用", self.home)
         self.assertIn("server.state === 'cached'", self.home)
         self.assertIn("@media (max-width: 1280px)", self.css)
         self.assertIn("@media (max-width: 640px)", self.css)
         self.assertIn(".home-workbench-layout", self.css)
         self.assertIn("var(--bg-surface)", self.css)
-        self.assertIn(".home-quick-start.is-keyboard-navigation .composer:focus-within", self.css)
+        self.assertNotIn(".home-quick-start.is-keyboard-navigation .composer:focus-within", self.css)
 
 
 if __name__ == "__main__":

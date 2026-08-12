@@ -89,7 +89,7 @@ export interface RunPlanItem {
   work_item_id?: string
 }
 export interface RunPlanEvent {
-  version?: number
+  version: number
   items: RunPlanItem[]
   project_id?: string | null
 }
